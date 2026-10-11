@@ -105,25 +105,38 @@ internal static class PainelVotacaoRpc
 
     public static void Desenhar()
     {
-        if (!ativo || eventos.Length == 0) return;
-
-        const float largura = 330f;
-        float altura = 92f + eventos.Length * 43f;
+        // Diagnóstico temporário: o painel fica visível mesmo antes de a
+        // votação iniciar, para confirmar se o OnGUI está funcionando.
+        const float largura = 360f;
         float x = Screen.width - largura - 18f;
         float y = Mathf.Max(18f, Screen.height * 0.18f);
 
         GUI.depth = -100;
-        GUI.Box(new Rect(x, y, largura, altura), "");
-        GUI.Label(new Rect(x + 12, y + 8, largura - 24, 24),
-            "VOTAÇÃO DO YOUTUBE  |  Rodada #" + rodada);
+        GUI.Box(new Rect(x, y, largura, ativo && eventos.Length > 0
+            ? 104f + eventos.Length * 43f : 92f), "");
+
+        GUI.Label(new Rect(x + 12, y + 8, largura - 24, 22),
+            "YouTubeVoteBridge - PAINEL");
+        GUI.Label(new Rect(x + 12, y + 30, largura - 24, 22),
+            ativo
+                ? "Estado: votação ativa | Rodada #" + rodada
+                : "Estado: aguardando votação / leitor do YouTube");
+
+        if (!ativo || eventos.Length == 0)
+        {
+            GUI.Label(new Rect(x + 12, y + 54, largura - 24, 28),
+                "Se ficar assim, verifique /youtube status e o log.");
+            return;
+        }
+
         for (int i = 0; i < eventos.Length; i++)
         {
             int quantidade = i < votos.Length ? votos[i] : 0;
-            GUI.Label(new Rect(x + 12, y + 36 + i * 43, largura - 24, 40),
+            GUI.Label(new Rect(x + 12, y + 54 + i * 43, largura - 24, 40),
                 (i + 1) + ". " + eventos[i] + "\n   Votos: " + quantidade);
         }
-        GUI.Label(new Rect(x + 12, y + altura - 28, largura - 24, 22),
-            "Tempo restante: " + segundos + "s");
+        GUI.Label(new Rect(x + 12, y + 54 + eventos.Length * 43,
+            largura - 24, 22), "Tempo restante: " + segundos + "s");
     }
 }
 
