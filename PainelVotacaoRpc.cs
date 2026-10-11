@@ -10,10 +10,11 @@ namespace YouTubeVoteBridge;
 
 internal static class PainelVotacaoRpc
 {
-    // Estado local do painel. Por enquanto, a interface é exibida no host;
-    // sincronização seletiva com clientes modificados será adicionada depois.
     private const byte RpcPainelVotacao = 250;
     private static TextMeshPro textoPainel;
+    private static GameObject fundoPainel;
+    private static Sprite spriteFundo;
+    private static Texture2D texturaFundo;
     private static string[] eventos = Array.Empty<string>();
     private static int[] votos = new int[4];
     private static int rodada;
@@ -21,6 +22,11 @@ internal static class PainelVotacaoRpc
     private static bool ativo;
     private static float proximoEnvio;
     private static float proximaTentativaCriarTexto;
+
+    // Dimensões em unidades do mundo do HUD.
+    private const float LARGURA_PAINEL = 5.8f;
+    private const float ALTURA_FUNDO = 4.15f;
+    private static readonly Vector3 POSICAO_PAINEL = new(3.0f, 1.55f, 0f);
 
     public static void Inicializar()
     {
@@ -43,9 +49,6 @@ internal static class PainelVotacaoRpc
 
         if (Time.realtimeSinceStartup < proximoEnvio && rodadaAtiva) return;
         proximoEnvio = Time.realtimeSinceStartup + 1f;
-
-        // Não transmitir o RPC customizado a todos os jogadores ainda:
-        // clientes sem o mod não conhecem o identificador 250.
         AtualizarTexto();
     }
 
@@ -86,6 +89,32 @@ internal static class PainelVotacaoRpc
         textoPainel.text = sb.ToString();
     }
 
+    private static void CriarFundo(Transform pai)
+    {
+        // Um sprite branco de 1x1 é tingido de preto com alpha 0.62.
+        // Isso evita depender de um Canvas adicional dentro do HUD do jogo.
+        texturaFundo = new Texture2D(1, 1, TextureFormat.RGBA32, false);
+        texturaFundo.name = "YouTubeVoteBridge_FundoTexture";
+        texturaFundo.SetPixel(0, 0, Color.white);
+        texturaFundo.Apply();
+
+        spriteFundo = Sprite.Create(
+            texturaFundo, new Rect(0, 0, 1, 1), new Vector2(0.5f, 0.5f), 1f);
+        spriteFundo.name = "YouTubeVoteBridge_FundoSprite";
+
+        fundoPainel = new GameObject("YouTubeVoteBridge_VotePanelBackground");
+        fundoPainel.transform.SetParent(pai, false);
+        fundoPainel.transform.localPosition =
+            POSICAO_PAINEL + new Vector3(0.04f, -0.12f, 0.12f);
+        fundoPainel.transform.localScale =
+            new Vector3(LARGURA_PAINEL, ALTURA_FUNDO, 1f);
+
+        SpriteRenderer renderer = fundoPainel.AddComponent<SpriteRenderer>();
+        renderer.sprite = spriteFundo;
+        renderer.color = new Color(0f, 0f, 0f, 0.62f);
+        renderer.sortingOrder = -10;
+    }
+
     public static void GarantirInterface(HudManager hud)
     {
         if (!hud || !hud.KillButton || !hud.KillButton.cooldownTimerText)
@@ -98,6 +127,8 @@ internal static class PainelVotacaoRpc
 
             try
             {
+                CriarFundo(hud.transform);
+
                 textoPainel = UnityEngine.Object.Instantiate(
                     hud.KillButton.cooldownTimerText,
                     hud.transform,
@@ -107,8 +138,9 @@ internal static class PainelVotacaoRpc
                 textoPainel.gameObject.name = "YouTubeVoteBridge_VotePanel";
                 textoPainel.alignment = TextAlignmentOptions.TopLeft;
                 textoPainel.verticalAlignment = VerticalAlignmentOptions.Top;
-                textoPainel.transform.localPosition = new Vector3(3.0f, 2.25f, 0f);
+                textoPainel.transform.localPosition = POSICAO_PAINEL;
                 textoPainel.transform.localScale = Vector3.one;
+                textoPainel.rectTransform.sizeDelta = new Vector2(LARGURA_PAINEL, ALTURA_FUNDO);
                 textoPainel.fontSize = 1.25f;
                 textoPainel.fontSizeMin = 1.25f;
                 textoPainel.fontSizeMax = 1.25f;
@@ -117,9 +149,12 @@ internal static class PainelVotacaoRpc
                 textoPainel.color = Color.white;
                 textoPainel.enabled = true;
 
+                if (textoPainel.GetComponent<MeshRenderer>())
+                    textoPainel.GetComponent<MeshRenderer>().sortingOrder = 0;
+
                 AtualizarTexto();
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "Painel de votação criado na interface HudManager.");
+                    "Painel de votação criado com fundo semitransparente.");
             }
             catch (Exception ex)
             {
@@ -132,6 +167,19 @@ internal static class PainelVotacaoRpc
             if (textoPainel.transform.parent != hud.transform)
                 textoPainel.transform.SetParent(hud.transform, false);
 
+            if (fundoPainel && fundoPainel.transform.parent != hud.transform)
+                fundoPainel.transform.SetParent(hud.transform, false);
+
+            textoPainel.transform.localPosition = POSICAO_PAINEL;
+            textoPainel.rectTransform.sizeDelta = new Vector2(LARGURA_PAINEL, ALTURA_FUNDO);
+            if (fundoPainel)
+            {
+                fundoPainel.transform.localPosition =
+                    POSICAO_PAINEL + new Vector3(0.04f, -0.12f, 0.12f);
+                fundoPainel.transform.localScale =
+                    new Vector3(LARGURA_PAINEL, ALTURA_FUNDO, 1f);
+            }
+
             textoPainel.enabled = true;
             AtualizarTexto();
         }
@@ -139,7 +187,6 @@ internal static class PainelVotacaoRpc
 
     public static void Receber(string payload)
     {
-        // Reservado para a futura sincronização entre clientes modificados.
         try
         {
             string[] p = payload.Split('|');
@@ -170,7 +217,6 @@ internal static class PainelVotacaoHudPatch
         {
             if (AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost)
                 return;
-
             PainelVotacaoRpc.GarantirInterface(__instance);
         }
         catch (Exception ex)
@@ -189,7 +235,6 @@ internal static class PainelVotacaoRpcPatch
     public static bool Prefix(PlayerControl __instance, byte callId, MessageReader reader)
     {
         if (callId != RpcPainelVotacao) return true;
-
         try
         {
             PainelVotacaoRpc.Receber(reader.ReadString());
@@ -199,7 +244,6 @@ internal static class PainelVotacaoRpcPatch
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
                 "Erro ao receber RPC do painel: " + ex.Message);
         }
-
         return false;
     }
 }
