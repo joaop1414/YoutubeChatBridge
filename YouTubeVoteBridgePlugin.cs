@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
@@ -40,6 +41,28 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
     private static readonly Dictionary<int, float> AvisosPendentes = new();
     private static readonly HashSet<int> AvisosEnviados = new();
+    private sealed class VotoRecebido { public string Autor; public int Opcao; public VotoRecebido(string a, int o) { Autor = a; Opcao = o; } }
+    private sealed class Evento { public string Nome; public Evento(string n) { Nome = n; } }
+    private static readonly ConcurrentQueue<VotoRecebido> FilaVotos = new();
+    private static readonly Dictionary<string, int> Votos = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly List<Evento> Opcoes = new();
+    private static readonly Random Sorteador = new();
+    private static readonly List<Evento> Catalogo = new()
+    {
+        new Evento("Reportar corpo com aviso do YouTube"),
+        new Evento("Supervelocidade temporária"),
+        new Evento("Velocidade reduzida temporária"),
+        new Evento("Congelar um jogador temporariamente"),
+        new Evento("Trocar posição de dois jogadores"),
+        new Evento("Sabotagem aleatória"),
+        new Evento("Fechar as portas"),
+        new Evento("Trocar cores de jogadores"),
+        new Evento("Escudo temporário"),
+        new Evento("Criar corpo falso")
+    };
+    private static bool RodadaAtiva;
+    private static float FimRodada;
+    private static int NumeroRodada;
 
     private static CancellationTokenSource leitorToken;
     private static Task tarefaLeitor;
@@ -684,6 +707,9 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                         Instance.Log.LogInfo(
                             "[YouTube Chat] " + autor + ": " + mensagem
                         );
+                        if (VotacaoAtiva != null && VotacaoAtiva.Value &&
+                            Regex.IsMatch(mensagem.Trim(), @"^[1-4]$"))
+                            FilaVotos.Enqueue(new VotoRecebido(autor, int.Parse(mensagem.Trim())));
 
                         if (mensagensVistas.Count > 5000)
                             mensagensVistas.Clear();
@@ -741,6 +767,74 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             if (Instance != null)
                 Instance.Config.Save();
         }
+    }
+
+    // ========================================================
+    // MOTOR DE VOTAÇÃO
+    // ========================================================
+    private static void Anunciar(string texto)
+    {
+        if (PlayerControl.LocalPlayer != null && HudManager.InstanceExists &&
+            HudManager.Instance.Chat != null)
+            HudManager.Instance.Chat.AddChat(PlayerControl.LocalPlayer, PREFIXO + texto, false);
+    }
+
+    private static void EncerrarRodada()
+    {
+        RodadaAtiva = false;
+        Votos.Clear();
+        Opcoes.Clear();
+        while (FilaVotos.TryDequeue(out _)) { }
+    }
+
+    private static void IniciarRodada()
+    {
+        if (Catalogo.Count < 4) return;
+        EncerrarRodada();
+        Opcoes.AddRange(Catalogo.OrderBy(_ => Sorteador.Next()).Take(4));
+        NumeroRodada++;
+        FimRodada = Time.realtimeSinceStartup + Math.Max(5, TempoVotacao.Value);
+        RodadaAtiva = true;
+        Anunciar($"Rodada #{NumeroRodada}! Vote na live enviando 1, 2, 3 ou 4. Tempo: {TempoVotacao.Value}s.");
+        for (int i = 0; i < Opcoes.Count; i++) Anunciar($"{i + 1}: {Opcoes[i].Nome}");
+    }
+
+    public static void AtualizarVotacao()
+    {
+        if (!EhHost()) return;
+        if (VotacaoAtiva == null || !VotacaoAtiva.Value || !ChatEmLeitura)
+        {
+            if (RodadaAtiva) EncerrarRodada();
+            while (FilaVotos.TryDequeue(out _)) { }
+            return;
+        }
+
+        while (FilaVotos.TryDequeue(out VotoRecebido voto))
+        {
+            if (RodadaAtiva && !string.IsNullOrWhiteSpace(voto.Autor))
+                Votos[voto.Autor.Trim()] = voto.Opcao;
+        }
+
+        if (!RodadaAtiva) { IniciarRodada(); return; }
+        if (Time.realtimeSinceStartup < FimRodada) return;
+
+        RodadaAtiva = false;
+        int[] contagem = new int[4];
+        foreach (int voto in Votos.Values) if (voto >= 1 && voto <= 4) contagem[voto - 1]++;
+        Anunciar($"Fim da rodada #{NumeroRodada}. Votos válidos: {Votos.Count}.");
+        for (int i = 0; i < 4; i++) Anunciar($"Opção {i + 1}: {contagem[i]} voto(s).");
+
+        if (Votos.Count > 0)
+        {
+            int maior = contagem.Max();
+            List<int> empatadas = Enumerable.Range(1, 4).Where(n => contagem[n - 1] == maior).ToList();
+            int vencedora = empatadas[Sorteador.Next(empatadas.Count)];
+            Anunciar($"Vencedor: opção {vencedora} — {Opcoes[vencedora - 1].Nome}.");
+            Instance.Log.LogWarning("O evento vencedor ainda não tem efeito conectado: " + Opcoes[vencedora - 1].Nome);
+        }
+        else Anunciar("Ninguém votou nesta rodada.");
+        Votos.Clear();
+        Opcoes.Clear();
     }
 
     // ========================================================
@@ -831,9 +925,11 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             case "parar":
             case "off":
             case "desligar":
-                PararLeituraChat();
                 VotacaoAtiva.Value = false;
-                Responder(chat, "Solicitado encerramento da leitura do chat.");
+                EncerrarRodada();
+                PararLeituraChat();
+                Instance.Config.Save();
+                Responder(chat, "Leitura do YouTube e votações desativadas.");
                 return;
 
             case "iniciar":
@@ -848,8 +944,10 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                     return;
                 }
 
+                VotacaoAtiva.Value = true;
+                Instance.Config.Save();
                 IniciarLeituraChat();
-                Responder(chat, "Leitura solicitada. Confira o log do BepInEx.");
+                Responder(chat, "Leitura solicitada. A votação começará quando o chat conectar.");
                 return;
 
             case "tempo":
@@ -1079,6 +1177,7 @@ public static class YouTubeVoteUpdatePatch
     public static void Postfix()
     {
         YouTubeVoteBridgePlugin.AtualizarAvisos();
+        YouTubeVoteBridgePlugin.AtualizarVotacao();
     }
 }
 
