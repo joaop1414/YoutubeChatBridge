@@ -899,7 +899,14 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             );
             writer.Write(jogador.Data.NetId);
             writer.Write(nome);
+            writer.Write(false);
             AmongUsClient.Instance.FinishRpcImmediately(writer);
+
+            Instance.Log.LogInfo(
+                $"SetName local enviado: jogador={jogador.Data.PlayerName}, " +
+                $"PlayerId={jogador.PlayerId}, OwnerId={jogador.OwnerId}, " +
+                $"caracteres={nome.Length}."
+            );
         }
         catch (Exception ex)
         {
