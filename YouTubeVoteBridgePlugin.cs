@@ -1,0 +1,1142 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
+
+using BepInEx;
+using BepInEx.Configuration;
+using BepInEx.Unity.IL2CPP;
+
+using HarmonyLib;
+using Reactor;
+using UnityEngine;
+using Hazel;
+using InnerNet;
+
+namespace YouTubeVoteBridge;
+
+[BepInAutoPlugin]
+[BepInProcess("Among Us.exe")]
+[BepInDependency(ReactorPlugin.Id)]
+public partial class YouTubeVoteBridgePlugin : BasePlugin
+{
+    public static YouTubeVoteBridgePlugin Instance { get; private set; }
+
+    public Harmony Harmony { get; } = new(Id);
+
+    public static ConfigEntry<string> LiveId;
+    public static ConfigEntry<bool> LiveConectada;
+    public static ConfigEntry<bool> VotacaoAtiva;
+    public static ConfigEntry<int> TempoVotacao;
+
+    private const string PREFIXO = "[YouTubeVoteBridge] ";
+    private const string TITULO_SISTEMA =
+        "<color=blue>YouTubeVoteBridge</color>";
+
+    private static readonly Dictionary<int, float> AvisosPendentes = new();
+    private static readonly HashSet<int> AvisosEnviados = new();
+
+    private static CancellationTokenSource leitorToken;
+    private static Task tarefaLeitor;
+
+    private static readonly HttpClient ClienteHttp = CriarClienteHttp();
+
+    private static HttpClient CriarClienteHttp()
+    {
+        var cliente = new HttpClient();
+        cliente.Timeout = TimeSpan.FromSeconds(30);
+
+        cliente.DefaultRequestHeaders.UserAgent.ParseAdd(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+            "AppleWebKit/537.36 (KHTML, like Gecko) " +
+            "Chrome/130.0.0.0 Safari/537.36"
+        );
+
+        return cliente;
+    }
+
+    public static bool ChatEmLeitura =>
+        tarefaLeitor != null && !tarefaLeitor.IsCompleted;
+
+    public override void Load()
+    {
+        Instance = this;
+
+        LiveId = Config.Bind(
+            "YouTube", "LiveId", "",
+            "ID da live do YouTube."
+        );
+
+        LiveConectada = Config.Bind(
+            "YouTube", "LiveConectada", false,
+            "Indica se a leitura do chat está ativa."
+        );
+
+        VotacaoAtiva = Config.Bind(
+            "Votacao", "VotacaoAtiva", false,
+            "Indica se a votação está ativa."
+        );
+
+        TempoVotacao = Config.Bind(
+            "Votacao", "TempoVotacao", 40,
+            "Duração da votação em segundos."
+        );
+
+        Harmony.PatchAll();
+
+        Log.LogInfo("YouTubeVoteBridge carregado!");
+    }
+
+    public static bool EhHost()
+    {
+        return AmongUsClient.Instance != null &&
+               AmongUsClient.Instance.AmHost;
+    }
+
+    // ========================================================
+    // RESPOSTAS NO CHAT DO JOGO
+    // ========================================================
+
+    public static void Responder(ChatController chat, string mensagem)
+    {
+        if (chat == null || PlayerControl.LocalPlayer == null)
+            return;
+
+        chat.AddChat(PlayerControl.LocalPlayer, PREFIXO + mensagem, false);
+    }
+
+    // ========================================================
+    // MENSAGENS PRIVADAS
+    // ========================================================
+
+    public static void EnviarMensagemIndividual(
+        PlayerControl destinatario,
+        string mensagem)
+    {
+        if (destinatario == null ||
+            PlayerControl.LocalPlayer == null ||
+            AmongUsClient.Instance == null)
+            return;
+
+        PlayerControl host = PlayerControl.LocalPlayer;
+
+        if (!EhHost())
+        {
+            if (destinatario.AmOwner &&
+                HudManager.InstanceExists &&
+                HudManager.Instance.Chat != null)
+            {
+                HudManager.Instance.Chat.AddChat(
+                    host, TITULO_SISTEMA + "\n" + mensagem, false
+                );
+            }
+
+            return;
+        }
+
+        if (destinatario.AmOwner)
+        {
+            if (HudManager.InstanceExists &&
+                HudManager.Instance.Chat != null)
+            {
+                HudManager.Instance.Chat.AddChat(
+                    host, TITULO_SISTEMA + "\n" + mensagem, false
+                );
+            }
+
+            return;
+        }
+
+        int clientId = destinatario.OwnerId;
+        string nomeOriginal = host.Data.PlayerName;
+
+        try
+        {
+            EnviarRpcNome(host, clientId, TITULO_SISTEMA);
+            EnviarRpcChat(host, clientId, "\n");
+            EnviarRpcNome(host, clientId, nomeOriginal);
+
+            EnviarRpcNome(host, clientId, TITULO_SISTEMA);
+            EnviarRpcChat(host, clientId, mensagem);
+
+            EnviarRpcNome(host, clientId, nomeOriginal);
+        }
+        catch (Exception ex)
+        {
+            Instance.Log.LogError(
+                "Erro ao enviar mensagem individual: " + ex
+            );
+
+            try
+            {
+                EnviarRpcNome(host, clientId, nomeOriginal);
+            }
+            catch (Exception erroRestauracao)
+            {
+                Instance.Log.LogError(
+                    "Erro ao restaurar o nome: " + erroRestauracao
+                );
+            }
+        }
+    }
+
+    private static void EnviarRpcNome(
+        PlayerControl remetente,
+        int destinatarioClientId,
+        string nome)
+    {
+        MessageWriter writer =
+            AmongUsClient.Instance.StartRpcImmediately(
+                remetente.NetId,
+                (byte)RpcCalls.SetName,
+                SendOption.Reliable,
+                destinatarioClientId
+            );
+
+        writer.Write(remetente.Data.NetId);
+        writer.Write(nome);
+        AmongUsClient.Instance.FinishRpcImmediately(writer);
+    }
+
+    private static void EnviarRpcChat(
+        PlayerControl remetente,
+        int destinatarioClientId,
+        string mensagem)
+    {
+        MessageWriter writer =
+            AmongUsClient.Instance.StartRpcImmediately(
+                remetente.NetId,
+                (byte)RpcCalls.SendChat,
+                SendOption.Reliable,
+                destinatarioClientId
+            );
+
+        writer.Write(mensagem);
+        AmongUsClient.Instance.FinishRpcImmediately(writer);
+    }
+
+    // ========================================================
+    // EXTRAÇÃO DE JSON
+    // ========================================================
+
+    private static string ExtrairObjetoJson(string texto, int inicioBusca)
+    {
+        if (string.IsNullOrEmpty(texto) ||
+            inicioBusca < 0 ||
+            inicioBusca >= texto.Length)
+            return "";
+
+        int inicio = texto.IndexOf('{', inicioBusca);
+
+        if (inicio < 0)
+            return "";
+
+        int profundidade = 0;
+        bool dentroString = false;
+        bool escape = false;
+
+        for (int i = inicio; i < texto.Length; i++)
+        {
+            char c = texto[i];
+
+            if (dentroString)
+            {
+                if (escape)
+                    escape = false;
+                else if (c == '\\')
+                    escape = true;
+                else if (c == '"')
+                    dentroString = false;
+
+                continue;
+            }
+
+            if (c == '"')
+                dentroString = true;
+            else if (c == '{')
+                profundidade++;
+            else if (c == '}')
+            {
+                profundidade--;
+
+                if (profundidade == 0)
+                    return texto.Substring(inicio, i - inicio + 1);
+            }
+        }
+
+        return "";
+    }
+
+    private static string ExtrairConfiguracaoYouTube(string html)
+    {
+        const string marcador = "ytcfg.set(";
+
+        int posicao = html.IndexOf(
+            marcador,
+            StringComparison.Ordinal
+        );
+
+        while (posicao >= 0)
+        {
+            int inicio = posicao + marcador.Length;
+
+            while (inicio < html.Length &&
+                   char.IsWhiteSpace(html[inicio]))
+                inicio++;
+
+            if (inicio < html.Length && html[inicio] == '{')
+            {
+                string json = ExtrairObjetoJson(html, inicio);
+
+                if (!string.IsNullOrWhiteSpace(json))
+                {
+                    try
+                    {
+                        using JsonDocument doc = JsonDocument.Parse(json);
+
+                        if (doc.RootElement.ValueKind ==
+                                JsonValueKind.Object &&
+                            doc.RootElement.TryGetProperty(
+                                "INNERTUBE_API_KEY", out _))
+                        {
+                            return json;
+                        }
+                    }
+                    catch (JsonException)
+                    {
+                        // Tenta a próxima ocorrência.
+                    }
+                }
+            }
+
+            posicao = html.IndexOf(
+                marcador,
+                posicao + marcador.Length,
+                StringComparison.Ordinal
+            );
+        }
+
+        return "";
+    }
+
+    private static string LerString(JsonElement objeto, string nome)
+    {
+        if (objeto.ValueKind == JsonValueKind.Object &&
+            objeto.TryGetProperty(nome, out JsonElement valor) &&
+            valor.ValueKind == JsonValueKind.String)
+            return valor.GetString() ?? "";
+
+        return "";
+    }
+
+    private static JsonElement EncontrarPropriedade(
+        JsonElement elemento,
+        string nome)
+    {
+        if (elemento.ValueKind == JsonValueKind.Object)
+        {
+            if (elemento.TryGetProperty(nome, out JsonElement encontrado))
+                return encontrado;
+
+            foreach (JsonProperty propriedade in elemento.EnumerateObject())
+            {
+                JsonElement resultado = EncontrarPropriedade(
+                    propriedade.Value, nome
+                );
+
+                if (resultado.ValueKind != JsonValueKind.Undefined)
+                    return resultado;
+            }
+        }
+        else if (elemento.ValueKind == JsonValueKind.Array)
+        {
+            foreach (JsonElement filho in elemento.EnumerateArray())
+            {
+                JsonElement resultado = EncontrarPropriedade(filho, nome);
+
+                if (resultado.ValueKind != JsonValueKind.Undefined)
+                    return resultado;
+            }
+        }
+
+        return default;
+    }
+
+    private static string EncontrarContinuacao(JsonElement elemento)
+    {
+        JsonElement continuacoes = EncontrarPropriedade(
+            elemento, "continuations"
+        );
+
+        if (continuacoes.ValueKind != JsonValueKind.Array)
+            return "";
+
+        foreach (JsonElement continuacao in continuacoes.EnumerateArray())
+        {
+            foreach (string tipo in new[]
+            {
+                "invalidationContinuationData",
+                "timedContinuationData",
+                "reloadContinuationData"
+            })
+            {
+                if (continuacao.TryGetProperty(tipo, out JsonElement dados) &&
+                    dados.TryGetProperty(
+                        "continuation", out JsonElement token) &&
+                    token.ValueKind == JsonValueKind.String)
+                    return token.GetString() ?? "";
+            }
+        }
+
+        return "";
+    }
+
+    private static JsonElement EncontrarItemMensagem(JsonElement acao)
+    {
+        foreach (string nome in new[]
+        {
+            "liveChatTextMessageRenderer",
+            "liveChatPaidMessageRenderer",
+            "liveChatMembershipItemRenderer",
+            "liveChatPaidStickerRenderer"
+        })
+        {
+            JsonElement renderer = EncontrarPropriedade(acao, nome);
+
+            if (renderer.ValueKind == JsonValueKind.Object)
+                return renderer;
+        }
+
+        return default;
+    }
+
+    private static string ObterTexto(JsonElement elemento, string nome)
+    {
+        JsonElement valor = EncontrarPropriedade(elemento, nome);
+
+        if (valor.ValueKind == JsonValueKind.String)
+            return valor.GetString() ?? "";
+
+        if (valor.ValueKind != JsonValueKind.Object)
+            return "";
+
+        if (valor.TryGetProperty("simpleText", out JsonElement simples) &&
+            simples.ValueKind == JsonValueKind.String)
+            return simples.GetString() ?? "";
+
+        if (valor.TryGetProperty("runs", out JsonElement runs) &&
+            runs.ValueKind == JsonValueKind.Array)
+        {
+            var texto = new StringBuilder();
+
+            foreach (JsonElement run in runs.EnumerateArray())
+            {
+                if (run.TryGetProperty("text", out JsonElement parte) &&
+                    parte.ValueKind == JsonValueKind.String)
+                {
+                    texto.Append(parte.GetString());
+                    continue;
+                }
+
+                if (run.TryGetProperty("emoji", out JsonElement emoji))
+                {
+                    string atalho = LerString(emoji, "shortcuts");
+
+                    if (string.IsNullOrWhiteSpace(atalho))
+                        atalho = LerString(emoji, "searchTerms");
+
+                    if (!string.IsNullOrWhiteSpace(atalho))
+                        texto.Append(atalho);
+                }
+            }
+
+            return texto.ToString();
+        }
+
+        return "";
+    }
+
+    // ========================================================
+    // LEITOR HTTP DO YOUTUBE
+    // ========================================================
+
+    public static void IniciarLeituraChat()
+    {
+        if (!EhHost())
+        {
+            Instance.Log.LogWarning(
+                "Somente o host pode iniciar o leitor do YouTube."
+            );
+            return;
+        }
+
+        if (ChatEmLeitura)
+        {
+            Instance.Log.LogInfo("O leitor já está funcionando.");
+            return;
+        }
+
+        string id = LiveId.Value?.Trim() ?? "";
+
+        if (!Regex.IsMatch(id, @"^[A-Za-z0-9_-]{11}$"))
+        {
+            Instance.Log.LogError("ID da live inválido.");
+            return;
+        }
+
+        leitorToken?.Dispose();
+        leitorToken = new CancellationTokenSource();
+
+        CancellationToken token = leitorToken.Token;
+
+        LiveConectada.Value = true;
+        Instance.Config.Save();
+
+        tarefaLeitor = Task.Run(() => LerChatAsync(id, token), token);
+
+        Instance.Log.LogInfo("Iniciando leitor HTTP. ID: " + id);
+    }
+
+    public static void PararLeituraChat()
+    {
+        LiveConectada.Value = false;
+        leitorToken?.Cancel();
+        Instance.Config.Save();
+
+        Instance.Log.LogInfo(
+            "Solicitado encerramento da leitura do YouTube."
+        );
+    }
+
+    private static async Task LerChatAsync(
+        string liveId,
+        CancellationToken token)
+    {
+        try
+        {
+            Instance.Log.LogInfo("Conectando ao YouTube por HTTP...");
+
+            string urlLive =
+                "https://www.youtube.com/watch?v=" +
+                Uri.EscapeDataString(liveId);
+
+            using HttpResponseMessage respostaPagina =
+                await ClienteHttp.GetAsync(urlLive, token);
+
+            respostaPagina.EnsureSuccessStatusCode();
+
+            string html = await respostaPagina.Content.ReadAsStringAsync();
+
+            string jsonConfig = ExtrairConfiguracaoYouTube(html);
+
+            if (string.IsNullOrWhiteSpace(jsonConfig))
+            {
+                Instance.Log.LogError(
+                    "Não foi possível encontrar a configuração JSON do YouTube. " +
+                    "A página pode exigir consentimento, login ou ter mudado."
+                );
+                return;
+            }
+
+            using JsonDocument configDoc = JsonDocument.Parse(jsonConfig);
+            JsonElement config = configDoc.RootElement;
+
+            string apiKey = LerString(config, "INNERTUBE_API_KEY");
+            JsonElement contexto = default;
+
+            if (config.TryGetProperty(
+                "INNERTUBE_CONTEXT",
+                out JsonElement contextoEncontrado))
+                contexto = contextoEncontrado.Clone();
+
+            if (string.IsNullOrWhiteSpace(apiKey) ||
+                contexto.ValueKind != JsonValueKind.Object)
+            {
+                Instance.Log.LogError(
+                    "A configuração não contém a chave ou o contexto."
+                );
+                return;
+            }
+
+            string continuacao = "";
+            int posDados = html.IndexOf(
+                "ytInitialData",
+                StringComparison.Ordinal
+            );
+
+            if (posDados >= 0)
+            {
+                string jsonDados = ExtrairObjetoJson(html, posDados);
+
+                if (!string.IsNullOrWhiteSpace(jsonDados))
+                {
+                    using JsonDocument dadosDoc =
+                        JsonDocument.Parse(jsonDados);
+
+                    JsonElement renderer = EncontrarPropriedade(
+                        dadosDoc.RootElement, "liveChatRenderer"
+                    );
+
+                    if (renderer.ValueKind != JsonValueKind.Undefined)
+                        continuacao = EncontrarContinuacao(renderer);
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(continuacao))
+            {
+                Match matchContinuacao = Regex.Match(
+                    html,
+                    @"""continuation"":\s*""([^""]+)""",
+                    RegexOptions.Singleline
+                );
+
+                if (matchContinuacao.Success)
+                    continuacao = matchContinuacao.Groups[1].Value;
+            }
+
+            if (string.IsNullOrWhiteSpace(continuacao))
+            {
+                throw new Exception(
+                    "Não encontrei o token de continuação do chat. " +
+                    "Confirme se a transmissão está ao vivo e tem chat habilitado."
+                );
+            }
+
+            string endpoint =
+                "https://www.youtube.com/youtubei/v1/live_chat/get_live_chat" +
+                "?key=" + Uri.EscapeDataString(apiKey) +
+                "&prettyPrint=false";
+
+            Instance.Log.LogInfo(
+                "Conexão HTTP preparada. Aguardando mensagens..."
+            );
+
+            var mensagensVistas = new HashSet<string>();
+
+            while (!token.IsCancellationRequested)
+            {
+                var payload = new
+                {
+                    context = contexto,
+                    continuation = continuacao
+                };
+
+                string json = JsonSerializer.Serialize(payload);
+
+                using var conteudo = new StringContent(
+                    json, Encoding.UTF8, "application/json"
+                );
+
+                using HttpResponseMessage resposta =
+                    await ClienteHttp.PostAsync(endpoint, conteudo, token);
+
+                resposta.EnsureSuccessStatusCode();
+
+                string corpo = await resposta.Content.ReadAsStringAsync();
+
+                using JsonDocument documento = JsonDocument.Parse(corpo);
+
+                JsonElement continuacaoChat = EncontrarPropriedade(
+                    documento.RootElement, "liveChatContinuation"
+                );
+
+                if (continuacaoChat.ValueKind == JsonValueKind.Undefined)
+                {
+                    throw new Exception(
+                        "O YouTube não retornou liveChatContinuation. Resposta: " +
+                        corpo.Substring(0, Math.Min(corpo.Length, 500))
+                    );
+                }
+
+                if (continuacaoChat.TryGetProperty(
+                    "actions", out JsonElement actions) &&
+                    actions.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (JsonElement acao in actions.EnumerateArray())
+                    {
+                        if (token.IsCancellationRequested)
+                            break;
+
+                        JsonElement item = EncontrarItemMensagem(acao);
+
+                        if (item.ValueKind == JsonValueKind.Undefined)
+                            continue;
+
+                        string autor = ObterTexto(item, "authorName");
+                        string mensagem = ObterTexto(item, "message");
+
+                        if (string.IsNullOrWhiteSpace(mensagem))
+                            continue;
+
+                        if (string.IsNullOrWhiteSpace(autor))
+                            autor = "Desconhecido";
+
+                        string chave = autor + "\n" + mensagem;
+
+                        if (!mensagensVistas.Add(chave))
+                            continue;
+
+                        Instance.Log.LogInfo(
+                            "[YouTube Chat] " + autor + ": " + mensagem
+                        );
+
+                        if (mensagensVistas.Count > 5000)
+                            mensagensVistas.Clear();
+                    }
+                }
+
+                continuacao = EncontrarContinuacao(continuacaoChat);
+
+                if (string.IsNullOrWhiteSpace(continuacao))
+                {
+                    throw new Exception(
+                        "O YouTube não forneceu um novo token de continuação."
+                    );
+                }
+
+                int esperaMs = 1000;
+
+                if (continuacaoChat.TryGetProperty(
+                    "continuations", out JsonElement continuacoes) &&
+                    continuacoes.ValueKind == JsonValueKind.Array &&
+                    continuacoes.GetArrayLength() > 0)
+                {
+                    JsonElement primeira = continuacoes[0];
+                    JsonElement espera = EncontrarPropriedade(
+                        primeira, "timeoutMs"
+                    );
+
+                    if (espera.ValueKind == JsonValueKind.Number &&
+                        espera.TryGetInt32(out int valorEspera))
+                    {
+                        esperaMs = Math.Clamp(valorEspera, 1000, 15000);
+                    }
+                }
+
+                await Task.Delay(esperaMs, token);
+            }
+
+            Instance.Log.LogInfo("Leitura HTTP do chat encerrada.");
+        }
+        catch (OperationCanceledException)
+        {
+            if (Instance != null)
+                Instance.Log.LogInfo("Leitura do chat cancelada.");
+        }
+        catch (Exception ex)
+        {
+            if (Instance != null)
+                Instance.Log.LogError("Erro no leitor HTTP do YouTube: " + ex);
+        }
+        finally
+        {
+            if (LiveConectada != null)
+                LiveConectada.Value = false;
+
+            if (Instance != null)
+                Instance.Config.Save();
+        }
+    }
+
+    // ========================================================
+    // ÁREA DE TRANSFERÊNCIA
+    // ========================================================
+
+    public static string LerAreaDeTransferencia()
+    {
+        try
+        {
+            return GUIUtility.systemCopyBuffer ?? "";
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
+    public static string ExtrairLiveId(string entrada)
+    {
+        if (string.IsNullOrWhiteSpace(entrada))
+            return "";
+
+        string texto = entrada.Trim();
+
+        Match match = Regex.Match(
+            texto,
+            @"(?:youtube\.com/(?:watch\?(?:.*?&)?v=|live/|embed/|shorts/)|youtu\.be/)([A-Za-z0-9_-]{11})",
+            RegexOptions.IgnoreCase
+        );
+
+        if (match.Success)
+            return match.Groups[1].Value;
+
+        if (Regex.IsMatch(texto, @"^[A-Za-z0-9_-]{11}$"))
+            return texto;
+
+        return "";
+    }
+
+    // ========================================================
+    // COMANDOS
+    // ========================================================
+
+    public static void ProcessarComando(
+        ChatController chat,
+        string comando)
+    {
+        if (chat == null)
+            return;
+
+        if (!EhHost())
+        {
+            EnviarMensagemIndividual(
+                PlayerControl.LocalPlayer,
+                "<color=red>Você não tem permissão para usar esse comando</color>"
+            );
+            return;
+        }
+
+        string argumentos = comando.Length > "/youtube".Length
+            ? comando.Substring("/youtube".Length).Trim()
+            : "";
+
+        if (argumentos.Length == 0 ||
+            argumentos.Equals("ajuda", StringComparison.OrdinalIgnoreCase))
+        {
+            Responder(
+                chat,
+                "Comandos: /youtube status | iniciar | parar | tempo 40 | colar | ID ou URL"
+            );
+            return;
+        }
+
+        string[] partes = argumentos.Split(
+            new[] { ' ' }, 2, StringSplitOptions.RemoveEmptyEntries
+        );
+
+        string acao = partes[0].ToLowerInvariant();
+
+        switch (acao)
+        {
+            case "status":
+            case "info":
+                MostrarStatus(chat);
+                return;
+
+            case "parar":
+            case "off":
+            case "desligar":
+                PararLeituraChat();
+                VotacaoAtiva.Value = false;
+                Responder(chat, "Solicitado encerramento da leitura do chat.");
+                return;
+
+            case "iniciar":
+            case "on":
+            case "ligar":
+                if (string.IsNullOrWhiteSpace(LiveId.Value))
+                {
+                    Responder(
+                        chat,
+                        "Defina primeiro o ID: /youtube ID ou /youtube colar."
+                    );
+                    return;
+                }
+
+                IniciarLeituraChat();
+                Responder(chat, "Leitura solicitada. Confira o log do BepInEx.");
+                return;
+
+            case "tempo":
+                if (partes.Length < 2 ||
+                    !int.TryParse(partes[1], out int segundos))
+                {
+                    Responder(chat, "Use: /youtube tempo 40");
+                    return;
+                }
+
+                if (segundos < 5 || segundos > 600)
+                {
+                    Responder(chat, "O tempo deve estar entre 5 e 600 segundos.");
+                    return;
+                }
+
+                TempoVotacao.Value = segundos;
+                Instance.Config.Save();
+
+                Responder(
+                    chat,
+                    "Duração da votação definida para " +
+                    segundos + " segundos."
+                );
+                return;
+
+            case "colar":
+            case "clipboard":
+            case "area":
+                string copiado = LerAreaDeTransferencia();
+                string idColado = ExtrairLiveId(copiado);
+
+                if (idColado.Length == 0)
+                {
+                    Responder(
+                        chat,
+                        "Não encontrei um ID válido de live na área de transferência."
+                    );
+                    return;
+                }
+
+                LiveId.Value = idColado;
+                LiveConectada.Value = false;
+                Instance.Config.Save();
+
+                Responder(chat, "ID da live definido: " + idColado);
+                return;
+        }
+
+        string id = ExtrairLiveId(argumentos);
+
+        if (id.Length > 0)
+        {
+            PararLeituraChat();
+            LiveId.Value = id;
+            LiveConectada.Value = false;
+            Instance.Config.Save();
+
+            Responder(
+                chat,
+                "ID da live definido: " + id +
+                ". Use /youtube iniciar para ler o chat."
+            );
+            return;
+        }
+
+        Responder(chat, "Comando desconhecido. Use /youtube ajuda.");
+    }
+
+    public static void MostrarStatus(ChatController chat)
+    {
+        if (chat == null)
+            return;
+
+        string id = string.IsNullOrWhiteSpace(LiveId.Value)
+            ? "não definido"
+            : LiveId.Value;
+
+        Responder(
+            chat,
+            "ID da live: " + id +
+            " | Leitor funcionando: " + (ChatEmLeitura ? "sim" : "não") +
+            " | Votação ativa: " + (VotacaoAtiva.Value ? "sim" : "não") +
+            " | Tempo: " + TempoVotacao.Value + " segundos."
+        );
+    }
+
+    // ========================================================
+    // AVISOS DE ENTRADA
+    // ========================================================
+
+    public static void RegistrarEntrada(int clientId)
+    {
+        if (!EhHost())
+            return;
+
+        AvisosPendentes[clientId] = Time.realtimeSinceStartup + 1f;
+        AvisosEnviados.Remove(clientId);
+    }
+
+    public static void AtualizarAvisos()
+    {
+        if (!EhHost() || AvisosPendentes.Count == 0)
+            return;
+
+        float agora = Time.realtimeSinceStartup;
+        List<int> prontos = new();
+
+        foreach (KeyValuePair<int, float> item in AvisosPendentes)
+        {
+            if (agora >= item.Value)
+                prontos.Add(item.Key);
+        }
+
+        foreach (int clientId in prontos)
+        {
+            AvisosPendentes.Remove(clientId);
+
+            if (AvisosEnviados.Contains(clientId))
+                continue;
+
+            PlayerControl jogador = null;
+
+            foreach (PlayerControl player in PlayerControl.AllPlayerControls)
+            {
+                if (player != null && player.OwnerId == clientId)
+                {
+                    jogador = player;
+                    break;
+                }
+            }
+
+            if (jogador == null || jogador.Data == null)
+                continue;
+
+            string nome = jogador.Data.PlayerName;
+
+            string aviso =
+                $"Olá {nome}, já vamos avisando que esta partida é modificada. " +
+                "Aqui teremos uma votação do chat de uma live no YouTube, " +
+                "e eles poderão interagir com a partida de acordo com os eventos.";
+
+            EnviarMensagemIndividual(jogador, aviso);
+            AvisosEnviados.Add(clientId);
+        }
+    }
+}
+
+
+// ============================================================
+// INTERCEPTAÇÃO DO COMANDO /youtube
+// ============================================================
+
+[HarmonyPatch(typeof(ChatController), nameof(ChatController.AddChat))]
+public static class YouTubeVoteChatPatch
+{
+    public static bool Prefix(
+        ChatController __instance,
+        PlayerControl sourcePlayer,
+        string chatText,
+        bool censor)
+    {
+        if (sourcePlayer == null ||
+            string.IsNullOrWhiteSpace(chatText))
+            return true;
+
+        string mensagem = chatText.Trim();
+
+        if (!mensagem.StartsWith("/youtube", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (sourcePlayer == PlayerControl.LocalPlayer)
+        {
+            if (!YouTubeVoteBridgePlugin.EhHost())
+            {
+                YouTubeVoteBridgePlugin.EnviarMensagemIndividual(
+                    sourcePlayer,
+                    "<color=red>Você não tem permissão para usar esse comando</color>"
+                );
+                return false;
+            }
+
+            YouTubeVoteBridgePlugin.ProcessarComando(__instance, mensagem);
+            return false;
+        }
+
+        if (YouTubeVoteBridgePlugin.EhHost())
+        {
+            YouTubeVoteBridgePlugin.EnviarMensagemIndividual(
+                sourcePlayer,
+                "<color=red>Você não tem permissão para usar esse comando</color>"
+            );
+            return false;
+        }
+
+        return true;
+    }
+}
+
+
+// ============================================================
+// AVISO PRIVADO QUANDO UM JOGADOR ENTRA
+// ============================================================
+
+[HarmonyPatch(typeof(AmongUsClient), nameof(AmongUsClient.OnPlayerJoined))]
+public static class YouTubeVotePlayerJoinedPatch
+{
+    public static void Postfix([HarmonyArgument(0)] ClientData client)
+    {
+        if (client == null ||
+            AmongUsClient.Instance == null ||
+            !AmongUsClient.Instance.AmHost)
+            return;
+
+        YouTubeVoteBridgePlugin.RegistrarEntrada(client.Id);
+    }
+}
+
+
+// ============================================================
+// ATUALIZAÇÃO DOS AVISOS
+// ============================================================
+
+[HarmonyPatch(typeof(AmongUsClient), nameof(AmongUsClient.Update))]
+public static class YouTubeVoteUpdatePatch
+{
+    public static void Postfix()
+    {
+        YouTubeVoteBridgePlugin.AtualizarAvisos();
+    }
+}
+
+
+// ============================================================
+// SUPORTE A CTRL+V
+// ============================================================
+
+[HarmonyPatch(typeof(TextBoxTMP), nameof(TextBoxTMP.Update))]
+public static class YouTubeVotePastePatch
+{
+    private const int LIMITE_CARACTERES = 100;
+
+    public static int UltimoFrameColagem = -1;
+
+    public static void Prefix(TextBoxTMP __instance)
+    {
+        if (!__instance.hasFocus)
+            return;
+
+        bool ctrlPressionado =
+            Input.GetKey(KeyCode.LeftControl) ||
+            Input.GetKey(KeyCode.RightControl);
+
+        if (!ctrlPressionado || !Input.GetKeyDown(KeyCode.V))
+            return;
+
+        string clipboard = GUIUtility.systemCopyBuffer ?? "";
+
+        if (string.IsNullOrEmpty(clipboard))
+            return;
+
+        try
+        {
+            string textoAtual = __instance.text ?? "";
+
+            int espacoDisponivel = LIMITE_CARACTERES - textoAtual.Length;
+
+            if (espacoDisponivel <= 0)
+            {
+                UltimoFrameColagem = Time.frameCount;
+                return;
+            }
+
+            if (clipboard.Length > espacoDisponivel)
+                clipboard = clipboard.Substring(0, espacoDisponivel);
+
+            __instance.SetText(textoAtual + clipboard);
+            UltimoFrameColagem = Time.frameCount;
+        }
+        catch (Exception ex)
+        {
+            if (YouTubeVoteBridgePlugin.Instance != null)
+            {
+                YouTubeVoteBridgePlugin.Instance.Log.LogError(
+                    "Erro ao colar texto: " + ex
+                );
+            }
+        }
+    }
+}

@@ -1,0 +1,12 @@
+C:\Users\hsish\YouTubeVoteBridge\YouTubeVoteBridge\obj\Release\net6.0\YouTubeVoteBridge.csproj.AssemblyReference.cache
+C:\Users\hsish\YouTubeVoteBridge\YouTubeVoteBridge\obj\Release\net6.0\YouTubeVoteBridge.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\hsish\YouTubeVoteBridge\YouTubeVoteBridge\obj\Release\net6.0\YouTubeVoteBridge.AssemblyInfoInputs.cache
+C:\Users\hsish\YouTubeVoteBridge\YouTubeVoteBridge\obj\Release\net6.0\YouTubeVoteBridge.AssemblyInfo.cs
+C:\Users\hsish\YouTubeVoteBridge\YouTubeVoteBridge\obj\Release\net6.0\YouTubeVoteBridge.csproj.CoreCompileInputs.cache
+C:\Users\hsish\YouTubeVoteBridge\YouTubeVoteBridge\bin\Release\net6.0\YouTubeVoteBridge.deps.json
+C:\Users\hsish\YouTubeVoteBridge\YouTubeVoteBridge\bin\Release\net6.0\YouTubeVoteBridge.dll
+C:\Users\hsish\YouTubeVoteBridge\YouTubeVoteBridge\bin\Release\net6.0\Reactor.dll
+C:\Users\hsish\YouTubeVoteBridge\YouTubeVoteBridge\obj\Release\net6.0\YouTubeV.550191DD.Up2Date
+C:\Users\hsish\YouTubeVoteBridge\YouTubeVoteBridge\obj\Release\net6.0\YouTubeVoteBridge.dll
+C:\Users\hsish\YouTubeVoteBridge\YouTubeVoteBridge\obj\Release\net6.0\refint\YouTubeVoteBridge.dll
+C:\Users\hsish\YouTubeVoteBridge\YouTubeVoteBridge\obj\Release\net6.0\ref\YouTubeVoteBridge.dll
