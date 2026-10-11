@@ -26,7 +26,7 @@ internal static class PainelVotacaoRpc
     // Dimensões em unidades do mundo do HUD.
     private const float LARGURA_PAINEL = 5.8f;
     private const float ALTURA_FUNDO = 4.15f;
-    private static readonly Vector3 POSICAO_PAINEL = new(3.0f, 1.55f, 0f);
+    private static readonly Vector3 POSICAO_PAINEL = new(3.0f, 0.0f, 0f);
 
     public static void Inicializar()
     {
