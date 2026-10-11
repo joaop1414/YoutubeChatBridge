@@ -65,6 +65,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     private static int NumeroRodada;
 
     private static float ProximaAtualizacaoPainel;
+    private static float ProximoLogDiagnostico;
     private static int UltimoTotalVotos = -1;
     private static readonly Dictionary<byte, string> NomesOriginaisPainel = new();
     private static readonly Dictionary<byte, float> JogadoresCongelados = new();
@@ -877,19 +878,46 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     // Segue o padrão de RPC SetName direcionado usado pelo EHR.
     private static void DefinirNomeLocal(PlayerControl jogador, string nome)
     {
-        if (jogador == null || jogador.Data == null || AmongUsClient.Instance == null)
+        if (jogador == null)
+        {
+            Instance?.Log.LogWarning("DIAG Painel: DefinirNomeLocal recebeu jogador nulo.");
             return;
+        }
+
+        if (jogador.Data == null)
+        {
+            Instance?.Log.LogWarning($"DIAG Painel: jogador.Data nulo (PlayerId={jogador.PlayerId}).");
+            return;
+        }
+
+        if (AmongUsClient.Instance == null)
+        {
+            Instance?.Log.LogWarning("DIAG Painel: AmongUsClient.Instance nulo.");
+            return;
+        }
 
         try
         {
             if (jogador.AmOwner)
             {
+                Instance.Log.LogInfo($"DIAG Painel: jogador local; SetName direto (PlayerId={jogador.PlayerId}).");
                 jogador.SetName(nome);
                 return;
             }
 
-            if (!EhHost() || jogador.OwnerId < 0)
+            if (!EhHost())
+            {
+                Instance.Log.LogWarning($"DIAG Painel: sem host; ignorando PlayerId={jogador.PlayerId}.");
                 return;
+            }
+
+            if (jogador.OwnerId < 0)
+            {
+                Instance.Log.LogWarning($"DIAG Painel: OwnerId inválido ({jogador.OwnerId}) para PlayerId={jogador.PlayerId}.");
+                return;
+            }
+
+            Instance.Log.LogInfo($"DIAG Painel: preparando RPC SetName (PlayerId={jogador.PlayerId}, OwnerId={jogador.OwnerId}, chars={nome.Length}).");
 
             MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
                 jogador.NetId,
@@ -931,10 +959,21 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
     private static void AtualizarPainelVotacao()
     {
-        if (!RodadaAtiva || Time.realtimeSinceStartup < ProximaAtualizacaoPainel)
+        if (!RodadaAtiva)
+        {
+            if (Time.realtimeSinceStartup >= ProximoLogDiagnostico)
+            {
+                ProximoLogDiagnostico = Time.realtimeSinceStartup + 10f;
+                Instance?.Log.LogInfo("DIAG Painel: AtualizarPainelVotacao foi chamado, mas RodadaAtiva=false.");
+            }
+            return;
+        }
+
+        if (Time.realtimeSinceStartup < ProximaAtualizacaoPainel)
             return;
 
         ProximaAtualizacaoPainel = Time.realtimeSinceStartup + 5f;
+        Instance?.Log.LogInfo($"DIAG Painel: atualização iniciada; jogadores={PlayerControl.AllPlayerControls.Count}, opções={Opcoes.Count}, votos={Votos.Count}.");
         int[] contagem = ContarVotos();
         float restante = Math.Max(0f, FimRodada - Time.realtimeSinceStartup);
 
@@ -980,10 +1019,30 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
     public static void AtualizarVotacao()
     {
-        if (!EhHost()) return;
+        if (!EhHost())
+        {
+            if (Time.realtimeSinceStartup >= ProximoLogDiagnostico)
+            {
+                ProximoLogDiagnostico = Time.realtimeSinceStartup + 10f;
+                Instance?.Log.LogInfo("DIAG Votação: AtualizarVotacao chamado, mas este cliente não é o host.");
+            }
+            return;
+        }
+
+        if (Time.realtimeSinceStartup >= ProximoLogDiagnostico)
+        {
+            ProximoLogDiagnostico = Time.realtimeSinceStartup + 10f;
+            Instance?.Log.LogInfo(
+                $"DIAG Votação: Update ativo; votação={(VotacaoAtiva != null && VotacaoAtiva.Value)}, " +
+                $"leitor={ChatEmLeitura}, rodada={RodadaAtiva}, host={EhHost()}."
+            );
+        }
+
         AtualizarCongelamentos();
         if (VotacaoAtiva == null || !VotacaoAtiva.Value || !ChatEmLeitura)
         {
+            if (Time.realtimeSinceStartup >= ProximaAtualizacaoPainel)
+                Instance?.Log.LogInfo($"DIAG Votação: não inicia rodada; VotacaoAtiva={(VotacaoAtiva != null && VotacaoAtiva.Value)}, ChatEmLeitura={ChatEmLeitura}.");
             if (RodadaAtiva) EncerrarRodada();
             while (FilaVotos.TryDequeue(out _)) { }
             return;
