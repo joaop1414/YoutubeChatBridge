@@ -22,9 +22,27 @@ namespace YouTubeVoteBridge
 
                 menuAtual = __instance;
 
-                // Não duplica os controles quando o menu é reaberto/reinicializado.
-                if (__instance.Children.Any(x => x != null && x.name != null && x.name.StartsWith(PREFIX)))
+                // Recupera os controles existentes se o jogo recriou a lista Children.
+                var existentes = __instance.GetComponentsInChildren<StringOption>(true)
+                    .Where(x => x != null && x.name != null && x.name.StartsWith(PREFIX))
+                    .ToArray();
+
+                if (existentes.Length > 0)
                 {
+                    foreach (var existente in existentes)
+                    {
+                        bool jaNaLista = false;
+                        foreach (var filho in __instance.Children)
+                        {
+                            if (filho == existente)
+                            {
+                                jaNaLista = true;
+                                break;
+                            }
+                        }
+                        if (!jaNaLista)
+                            __instance.Children.Add(existente);
+                    }
                     AtualizarControles(__instance);
                     return;
                 }
