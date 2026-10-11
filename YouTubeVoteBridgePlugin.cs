@@ -1085,22 +1085,26 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             return "";
 
         string texto = entrada.Trim();
+        texto = texto.Trim('\"', '\'', '<', '>', '(', ')', '[', ']').Trim();
+        texto = texto.Replace("\u200B", "").Replace("\u200C", "")
+            .Replace("\u200D", "").Replace("\uFEFF", "").Trim();
 
         Match match = Regex.Match(
             texto,
             @"(?:youtube\.com/(?:watch\?(?:.*?&)?v=|live/|embed/|shorts/)|youtu\.be/)([A-Za-z0-9_-]{11})",
             RegexOptions.IgnoreCase
         );
-
         if (match.Success)
             return match.Groups[1].Value;
 
+        // Um ID puro do YouTube tem 11 caracteres válidos.
         if (Regex.IsMatch(texto, @"^[A-Za-z0-9_-]{11}$"))
             return texto;
 
-        return "";
+        // Também tolera texto/URL copiados junto com o ID.
+        Match idIsolado = Regex.Match(texto, @"(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{11}(?![A-Za-z0-9_-])");
+        return idIsolado.Success ? idIsolado.Value : "";
     }
-
     // ========================================================
     // COMANDOS
     // ========================================================
@@ -1165,10 +1169,13 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                     return;
                 }
 
-                string liveId = ExtrairLiveId(partes[1]);
+                string argumentoLive = argumentos.Length > "live".Length
+                    ? argumentos.Substring("live".Length).Trim()
+                    : "";
+                string liveId = ExtrairLiveId(argumentoLive);
                 if (liveId.Length == 0)
                 {
-                    Responder(chat, "ID/URL inválido. Use o ID de 11 caracteres ou a URL da live.");
+                    Responder(chat, "Não consegui identificar o ID. Envie os 11 caracteres do ID ou a URL completa: /youtube live <id>.");
                     return;
                 }
 
