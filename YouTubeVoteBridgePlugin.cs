@@ -18,6 +18,7 @@ using Reactor;
 using UnityEngine;
 using Hazel;
 using InnerNet;
+using Il2CppInterop.Runtime.Injection;
 
 namespace YouTubeVoteBridge;
 
@@ -119,6 +120,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         );
 
         Harmony.PatchAll();
+        PainelVotacaoRpc.Inicializar();
 
         Log.LogInfo("YouTubeVoteBridge carregado!");
     }
@@ -959,45 +961,24 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
     private static void AtualizarPainelVotacao()
     {
-        if (!RodadaAtiva)
-        {
-            if (Time.realtimeSinceStartup >= ProximoLogDiagnostico)
-            {
-                ProximoLogDiagnostico = Time.realtimeSinceStartup + 10f;
-                Instance?.Log.LogInfo("DIAG Painel: AtualizarPainelVotacao foi chamado, mas RodadaAtiva=false.");
-            }
-            return;
-        }
+        if (!RodadaAtiva) return;
+        if (Time.realtimeSinceStartup < ProximaAtualizacaoPainel) return;
 
-        if (Time.realtimeSinceStartup < ProximaAtualizacaoPainel)
-            return;
-
-        ProximaAtualizacaoPainel = Time.realtimeSinceStartup + 5f;
-        Instance?.Log.LogInfo($"DIAG Painel: atualização iniciada; jogadores={PlayerControl.AllPlayerControls.Count}, opções={Opcoes.Count}, votos={Votos.Count}.");
-        int[] contagem = ContarVotos();
-        float restante = Math.Max(0f, FimRodada - Time.realtimeSinceStartup);
-
-        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
-        {
-            if (jogador == null || jogador.Data == null) continue;
-
-            if (!NomesOriginaisPainel.ContainsKey(jogador.PlayerId))
-                NomesOriginaisPainel[jogador.PlayerId] = jogador.Data.PlayerName;
-
-            StringBuilder painel = new StringBuilder();
-            painel.Append(NomesOriginaisPainel[jogador.PlayerId]);
-            for (int i = 0; i < Opcoes.Count; i++)
-                painel.Append($"\n{Opcoes[i].Nome} [{contagem[i]} voto(s)]");
-            painel.Append($"\nTempo: {Math.Ceiling(restante)}s");
-
-            DefinirNomeLocal(jogador, painel.ToString());
-        }
+        ProximaAtualizacaoPainel = Time.realtimeSinceStartup + 1f;
+        PainelVotacaoRpc.Publicar(
+            NumeroRodada,
+            true,
+            Math.Max(0, (int)Math.Ceiling(FimRodada - Time.realtimeSinceStartup)),
+            Opcoes.Select(o => o.Nome).ToArray(),
+            ContarVotos()
+        );
     }
 
     private static void EncerrarRodada()
     {
         RestaurarNomesPainel();
         RodadaAtiva = false;
+        PainelVotacaoRpc.Publicar(NumeroRodada, false, 0, Array.Empty<string>(), new int[4]);
         Votos.Clear();
         Opcoes.Clear();
         UltimoTotalVotos = -1;
