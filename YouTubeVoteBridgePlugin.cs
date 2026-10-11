@@ -64,6 +64,11 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     private static float FimRodada;
     private static int NumeroRodada;
 
+    private static float ProximaAtualizacaoPainel;
+    private static int UltimoTotalVotos = -1;
+    private static readonly Dictionary<byte, float> JogadoresCongelados = new();
+    private const float DURACAO_CONGELAMENTO = 15f;
+
     private static CancellationTokenSource leitorToken;
     private static Task tarefaLeitor;
 
@@ -782,11 +787,108 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             HudManager.Instance.Chat.AddChat(PlayerControl.LocalPlayer, PREFIXO + texto, false);
     }
 
+    private static void RestaurarJogadoresCongelados()
+    {
+        foreach (PlayerControl player in PlayerControl.AllPlayerControls)
+        {
+            if (player == null || player.Data == null) continue;
+            if (JogadoresCongelados.TryGetValue(player.PlayerId, out _))
+                player.moveable = true;
+        }
+        JogadoresCongelados.Clear();
+    }
+
+    private static void AtualizarCongelamentos()
+    {
+        if (JogadoresCongelados.Count == 0) return;
+
+        float agora = Time.realtimeSinceStartup;
+        List<byte> expirados = new();
+
+        foreach (KeyValuePair<byte, float> item in JogadoresCongelados)
+        {
+            PlayerControl alvo = null;
+            foreach (PlayerControl player in PlayerControl.AllPlayerControls)
+            {
+                if (player != null && player.PlayerId == item.Key)
+                {
+                    alvo = player;
+                    break;
+                }
+            }
+
+            if (agora >= item.Value || alvo == null || alvo.Data == null ||
+                alvo.Data.IsDead)
+            {
+                if (alvo != null && alvo.Data != null && !alvo.Data.IsDead)
+                    alvo.moveable = true;
+                expirados.Add(item.Key);
+            }
+            else
+            {
+                alvo.moveable = false;
+            }
+        }
+
+        foreach (byte id in expirados) JogadoresCongelados.Remove(id);
+    }
+
+    private static void CongelarJogadorAleatorio()
+    {
+        List<PlayerControl> candidatos = new();
+        foreach (PlayerControl player in PlayerControl.AllPlayerControls)
+        {
+            if (player != null && player.Data != null && !player.Data.IsDead &&
+                player.moveable && !JogadoresCongelados.ContainsKey(player.PlayerId))
+                candidatos.Add(player);
+        }
+
+        if (candidatos.Count == 0)
+        {
+            Anunciar("O evento de congelamento foi sorteado, mas não havia jogador válido.");
+            return;
+        }
+
+        PlayerControl alvo = candidatos[Sorteador.Next(candidatos.Count)];
+        JogadoresCongelados[alvo.PlayerId] = Time.realtimeSinceStartup + DURACAO_CONGELAMENTO;
+        alvo.moveable = false;
+        Anunciar($"❄ {alvo.Data.PlayerName} foi congelado por 15 segundos pelo chat do YouTube!");
+        Instance.Log.LogInfo($"Congelamento iniciado: {alvo.Data.PlayerName} (PlayerId={alvo.PlayerId}), 15s.");
+    }
+
+    private static int[] ContarVotos()
+    {
+        int[] contagem = new int[4];
+        foreach (int voto in Votos.Values)
+            if (voto >= 1 && voto <= 4) contagem[voto - 1]++;
+        return contagem;
+    }
+
+    private static void AtualizarPainelVotacao()
+    {
+        if (!RodadaAtiva || Time.realtimeSinceStartup < ProximaAtualizacaoPainel)
+            return;
+
+        ProximaAtualizacaoPainel = Time.realtimeSinceStartup + 5f;
+        int[] contagem = ContarVotos();
+        float restante = Math.Max(0f, FimRodada - Time.realtimeSinceStartup);
+        string texto = $"Votação da live — {Math.Ceiling(restante)}s restantes";
+        for (int i = 0; i < Opcoes.Count; i++)
+            texto += $"\\n{i + 1}. {Opcoes[i].Nome} [{contagem[i]} voto(s)]";
+
+        foreach (PlayerControl player in PlayerControl.AllPlayerControls)
+        {
+            if (player == null || player.Data == null || player.Data.IsDead) continue;
+            EnviarMensagemIndividual(player, $"{player.Data.PlayerName}\\n{texto}");
+        }
+    }
+
     private static void EncerrarRodada()
     {
         RodadaAtiva = false;
         Votos.Clear();
         Opcoes.Clear();
+        UltimoTotalVotos = -1;
         while (FilaVotos.TryDequeue(out _)) { }
     }
 
@@ -797,6 +899,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         Opcoes.AddRange(Catalogo.OrderBy(_ => Sorteador.Next()).Take(4));
         NumeroRodada++;
         FimRodada = Time.realtimeSinceStartup + Math.Max(5, TempoVotacao.Value);
+        ProximaAtualizacaoPainel = 0f;
         RodadaAtiva = true;
         Anunciar($"Rodada #{NumeroRodada}! Vote na live enviando 1, 2, 3 ou 4. Tempo: {TempoVotacao.Value}s.");
         for (int i = 0; i < Opcoes.Count; i++) Anunciar($"{i + 1}: {Opcoes[i].Nome}");
@@ -812,6 +915,8 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             return;
         }
 
+        AtualizarCongelamentos();
+
         while (FilaVotos.TryDequeue(out VotoRecebido voto))
         {
             if (RodadaAtiva && !string.IsNullOrWhiteSpace(voto.Autor))
@@ -819,11 +924,11 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         }
 
         if (!RodadaAtiva) { IniciarRodada(); return; }
+        AtualizarPainelVotacao();
         if (Time.realtimeSinceStartup < FimRodada) return;
 
         RodadaAtiva = false;
-        int[] contagem = new int[4];
-        foreach (int voto in Votos.Values) if (voto >= 1 && voto <= 4) contagem[voto - 1]++;
+        int[] contagem = ContarVotos();
         Anunciar($"Fim da rodada #{NumeroRodada}. Votos válidos: {Votos.Count}.");
         for (int i = 0; i < 4; i++) Anunciar($"Opção {i + 1}: {contagem[i]} voto(s).");
 
@@ -832,8 +937,12 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             int maior = contagem.Max();
             List<int> empatadas = Enumerable.Range(1, 4).Where(n => contagem[n - 1] == maior).ToList();
             int vencedora = empatadas[Sorteador.Next(empatadas.Count)];
-            Anunciar($"Vencedor: opção {vencedora} — {Opcoes[vencedora - 1].Nome}.");
-            Instance.Log.LogWarning("O evento vencedor ainda não tem efeito conectado: " + Opcoes[vencedora - 1].Nome);
+            Evento eventoVencedor = Opcoes[vencedora - 1];
+            Anunciar($"Vencedor: opção {vencedora} — {eventoVencedor.Nome}.");
+            if (eventoVencedor.Nome == "Congelar um jogador temporariamente")
+                CongelarJogadorAleatorio();
+            else
+                Instance.Log.LogWarning("O evento vencedor ainda não tem efeito conectado: " + eventoVencedor.Nome);
         }
         else Anunciar("Ninguém votou nesta rodada.");
         Votos.Clear();
