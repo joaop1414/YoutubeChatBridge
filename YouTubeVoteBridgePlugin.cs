@@ -1130,7 +1130,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         {
             Responder(
                 chat,
-                "Comandos: /youtube status | iniciar | parar | tempo 40 | colar | ID ou URL"
+                "Comandos: /youtube live <id> | status | iniciar | parar | tempo 40 | colar | ID ou URL"
             );
             return;
         }
@@ -1156,6 +1156,30 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 PararLeituraChat();
                 Instance.Config.Save();
                 Responder(chat, "Leitura do YouTube e votações desativadas.");
+                return;
+
+            case "live":
+                if (partes.Length < 2)
+                {
+                    Responder(chat, "Use: /youtube live <id>");
+                    return;
+                }
+
+                string liveId = ExtrairLiveId(partes[1]);
+                if (liveId.Length == 0)
+                {
+                    Responder(chat, "ID/URL inválido. Use o ID de 11 caracteres ou a URL da live.");
+                    return;
+                }
+
+                PararLeituraChat();
+                LiveId.Value = liveId;
+                LiveConectada.Value = false;
+                VotacaoAtiva.Value = true;
+                Instance.Config.Save();
+
+                IniciarLeituraChat();
+                Responder(chat, "Live definida: " + liveId + ". Leitura do chat e votação iniciadas.");
                 return;
 
             case "iniciar":
