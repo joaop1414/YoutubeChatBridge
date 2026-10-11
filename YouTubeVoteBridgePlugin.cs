@@ -1169,13 +1169,30 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                     return;
                 }
 
-                string argumentoLive = argumentos.Length > "live".Length
-                    ? argumentos.Substring("live".Length).Trim()
-                    : "";
+                // Lê o texto original depois de "live" e procura o ID sem depender
+                // de como o restante do comando foi separado pelo chat do jogo.
+                string argumentoLive = Regex.Replace(
+                    argumentos, @"^live\\b", "", RegexOptions.IgnoreCase
+                ).Trim();
+
                 string liveId = ExtrairLiveId(argumentoLive);
+
+                // Fallback explícito para o formato curto /youtube live ID.
                 if (liveId.Length == 0)
                 {
-                    Responder(chat, "Não consegui identificar o ID. Envie os 11 caracteres do ID ou a URL completa: /youtube live <id>.");
+                    Match idDireto = Regex.Match(
+                        argumentoLive, @"[A-Za-z0-9_-]{11}"
+                    );
+                    if (idDireto.Success)
+                        liveId = idDireto.Value;
+                }
+
+                if (!Regex.IsMatch(liveId, @"^[A-Za-z0-9_-]{11}$"))
+                {
+                    Responder(chat, "ID não reconhecido. Use: /youtube live yl_uNp385tg (11 caracteres) ou /youtube live URL_COMPLETA");
+                    Instance.Log.LogWarning(
+                        "Comando live recebido, mas não foi possível extrair ID. Argumento: [" +
+                        argumentoLive + "]");
                     return;
                 }
 
@@ -1186,7 +1203,11 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 Instance.Config.Save();
 
                 IniciarLeituraChat();
-                Responder(chat, "Live definida: " + liveId + ". Leitura do chat e votação iniciadas.");
+
+                if (ChatEmLeitura)
+                    Responder(chat, "ID definido: " + liveId + ". Leitor do chat iniciado.");
+                else
+                    Responder(chat, "ID definido: " + liveId + ", mas o leitor não iniciou. Use /youtube status e confira o log.");
                 return;
 
             case "iniciar":
