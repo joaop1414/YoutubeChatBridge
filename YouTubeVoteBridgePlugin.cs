@@ -35,6 +35,14 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     public static ConfigEntry<bool> LiveConectada;
     public static ConfigEntry<bool> VotacaoAtiva;
     public static ConfigEntry<int> TempoVotacao;
+    public static ConfigEntry<int> IntervaloRodadas;
+    public static ConfigEntry<int> PreparacaoChat;
+
+    private static bool LeitorConectado;
+    private static bool PreparacaoIniciada;
+    private static bool PreparacaoConcluida;
+    private static float FimPreparacaoChat;
+    private static float ProximaRodadaPermitida;
 
     private const string PREFIXO = "[YouTubeVoteBridge] ";
     private const string TITULO_SISTEMA =
@@ -115,8 +123,18 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         );
 
         TempoVotacao = Config.Bind(
-            "Votacao", "TempoVotacao", 40,
-            "Duração da votação em segundos."
+            "Configurações do Mod", "TempoVotacao", 40,
+            "Duração de cada votação, em segundos."
+        );
+
+        IntervaloRodadas = Config.Bind(
+            "Configurações do Mod", "IntervaloRodadas", 15,
+            "Intervalo entre o fim de uma votação e o começo da próxima, em segundos."
+        );
+
+        PreparacaoChat = Config.Bind(
+            "Configurações do Mod", "PreparacaoChat", 10,
+            "Tempo de preparação do chat ao conectar. Votos antigos recebidos durante esse período são descartados."
         );
 
         Harmony.PatchAll();
@@ -528,6 +546,11 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         CancellationToken token = leitorToken.Token;
 
         LiveConectada.Value = true;
+        LeitorConectado = false;
+        PreparacaoIniciada = false;
+        PreparacaoConcluida = false;
+        FimPreparacaoChat = 0f;
+        ProximaRodadaPermitida = 0f;
         Instance.Config.Save();
 
         tarefaLeitor = Task.Run(() => LerChatAsync(id, token), token);
@@ -538,6 +561,9 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     public static void PararLeituraChat()
     {
         LiveConectada.Value = false;
+        LeitorConectado = false;
+        PreparacaoIniciada = false;
+        PreparacaoConcluida = false;
         leitorToken?.Cancel();
         Instance.Config.Save();
 
@@ -646,9 +672,13 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 "&prettyPrint=false";
 
             Instance.Log.LogInfo(
-                "Conexão HTTP preparada. Aguardando mensagens..."
+                "Conexão HTTP preparada. Limpando mensagens antigas antes de votar..."
             );
 
+            // A primeira resposta pode conter mensagens antigas do histórico.
+            // Processamos a continuação, mas ignoramos votos dessa primeira resposta.
+            bool ignorarPrimeiraResposta = true;
+            LeitorConectado = true;
             var mensagensVistas = new HashSet<string>();
 
             while (!token.IsCancellationRequested)
@@ -720,7 +750,8 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                         Instance.Log.LogInfo(
                             "[YouTube Chat] " + autor + ": " + mensagem
                         );
-                        if (VotacaoAtiva != null && VotacaoAtiva.Value &&
+                        if (!ignorarPrimeiraResposta &&
+                            VotacaoAtiva != null && VotacaoAtiva.Value &&
                             Regex.IsMatch(mensagem.Trim(), @"^[1-4]$"))
                             FilaVotos.Enqueue(new VotoRecebido(autor, int.Parse(mensagem.Trim())));
 
@@ -729,6 +760,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                     }
                 }
 
+                ignorarPrimeiraResposta = false;
                 continuacao = EncontrarContinuacao(continuacaoChat);
 
                 if (string.IsNullOrWhiteSpace(continuacao))
@@ -989,6 +1021,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     {
         if (Catalogo.Count < 4) return;
         EncerrarRodada();
+        while (FilaVotos.TryDequeue(out _)) { }
         Opcoes.AddRange(Catalogo.OrderBy(_ => Sorteador.Next()).Take(4));
         NumeroRodada++;
         FimRodada = Time.realtimeSinceStartup + Math.Max(5, TempoVotacao.Value);
@@ -1001,32 +1034,45 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     public static void AtualizarVotacao()
     {
         if (!EhHost())
-        {
-            if (Time.realtimeSinceStartup >= ProximoLogDiagnostico)
-            {
-                ProximoLogDiagnostico = Time.realtimeSinceStartup + 10f;
-                Instance?.Log.LogInfo("DIAG Votação: AtualizarVotacao chamado, mas este cliente não é o host.");
-            }
             return;
-        }
-
-        if (Time.realtimeSinceStartup >= ProximoLogDiagnostico)
-        {
-            ProximoLogDiagnostico = Time.realtimeSinceStartup + 10f;
-            Instance?.Log.LogInfo(
-                $"DIAG Votação: Update ativo; votação={(VotacaoAtiva != null && VotacaoAtiva.Value)}, " +
-                $"leitor={ChatEmLeitura}, rodada={RodadaAtiva}, host={EhHost()}."
-            );
-        }
 
         AtualizarCongelamentos();
+
         if (VotacaoAtiva == null || !VotacaoAtiva.Value || !ChatEmLeitura)
         {
-            if (Time.realtimeSinceStartup >= ProximaAtualizacaoPainel)
-                Instance?.Log.LogInfo($"DIAG Votação: não inicia rodada; VotacaoAtiva={(VotacaoAtiva != null && VotacaoAtiva.Value)}, ChatEmLeitura={ChatEmLeitura}.");
             if (RodadaAtiva) EncerrarRodada();
+            LeitorConectado = false;
+            PreparacaoIniciada = false;
+            PreparacaoConcluida = false;
             while (FilaVotos.TryDequeue(out _)) { }
             return;
+        }
+
+        // Aguarda o leitor conectar e descarta votos do buffer/histórico antigo.
+        if (!PreparacaoConcluida)
+        {
+            while (FilaVotos.TryDequeue(out _)) { }
+
+            if (!LeitorConectado)
+                return;
+
+            if (!PreparacaoIniciada)
+            {
+                PreparacaoIniciada = true;
+                FimPreparacaoChat = Time.realtimeSinceStartup +
+                    Math.Clamp(PreparacaoChat.Value, 0, 120);
+                Instance.Log.LogInfo(
+                    "Preparação do chat iniciada por " + PreparacaoChat.Value + " segundo(s)."
+                );
+            }
+
+            if (Time.realtimeSinceStartup < FimPreparacaoChat)
+                return;
+
+            PreparacaoConcluida = true;
+            ProximaRodadaPermitida = Time.realtimeSinceStartup;
+            while (FilaVotos.TryDequeue(out _)) { }
+            Anunciar("Chat preparado. A partir de agora serão aceitos votos novos.");
         }
 
         while (FilaVotos.TryDequeue(out VotoRecebido voto))
@@ -1035,7 +1081,13 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 Votos[voto.Autor.Trim()] = voto.Opcao;
         }
 
-        if (!RodadaAtiva) { IniciarRodada(); return; }
+        if (!RodadaAtiva)
+        {
+            if (Time.realtimeSinceStartup < ProximaRodadaPermitida)
+                return;
+            IniciarRodada();
+            return;
+        }
         AtualizarPainelVotacao();
         if (Time.realtimeSinceStartup < FimRodada) return;
 
@@ -1061,6 +1113,11 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         else Anunciar("Ninguém votou nesta rodada.");
         Votos.Clear();
         Opcoes.Clear();
+        ProximaRodadaPermitida = Time.realtimeSinceStartup +
+            Math.Clamp(IntervaloRodadas.Value, 0, 600);
+        Instance.Log.LogInfo(
+            "Próxima votação liberada em " + IntervaloRodadas.Value + " segundo(s)."
+        );
     }
 
     // ========================================================
@@ -1134,7 +1191,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         {
             Responder(
                 chat,
-                "Comandos: /youtube live <id> | status | iniciar | parar | tempo 40 | colar | ID ou URL"
+                "Comandos: /youtube live (usa ID copiado) | colar | status | iniciar | parar | tempo 40 | intervalo 15 | preparacao 10 | config"
             );
             return;
         }
@@ -1147,6 +1204,40 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
         switch (acao)
         {
+            case "config":
+            case "configuracoes":
+            case "configurações":
+                Responder(chat,
+                    "Configurações: tempo=" + TempoVotacao.Value + "s | intervalo=" +
+                    IntervaloRodadas.Value + "s | preparação=" + PreparacaoChat.Value +
+                    "s. Use /youtube tempo 40, /youtube intervalo 15 ou /youtube preparacao 10.");
+                return;
+
+            case "intervalo":
+                if (partes.Length < 2 || !int.TryParse(partes[1], out int intervalo) ||
+                    intervalo < 0 || intervalo > 600)
+                {
+                    Responder(chat, "Use: /youtube intervalo 15 (0 a 600 segundos).");
+                    return;
+                }
+                IntervaloRodadas.Value = intervalo;
+                Instance.Config.Save();
+                Responder(chat, "Intervalo entre votações definido para " + intervalo + " segundo(s).");
+                return;
+
+            case "preparacao":
+            case "preparação":
+                if (partes.Length < 2 || !int.TryParse(partes[1], out int preparacao) ||
+                    preparacao < 0 || preparacao > 120)
+                {
+                    Responder(chat, "Use: /youtube preparacao 10 (0 a 120 segundos).");
+                    return;
+                }
+                PreparacaoChat.Value = preparacao;
+                Instance.Config.Save();
+                Responder(chat, "Preparação do chat definida para " + preparacao + " segundo(s).");
+                return;
+
             case "status":
             case "info":
                 MostrarStatus(chat);
@@ -1163,36 +1254,14 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 return;
 
             case "live":
-                if (partes.Length < 2)
-                {
-                    Responder(chat, "Use: /youtube live <id>");
-                    return;
-                }
-
-                // Lê o texto original depois de "live" e procura o ID sem depender
-                // de como o restante do comando foi separado pelo chat do jogo.
-                string argumentoLive = Regex.Replace(
-                    argumentos, @"^live\\b", "", RegexOptions.IgnoreCase
-                ).Trim();
-
-                string liveId = ExtrairLiveId(argumentoLive);
-
-                // Fallback explícito para o formato curto /youtube live ID.
-                if (liveId.Length == 0)
-                {
-                    Match idDireto = Regex.Match(
-                        argumentoLive, @"[A-Za-z0-9_-]{11}"
-                    );
-                    if (idDireto.Success)
-                        liveId = idDireto.Value;
-                }
+                // Usa exatamente a mesma lógica do comando "colar":
+                // lê o ID/URL da área de transferência.
+                string textoLiveCopiado = LerAreaDeTransferencia();
+                string liveId = ExtrairLiveId(textoLiveCopiado);
 
                 if (!Regex.IsMatch(liveId, @"^[A-Za-z0-9_-]{11}$"))
                 {
-                    Responder(chat, "ID não reconhecido. Use: /youtube live yl_uNp385tg (11 caracteres) ou /youtube live URL_COMPLETA");
-                    Instance.Log.LogWarning(
-                        "Comando live recebido, mas não foi possível extrair ID. Argumento: [" +
-                        argumentoLive + "]");
+                    Responder(chat, "Copie o ID ou a URL da live e use /youtube live. Também pode usar /youtube colar.");
                     return;
                 }
 
@@ -1203,11 +1272,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 Instance.Config.Save();
 
                 IniciarLeituraChat();
-
-                if (ChatEmLeitura)
-                    Responder(chat, "ID definido: " + liveId + ". Leitor do chat iniciado.");
-                else
-                    Responder(chat, "ID definido: " + liveId + ", mas o leitor não iniciou. Use /youtube status e confira o log.");
+                Responder(chat, "ID definido pela área de transferência: " + liveId + ". Preparando o chat...");
                 return;
 
             case "iniciar":
