@@ -67,6 +67,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     private static float ProximaAtualizacaoPainel;
     private static int UltimoTotalVotos = -1;
     private static readonly Dictionary<byte, float> JogadoresCongelados = new();
+    private static readonly Dictionary<byte, bool> MovimentoOriginal = new();
     private const float DURACAO_CONGELAMENTO = 15f;
 
     private static CancellationTokenSource leitorToken;
@@ -792,10 +793,11 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         foreach (PlayerControl player in PlayerControl.AllPlayerControls)
         {
             if (player == null || player.Data == null) continue;
-            if (JogadoresCongelados.TryGetValue(player.PlayerId, out _))
-                player.moveable = true;
+            if (MovimentoOriginal.TryGetValue(player.PlayerId, out bool movimento))
+                player.moveable = movimento;
         }
         JogadoresCongelados.Clear();
+        MovimentoOriginal.Clear();
     }
 
     private static void AtualizarCongelamentos()
@@ -820,8 +822,9 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             if (agora >= item.Value || alvo == null || alvo.Data == null ||
                 alvo.Data.IsDead)
             {
-                if (alvo != null && alvo.Data != null && !alvo.Data.IsDead)
-                    alvo.moveable = true;
+                if (alvo != null && alvo.Data != null &&
+                    MovimentoOriginal.TryGetValue(item.Key, out bool movimento))
+                    alvo.moveable = movimento;
                 expirados.Add(item.Key);
             }
             else
@@ -830,7 +833,11 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             }
         }
 
-        foreach (byte id in expirados) JogadoresCongelados.Remove(id);
+        foreach (byte id in expirados)
+        {
+            JogadoresCongelados.Remove(id);
+            MovimentoOriginal.Remove(id);
+        }
     }
 
     private static void CongelarJogadorAleatorio()
@@ -850,6 +857,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         }
 
         PlayerControl alvo = candidatos[Sorteador.Next(candidatos.Count)];
+        MovimentoOriginal[alvo.PlayerId] = alvo.moveable;
         JogadoresCongelados[alvo.PlayerId] = Time.realtimeSinceStartup + DURACAO_CONGELAMENTO;
         alvo.moveable = false;
         Anunciar($"❄ {alvo.Data.PlayerName} foi congelado por 15 segundos pelo chat do YouTube!");
@@ -908,14 +916,13 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     public static void AtualizarVotacao()
     {
         if (!EhHost()) return;
+        AtualizarCongelamentos();
         if (VotacaoAtiva == null || !VotacaoAtiva.Value || !ChatEmLeitura)
         {
             if (RodadaAtiva) EncerrarRodada();
             while (FilaVotos.TryDequeue(out _)) { }
             return;
         }
-
-        AtualizarCongelamentos();
 
         while (FilaVotos.TryDequeue(out VotoRecebido voto))
         {
