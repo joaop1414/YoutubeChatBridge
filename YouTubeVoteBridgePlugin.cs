@@ -699,7 +699,10 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                         if (string.IsNullOrWhiteSpace(autor))
                             autor = "Desconhecido";
 
-                        string chave = autor + "\n" + mensagem;
+                        string idMensagem = LerString(item, "id");
+                        string chave = !string.IsNullOrWhiteSpace(idMensagem)
+                            ? idMensagem
+                            : autor + "\n" + mensagem;
 
                         if (!mensagensVistas.Add(chave))
                             continue;
