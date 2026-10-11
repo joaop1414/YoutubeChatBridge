@@ -1041,6 +1041,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
         RestaurarNomesPainel();
         RodadaAtiva = false;
+        PainelVotacaoRpc.Publicar(NumeroRodada, false, 0, Array.Empty<string>(), new int[4]);
         int[] contagem = ContarVotos();
         Anunciar($"Fim da rodada #{NumeroRodada}. Votos válidos: {Votos.Count}.");
         for (int i = 0; i < 4; i++) Anunciar($"Opção {i + 1}: {contagem[i]} voto(s).");
