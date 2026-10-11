@@ -24,8 +24,8 @@ internal static class PainelVotacaoRpc
     private static float proximaTentativaCriarTexto;
 
     // Dimensões em unidades do mundo do HUD.
-    private const float LARGURA_PAINEL = 5.8f;
-    private const float ALTURA_FUNDO = 4.15f;
+    private const float LARGURA_PAINEL = 6.2f;
+    private const float ALTURA_FUNDO = 4.5f;
     private static readonly Vector3 POSICAO_PAINEL = new(3.0f, 0.0f, 0f);
 
     public static void Inicializar()
@@ -91,7 +91,7 @@ internal static class PainelVotacaoRpc
 
     private static void CriarFundo(Transform pai)
     {
-        // Um sprite branco de 1x1 é tingido de preto com alpha 0.62.
+        // Fundo preto semitransparente atrás do título, dos eventos e dos votos.
         // Isso evita depender de um Canvas adicional dentro do HUD do jogo.
         texturaFundo = new Texture2D(1, 1, TextureFormat.RGBA32, false);
         texturaFundo.name = "YouTubeVoteBridge_FundoTexture";
@@ -111,7 +111,7 @@ internal static class PainelVotacaoRpc
 
         SpriteRenderer renderer = fundoPainel.AddComponent<SpriteRenderer>();
         renderer.sprite = spriteFundo;
-        renderer.color = new Color(0f, 0f, 0f, 0.62f);
+        renderer.color = new Color(0f, 0f, 0f, 0.78f);
         renderer.sortingOrder = -10;
     }
 
@@ -154,7 +154,7 @@ internal static class PainelVotacaoRpc
 
                 AtualizarTexto();
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "Painel de votação criado com fundo semitransparente.");
+                    "Painel de eventos criado com fundo preto semitransparente (alpha 0.78).");
             }
             catch (Exception ex)
             {
