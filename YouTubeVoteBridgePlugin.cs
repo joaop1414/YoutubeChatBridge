@@ -941,8 +941,8 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             StringBuilder painel = new StringBuilder();
             painel.Append(NomesOriginaisPainel[jogador.PlayerId]);
             for (int i = 0; i < Opcoes.Count; i++)
-                painel.Append($"\\n{Opcoes[i].Nome} [{contagem[i]} voto(s)]");
-            painel.Append($"\\nTempo: {Math.Ceiling(restante)}s");
+                painel.Append($"\n{Opcoes[i].Nome} [{contagem[i]} voto(s)]");
+            painel.Append($"\nTempo: {Math.Ceiling(restante)}s");
 
             DefinirNomeLocal(jogador, painel.ToString());
         }
@@ -992,6 +992,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         AtualizarPainelVotacao();
         if (Time.realtimeSinceStartup < FimRodada) return;
 
+        RestaurarNomesPainel();
         RodadaAtiva = false;
         int[] contagem = ContarVotos();
         Anunciar($"Fim da rodada #{NumeroRodada}. Votos válidos: {Votos.Count}.");
