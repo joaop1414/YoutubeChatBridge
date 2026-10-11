@@ -50,9 +50,16 @@ namespace YouTubeVoteBridge
                 if (!YouTubeVoteBridgePlugin.EhHost())
                     return;
 
-                var modelo = __instance.Children
-                    .OfType<StringOption>()
-                    .FirstOrDefault(x => x != null && x.gameObject != null);
+                StringOption modelo = null;
+                foreach (OptionBehaviour item in __instance.Children)
+                {
+                    StringOption candidato = item as StringOption;
+                    if (candidato != null && candidato.gameObject != null)
+                    {
+                        modelo = candidato;
+                        break;
+                    }
+                }
 
                 if (modelo == null)
                 {
@@ -134,8 +141,9 @@ namespace YouTubeVoteBridge
                 return;
 
             bool host = YouTubeVoteBridgePlugin.EhHost();
-            foreach (var option in menu.Children.OfType<StringOption>())
+            foreach (OptionBehaviour item in menu.Children)
             {
+                StringOption option = item as StringOption;
                 if (!EhControle(option))
                     continue;
 
