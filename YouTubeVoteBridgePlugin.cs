@@ -46,7 +46,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     private static readonly ConcurrentQueue<VotoRecebido> FilaVotos = new();
     private static readonly Dictionary<string, int> Votos = new(StringComparer.OrdinalIgnoreCase);
     private static readonly List<Evento> Opcoes = new();
-    private static readonly Random Sorteador = new();
+    private static readonly System.Random Sorteador = new();
     private static readonly List<Evento> Catalogo = new()
     {
         new Evento("Reportar corpo com aviso do YouTube"),
