@@ -66,6 +66,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
     private static float ProximaAtualizacaoPainel;
     private static int UltimoTotalVotos = -1;
+    private static readonly Dictionary<byte, string> NomesOriginaisPainel = new();
     private static readonly Dictionary<byte, float> JogadoresCongelados = new();
     private static readonly Dictionary<byte, bool> MovimentoOriginal = new();
     private const float DURACAO_CONGELAMENTO = 15f;
@@ -872,6 +873,55 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         return contagem;
     }
 
+    // Altera o nome apenas na tela do cliente dono daquele jogador.
+    // Segue o padrão de RPC SetName direcionado usado pelo EHR.
+    private static void DefinirNomeLocal(PlayerControl jogador, string nome)
+    {
+        if (jogador == null || jogador.Data == null || AmongUsClient.Instance == null)
+            return;
+
+        try
+        {
+            if (jogador.AmOwner)
+            {
+                jogador.SetName(nome);
+                return;
+            }
+
+            if (!EhHost() || jogador.OwnerId < 0)
+                return;
+
+            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
+                jogador.NetId,
+                (byte)RpcCalls.SetName,
+                SendOption.Reliable,
+                jogador.OwnerId
+            );
+            writer.Write(jogador.Data.NetId);
+            writer.Write(nome);
+            AmongUsClient.Instance.FinishRpcImmediately(writer);
+        }
+        catch (Exception ex)
+        {
+            Instance.Log.LogError("Falha ao atualizar nome local do painel: " + ex);
+        }
+    }
+
+    private static void RestaurarNomesPainel()
+    {
+        foreach (var item in NomesOriginaisPainel.ToArray())
+        {
+            PlayerControl jogador = null;
+            foreach (PlayerControl p in PlayerControl.AllPlayerControls)
+            {
+                if (p != null && p.PlayerId == item.Key) { jogador = p; break; }
+            }
+            if (jogador != null && jogador.Data != null)
+                DefinirNomeLocal(jogador, item.Value);
+        }
+        NomesOriginaisPainel.Clear();
+    }
+
     private static void AtualizarPainelVotacao()
     {
         if (!RodadaAtiva || Time.realtimeSinceStartup < ProximaAtualizacaoPainel)
@@ -880,19 +930,27 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         ProximaAtualizacaoPainel = Time.realtimeSinceStartup + 5f;
         int[] contagem = ContarVotos();
         float restante = Math.Max(0f, FimRodada - Time.realtimeSinceStartup);
-        string texto = $"Votação da live — {Math.Ceiling(restante)}s restantes";
-        for (int i = 0; i < Opcoes.Count; i++)
-            texto += $"\\n{i + 1}. {Opcoes[i].Nome} [{contagem[i]} voto(s)]";
 
-        foreach (PlayerControl player in PlayerControl.AllPlayerControls)
+        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
         {
-            if (player == null || player.Data == null || player.Data.IsDead) continue;
-            EnviarMensagemIndividual(player, $"{player.Data.PlayerName}\\n{texto}");
+            if (jogador == null || jogador.Data == null) continue;
+
+            if (!NomesOriginaisPainel.ContainsKey(jogador.PlayerId))
+                NomesOriginaisPainel[jogador.PlayerId] = jogador.Data.PlayerName;
+
+            StringBuilder painel = new StringBuilder();
+            painel.Append(NomesOriginaisPainel[jogador.PlayerId]);
+            for (int i = 0; i < Opcoes.Count; i++)
+                painel.Append($"\\n{Opcoes[i].Nome} [{contagem[i]} voto(s)]");
+            painel.Append($"\\nTempo: {Math.Ceiling(restante)}s");
+
+            DefinirNomeLocal(jogador, painel.ToString());
         }
     }
 
     private static void EncerrarRodada()
     {
+        RestaurarNomesPainel();
         RodadaAtiva = false;
         Votos.Clear();
         Opcoes.Clear();
