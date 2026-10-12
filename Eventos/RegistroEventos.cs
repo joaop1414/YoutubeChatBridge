@@ -14,6 +14,9 @@ internal static class RegistroEventos
         new EventoSabotagemAleatoria(),
         new EventoFecharPortas(),
         new EventoFecharPortaAleatoria(),
+        new EventoDutoMaisProximoTodos(),
+        new EventoDutoMaisProximoAleatorio(),
+        new EventoTarefaMataJogador(),
         new EventoTrocarCores(),
         new EventoEscudoTemporario(),
         new EventoCriarCorpoFalso()
