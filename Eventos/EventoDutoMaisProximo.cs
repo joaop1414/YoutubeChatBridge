@@ -6,7 +6,7 @@ namespace YouTubeVoteBridge;
 
 internal static class EventoDutos
 {
-    private static readonly Random Sorteador = new();
+    private static readonly System.Random Sorteador = new();
     public static void Executar(bool todos)
     {
         if (!YouTubeVoteBridgePlugin.EhHost() || ShipStatus.Instance == null) return;
