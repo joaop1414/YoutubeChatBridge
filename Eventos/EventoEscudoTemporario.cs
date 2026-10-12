@@ -93,37 +93,26 @@ internal sealed class EventoEscudoTemporario : EventoVotacao
     }
 }
 
-// O host bloqueia o processamento da morte enquanto o alvo estiver protegido.
-// Isso funciona independentemente de o jogador-alvo ter o mod instalado.
-[HarmonyPatch]
+// A verificação autoritativa da morte acontece em CheckMurder.
+// Patchar MurderPlayer era tarde demais ou não interceptava o fluxo usado pelo jogo.
+[HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.CheckMurder))]
 internal static class EventoEscudoTemporarioMortePatch
 {
-    private static MethodBase TargetMethod()
+    public static bool Prefix(
+        PlayerControl __instance,
+        [HarmonyArgument(0)] PlayerControl alvo)
     {
-        return AccessTools.GetDeclaredMethods(typeof(PlayerControl))
-            .FirstOrDefault(m =>
-                m.Name == "MurderPlayer" &&
-                m.GetParameters().Any(p =>
-                    typeof(PlayerControl).IsAssignableFrom(p.ParameterType)));
-    }
-
-    private static bool Prefix(object[] __args)
-    {
-        if (!YouTubeVoteBridgePlugin.EhHost() || __args == null)
+        if (!YouTubeVoteBridgePlugin.EhHost() || alvo == null)
             return true;
 
-        foreach (object argumento in __args)
-        {
-            if (argumento is PlayerControl alvo &&
-                EventoEscudoTemporario.EstaProtegido(alvo.PlayerId))
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    $"Morte bloqueada pelo escudo temporário: {alvo.Data?.PlayerName} " +
-                    $"(PlayerId={alvo.PlayerId}).");
-                return false;
-            }
-        }
+        if (!EventoEscudoTemporario.EstaProtegido(alvo.PlayerId))
+            return true;
 
-        return true;
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"Tentativa de morte bloqueada pelo escudo temporário: " +
+            $"{alvo.Data?.PlayerName ?? "jogador desconhecido"} " +
+            $"(PlayerId={alvo.PlayerId}, atacante={__instance?.Data?.PlayerName ?? "desconhecido"}).");
+
+        return false;
     }
 }
