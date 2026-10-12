@@ -936,6 +936,15 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     // ========================================================
     // MOTOR DE VOTAÇÃO
     // ========================================================
+    internal static void CancelarReuniaoSolicitada()
+    {
+        if (!EhHost()) return;
+        RestaurarNomesPainel();
+        RestaurarPlacarNoNick();
+        EventoCongelarJogador.PausarDuranteReuniao();
+        Instance?.Log.LogDebug("Reunião cancelada pelo YouTubeVoteBridge; nomes restaurados.");
+    }
+
     internal static void Anunciar(string texto)
     {
         if (PlayerControl.LocalPlayer != null && HudManager.InstanceExists &&
@@ -977,7 +986,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         {
             if (jogador.AmOwner)
             {
-                Instance.Log.LogInfo($"DIAG Painel: jogador local; SetName direto (PlayerId={jogador.PlayerId}).");
+                Instance.Log.LogInfo($"SetName local direto");
                 jogador.SetName(nome);
                 return;
             }
@@ -994,7 +1003,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 return;
             }
 
-            Instance.Log.LogInfo($"DIAG Painel: preparando RPC SetName (PlayerId={jogador.PlayerId}, OwnerId={jogador.OwnerId}, chars={nome.Length}).");
+            Instance.Log.LogInfo($"SetName RPC preparado");
 
             MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
                 jogador.NetId,
@@ -1008,7 +1017,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             AmongUsClient.Instance.FinishRpcImmediately(writer);
 
             Instance.Log.LogInfo(
-                $"SetName local enviado: jogador={jogador.Data.PlayerName}, " +
+                $"SetName enviado: jogador={jogador.Data.PlayerName}, " +
                 $"PlayerId={jogador.PlayerId}, OwnerId={jogador.OwnerId}, " +
                 $"caracteres={nome.Length}."
             );
@@ -1072,14 +1081,21 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         FimRodada = Time.realtimeSinceStartup + Math.Max(5, TempoVotacao.Value);
         ProximaAtualizacaoPainel = 0f;
         RodadaAtiva = true;
-        Anunciar($"Rodada #{NumeroRodada}! Vote na live enviando 1, 2, 3 ou 4. Tempo: {TempoVotacao.Value}s.");
-        for (int i = 0; i < Opcoes.Count; i++) Anunciar($"{i + 1}: {Opcoes[i].Nome}");
+        
+        
     }
 
     public static void AtualizarVotacao()
     {
         if (!EhHost())
             return;
+
+        if (MeetingHud.Instance != null)
+        {
+            EventoCongelarJogador.PausarDuranteReuniao();
+            RestaurarNomesPainel();
+            return;
+        }
 
         EventoCongelarJogador.Atualizar();
 
@@ -1117,7 +1133,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             PreparacaoConcluida = true;
             ProximaRodadaPermitida = Time.realtimeSinceStartup;
             while (FilaVotos.TryDequeue(out _)) { }
-            Anunciar("Chat preparado. A partir de agora serão aceitos votos novos.");
+            
         }
 
         while (FilaVotos.TryDequeue(out VotoRecebido voto))
@@ -1141,8 +1157,8 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         RodadaAtiva = false;
         PainelVotacaoRpc.Publicar(NumeroRodada, false, 0, Array.Empty<string>(), new int[4]);
         int[] contagem = ContarVotos();
-        Anunciar($"Fim da rodada #{NumeroRodada}. Votos válidos: {Votos.Count}.");
-        for (int i = 0; i < 4; i++) Anunciar($"Opção {i + 1}: {contagem[i]} voto(s).");
+        
+        
 
         if (Votos.Count > 0)
         {
@@ -1150,7 +1166,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             List<int> empatadas = Enumerable.Range(1, 4).Where(n => contagem[n - 1] == maior).ToList();
             int vencedora = empatadas[Sorteador.Next(empatadas.Count)];
             Evento eventoVencedor = Opcoes[vencedora - 1];
-            Anunciar($"Vencedor: opção {vencedora} — {eventoVencedor.Nome}.");
+            
             switch (eventoVencedor.Nome)
             {
                 case "Congelar um jogador temporariamente":
@@ -1164,7 +1180,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                     break;
             }
         }
-        else Anunciar("Ninguém votou nesta rodada.");
+        
         Votos.Clear();
         Opcoes.Clear();
         ProximaRodadaPermitida = Time.realtimeSinceStartup +
@@ -1612,6 +1628,18 @@ public static class YouTubeVotePlayerJoinedPatch
 // ============================================================
 // ATUALIZAÇÃO DOS AVISOS
 // ============================================================
+
+[HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.StartMeeting))]
+public static class YouTubeVoteCancelMeetingPatch
+{
+    public static bool Prefix()
+    {
+        if (!YouTubeVoteBridgePlugin.EhHost())
+            return true;
+        YouTubeVoteBridgePlugin.CancelarReuniaoSolicitada();
+        return false;
+    }
+}
 
 [HarmonyPatch(typeof(AmongUsClient), nameof(AmongUsClient.Update))]
 public static class YouTubeVoteUpdatePatch
