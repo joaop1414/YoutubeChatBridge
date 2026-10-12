@@ -1683,6 +1683,7 @@ public static class YouTubeVoteCancelMeetingPatch
             return true;
         YouTubeVoteBridgePlugin.CancelarReuniaoSolicitada();
         EventoTarefaMataJogador.Desativar();
+        EventoTarefaSuicidio.Desativar();
         // Deixa a chamada original continuar depois de restaurar os nomes.
         // Retornar false aqui cancelava a reunião e não havia um segundo RPC.
         return true;
@@ -1778,5 +1779,6 @@ public static class YouTubeVoteTaskKillPatch
     public static void Postfix(PlayerControl __instance)
     {
         EventoTarefaMataJogador.AoCompletarTarefa(__instance);
+        EventoTarefaSuicidio.AoCompletarTarefa(__instance);
     }
 }
