@@ -25,10 +25,9 @@ internal sealed class EventoTrocarCores : EventoVotacao
         if (jogadores.Count < 2)
             return;
 
-        // Embaralha as cores entre os jogadores sem repetir a cor original
-        // na mesma posição quando houver uma alternativa.
-        List<byte> cores = jogadores.Select(p => p.Data.DefaultOutfit.ColorId).ToList();
-        List<byte> embaralhadas = new(cores);
+        // ColorId é int nesta versão das bibliotecas do Among Us.
+        List<int> cores = jogadores.Select(p => p.Data.DefaultOutfit.ColorId).ToList();
+        List<int> embaralhadas = new(cores);
         for (int i = embaralhadas.Count - 1; i > 0; i--)
         {
             int j = Sorteador.Next(i + 1);
@@ -42,7 +41,7 @@ internal sealed class EventoTrocarCores : EventoVotacao
         {
             try
             {
-                jogadores[i].RpcSetColor(embaralhadas[i]);
+                jogadores[i].RpcSetColor((byte)embaralhadas[i]);
             }
             catch (Exception ex)
             {
