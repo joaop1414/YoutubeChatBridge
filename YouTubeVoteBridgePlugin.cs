@@ -1151,10 +1151,18 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             int vencedora = empatadas[Sorteador.Next(empatadas.Count)];
             Evento eventoVencedor = Opcoes[vencedora - 1];
             Anunciar($"Vencedor: opção {vencedora} — {eventoVencedor.Nome}.");
-            if (eventoVencedor.Nome == "Congelar um jogador temporariamente")
-                new EventoCongelarJogador().Executar();
-            else
-                Instance.Log.LogWarning("O evento vencedor ainda não tem efeito conectado: " + eventoVencedor.Nome);
+            switch (eventoVencedor.Nome)
+            {
+                case "Congelar um jogador temporariamente":
+                    new EventoCongelarJogador().Executar();
+                    break;
+                case "Reportar corpo com aviso do YouTube":
+                    new EventoReportarCorpo().Executar();
+                    break;
+                default:
+                    Instance.Log.LogWarning("O evento vencedor ainda não tem efeito conectado: " + eventoVencedor.Nome);
+                    break;
+            }
         }
         else Anunciar("Ninguém votou nesta rodada.");
         Votos.Clear();
