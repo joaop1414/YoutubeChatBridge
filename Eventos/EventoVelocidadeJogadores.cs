@@ -4,28 +4,23 @@ using UnityEngine;
 
 namespace YouTubeVoteBridge;
 
-// Overrides the final movement speed per player. Because movement is calculated on
-// each player's client, every modded client applies the same override locally.
+// Altera a velocidade física por jogador. O estado precisa existir em cada cliente
+// para afetar o dono do movimento; esta implementação ainda não sincroniza RPCs.
 internal static class EventoVelocidadeJogadores
 {
-    private static readonly Dictionary<byte, float> VelocidadesAbsolutas = new();
     private static readonly Dictionary<byte, float> Multiplicadores = new();
     private static readonly Dictionary<byte, float> ExpiraEm = new();
-
-    public static void DefinirVelocidadeAbsoluta(byte playerId, float velocidade)
-    {
-        VelocidadesAbsolutas[playerId] = velocidade;
-    }
-
-    public static void LimparVelocidadeAbsoluta(byte playerId)
-    {
-        VelocidadesAbsolutas.Remove(playerId);
-    }
 
     public static void AplicarMultiplicador(byte playerId, float multiplicador, float duracao)
     {
         Multiplicadores[playerId] = multiplicador;
         ExpiraEm[playerId] = Time.realtimeSinceStartup + duracao;
+    }
+
+    public static void Limpar(byte playerId)
+    {
+        Multiplicadores.Remove(playerId);
+        ExpiraEm.Remove(playerId);
     }
 
     public static void Atualizar()
@@ -38,33 +33,49 @@ internal static class EventoVelocidadeJogadores
                 expirados.Add(item.Key);
 
         foreach (byte id in expirados)
-        {
-            ExpiraEm.Remove(id);
-            Multiplicadores.Remove(id);
-        }
+            Limpar(id);
     }
 
-    public static float ModificarVelocidade(PlayerControl jogador, float velocidade)
+    public static float ObterMultiplicador(PlayerControl jogador)
     {
         if (jogador == null)
-            return velocidade;
+            return 1f;
 
-        if (VelocidadesAbsolutas.TryGetValue(jogador.PlayerId, out float absoluta))
-            return absoluta;
-
-        if (Multiplicadores.TryGetValue(jogador.PlayerId, out float multiplicador))
-            return velocidade * multiplicador;
-
-        return velocidade;
+        return Multiplicadores.TryGetValue(jogador.PlayerId, out float valor)
+            ? valor
+            : 1f;
     }
 }
 
-[HarmonyPatch(typeof(PlayerControl), "GetModifiedSpeed")]
-internal static class EventoVelocidadePatch
+[HarmonyPatch(typeof(PlayerPhysics), nameof(PlayerPhysics.FixedUpdate))]
+internal static class EventoVelocidadePhysicsPatch
 {
-    public static void Postfix(PlayerControl __instance, ref float __result)
+    public static void Postfix(PlayerPhysics __instance)
     {
-        __result = EventoVelocidadeJogadores.ModificarVelocidade(__instance, __result);
+        if (__instance == null || __instance.myPlayer == null || !__instance.AmOwner)
+            return;
+
+        float multiplicador = EventoVelocidadeJogadores.ObterMultiplicador(__instance.myPlayer);
+        if (multiplicador != 1f && __instance.body != null)
+            __instance.body.velocity *= multiplicador;
+    }
+}
+
+[HarmonyPatch(typeof(CustomNetworkTransform), nameof(CustomNetworkTransform.FixedUpdate))]
+internal static class EventoVelocidadeNetworkPatch
+{
+    public static void Postfix(CustomNetworkTransform __instance)
+    {
+        if (__instance == null || __instance.AmOwner || __instance.body == null)
+            return;
+
+        PlayerControl jogador = __instance.GetComponent<PlayerControl>();
+        if (jogador == null)
+            return;
+
+        float multiplicador = EventoVelocidadeJogadores.ObterMultiplicador(jogador);
+        if (multiplicador != 1f)
+            __instance.body.velocity *= multiplicador;
     }
 }
 
@@ -72,15 +83,8 @@ internal static class EventoVelocidadeTemporaria
 {
     private const float DuracaoSegundos = 15f;
 
-    public static void Supervelocidade()
-    {
-        AplicarATodos(2.5f);
-    }
-
-    public static void VelocidadeReduzida()
-    {
-        AplicarATodos(0.35f);
-    }
+    public static void Supervelocidade() => AplicarATodos(2.5f);
+    public static void VelocidadeReduzida() => AplicarATodos(0.35f);
 
     private static void AplicarATodos(float multiplicador)
     {
@@ -100,7 +104,7 @@ internal static class EventoVelocidadeTemporaria
         }
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"Evento de velocidade aplicado: multiplicador={multiplicador:0.##}x, " +
+            $"Evento de velocidade aplicado: multiplicador={multiplicador:0.####}x, " +
             $"jogadores={afetados}, duração={DuracaoSegundos:0}s.");
     }
 }
