@@ -14,6 +14,7 @@ internal static class EventoDutos
         public PlayerControl Jogador;
         public int VentId;
         public float ExecutarEm;
+        public bool EntradaSolicitada;
     }
 
     public static void Executar(bool todos)
@@ -21,7 +22,7 @@ internal static class EventoDutos
         if (!YouTubeVoteBridgePlugin.EhHost() || ShipStatus.Instance == null) return;
 
         List<Vent> dutos = new();
-        foreach (Vent duto in UnityEngine.Object.FindObjectsOfType<Vent>())
+        foreach (Vent duto in ShipStatus.Instance.AllVents)
             if (duto != null) dutos.Add(duto);
 
         if (dutos.Count == 0)
@@ -69,23 +70,27 @@ internal static class EventoDutos
                     }
                 }
 
-                if (maisProximo == null || jogador.MyPhysics == null) continue;
+                if (maisProximo == null || jogador.MyPhysics == null ||
+                    jogador.NetTransform == null) continue;
 
-                // Solicita a entrada e espera um curto intervalo antes de expulsar,
-                // dando tempo para o jogo processar a entrada no duto.
-                jogador.MyPhysics.RpcEnterVent(maisProximo.Id);
+                // Primeiro posiciona o personagem exatamente na entrada do duto, incluindo
+                // o Offset visual do próprio Vent. Só depois pede ao jogo para entrar.
+                Vector2 posicaoDuto = (Vector2)(maisProximo.transform.position + maisProximo.Offset);
+                jogador.NetTransform.RpcSnapTo(posicaoDuto);
+
                 ExpulsoesPendentes.Add(new ExpulsaoPendente
                 {
                     Jogador = jogador,
                     VentId = maisProximo.Id,
-                    ExecutarEm = Time.realtimeSinceStartup + 0.20f
+                    ExecutarEm = Time.realtimeSinceStartup + 0.20f,
+                    EntradaSolicitada = false
                 });
                 agendados++;
             }
             catch (Exception ex)
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "Falha ao iniciar evento de duto para PlayerId=" + jogador.PlayerId + ": " + ex.Message);
+                    "Falha ao posicionar jogador no duto para PlayerId=" + jogador.PlayerId + ": " + ex.Message);
             }
         }
 
@@ -104,25 +109,43 @@ internal static class EventoDutos
             ExpulsaoPendente pendente = ExpulsoesPendentes[i];
             if (agora < pendente.ExecutarEm) continue;
 
-            ExpulsoesPendentes.RemoveAt(i);
+            PlayerControl jogador = pendente.Jogador;
+            if (jogador == null || jogador.MyPhysics == null ||
+                jogador.NetTransform == null || jogador.Data == null ||
+                jogador.Data.IsDead || jogador.Data.Disconnected)
+            {
+                ExpulsoesPendentes.RemoveAt(i);
+                continue;
+            }
 
             try
             {
-                PlayerControl jogador = pendente.Jogador;
-                if (jogador == null || jogador.MyPhysics == null ||
-                    jogador.Data == null || jogador.Data.IsDead ||
-                    jogador.Data.Disconnected)
-                    continue;
+                if (!pendente.EntradaSolicitada)
+                {
+                    // A entrada é uma etapa separada para o SnapTo chegar antes do RPC de vent.
+                    jogador.MyPhysics.RpcEnterVent(pendente.VentId);
+                    pendente.EntradaSolicitada = true;
+                    pendente.ExecutarEm = agora + 0.40f;
 
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                        "RpcEnterVent executado para PlayerId=" + jogador.PlayerId +
+                        ", ventId=" + pendente.VentId + ".");
+                    continue;
+                }
+
+                // Só expulsa depois de dar tempo ao jogo para registrar a entrada no sistema de dutos.
                 jogador.MyPhysics.RpcBootFromVent(pendente.VentId);
+                ExpulsoesPendentes.RemoveAt(i);
+
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                     "RpcBootFromVent executado para PlayerId=" + jogador.PlayerId +
                     ", ventId=" + pendente.VentId + ".");
             }
             catch (Exception ex)
             {
+                ExpulsoesPendentes.RemoveAt(i);
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "Falha ao expulsar jogador do duto: " + ex.Message);
+                    "Falha no evento de duto para PlayerId=" + jogador.PlayerId + ": " + ex.Message);
             }
         }
     }
