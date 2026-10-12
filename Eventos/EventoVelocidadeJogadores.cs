@@ -2,13 +2,13 @@ using System;
 using System.Collections.Generic;
 using AmongUs.GameOptions;
 using Hazel;
-using InnerNet;
 using UnityEngine;
 
 namespace YouTubeVoteBridge;
 
-// Envia opções de velocidade diretamente ao cliente-alvo usando o pacote
-// GameDataTo + UpdateGameData + LogicOptions, seguindo o formato do EHR.
+// Replica a ideia do EHR: manter velocidade individual por jogador e reaplicar
+// as opções enquanto o efeito estiver ativo. Para clientes remotos, envia a
+// LogicOptions específica ao OwnerId; para o host local, atualiza as opções locais.
 internal static class EventoVelocidadeJogadores
 {
     private sealed class Efeito
@@ -16,9 +16,13 @@ internal static class EventoVelocidadeJogadores
         public float VelocidadeOriginal;
         public float Multiplicador;
         public float ExpiraEm;
+        public float ProximoEnvio;
     }
 
     private static readonly Dictionary<byte, Efeito> Efeitos = new();
+    private static float? VelocidadeBase;
+
+    private const float IntervaloReenvio = 0.75f;
 
     public static void AplicarMultiplicador(byte playerId, float multiplicador, float duracao)
     {
@@ -29,41 +33,55 @@ internal static class EventoVelocidadeJogadores
         if (jogador == null || jogador.Data == null)
             return;
 
+        if (!ObterVelocidadeBase(out float original))
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "Não foi possível ler a velocidade original das opções.");
+            return;
+        }
+
         if (!Efeitos.TryGetValue(playerId, out Efeito efeito))
         {
-            if (!ObterVelocidadeAtual(out float velocidadeOriginal))
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "Não foi possível ler a velocidade atual das opções de jogo.");
-                return;
-            }
-
-            efeito = new Efeito { VelocidadeOriginal = velocidadeOriginal };
+            efeito = new Efeito { VelocidadeOriginal = original };
             Efeitos[playerId] = efeito;
         }
 
         efeito.Multiplicador = multiplicador;
         efeito.ExpiraEm = Time.realtimeSinceStartup + duracao;
+        efeito.ProximoEnvio = 0f;
 
-        float velocidade = Mathf.Clamp(efeito.VelocidadeOriginal * multiplicador, 0.0001f, 3f);
-        if (EnviarOpcoesBrutas(jogador, velocidade))
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                $"Opções brutas enviadas: jogador={jogador.Data.PlayerName}, " +
-                $"PlayerId={playerId}, OwnerId={jogador.OwnerId}, velocidade={velocidade:0.####}.");
-        }
+        AplicarAoJogador(jogador, efeito);
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"Velocidade individual solicitada: jogador={jogador.Data.PlayerName}, " +
+            $"PlayerId={playerId}, OwnerId={jogador.OwnerId}, " +
+            $"multiplicador={multiplicador:0.####}x, duração={duracao:0}s.");
     }
 
     public static void Limpar(byte playerId)
     {
-        if (Efeitos.TryGetValue(playerId, out Efeito efeito))
-        {
-            PlayerControl jogador = EncontrarJogador(playerId);
-            if (jogador != null && jogador.Data != null && YouTubeVoteBridgePlugin.EhHost())
-                EnviarOpcoesBrutas(jogador, efeito.VelocidadeOriginal);
+        if (!Efeitos.TryGetValue(playerId, out Efeito efeito))
+            return;
 
-            Efeitos.Remove(playerId);
+        PlayerControl jogador = EncontrarJogador(playerId);
+        if (jogador != null && jogador.Data != null && YouTubeVoteBridgePlugin.EhHost())
+        {
+            if (jogador.AmOwner)
+            {
+                DefinirVelocidadeLocal(efeito.VelocidadeOriginal);
+            }
+            else
+            {
+                EnviarOpcoesBrutas(jogador, efeito.VelocidadeOriginal);
+            }
         }
+
+        Efeitos.Remove(playerId);
+        if (Efeitos.Count == 0)
+            VelocidadeBase = null;
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"Velocidade restaurada para PlayerId={playerId}.");
     }
 
     public static void Atualizar()
@@ -75,24 +93,66 @@ internal static class EventoVelocidadeJogadores
         List<byte> expirados = new();
 
         foreach (KeyValuePair<byte, Efeito> item in Efeitos)
+        {
             if (agora >= item.Value.ExpiraEm)
                 expirados.Add(item.Key);
+        }
+
+        foreach (byte id in expirados)
+            Limpar(id);
+
+        if (Efeitos.Count == 0)
+            return;
+
+        foreach (KeyValuePair<byte, Efeito> item in Efeitos)
+        {
+            if (agora < item.Value.ProximoEnvio)
+                continue;
+
+            PlayerControl jogador = EncontrarJogador(item.Key);
+            if (jogador == null || jogador.Data == null ||
+                jogador.Data.Disconnected || jogador.Data.IsDead)
+            {
+                expirados.Add(item.Key);
+                continue;
+            }
+
+            AplicarAoJogador(jogador, item.Value);
+            item.Value.ProximoEnvio = agora + IntervaloReenvio;
+        }
 
         foreach (byte id in expirados)
             Limpar(id);
     }
 
-    private static PlayerControl EncontrarJogador(byte playerId)
+    private static void AplicarAoJogador(PlayerControl jogador, Efeito efeito)
     {
-        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
-            if (jogador != null && jogador.PlayerId == playerId)
-                return jogador;
-        return null;
+        float velocidade = Mathf.Clamp(
+            efeito.VelocidadeOriginal * efeito.Multiplicador,
+            0.0001f,
+            3f);
+
+        if (jogador.AmOwner)
+        {
+            // Equivalente ao caminho local do EHR: aplicar opções no cliente dono.
+            DefinirVelocidadeLocal(velocidade);
+        }
+        else
+        {
+            // O cliente remoto recebe opções serializadas só para seu OwnerId.
+            EnviarOpcoesBrutas(jogador, velocidade);
+        }
     }
 
-    private static bool ObterVelocidadeAtual(out float velocidade)
+    private static bool ObterVelocidadeBase(out float velocidade)
     {
         velocidade = 1f;
+        if (VelocidadeBase.HasValue)
+        {
+            velocidade = VelocidadeBase.Value;
+            return true;
+        }
+
         try
         {
             var opcoes = GameOptionsManager.Instance?.CurrentGameOptions;
@@ -100,6 +160,7 @@ internal static class EventoVelocidadeJogadores
                 return false;
 
             velocidade = opcoes.GetFloat(FloatOptionNames.PlayerSpeedMod);
+            VelocidadeBase = velocidade;
             return true;
         }
         catch (Exception ex)
@@ -108,6 +169,33 @@ internal static class EventoVelocidadeJogadores
                 "Falha ao ler PlayerSpeedMod: " + ex.Message);
             return false;
         }
+    }
+
+    private static void DefinirVelocidadeLocal(float velocidade)
+    {
+        try
+        {
+            var opcoes = GameOptionsManager.Instance?.CurrentGameOptions;
+            if (opcoes == null)
+                return;
+
+            opcoes.SetFloat(
+                FloatOptionNames.PlayerSpeedMod,
+                Mathf.Clamp(velocidade, 0.0001f, 3f));
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "Falha ao aplicar velocidade local: " + ex);
+        }
+    }
+
+    private static PlayerControl EncontrarJogador(byte playerId)
+    {
+        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+            if (jogador != null && jogador.PlayerId == playerId)
+                return jogador;
+        return null;
     }
 
     private static bool EnviarOpcoesBrutas(PlayerControl jogador, float velocidade)
@@ -120,7 +208,7 @@ internal static class EventoVelocidadeJogadores
         if (opcoes == null)
             return false;
 
-        NormalGameOptionsV12 opcoesNormais = null;
+        NormalGameOptionsV12 opcoesNormais;
         try
         {
             opcoesNormais = opcoes.TryCast<NormalGameOptionsV12>();
@@ -135,16 +223,17 @@ internal static class EventoVelocidadeJogadores
         if (opcoesNormais == null)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "Envio bruto cancelado: as opções atuais não são NormalGameOptionsV12.");
+                "Envio de velocidade cancelado: opções atuais não são NormalGameOptionsV12.");
             return false;
         }
 
-        float velocidadeAnterior;
         byte[] dadosOpcoes;
         try
         {
-            velocidadeAnterior = opcoesNormais.GetFloat(FloatOptionNames.PlayerSpeedMod);
-            opcoesNormais.SetFloat(FloatOptionNames.PlayerSpeedMod, velocidade);
+            float velocidadeAnterior = opcoesNormais.GetFloat(FloatOptionNames.PlayerSpeedMod);
+            opcoesNormais.SetFloat(
+                FloatOptionNames.PlayerSpeedMod,
+                Mathf.Clamp(velocidade, 0.0001f, 3f));
 
             MessageWriter serializador = MessageWriter.Get();
             try
@@ -165,7 +254,7 @@ internal static class EventoVelocidadeJogadores
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "Falha ao serializar opções brutas: " + ex);
+                "Falha ao serializar opções de velocidade: " + ex);
             return false;
         }
 
@@ -181,12 +270,11 @@ internal static class EventoVelocidadeJogadores
                 MessageWriter pacote = MessageWriter.Get(SendOption.Reliable);
                 try
                 {
-                    // Root message 0x06: GameDataTo (GameId + OwnerId).
+                    // Mesmo envelope usado pelo PlayerGameOptionsSender do EHR.
                     pacote.StartMessage(6);
                     pacote.Write(AmongUsClient.Instance.GameId);
                     pacote.WritePacked(jogador.OwnerId);
 
-                    // UpdateData do GameManager e payload da LogicOptions correspondente.
                     pacote.StartMessage(1);
                     pacote.WritePacked(GameManager.Instance.NetId);
                     pacote.StartMessage((byte)i);
@@ -207,13 +295,9 @@ internal static class EventoVelocidadeJogadores
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "Falha ao enviar pacote bruto de opções: " + ex);
+                "Falha ao enviar opções individuais: " + ex);
             return false;
         }
-
-        if (!enviou)
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "Nenhum componente LogicOptions encontrado para enviar as opções.");
 
         return enviou;
     }
@@ -244,7 +328,7 @@ internal static class EventoVelocidadeTemporaria
         }
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"Evento de velocidade via opções brutas: multiplicador={multiplicador:0.####}x, " +
+            $"Evento de velocidade individual: multiplicador={multiplicador:0.####}x, " +
             $"jogadores={afetados}, duração={DuracaoSegundos:0}s.");
     }
 }
