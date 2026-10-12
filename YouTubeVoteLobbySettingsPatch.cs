@@ -119,19 +119,27 @@ namespace YouTubeVoteBridge
 
         internal static void Alterar(StringOption option, int delta)
         {
-            if (!YouTubeVoteBridgePlugin.EhHost())
+            if (option == null || !EhControle(option) || delta == 0 ||
+                YouTubeVoteBridgePlugin.TempoVotacao == null ||
+                YouTubeVoteBridgePlugin.IntervaloRodadas == null ||
+                YouTubeVoteBridgePlugin.PreparacaoChat == null)
                 return;
 
+            // Os controles só são exibidos ao host. Atualize diretamente a configuração
+            // persistente, sem depender do Value interno do StringOption clonado.
             if (option.name == PREFIX + "TEMPO")
-                YouTubeVoteBridgePlugin.TempoVotacao.Value =
-                    Mathf.Clamp(YouTubeVoteBridgePlugin.TempoVotacao.Value + delta * 5, 5, 300);
+                YouTubeVoteBridgePlugin.TempoVotacao.Value = Mathf.Clamp(
+                    YouTubeVoteBridgePlugin.TempoVotacao.Value + (delta * 5), 5, 300);
             else if (option.name == PREFIX + "INTERVALO")
-                YouTubeVoteBridgePlugin.IntervaloRodadas.Value =
-                    Mathf.Clamp(YouTubeVoteBridgePlugin.IntervaloRodadas.Value + delta * 5, 0, 300);
+                YouTubeVoteBridgePlugin.IntervaloRodadas.Value = Mathf.Clamp(
+                    YouTubeVoteBridgePlugin.IntervaloRodadas.Value + (delta * 5), 0, 300);
             else if (option.name == PREFIX + "PREPARACAO")
-                YouTubeVoteBridgePlugin.PreparacaoChat.Value =
-                    Mathf.Clamp(YouTubeVoteBridgePlugin.PreparacaoChat.Value + delta * 5, 0, 120);
+                YouTubeVoteBridgePlugin.PreparacaoChat.Value = Mathf.Clamp(
+                    YouTubeVoteBridgePlugin.PreparacaoChat.Value + (delta * 5), 0, 120);
+            else
+                return;
 
+            YouTubeVoteBridgePlugin.Instance?.Config.Save();
             AtualizarUmControle(option);
         }
 
