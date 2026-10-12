@@ -13,6 +13,7 @@ internal static class RegistroEventos
         new EventoTrocarPosicoes(),
         new EventoSabotagemAleatoria(),
         new EventoFecharPortas(),
+        new EventoFecharPortaAleatoria(),
         new EventoTrocarCores(),
         new EventoEscudoTemporario(),
         new EventoCriarCorpoFalso()
