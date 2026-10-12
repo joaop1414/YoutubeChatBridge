@@ -32,8 +32,6 @@ internal sealed class EventoCongelarJogador : EventoVotacao
 
         if (candidatos.Count == 0)
         {
-            YouTubeVoteBridgePlugin.Anunciar(
-                "O congelamento foi sorteado, mas não havia jogador vivo disponível.");
             return;
         }
 
@@ -48,9 +46,6 @@ internal sealed class EventoCongelarJogador : EventoVotacao
 
         // O EHR reforça SnapTo individualmente para os clientes. Um único RPC
         // em broadcast pode não corrigir a posição em todos os clientes vanilla.
-
-        YouTubeVoteBridgePlugin.Anunciar(
-            $"❄ {alvo.Data.PlayerName} foi congelado por {DuracaoSegundos:0} segundos pelo chat do YouTube!");
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             $"Congelamento iniciado: alvo={alvo.Data.PlayerName}, PlayerId={id}, duração={DuracaoSegundos:0}s.");
