@@ -42,7 +42,7 @@ internal sealed class EventoCongelarJogador : EventoVotacao
         // A velocidade é substituída no cálculo de movimento, inclusive nos frames
         // seguintes. moveable=false sozinho no host não congela de forma confiável
         // um jogador controlado por outro cliente.
-        EventoVelocidadeJogadores.DefinirVelocidadeAbsoluta(id, VELOCIDADE_CONGELADO);
+        EventoVelocidadeJogadores.AplicarMultiplicador(id, VELOCIDADE_CONGELADO, DuracaoSegundos);
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             $"Congelamento iniciado: alvo={alvo.Data.PlayerName}, PlayerId={id}, " +
@@ -68,7 +68,7 @@ internal sealed class EventoCongelarJogador : EventoVotacao
         foreach (byte id in expirados)
         {
             FimCongelamento.Remove(id);
-            EventoVelocidadeJogadores.LimparVelocidadeAbsoluta(id);
+            EventoVelocidadeJogadores.Limpar(id);
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 "Congelamento encerrado para PlayerId=" + id + ".");
         }
@@ -87,7 +87,7 @@ internal sealed class EventoCongelarJogador : EventoVotacao
     public static void Restaurar()
     {
         foreach (byte id in new List<byte>(FimCongelamento.Keys))
-            EventoVelocidadeJogadores.LimparVelocidadeAbsoluta(id);
+            EventoVelocidadeJogadores.Limpar(id);
 
         FimCongelamento.Clear();
     }
