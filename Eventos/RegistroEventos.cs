@@ -7,7 +7,6 @@ internal static class RegistroEventos
     // Para cadastrar um evento novo, adicione sua classe nesta lista.
     private static readonly IReadOnlyList<EventoVotacao> Eventos = new EventoVotacao[]
     {
-        new EventoReportarCorpo(),
         new EventoSupervelocidade(),
         new EventoVelocidadeReduzida(),
         new EventoCongelarJogador(),
