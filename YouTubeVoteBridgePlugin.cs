@@ -1211,6 +1211,9 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 case "Fechar as portas":
                     new EventoFecharPortas().Executar();
                     break;
+                case "Fechar uma porta aleatória":
+                    new EventoFecharPortaAleatoria().Executar();
+                    break;
                 default:
                     Instance.Log.LogWarning("O evento vencedor ainda não tem efeito conectado: " + eventoVencedor.Nome);
                     break;
