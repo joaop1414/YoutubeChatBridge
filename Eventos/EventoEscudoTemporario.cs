@@ -93,16 +93,17 @@ internal sealed class EventoEscudoTemporario : EventoVotacao
     }
 }
 
-// A verificação autoritativa da morte acontece em CheckMurder.
-// Patchar MurderPlayer era tarde demais ou não interceptava o fluxo usado pelo jogo.
+// Intercepta a tentativa de assassinato no fluxo autoritativo do host.
 [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.CheckMurder))]
 internal static class EventoEscudoTemporarioMortePatch
 {
+    private static readonly HashSet<byte> ReacaoEmAndamento = new();
+
     public static bool Prefix(
         PlayerControl __instance,
         [HarmonyArgument(0)] PlayerControl alvo)
     {
-        if (!YouTubeVoteBridgePlugin.EhHost() || alvo == null)
+        if (!YouTubeVoteBridgePlugin.EhHost() || __instance == null || alvo == null)
             return true;
 
         if (!EventoEscudoTemporario.EstaProtegido(alvo.PlayerId))
@@ -111,8 +112,69 @@ internal static class EventoEscudoTemporarioMortePatch
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             $"Tentativa de morte bloqueada pelo escudo temporário: " +
             $"{alvo.Data?.PlayerName ?? "jogador desconhecido"} " +
-            $"(PlayerId={alvo.PlayerId}, atacante={__instance?.Data?.PlayerName ?? "desconhecido"}).");
+            $"(PlayerId={alvo.PlayerId}, atacante={__instance.Data?.PlayerName ?? "desconhecido"}).");
 
+        // Só aplica a reação especial quando um impostor tenta matar o alvo protegido.
+        if (__instance.Data != null &&
+            !__instance.Data.IsDead &&
+            !__instance.Data.Disconnected &&
+            __instance.Data.Role != null &&
+            __instance.Data.Role.IsImpostor &&
+            !ReacaoEmAndamento.Contains(__instance.PlayerId))
+        {
+            ReacaoEmAndamento.Add(__instance.PlayerId);
+            try
+            {
+                AplicarEscudoEResetarCooldown(__instance);
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                    "Falha ao aplicar a reação do Anjo da Guarda: " + ex);
+            }
+            finally
+            {
+                ReacaoEmAndamento.Remove(__instance.PlayerId);
+            }
+        }
+
+        // A tentativa original contra o jogador protegido nunca prossegue.
         return false;
+    }
+
+    private static void AplicarEscudoEResetarCooldown(PlayerControl impostor)
+    {
+        if (AmongUsClient.Instance == null || impostor == null)
+            return;
+
+        // RPC nativo de proteção do Among Us, direcionado ao cliente que controla
+        // o impostor. Usar o próprio impostor como alvo cria a proteção sobre ele.
+        const int corEscudo = 0;
+
+        if (impostor.AmOwner)
+        {
+            impostor.ProtectPlayer(impostor, corEscudo);
+        }
+        else
+        {
+            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
+                impostor.NetId,
+                (byte)RpcCalls.ProtectPlayer,
+                SendOption.Reliable,
+                impostor.OwnerId
+            );
+            writer.WriteNetObject(impostor);
+            writer.Write(corEscudo);
+            AmongUsClient.Instance.FinishRpcImmediately(writer);
+        }
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"Proteção do Anjo da Guarda solicitada para o impostor " +
+            $"{impostor.Data?.PlayerName} (PlayerId={impostor.PlayerId}).");
+
+        // Solicita o auto-assassinato depois de enviar a proteção.
+        // A intenção é que o escudo nativo absorva a tentativa e o jogo atualize
+        // o cooldown normalmente; isso precisa ser validado em partida.
+        impostor.RpcMurderPlayer(impostor, true);
     }
 }
