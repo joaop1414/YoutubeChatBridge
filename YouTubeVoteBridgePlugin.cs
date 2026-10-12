@@ -1633,6 +1633,27 @@ public static class YouTubeVotePlayerJoinedPatch
 // ATUALIZAÇÃO DOS AVISOS
 // ============================================================
 
+[HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.ReportDeadBody))]
+public static class YouTubeVoteBlockHostReportPatch
+{
+    public static bool Prefix()
+    {
+        // Bloqueia o host de iniciar reportes localmente. Este mod não usa reportes.
+        return !YouTubeVoteBridgePlugin.EhHost();
+    }
+}
+
+[HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.HandleRpc))]
+public static class YouTubeVoteIgnoreIncomingReportRpcPatch
+{
+    public static bool Prefix(byte callId)
+    {
+        // Se o host receber um RPC de reporte, ignora-o antes que o jogo abra a reunião.
+        if (YouTubeVoteBridgePlugin.EhHost() && callId == (byte)RpcCalls.ReportDeadBody)
+            return false;
+        return true;
+    }
+}
 [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.StartMeeting))]
 public static class YouTubeVoteCancelMeetingPatch
 {
