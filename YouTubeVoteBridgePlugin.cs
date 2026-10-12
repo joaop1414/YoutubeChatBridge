@@ -720,6 +720,99 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         );
     }
 
+    // O YouTube pode responder 429 temporariamente. Respeita Retry-After
+    // e usa espera progressiva para evitar bombardear o endpoint durante o limite.
+    private static async Task<HttpResponseMessage> GetComRetry429Async(
+        string url,
+        CancellationToken token)
+    {
+        int tentativa = 0;
+
+        while (true)
+        {
+            token.ThrowIfCancellationRequested();
+            HttpResponseMessage resposta = await ClienteHttp.GetAsync(url, token);
+
+            if ((int)resposta.StatusCode != 429)
+                return resposta;
+
+            TimeSpan espera = CalcularEspera429(resposta, tentativa);
+            resposta.Dispose();
+            tentativa++;
+
+            Instance?.Log.LogWarning(
+                $"YouTube limitou o GET (HTTP 429). Nova tentativa em " +
+                $"{espera.TotalSeconds:0}s (tentativa {tentativa}).");
+
+            await Task.Delay(espera, token);
+        }
+    }
+
+    private static async Task<HttpResponseMessage> PostComRetry429Async(
+        string url,
+        string json,
+        CancellationToken token)
+    {
+        int tentativa = 0;
+
+        while (true)
+        {
+            token.ThrowIfCancellationRequested();
+
+            using var conteudo = new StringContent(
+                json, Encoding.UTF8, "application/json");
+
+            HttpResponseMessage resposta =
+                await ClienteHttp.PostAsync(url, conteudo, token);
+
+            if ((int)resposta.StatusCode != 429)
+                return resposta;
+
+            TimeSpan espera = CalcularEspera429(resposta, tentativa);
+            resposta.Dispose();
+            tentativa++;
+
+            Instance?.Log.LogWarning(
+                $"YouTube limitou o POST do chat (HTTP 429). Nova tentativa em " +
+                $"{espera.TotalSeconds:0}s (tentativa {tentativa}).");
+
+            await Task.Delay(espera, token);
+        }
+    }
+
+    private static TimeSpan CalcularEspera429(
+        HttpResponseMessage resposta,
+        int tentativa)
+    {
+        TimeSpan espera;
+        var retryAfter = resposta.Headers.RetryAfter;
+
+        if (retryAfter?.Delta != null)
+        {
+            espera = retryAfter.Delta.Value;
+        }
+        else if (retryAfter?.Date != null)
+        {
+            espera = retryAfter.Date.Value - DateTimeOffset.UtcNow;
+        }
+        else
+        {
+            // 5, 10, 20, 40 e no máximo 60 segundos.
+            int segundos = tentativa >= 4
+                ? 60
+                : Math.Min(60, 5 * (1 << Math.Min(tentativa, 4)));
+            espera = TimeSpan.FromSeconds(segundos);
+        }
+
+        // Evita espera negativa ou exagerada caso o servidor envie um cabeçalho ruim.
+        if (espera < TimeSpan.FromSeconds(2))
+            espera = TimeSpan.FromSeconds(2);
+        if (espera > TimeSpan.FromMinutes(5))
+            espera = TimeSpan.FromMinutes(5);
+
+        return espera;
+    }
+
     private static async Task LerChatAsync(
         string liveId,
         CancellationToken token)
@@ -733,7 +826,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 Uri.EscapeDataString(liveId);
 
             using HttpResponseMessage respostaPagina =
-                await ClienteHttp.GetAsync(urlLive, token);
+                await GetComRetry429Async(urlLive, token);
 
             respostaPagina.EnsureSuccessStatusCode();
 
@@ -844,7 +937,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 );
 
                 using HttpResponseMessage resposta =
-                    await ClienteHttp.PostAsync(endpoint, conteudo, token);
+                    await PostComRetry429Async(endpoint, json, token);
 
                 resposta.EnsureSuccessStatusCode();
 
