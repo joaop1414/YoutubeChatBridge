@@ -6,6 +6,7 @@ using HarmonyLib;
 using Hazel;
 using InnerNet;
 using UnityEngine;
+using AmongUs.GameOptions;
 
 namespace YouTubeVoteBridge;
 
@@ -149,8 +150,14 @@ internal static class EventoEscudoTemporarioMortePatch
         if (AmongUsClient.Instance == null || impostor == null)
             return;
 
-        // RPC nativo de proteção do Among Us, direcionado ao cliente que controla
-        // o impostor. Usar o próprio impostor como alvo cria a proteção sobre ele.
+        float cooldownOriginal = GameOptionsManager.Instance != null
+            ? GameOptionsManager.Instance.CurrentGameOptions.GetFloat(FloatOptionNames.KillCooldown)
+            : 30f;
+
+        // Dobra temporariamente o timer antes da reação; depois da tentativa
+        // protegida, deixa o impostor com o cooldown normal completo.
+        impostor.SetKillTimer(cooldownOriginal * 2f);
+
         const int corEscudo = 0;
 
         // Aplica a proteção também no estado local do host, para que a checagem
@@ -171,12 +178,19 @@ internal static class EventoEscudoTemporarioMortePatch
         }
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"Proteção do Anjo da Guarda aplicada localmente e enviada ao cliente do impostor " +
-            $"{impostor.Data?.PlayerName} (PlayerId={impostor.PlayerId}).");
+            $"Proteção do Anjo da Guarda aplicada ao impostor " +
+            $"{impostor.Data?.PlayerName} (PlayerId={impostor.PlayerId}); " +
+            $"cooldown temporário dobrado para {cooldownOriginal * 2f:0.0}s.");
 
         // Usa CheckMurder, que passa pelas verificações normais de proteção.
-        // Não chamar RpcMurderPlayer diretamente: isso poderia ignorar a proteção
-        // e matar o impostor antes de o jogo reconhecer o escudo.
+        // A proteção deve impedir que o impostor morra nessa tentativa.
         impostor.CheckMurder(impostor);
+
+        // Reverte a duplicação deixando o cooldown normal completo, em vez
+        // de deixar o timer dobrado após a reação do escudo.
+        impostor.SetKillTimer(cooldownOriginal);
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"Cooldown do impostor restaurado para {cooldownOriginal:0.0}s.");
     }
 }
