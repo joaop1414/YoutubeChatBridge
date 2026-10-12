@@ -213,11 +213,14 @@ namespace YouTubeVoteBridge
 }
 
 
-[HarmonyPatch(typeof(GameOptionsMenu), nameof(GameOptionsMenu.Update))]
-public static class YouTubeVoteLobbySettingsUpdatePatch
+namespace YouTubeVoteBridge
 {
-    public static void Postfix(GameOptionsMenu __instance)
+    [HarmonyPatch(typeof(GameOptionsMenu), nameof(GameOptionsMenu.Update))]
+    public static class YouTubeVoteLobbySettingsUpdatePatch
     {
-        YouTubeVoteLobbySettingsPatch.ReaplicarControles(__instance);
+        public static void Postfix(GameOptionsMenu __instance)
+        {
+            YouTubeVoteLobbySettingsPatch.ReaplicarControles(__instance);
+        }
     }
 }
