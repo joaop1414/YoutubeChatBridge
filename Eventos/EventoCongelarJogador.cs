@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Hazel;
 using UnityEngine;
 
 namespace YouTubeVoteBridge;
@@ -7,8 +8,12 @@ namespace YouTubeVoteBridge;
 internal sealed class EventoCongelarJogador : EventoVotacao
 {
     private const float DuracaoSegundos = 15f;
+    private const float IntervaloReforco = 0.15f;
+
     private static readonly Dictionary<byte, float> FimCongelamento = new();
     private static readonly Dictionary<byte, bool> MovimentoOriginal = new();
+    private static readonly Dictionary<byte, Vector2> PosicaoCongelada = new();
+    private static readonly Dictionary<byte, float> ProximoReforco = new();
     private static readonly System.Random Sorteador = new();
 
     public override string Nome => "Congelar um jogador temporariamente";
@@ -22,10 +27,8 @@ internal sealed class EventoCongelarJogador : EventoVotacao
         foreach (PlayerControl player in PlayerControl.AllPlayerControls)
         {
             if (player != null && player.Data != null && !player.Data.IsDead &&
-                player.moveable && !FimCongelamento.ContainsKey(player.PlayerId))
-            {
+                !FimCongelamento.ContainsKey(player.PlayerId))
                 candidatos.Add(player);
-            }
         }
 
         if (candidatos.Count == 0)
@@ -36,15 +39,24 @@ internal sealed class EventoCongelarJogador : EventoVotacao
         }
 
         PlayerControl alvo = candidatos[Sorteador.Next(candidatos.Count)];
-        MovimentoOriginal[alvo.PlayerId] = alvo.moveable;
-        FimCongelamento[alvo.PlayerId] = Time.realtimeSinceStartup + DuracaoSegundos;
+        byte id = alvo.PlayerId;
+
+        MovimentoOriginal[id] = alvo.moveable;
+        PosicaoCongelada[id] = alvo.transform.position;
+        FimCongelamento[id] = Time.realtimeSinceStartup + DuracaoSegundos;
+        ProximoReforco[id] = 0f;
+
+        // moveable=false sozinho só bloqueia o objeto no host. Para impedir
+        // que o cliente vanilla avance, o host também reenvia SnapTo para
+        // todos os clientes, mantendo o jogador na posição inicial.
         alvo.moveable = false;
+        EnviarSnapTo(alvo, PosicaoCongelada[id]);
 
         YouTubeVoteBridgePlugin.Anunciar(
             $"❄ {alvo.Data.PlayerName} foi congelado por {DuracaoSegundos:0} segundos pelo chat do YouTube!");
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"Congelamento iniciado: {alvo.Data.PlayerName} (PlayerId={alvo.PlayerId}), {DuracaoSegundos:0}s.");
+            $"Congelamento iniciado: {alvo.Data.PlayerName} (PlayerId={id}), {DuracaoSegundos:0}s.");
     }
 
     public static void Atualizar()
@@ -57,24 +69,32 @@ internal sealed class EventoCongelarJogador : EventoVotacao
 
         foreach (KeyValuePair<byte, float> item in FimCongelamento)
         {
-            PlayerControl alvo = EncontrarJogador(item.Key);
+            byte id = item.Key;
+            PlayerControl alvo = EncontrarJogador(id);
+
             if (agora >= item.Value || alvo == null || alvo.Data == null || alvo.Data.IsDead)
             {
-                RestaurarJogador(alvo, item.Key);
-                expirados.Add(item.Key);
+                RestaurarJogador(alvo, id);
+                expirados.Add(id);
+                continue;
             }
-            else
+
+            alvo.moveable = false;
+            if (!ProximoReforco.TryGetValue(id, out float proximo) || agora >= proximo)
             {
-                // Mantém o comportamento atual de congelamento em clientes vanilla.
-                alvo.moveable = false;
+                EnviarSnapTo(alvo, PosicaoCongelada[id]);
+                ProximoReforco[id] = agora + IntervaloReforco;
             }
         }
 
         foreach (byte id in expirados)
-        {
-            FimCongelamento.Remove(id);
-            MovimentoOriginal.Remove(id);
-        }
+            RemoverCongelamento(id);
+    }
+
+    public static bool EstaCongelado(byte playerId)
+    {
+        return FimCongelamento.TryGetValue(playerId, out float fim) &&
+               Time.realtimeSinceStartup < fim;
     }
 
     public static void Restaurar()
@@ -84,6 +104,32 @@ internal sealed class EventoCongelarJogador : EventoVotacao
 
         FimCongelamento.Clear();
         MovimentoOriginal.Clear();
+        PosicaoCongelada.Clear();
+        ProximoReforco.Clear();
+    }
+
+    private static void EnviarSnapTo(PlayerControl jogador, Vector2 posicao)
+    {
+        if (jogador == null || jogador.NetTransform == null ||
+            AmongUsClient.Instance == null)
+            return;
+
+        try
+        {
+            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
+                jogador.NetTransform.NetId,
+                (byte)RpcCalls.SnapTo,
+                SendOption.Reliable);
+
+            writer.WriteVector2(posicao);
+            writer.Write(jogador.NetTransform.lastSequenceId);
+            AmongUsClient.Instance.FinishRpcImmediately(writer);
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "Não foi possível reforçar o congelamento por SnapTo: " + ex.Message);
+        }
     }
 
     private static PlayerControl EncontrarJogador(byte playerId)
@@ -104,5 +150,13 @@ internal sealed class EventoCongelarJogador : EventoVotacao
 
         if (MovimentoOriginal.TryGetValue(playerId, out bool movimento))
             jogador.moveable = movimento;
+    }
+
+    private static void RemoverCongelamento(byte playerId)
+    {
+        FimCongelamento.Remove(playerId);
+        MovimentoOriginal.Remove(playerId);
+        PosicaoCongelada.Remove(playerId);
+        ProximoReforco.Remove(playerId);
     }
 }
