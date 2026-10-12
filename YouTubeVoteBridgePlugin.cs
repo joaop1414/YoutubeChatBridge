@@ -1215,6 +1215,9 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 case "Expulsar todos para o duto mais próximo":
                     new EventoDutoMaisProximoTodos().Executar();
                     break;
+                case "Expulsar todos por um duto aleatório":
+                    new EventoDutoAleatorioTodos().Executar();
+                    break;
                 case "Expulsar um jogador aleatório para o duto mais próximo":
                     new EventoDutoMaisProximoAleatorio().Executar();
                     break;
