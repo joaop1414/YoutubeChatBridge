@@ -17,7 +17,7 @@ internal static class EventoDutos
         public bool EntradaSolicitada;
     }
 
-    public static void Executar(bool todos)
+    public static void Executar(bool todos, bool dutoAleatorio = false)
     {
         if (!YouTubeVoteBridgePlugin.EhHost() || ShipStatus.Instance == null) return;
 
@@ -56,17 +56,26 @@ internal static class EventoDutos
         {
             try
             {
-                Vector2 posicao = jogador.GetTruePosition();
                 Vent maisProximo = null;
-                float menorDistancia = float.MaxValue;
 
-                foreach (Vent duto in dutos)
+                if (dutoAleatorio)
                 {
-                    float distancia = Vector2.Distance(posicao, (Vector2)duto.transform.position);
-                    if (distancia < menorDistancia)
+                    // Todos os jogadores usam um duto escolhido aleatoriamente para esta rodada.
+                    maisProximo = dutos[Sorteador.Next(dutos.Count)];
+                }
+                else
+                {
+                    Vector2 posicao = jogador.GetTruePosition();
+                    float menorDistancia = float.MaxValue;
+
+                    foreach (Vent duto in dutos)
                     {
-                        menorDistancia = distancia;
-                        maisProximo = duto;
+                        float distancia = Vector2.Distance(posicao, (Vector2)duto.transform.position);
+                        if (distancia < menorDistancia)
+                        {
+                            menorDistancia = distancia;
+                            maisProximo = duto;
+                        }
                     }
                 }
 
@@ -97,7 +106,8 @@ internal static class EventoDutos
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             "Evento de duto agendado; jogadores=" + agendados +
-            ", modo=" + (todos ? "todos" : "um aleatório") + ".");
+            ", modo=" + (todos ? "todos" : "um aleatório") +
+            ", seleção do duto=" + (dutoAleatorio ? "aleatória" : "mais próximo") + ".");
     }
 
     public static void Atualizar()
@@ -162,4 +172,11 @@ internal sealed class EventoDutoMaisProximoAleatorio : EventoVotacao
 {
     public override string Nome => "Expulsar um jogador aleatório para o duto mais próximo";
     public void Executar() => EventoDutos.Executar(false);
+}
+
+
+internal sealed class EventoDutoAleatorioTodos : EventoVotacao
+{
+    public override string Nome => "Expulsar todos por um duto aleatório";
+    public void Executar() => EventoDutos.Executar(true, true);
 }
