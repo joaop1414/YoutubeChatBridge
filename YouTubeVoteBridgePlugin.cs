@@ -1288,6 +1288,9 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             
             switch (eventoVencedor.Nome)
             {
+                case "Escudo temporário":
+                    new EventoEscudoTemporario().Executar();
+                    break;
                 case "Congelar um jogador temporariamente":
                     new EventoCongelarJogador().Executar();
                     break;
@@ -1818,6 +1821,7 @@ public static class YouTubeVoteUpdatePatch
         YouTubeVoteBridgePlugin.EnviarSinalModAoHost();
         YouTubeVoteBridgePlugin.AtualizarAvisos();
         YouTubeVoteBridgePlugin.AtualizarVotacao();
+        EventoEscudoTemporario.Atualizar();
         EventoCongelarJogador.Atualizar();
         EventoVelocidadeJogadores.Atualizar();
     }
