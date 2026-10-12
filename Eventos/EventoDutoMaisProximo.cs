@@ -63,10 +63,10 @@ internal static class EventoDutos
 
                 if (maisProximo == null || jogador.MyPhysics == null) continue;
 
-                // Força a entrada no duto e, em seguida, usa a operação original do jogo
-                // para expulsar os jogadores que estiverem nesse duto.
+                // Teste baseado no Paranoico do EHR:
+                // força a entrada e usa o RPC original de expulsão do duto.
                 jogador.MyPhysics.RpcEnterVent(maisProximo.Id);
-                VentilationSystem.Update(VentilationSystem.Operation.BootImpostors, maisProximo.Id);
+                jogador.MyPhysics.RpcBootFromVent(maisProximo.Id);
                 processados++;
             }
             catch (Exception ex)
