@@ -51,7 +51,7 @@ internal sealed class EventoReportarCorpo : EventoVotacao
             }
         }
 
-        PlayerControl reporter = vivos[new Random().Next(vivos.Count)];
+        PlayerControl reporter = vivos[new System.Random().Next(vivos.Count)];
 
         try
         {
