@@ -22,17 +22,6 @@ internal sealed class EventoReportarCorpo : EventoVotacao
         }
 
         var corpos = UnityEngine.Object.FindObjectsOfType<DeadBody>();
-        try
-        {
-        }
-        catch (Exception ex)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "Não foi possível localizar corpos para o evento: " + ex);
-            YouTubeVoteBridgePlugin.Anunciar(
-                "Não consegui localizar um corpo para reportar.");
-            return;
-        }
 
         List<NetworkedPlayerInfo> candidatos = new();
         foreach (DeadBody corpo in corpos)
