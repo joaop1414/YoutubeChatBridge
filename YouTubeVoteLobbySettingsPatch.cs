@@ -166,9 +166,17 @@ namespace YouTubeVoteBridge
             else
                 valor = YouTubeVoteBridgePlugin.PreparacaoChat.Value;
 
+            // Reaplica o título correto e o valor formatado em segundos.
+            if (option.name == PREFIX + "TEMPO")
+                option.TitleText.text = "Tempo da votação";
+            else if (option.name == PREFIX + "INTERVALO")
+                option.TitleText.text = "Intervalo entre rodadas";
+            else
+                option.TitleText.text = "Preparação do chat";
+
             option.Value = valor;
             option.oldValue = valor;
-            option.ValueText.text = valor + unidade;
+            option.ValueText.text = valor.ToString() + unidade;
         }
     }
 
