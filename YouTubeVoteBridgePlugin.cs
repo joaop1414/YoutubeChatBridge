@@ -1208,6 +1208,15 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 case "Fechar uma porta aleatória":
                     new EventoFecharPortaAleatoria().Executar();
                     break;
+                case "Expulsar todos para o duto mais próximo":
+                    new EventoDutoMaisProximoTodos().Executar();
+                    break;
+                case "Expulsar um jogador aleatório para o duto mais próximo":
+                    new EventoDutoMaisProximoAleatorio().Executar();
+                    break;
+                case "Quem completar uma tarefa mata um jogador":
+                    EventoTarefaMataJogador.Ativar();
+                    break;
                 default:
                     Instance.Log.LogWarning("O evento vencedor ainda não tem efeito conectado: " + eventoVencedor.Nome);
                     break;
@@ -1673,6 +1682,7 @@ public static class YouTubeVoteCancelMeetingPatch
         if (!YouTubeVoteBridgePlugin.EhHost())
             return true;
         YouTubeVoteBridgePlugin.CancelarReuniaoSolicitada();
+        EventoTarefaMataJogador.Desativar();
         // Deixa a chamada original continuar depois de restaurar os nomes.
         // Retornar false aqui cancelava a reunião e não havia um segundo RPC.
         return true;
@@ -1758,5 +1768,15 @@ public static class YouTubeVotePastePatch
                 );
             }
         }
+    }
+}
+
+
+[HarmonyPatch(typeof(PlayerControl), "CompleteTask")]
+public static class YouTubeVoteTaskKillPatch
+{
+    public static void Postfix(PlayerControl __instance)
+    {
+        EventoTarefaMataJogador.AoCompletarTarefa(__instance);
     }
 }
