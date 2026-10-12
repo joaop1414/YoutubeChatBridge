@@ -323,9 +323,37 @@ internal static class EventoVelocidadeJogadores
 
             if (!encontrouLogica)
             {
+                string componentes = "indisponível";
+                int quantidade = -1;
+
+                try
+                {
+                    var lista = GameManager.Instance?.LogicComponents;
+                    if (lista != null)
+                    {
+                        quantidade = lista.Count;
+                        var nomes = new List<string>();
+                        for (int i = 0; i < lista.Count; i++)
+                        {
+                            var componente = lista[i];
+                            nomes.Add($"{i}:{(componente == null ? "null" : componente.GetType().Name)}");
+                        }
+
+                        componentes = nomes.Count == 0
+                            ? "(lista vazia)"
+                            : string.Join(", ", nomes);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    componentes = "erro ao inspecionar: " + ex.Message;
+                }
+
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
                     $"[Velocidade] Nenhum LogicOptions encontrado; pacote não enviado. " +
-                    $"PlayerId={jogador.PlayerId}, OwnerId={jogador.OwnerId}.");
+                    $"PlayerId={jogador.PlayerId}, OwnerId={jogador.OwnerId}, " +
+                    $"GameManagerNetId={GameManager.Instance?.NetId}, " +
+                    $"quantidadeLogicComponents={quantidade}, componentes=[{componentes}].");
             }
         }
         catch (Exception ex)
