@@ -1605,6 +1605,17 @@ public static class YouTubeVoteChatPatch
 
         string mensagem = chatText.Trim();
 
+        // Comando somente de consulta: qualquer jogador pode usar /ytconfig.
+        if (mensagem.Equals("/ytconfig", StringComparison.OrdinalIgnoreCase) ||
+            mensagem.Equals("/ytconfiguracoes", StringComparison.OrdinalIgnoreCase) ||
+            mensagem.Equals("/ytconfigurações", StringComparison.OrdinalIgnoreCase))
+        {
+            if (sourcePlayer == PlayerControl.LocalPlayer)
+                YouTubeVoteBridgePlugin.Responder(__instance,
+                    PainelVotacaoRpc.ObterTextoConfiguracoes());
+            return false;
+        }
+
         if (!mensagem.StartsWith("/youtube", StringComparison.OrdinalIgnoreCase))
             return true;
 
