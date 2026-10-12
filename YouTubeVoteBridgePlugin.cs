@@ -152,6 +152,33 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         chat.AddChat(PlayerControl.LocalPlayer, PREFIXO + mensagem, false);
     }
 
+    // Escolhe um remetente que ainda esteja vivo. Se o host morreu,
+    // um jogador vivo será usado como remetente visual das mensagens privadas.
+    private static PlayerControl ObterRemetenteMensagens()
+    {
+        if (PlayerControl.LocalPlayer == null)
+            return null;
+
+        PlayerControl host = PlayerControl.LocalPlayer;
+        if (host.Data != null && !host.Data.IsDead && !host.Data.Disconnected)
+            return host;
+
+        if (AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost)
+            return host;
+
+        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+        {
+            if (jogador == null || jogador.Data == null ||
+                jogador.Data.IsDead || jogador.Data.Disconnected)
+                continue;
+
+            return jogador;
+        }
+
+        // Se todos estiverem mortos, mantém o host como remetente de reserva.
+        return host;
+    }
+
     // ========================================================
     // MENSAGENS PRIVADAS
     // ========================================================
@@ -165,7 +192,9 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             AmongUsClient.Instance == null)
             return;
 
-        PlayerControl host = PlayerControl.LocalPlayer;
+        PlayerControl host = ObterRemetenteMensagens();
+        if (host == null || host.Data == null)
+            return;
 
         if (!EhHost())
         {
