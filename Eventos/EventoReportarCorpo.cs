@@ -15,8 +15,6 @@ internal sealed class EventoReportarCorpo : EventoVotacao
 
         if (MeetingHud.Instance != null)
         {
-            YouTubeVoteBridgePlugin.Anunciar(
-                "O chat sorteou um reporte, mas já existe uma reunião em andamento.");
             return;
         }
 
@@ -30,7 +28,6 @@ internal sealed class EventoReportarCorpo : EventoVotacao
 
         if (vivos.Count == 0)
         {
-            YouTubeVoteBridgePlugin.Anunciar("Não há jogadores vivos para realizar o reporte.");
             return;
         }
 
@@ -49,8 +46,6 @@ internal sealed class EventoReportarCorpo : EventoVotacao
         PlayerControl host = PlayerControl.LocalPlayer;
         if (host == null || host.Data == null || host.Data.IsDead || host.Data.Disconnected)
         {
-            YouTubeVoteBridgePlugin.Anunciar(
-                "O reporte não pode ser iniciado porque o jogador local do host não está vivo.");
             return;
         }
 
@@ -71,8 +66,6 @@ internal sealed class EventoReportarCorpo : EventoVotacao
 
                 if (dadosCorpo == null || !dadosCorpo.IsDead)
                 {
-                    YouTubeVoteBridgePlugin.Anunciar(
-                        "Encontrei um corpo, mas não consegui confirmar os dados de um jogador morto.");
                     return;
                 }
 
@@ -80,9 +73,6 @@ internal sealed class EventoReportarCorpo : EventoVotacao
                 // Executar pelo jogador local do host evita fingir que outro cliente
                 // enviou um RPC que não foi realmente enviado por ele.
                 host.ReportDeadBody(dadosCorpo);
-
-                YouTubeVoteBridgePlugin.Anunciar(
-                    $"{host.Data.PlayerName} reportou um corpo por causa do voto do YouTube!");
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                     $"Evento de reporte: reporter local do host={host.Data.PlayerName}, corpo={dadosCorpo.PlayerName}.");
             }
@@ -102,13 +92,9 @@ internal sealed class EventoReportarCorpo : EventoVotacao
                 if (MeetingHud.Instance == null)
                 {
                     host.ReportDeadBody(null);
-                    YouTubeVoteBridgePlugin.Anunciar(
-                        $"Não havia corpos: {escolhido.Data.PlayerName} tentou se auto-reportar; como o jogo recusou o alvo vivo, o host abriu uma reunião de emergência.");
                 }
                 else
                 {
-                    YouTubeVoteBridgePlugin.Anunciar(
-                        $"{escolhido.Data.PlayerName} tentou se auto-reportar porque não havia corpos no mapa!");
                 }
             }
         }
@@ -116,8 +102,6 @@ internal sealed class EventoReportarCorpo : EventoVotacao
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
                 "Falha no evento de reporte do YouTube: " + ex);
-            YouTubeVoteBridgePlugin.Anunciar(
-                "Falha ao iniciar o reporte. Confira o log do mod.");
         }
     }
 }
