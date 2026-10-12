@@ -7,9 +7,9 @@ namespace YouTubeVoteBridge;
 internal sealed class EventoCongelarJogador : EventoVotacao
 {
     private const float DuracaoSegundos = 15f;
+    private const float VELOCIDADE_CONGELADO = 0.0001f;
 
     private static readonly Dictionary<byte, float> FimCongelamento = new();
-    private static readonly Dictionary<byte, bool> MovimentoOriginal = new();
     private static readonly System.Random Sorteador = new();
 
     public override string Nome => "Congelar um jogador temporariamente";
@@ -25,27 +25,28 @@ internal sealed class EventoCongelarJogador : EventoVotacao
             if (player != null && player.Data != null &&
                 !player.Data.IsDead && !player.Data.Disconnected &&
                 !FimCongelamento.ContainsKey(player.PlayerId))
-            {
                 candidatos.Add(player);
-            }
         }
 
         if (candidatos.Count == 0)
         {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "Congelamento cancelado: não há jogadores vivos disponíveis.");
             return;
         }
 
         PlayerControl alvo = candidatos[Sorteador.Next(candidatos.Count)];
         byte id = alvo.PlayerId;
-
-        MovimentoOriginal[id] = alvo.moveable;
         FimCongelamento[id] = Time.realtimeSinceStartup + DuracaoSegundos;
 
-        // Bloqueia o movimento local quando o jogador está sob controle do host.
-        alvo.moveable = false;
+        // A velocidade é substituída no cálculo de movimento, inclusive nos frames
+        // seguintes. moveable=false sozinho no host não congela de forma confiável
+        // um jogador controlado por outro cliente.
+        EventoVelocidadeJogadores.DefinirVelocidadeAbsoluta(id, VELOCIDADE_CONGELADO);
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"Congelamento iniciado: alvo={alvo.Data.PlayerName}, PlayerId={id}, duração={DuracaoSegundos:0}s.");
+            $"Congelamento iniciado: alvo={alvo.Data.PlayerName}, PlayerId={id}, " +
+            $"velocidade={VELOCIDADE_CONGELADO}, duração={DuracaoSegundos:0}s.");
     }
 
     public static void Atualizar()
@@ -58,23 +59,19 @@ internal sealed class EventoCongelarJogador : EventoVotacao
 
         foreach (KeyValuePair<byte, float> item in FimCongelamento)
         {
-            byte id = item.Key;
-            PlayerControl alvo = EncontrarJogador(id);
-
+            PlayerControl alvo = EncontrarJogador(item.Key);
             if (agora >= item.Value || alvo == null || alvo.Data == null ||
                 alvo.Data.IsDead || alvo.Data.Disconnected)
-            {
-                RestaurarJogador(alvo, id);
-                expirados.Add(id);
-                continue;
-            }
-
-            alvo.moveable = false;
-
+                expirados.Add(item.Key);
         }
 
         foreach (byte id in expirados)
-            RemoverCongelamento(id);
+        {
+            FimCongelamento.Remove(id);
+            EventoVelocidadeJogadores.LimparVelocidadeAbsoluta(id);
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "Congelamento encerrado para PlayerId=" + id + ".");
+        }
     }
 
     public static void PausarDuranteReuniao()
@@ -82,46 +79,24 @@ internal sealed class EventoCongelarJogador : EventoVotacao
         if (!YouTubeVoteBridgePlugin.EhHost() || FimCongelamento.Count == 0)
             return;
 
-        // Não teleporta ninguém. Apenas estende a duração enquanto a reunião está ativa.
         float delta = Math.Max(0f, Time.deltaTime);
         foreach (byte id in new List<byte>(FimCongelamento.Keys))
             FimCongelamento[id] += delta;
     }
+
     public static void Restaurar()
     {
-        foreach (KeyValuePair<byte, bool> item in MovimentoOriginal)
-            RestaurarJogador(EncontrarJogador(item.Key), item.Key);
+        foreach (byte id in new List<byte>(FimCongelamento.Keys))
+            EventoVelocidadeJogadores.LimparVelocidadeAbsoluta(id);
 
         FimCongelamento.Clear();
-        MovimentoOriginal.Clear();
     }
 
     private static PlayerControl EncontrarJogador(byte playerId)
     {
         foreach (PlayerControl player in PlayerControl.AllPlayerControls)
-        {
             if (player != null && player.PlayerId == playerId)
                 return player;
-        }
-
         return null;
-    }
-
-    private static void RestaurarJogador(PlayerControl jogador, byte playerId)
-    {
-        if (jogador == null || jogador.Data == null)
-            return;
-
-        if (MovimentoOriginal.TryGetValue(playerId, out bool movimento) &&
-            !jogador.Data.IsDead && !jogador.Data.Disconnected)
-        {
-            jogador.moveable = movimento;
-        }
-    }
-
-    private static void RemoverCongelamento(byte playerId)
-    {
-        FimCongelamento.Remove(playerId);
-        MovimentoOriginal.Remove(playerId);
     }
 }
