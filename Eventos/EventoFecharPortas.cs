@@ -25,7 +25,6 @@ internal sealed class EventoFecharPortas : EventoVotacao
             SystemTypes.MedBay,
             SystemTypes.Security,
             SystemTypes.Weapons,
-            SystemTypes.Navigation,
             SystemTypes.Admin,
             SystemTypes.Comms,
             SystemTypes.UpperEngine,
