@@ -44,9 +44,6 @@ internal sealed class EventoCongelarJogador : EventoVotacao
         // Bloqueia o movimento local quando o jogador está sob controle do host.
         alvo.moveable = false;
 
-        // O EHR reforça SnapTo individualmente para os clientes. Um único RPC
-        // em broadcast pode não corrigir a posição em todos os clientes vanilla.
-
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             $"Congelamento iniciado: alvo={alvo.Data.PlayerName}, PlayerId={id}, duração={DuracaoSegundos:0}s.");
     }
