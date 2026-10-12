@@ -932,10 +932,6 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
                 string json = JsonSerializer.Serialize(payload);
 
-                using var conteudo = new StringContent(
-                    json, Encoding.UTF8, "application/json"
-                );
-
                 using HttpResponseMessage resposta =
                     await PostComRetry429Async(endpoint, json, token);
 
