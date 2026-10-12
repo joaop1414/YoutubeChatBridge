@@ -1199,6 +1199,12 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 case "Congelar um jogador temporariamente":
                     new EventoCongelarJogador().Executar();
                     break;
+                case "Supervelocidade temporária":
+                    new EventoSupervelocidade().Executar();
+                    break;
+                case "Velocidade reduzida temporária":
+                    new EventoVelocidadeReduzida().Executar();
+                    break;
                 case "Trocar posição de dois jogadores":
                     new EventoTrocarPosicoes().Executar();
                     break;
@@ -1721,6 +1727,8 @@ public static class YouTubeVoteUpdatePatch
         YouTubeVoteBridgePlugin.AtualizarAvisos();
         YouTubeVoteBridgePlugin.AtualizarVotacao();
         EventoDutos.Atualizar();
+        EventoCongelarJogador.Atualizar();
+        EventoVelocidadeJogadores.Atualizar();
     }
 }
 
