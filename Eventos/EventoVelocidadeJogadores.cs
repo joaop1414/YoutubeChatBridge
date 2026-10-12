@@ -23,6 +23,7 @@ internal static class EventoVelocidadeJogadores
     private static float? VelocidadeBase;
 
     private const float IntervaloReenvio = 0.75f;
+    private static float ProximoDiagnosticoComponentes;
 
     public static void AplicarMultiplicador(byte playerId, float multiplicador, float duracao)
     {
@@ -321,14 +322,33 @@ internal static class EventoVelocidadeJogadores
                 }
             }
 
-            if (!encontrouLogica)
+            if (!encontrouLogica && Time.realtimeSinceStartup >= ProximoDiagnosticoComponentes)
             {
+                ProximoDiagnosticoComponentes = Time.realtimeSinceStartup + 5f;
+
                 string componentes = "indisponível";
+                string referenciaDireta = "não consultada";
+                string indiceReferenciaDireta = "não disponível";
                 int quantidade = -1;
 
                 try
                 {
-                    var lista = GameManager.Instance?.LogicComponents;
+                    GameManager gerenciador = GameManager.Instance;
+                    var lista = gerenciador?.LogicComponents;
+
+                    // Diagnóstico: comparar a propriedade direta LogicOptions com a lista
+                    // usada pelo EHR para descobrir o índice de rede correto.
+                    LogicOptions logicaDireta = gerenciador?.LogicOptions;
+                    if (logicaDireta == null)
+                    {
+                        referenciaDireta = "null";
+                    }
+                    else
+                    {
+                        referenciaDireta =
+                            $"{logicaDireta.GetType().FullName}; Assembly={logicaDireta.GetType().Assembly.GetName().Name}";
+                    }
+
                     if (lista != null)
                     {
                         quantidade = lista.Count;
@@ -336,24 +356,42 @@ internal static class EventoVelocidadeJogadores
                         for (int i = 0; i < lista.Count; i++)
                         {
                             var componente = lista[i];
-                            nomes.Add($"{i}:{(componente == null ? "null" : componente.GetType().Name)}");
+                            if (componente == null)
+                            {
+                                nomes.Add($"{i}:null");
+                                continue;
+                            }
+
+                            string tipo = componente.GetType().FullName;
+                            string assembly = componente.GetType().Assembly.GetName().Name;
+                            bool mesmaReferencia = logicaDireta != null &&
+                                ReferenceEquals(componente, logicaDireta);
+
+                            nomes.Add($"{i}:{tipo}; Assembly={assembly}; " +
+                                $"LogicOptionsDireto={mesmaReferencia}");
+
+                            if (mesmaReferencia)
+                                indiceReferenciaDireta = i.ToString();
                         }
 
                         componentes = nomes.Count == 0
                             ? "(lista vazia)"
-                            : string.Join(", ", nomes);
+                            : string.Join(" || ", nomes);
                     }
                 }
                 catch (Exception ex)
                 {
-                    componentes = "erro ao inspecionar: " + ex.Message;
+                    componentes = "erro ao inspecionar: " + ex;
                 }
 
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    $"[Velocidade] Nenhum LogicOptions encontrado; pacote não enviado. " +
+                    $"[Velocidade][DIAGNOSTICO] Nenhum LogicOptions na lista; pacote não enviado. " +
                     $"PlayerId={jogador.PlayerId}, OwnerId={jogador.OwnerId}, " +
                     $"GameManagerNetId={GameManager.Instance?.NetId}, " +
-                    $"quantidadeLogicComponents={quantidade}, componentes=[{componentes}].");
+                    $"quantidadeLogicComponents={quantidade}, " +
+                    $"LogicOptionsDireto=[{referenciaDireta}], " +
+                    $"indiceLogicOptionsDireto={indiceReferenciaDireta}, " +
+                    $"componentes=[{componentes}].");
             }
         }
         catch (Exception ex)
