@@ -33,18 +33,20 @@ internal sealed class EventoFecharPortas : EventoVotacao
             SystemTypes.Shields
         };
 
-        // Tenta algumas salas para aumentar a chance de acertar uma
-        // que tenha portas no mapa atual.
-        for (int tentativa = 0; tentativa < 4; tentativa++)
-        {
-            SystemTypes sala = salas[Sorteador.Next(salas.Length)];
+        // Fecha portas em até quatro salas sorteadas. Isso também aumenta
+        // a chance de afetar salas que realmente existam no mapa atual.
+        HashSet<SystemTypes> escolhidas = new();
 
+        while (escolhidas.Count < 4 && escolhidas.Count < salas.Length)
+            escolhidas.Add(salas[Sorteador.Next(salas.Length)]);
+
+        int executadas = 0;
+        foreach (SystemTypes sala in escolhidas)
+        {
             try
             {
                 ShipStatus.Instance.CloseDoorsOfType(sala);
-                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "Evento executado: fechamento de portas na sala " + sala + ".");
-                return;
+                executadas++;
             }
             catch (Exception ex)
             {
@@ -53,7 +55,7 @@ internal sealed class EventoFecharPortas : EventoVotacao
             }
         }
 
-        YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-            "O evento de fechar portas não conseguiu executar em nenhuma sala sorteada.");
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            "Evento executado: tentativa de fechar portas em " + executadas + " sala(s).");
     }
 }
