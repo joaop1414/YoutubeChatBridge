@@ -1205,8 +1205,8 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 case "Congelar um jogador temporariamente":
                     new EventoCongelarJogador().Executar();
                     break;
-                case "Reportar um jogador vivo pelo chat do YouTube":
-                    new EventoReportarCorpo().Executar();
+                case "Trocar cores de jogadores":
+                    new EventoTrocarCores().Executar();
                     break;
                 default:
                     Instance.Log.LogWarning("O evento vencedor ainda não tem efeito conectado: " + eventoVencedor.Nome);
