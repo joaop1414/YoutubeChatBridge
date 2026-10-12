@@ -56,19 +56,9 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     private static readonly Dictionary<string, int> Votos = new(StringComparer.OrdinalIgnoreCase);
     private static readonly List<Evento> Opcoes = new();
     private static readonly System.Random Sorteador = new();
-    private static readonly List<Evento> Catalogo = new()
-    {
-        new Evento("Reportar corpo com aviso do YouTube"),
-        new Evento("Supervelocidade temporária"),
-        new Evento("Velocidade reduzida temporária"),
-        new Evento("Congelar um jogador temporariamente"),
-        new Evento("Trocar posição de dois jogadores"),
-        new Evento("Sabotagem aleatória"),
-        new Evento("Fechar as portas"),
-        new Evento("Trocar cores de jogadores"),
-        new Evento("Escudo temporário"),
-        new Evento("Criar corpo falso")
-    };
+    private static readonly List<Evento> Catalogo = RegistroEventos.ObterTodos()
+        .Select(evento => new Evento(evento.Nome))
+        .ToList();
     private static bool RodadaAtiva;
     private static float FimRodada;
     private static int NumeroRodada;
@@ -1605,14 +1595,27 @@ public static class YouTubeVoteChatPatch
 
         string mensagem = chatText.Trim();
 
-        // Comando somente de consulta: qualquer jogador pode usar /ytconfig.
+        // Clientes com o mod respondem localmente. Jogadores sem o mod não
+        // interceptam o comando, então o host responde aqui quando recebe a mensagem.
         if (mensagem.Equals("/ytconfig", StringComparison.OrdinalIgnoreCase) ||
             mensagem.Equals("/ytconfiguracoes", StringComparison.OrdinalIgnoreCase) ||
-            mensagem.Equals("/ytconfigurações", StringComparison.OrdinalIgnoreCase))
+            mensagem.Equals("/ytconfigurações", StringComparison.OrdinalIgnoreCase) ||
+            mensagem.Equals("/youtube config", StringComparison.OrdinalIgnoreCase) ||
+            mensagem.Equals("/youtube configuracoes", StringComparison.OrdinalIgnoreCase) ||
+            mensagem.Equals("/youtube configurações", StringComparison.OrdinalIgnoreCase))
         {
             if (sourcePlayer == PlayerControl.LocalPlayer)
+            {
                 YouTubeVoteBridgePlugin.Responder(__instance,
                     PainelVotacaoRpc.ObterTextoConfiguracoes());
+            }
+            else if (YouTubeVoteBridgePlugin.EhHost())
+            {
+                YouTubeVoteBridgePlugin.EnviarMensagemIndividual(
+                    sourcePlayer,
+                    PainelVotacaoRpc.ObterTextoConfiguracoes());
+            }
+
             return false;
         }
 
