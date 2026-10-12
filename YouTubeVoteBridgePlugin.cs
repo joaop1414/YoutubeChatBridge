@@ -287,8 +287,31 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             NomeHostOriginalPlacar = host.Data.PlayerName;
 
         int[] contagem = ContarVotos();
-        string placar = $" [YT 1:{contagem[0]} 2:{contagem[1]} 3:{contagem[2]} 4:{contagem[3]}]";
-        string nomeComPlacar = NomeHostOriginalPlacar + placar;
+        int segundosRestantes = Math.Max(
+            0,
+            (int)Math.Ceiling(FimRodada - Time.realtimeSinceStartup)
+        );
+
+        // O SetName é enviado separadamente para cada cliente, portanto
+        // o placar fica somente na tela do destinatário e não altera o nick
+        // real salvo pelo host.
+        StringBuilder nomeFormatado = new();
+        nomeFormatado.Append(NomeHostOriginalPlacar);
+        for (int i = 0; i < 4; i++)
+        {
+            string nomeOpcao = i < Opcoes.Count
+                ? Opcoes[i].Nome
+                : "—";
+            nomeFormatado.Append("\\n");
+            nomeFormatado.Append(nomeOpcao);
+            nomeFormatado.Append(" (");
+            nomeFormatado.Append(contagem[i]);
+            nomeFormatado.Append(" votos)");
+        }
+        nomeFormatado.Append("\\ntempo: ");
+        nomeFormatado.Append(segundosRestantes);
+
+        string nomeComPlacar = nomeFormatado.ToString();
 
         var clientesEnviados = new HashSet<int>();
         foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
@@ -1162,6 +1185,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         if (Time.realtimeSinceStartup < FimRodada) return;
 
         RestaurarNomesPainel();
+        RestaurarPlacarNoNick();
         RodadaAtiva = false;
         PainelVotacaoRpc.Publicar(NumeroRodada, false, 0, Array.Empty<string>(), new int[4]);
         int[] contagem = ContarVotos();
