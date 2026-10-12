@@ -1032,7 +1032,6 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 return;
             }
 
-            Instance.Log.LogInfo($"SetName RPC preparado");
 
             MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
                 jogador.NetId,
@@ -1045,11 +1044,6 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             writer.Write(false);
             AmongUsClient.Instance.FinishRpcImmediately(writer);
 
-            Instance.Log.LogInfo(
-                $"SetName enviado: jogador={jogador.Data.PlayerName}, " +
-                $"PlayerId={jogador.PlayerId}, OwnerId={jogador.OwnerId}, " +
-                $"caracteres={nome.Length}."
-            );
         }
         catch (Exception ex)
         {
