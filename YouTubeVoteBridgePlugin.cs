@@ -1217,6 +1217,9 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 case "Quem completar uma tarefa mata um jogador":
                     EventoTarefaMataJogador.Ativar();
                     break;
+                case "Quem completar uma tarefa se mata":
+                    EventoTarefaSuicidio.Ativar();
+                    break;
                 default:
                     Instance.Log.LogWarning("O evento vencedor ainda não tem efeito conectado: " + eventoVencedor.Nome);
                     break;
