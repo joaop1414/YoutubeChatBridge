@@ -1818,7 +1818,6 @@ public static class YouTubeVoteUpdatePatch
         YouTubeVoteBridgePlugin.EnviarSinalModAoHost();
         YouTubeVoteBridgePlugin.AtualizarAvisos();
         YouTubeVoteBridgePlugin.AtualizarVotacao();
-        EventoDutos.Atualizar();
         EventoCongelarJogador.Atualizar();
         EventoVelocidadeJogadores.Atualizar();
     }
