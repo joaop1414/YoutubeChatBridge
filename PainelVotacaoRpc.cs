@@ -20,6 +20,10 @@ internal static class PainelVotacaoRpc
     private static int rodada;
     private static int segundos;
     private static bool ativo;
+    private static int tempoConfig = 40;
+    private static int intervaloConfig = 15;
+    private static int preparacaoConfig = 10;
+    private static bool configuracaoRecebida;
     private static float proximoEnvio;
     private static float proximaTentativaCriarTexto;
 
@@ -47,9 +51,54 @@ internal static class PainelVotacaoRpc
         eventos = nomesEventos ?? Array.Empty<string>();
         votos = contagem ?? new int[4];
 
-        if (Time.realtimeSinceStartup < proximoEnvio && rodadaAtiva) return;
+        if (Time.realtimeSinceStartup < proximoEnvio) return;
         proximoEnvio = Time.realtimeSinceStartup + 1f;
+        tempoConfig = YouTubeVoteBridgePlugin.TempoVotacao?.Value ?? 40;
+        intervaloConfig = YouTubeVoteBridgePlugin.IntervaloRodadas?.Value ?? 15;
+        preparacaoConfig = YouTubeVoteBridgePlugin.PreparacaoChat?.Value ?? 10;
+        configuracaoRecebida = true;
         AtualizarTexto();
+        EnviarEstadoParaClientes();
+    }
+
+    private static void EnviarEstadoParaClientes()
+    {
+        if (AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost ||
+            PlayerControl.LocalPlayer == null)
+            return;
+
+        try
+        {
+            string listaEventos = string.Join(",", eventos.Select(x =>
+                Convert.ToBase64String(Encoding.UTF8.GetBytes(x ?? ""))));
+            string listaVotos = string.Join(",", votos.Select(x => Math.Max(0, x).ToString()));
+            string payload = string.Join("|", new[]
+            {
+                rodada.ToString(), ativo ? "1" : "0", segundos.ToString(),
+                listaEventos, listaVotos, tempoConfig.ToString(),
+                intervaloConfig.ToString(), preparacaoConfig.ToString()
+            });
+
+            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
+                PlayerControl.LocalPlayer.NetId, RpcPainelVotacao,
+                SendOption.Reliable, -1);
+            writer.Write(payload);
+            AmongUsClient.Instance.FinishRpcImmediately(writer);
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "Falha ao sincronizar painel com clientes: " + ex.Message);
+        }
+    }
+
+    public static string ObterTextoConfiguracoes()
+    {
+        if (!configuracaoRecebida)
+            return "Ainda não recebi as configurações do host. Aguarde alguns segundos e tente /youtube config novamente.";
+
+        return "Configurações atuais: tempo=" + tempoConfig + "s | intervalo=" +
+            intervaloConfig + "s | preparação=" + preparacaoConfig + "s.";
     }
 
     private static void AtualizarTexto()
@@ -190,14 +239,18 @@ internal static class PainelVotacaoRpc
         try
         {
             string[] p = payload.Split('|');
-            if (p.Length != 5) return;
+            if (p.Length != 8) return;
             rodada = int.Parse(p[0]);
             ativo = p[1] == "1";
             segundos = Math.Max(0, int.Parse(p[2]));
             eventos = p[3].Length == 0 ? Array.Empty<string>() :
                 p[3].Split(',').Select(x =>
                     Encoding.UTF8.GetString(Convert.FromBase64String(x))).ToArray();
-            votos = p[4].Split(',').Select(int.Parse).ToArray();
+            votos = p[4].Length == 0 ? new int[4] : p[4].Split(',').Select(int.Parse).ToArray();
+            tempoConfig = int.Parse(p[5]);
+            intervaloConfig = int.Parse(p[6]);
+            preparacaoConfig = int.Parse(p[7]);
+            configuracaoRecebida = true;
             AtualizarTexto();
         }
         catch (Exception ex)
@@ -215,7 +268,7 @@ internal static class PainelVotacaoHudPatch
     {
         try
         {
-            if (AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost)
+            if (AmongUsClient.Instance == null || PlayerControl.LocalPlayer == null)
                 return;
             PainelVotacaoRpc.GarantirInterface(__instance);
         }
