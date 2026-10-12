@@ -7,15 +7,6 @@ namespace YouTubeVoteBridge;
 internal static class EventoDutos
 {
     private static readonly System.Random Sorteador = new();
-    private static readonly List<ExpulsaoPendente> ExpulsoesPendentes = new();
-
-    private sealed class ExpulsaoPendente
-    {
-        public PlayerControl Jogador;
-        public int VentId;
-        public float ExecutarEm;
-        public bool EntradaSolicitada;
-    }
 
     public static void Executar(bool todos, bool dutoAleatorio = false)
     {
@@ -51,17 +42,18 @@ internal static class EventoDutos
             jogadores.Add(escolhido);
         }
 
-        int agendados = 0;
+        int executados = 0;
         foreach (PlayerControl jogador in jogadores)
         {
             try
             {
-                Vent maisProximo = null;
+                if (jogador.MyPhysics == null) continue;
+
+                Vent dutoEscolhido = null;
 
                 if (dutoAleatorio)
                 {
-                    // Todos os jogadores usam um duto escolhido aleatoriamente para esta rodada.
-                    maisProximo = dutos[Sorteador.Next(dutos.Count)];
+                    dutoEscolhido = dutos[Sorteador.Next(dutos.Count)];
                 }
                 else
                 {
@@ -70,95 +62,48 @@ internal static class EventoDutos
 
                     foreach (Vent duto in dutos)
                     {
-                        float distancia = Vector2.Distance(posicao, (Vector2)duto.transform.position);
+                        if (duto == null) continue;
+
+                        float distancia = Vector2.Distance(
+                            posicao,
+                            (Vector2)duto.transform.position
+                        );
+
                         if (distancia < menorDistancia)
                         {
                             menorDistancia = distancia;
-                            maisProximo = duto;
+                            dutoEscolhido = duto;
                         }
                     }
                 }
 
-                if (maisProximo == null || jogador.MyPhysics == null ||
-                    jogador.NetTransform == null) continue;
+                if (dutoEscolhido == null) continue;
 
-                // Primeiro posiciona o personagem exatamente na entrada do duto, incluindo
-                // o Offset visual do próprio Vent. Só depois pede ao jogo para entrar.
-                // Hydra Teleporter usa a posição do Transform do Vent; Offset é visual e não é a coordenada de snap.
-                Vector2 posicaoDuto = (Vector2)maisProximo.transform.position;
-                jogador.NetTransform.RpcSnapTo(posicaoDuto);
+                // Usar apenas RpcBootFromVent, como o teleporte para dutos do Hydra.
+                // Não enviar RpcSnapTo nem RpcEnterVent antes: essa sequência fazia o jogo
+                // assumir a entrada no duto e podia deslocar o controle/expulsar o jogador
+                // em uma posição incorreta, como se saísse do chão.
+                jogador.MyPhysics.RpcBootFromVent(dutoEscolhido.Id);
+                executados++;
 
-                ExpulsoesPendentes.Add(new ExpulsaoPendente
-                {
-                    Jogador = jogador,
-                    VentId = maisProximo.Id,
-                    ExecutarEm = Time.realtimeSinceStartup + 0.20f,
-                    EntradaSolicitada = false
-                });
-                agendados++;
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "RpcBootFromVent enviado; PlayerId=" + jogador.PlayerId +
+                    ", ventId=" + dutoEscolhido.Id + "."
+                );
             }
             catch (Exception ex)
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "Falha ao posicionar jogador no duto para PlayerId=" + jogador.PlayerId + ": " + ex.Message);
+                    "Falha no evento de duto para PlayerId=" + jogador.PlayerId + ": " + ex.Message
+                );
             }
         }
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            "Evento de duto agendado; jogadores=" + agendados +
+            "Evento de duto concluído; jogadores=" + executados +
             ", modo=" + (todos ? "todos" : "um aleatório") +
-            ", seleção do duto=" + (dutoAleatorio ? "aleatória" : "mais próximo") + ".");
-    }
-
-    public static void Atualizar()
-    {
-        if (ExpulsoesPendentes.Count == 0) return;
-
-        float agora = Time.realtimeSinceStartup;
-        for (int i = ExpulsoesPendentes.Count - 1; i >= 0; i--)
-        {
-            ExpulsaoPendente pendente = ExpulsoesPendentes[i];
-            if (agora < pendente.ExecutarEm) continue;
-
-            PlayerControl jogador = pendente.Jogador;
-            if (jogador == null || jogador.MyPhysics == null ||
-                jogador.NetTransform == null || jogador.Data == null ||
-                jogador.Data.IsDead || jogador.Data.Disconnected)
-            {
-                ExpulsoesPendentes.RemoveAt(i);
-                continue;
-            }
-
-            try
-            {
-                if (!pendente.EntradaSolicitada)
-                {
-                    // A entrada é uma etapa separada para o SnapTo chegar antes do RPC de vent.
-                    jogador.MyPhysics.RpcEnterVent(pendente.VentId);
-                    pendente.EntradaSolicitada = true;
-                    pendente.ExecutarEm = agora + 0.40f;
-
-                    YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                        "RpcEnterVent executado para PlayerId=" + jogador.PlayerId +
-                        ", ventId=" + pendente.VentId + ".");
-                    continue;
-                }
-
-                // Só expulsa depois de dar tempo ao jogo para registrar a entrada no sistema de dutos.
-                jogador.MyPhysics.RpcBootFromVent(pendente.VentId);
-                ExpulsoesPendentes.RemoveAt(i);
-
-                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "RpcBootFromVent executado para PlayerId=" + jogador.PlayerId +
-                    ", ventId=" + pendente.VentId + ".");
-            }
-            catch (Exception ex)
-            {
-                ExpulsoesPendentes.RemoveAt(i);
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "Falha no evento de duto para PlayerId=" + jogador.PlayerId + ": " + ex.Message);
-            }
-        }
+            ", seleção do duto=" + (dutoAleatorio ? "aleatória" : "mais próximo") + "."
+        );
     }
 }
 
@@ -173,7 +118,6 @@ internal sealed class EventoDutoMaisProximoAleatorio : EventoVotacao
     public override string Nome => "Expulsar um jogador aleatório para o duto mais próximo";
     public void Executar() => EventoDutos.Executar(false);
 }
-
 
 internal sealed class EventoDutoAleatorioTodos : EventoVotacao
 {
