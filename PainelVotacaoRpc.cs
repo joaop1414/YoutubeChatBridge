@@ -25,6 +25,7 @@ internal static class PainelVotacaoRpc
     private static int preparacaoConfig = 10;
     private static bool configuracaoRecebida;
     private static float proximoEnvio;
+    private static float proximaSincronizacaoConfiguracoes;
     private static float proximaTentativaCriarTexto;
 
     // Dimensões em unidades do mundo do HUD.
@@ -58,6 +59,20 @@ internal static class PainelVotacaoRpc
         preparacaoConfig = YouTubeVoteBridgePlugin.PreparacaoChat?.Value ?? 10;
         configuracaoRecebida = true;
         AtualizarTexto();
+        EnviarEstadoParaClientes();
+    }
+
+    public static void SincronizarConfiguracoes()
+    {
+        if (AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost ||
+            Time.realtimeSinceStartup < proximaSincronizacaoConfiguracoes)
+            return;
+
+        proximaSincronizacaoConfiguracoes = Time.realtimeSinceStartup + 2f;
+        tempoConfig = YouTubeVoteBridgePlugin.TempoVotacao?.Value ?? 40;
+        intervaloConfig = YouTubeVoteBridgePlugin.IntervaloRodadas?.Value ?? 15;
+        preparacaoConfig = YouTubeVoteBridgePlugin.PreparacaoChat?.Value ?? 10;
+        configuracaoRecebida = true;
         EnviarEstadoParaClientes();
     }
 
@@ -270,6 +285,8 @@ internal static class PainelVotacaoHudPatch
         {
             if (AmongUsClient.Instance == null || PlayerControl.LocalPlayer == null)
                 return;
+            if (AmongUsClient.Instance.AmHost)
+                PainelVotacaoRpc.SincronizarConfiguracoes();
             PainelVotacaoRpc.GarantirInterface(__instance);
         }
         catch (Exception ex)
