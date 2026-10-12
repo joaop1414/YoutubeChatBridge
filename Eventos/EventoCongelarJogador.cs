@@ -91,7 +91,7 @@ internal sealed class EventoCongelarJogador : EventoVotacao
             return;
 
         // Não teleporta ninguém. Apenas estende a duração enquanto a reunião está ativa.
-        float delta = 1f / 60f;
+        float delta = Math.Max(0f, Time.deltaTime);
         foreach (byte id in new List<byte>(FimCongelamento.Keys))
             FimCongelamento[id] += delta;
     }
