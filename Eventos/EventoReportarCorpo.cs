@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using InnerNet;
 using UnityEngine;
 
 namespace YouTubeVoteBridge;
@@ -20,10 +21,9 @@ internal sealed class EventoReportarCorpo : EventoVotacao
             return;
         }
 
-        DeadBody[] corpos;
+        var corpos = UnityEngine.Object.FindObjectsOfType<DeadBody>();
         try
         {
-            corpos = UnityEngine.Object.FindObjectsOfType<DeadBody>();
         }
         catch (Exception ex)
         {
