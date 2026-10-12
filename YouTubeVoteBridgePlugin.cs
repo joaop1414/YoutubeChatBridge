@@ -71,9 +71,6 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     private static readonly Dictionary<byte, string> NomesOriginaisPlacarLocal = new();
     private static readonly HashSet<int> ClientesComMod = new();
     private static bool SinalModEnviado;
-    private static readonly Dictionary<byte, float> JogadoresCongelados = new();
-    private static readonly Dictionary<byte, bool> MovimentoOriginal = new();
-    private const float DURACAO_CONGELAMENTO = 15f;
 
     private static CancellationTokenSource leitorToken;
     private static Task tarefaLeitor;
@@ -946,82 +943,6 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             HudManager.Instance.Chat.AddChat(PlayerControl.LocalPlayer, PREFIXO + texto, false);
     }
 
-    private static void RestaurarJogadoresCongelados()
-    {
-        foreach (PlayerControl player in PlayerControl.AllPlayerControls)
-        {
-            if (player == null || player.Data == null) continue;
-            if (MovimentoOriginal.TryGetValue(player.PlayerId, out bool movimento))
-                player.moveable = movimento;
-        }
-        JogadoresCongelados.Clear();
-        MovimentoOriginal.Clear();
-    }
-
-    private static void AtualizarCongelamentos()
-    {
-        if (JogadoresCongelados.Count == 0) return;
-
-        float agora = Time.realtimeSinceStartup;
-        List<byte> expirados = new();
-
-        foreach (KeyValuePair<byte, float> item in JogadoresCongelados)
-        {
-            PlayerControl alvo = null;
-            foreach (PlayerControl player in PlayerControl.AllPlayerControls)
-            {
-                if (player != null && player.PlayerId == item.Key)
-                {
-                    alvo = player;
-                    break;
-                }
-            }
-
-            if (agora >= item.Value || alvo == null || alvo.Data == null ||
-                alvo.Data.IsDead)
-            {
-                if (alvo != null && alvo.Data != null &&
-                    MovimentoOriginal.TryGetValue(item.Key, out bool movimento))
-                    alvo.moveable = movimento;
-                expirados.Add(item.Key);
-            }
-            else
-            {
-                alvo.moveable = false;
-            }
-        }
-
-        foreach (byte id in expirados)
-        {
-            JogadoresCongelados.Remove(id);
-            MovimentoOriginal.Remove(id);
-        }
-    }
-
-    private static void CongelarJogadorAleatorio()
-    {
-        List<PlayerControl> candidatos = new();
-        foreach (PlayerControl player in PlayerControl.AllPlayerControls)
-        {
-            if (player != null && player.Data != null && !player.Data.IsDead &&
-                player.moveable && !JogadoresCongelados.ContainsKey(player.PlayerId))
-                candidatos.Add(player);
-        }
-
-        if (candidatos.Count == 0)
-        {
-            Anunciar("O evento de congelamento foi sorteado, mas não havia jogador válido.");
-            return;
-        }
-
-        PlayerControl alvo = candidatos[Sorteador.Next(candidatos.Count)];
-        MovimentoOriginal[alvo.PlayerId] = alvo.moveable;
-        JogadoresCongelados[alvo.PlayerId] = Time.realtimeSinceStartup + DURACAO_CONGELAMENTO;
-        alvo.moveable = false;
-        Anunciar($"❄ {alvo.Data.PlayerName} foi congelado por 15 segundos pelo chat do YouTube!");
-        Instance.Log.LogInfo($"Congelamento iniciado: {alvo.Data.PlayerName} (PlayerId={alvo.PlayerId}), 15s.");
-    }
-
     private static int[] ContarVotos()
     {
         int[] contagem = new int[4];
@@ -1160,7 +1081,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         if (!EhHost())
             return;
 
-        AtualizarCongelamentos();
+        EventoCongelarJogador.Atualizar();
 
         if (VotacaoAtiva == null || !VotacaoAtiva.Value || !ChatEmLeitura)
         {
@@ -1231,7 +1152,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             Evento eventoVencedor = Opcoes[vencedora - 1];
             Anunciar($"Vencedor: opção {vencedora} — {eventoVencedor.Nome}.");
             if (eventoVencedor.Nome == "Congelar um jogador temporariamente")
-                CongelarJogadorAleatorio();
+                new EventoCongelarJogador().Executar();
             else
                 Instance.Log.LogWarning("O evento vencedor ainda não tem efeito conectado: " + eventoVencedor.Nome);
         }
