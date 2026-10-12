@@ -1,12 +1,9 @@
 using System;
-using System.Collections.Generic;
 
 namespace YouTubeVoteBridge;
 
 internal sealed class EventoFecharPortas : EventoVotacao
 {
-    private static readonly Random Sorteador = new();
-
     public override string Nome => "Fechar as portas";
 
     public void Executar()
@@ -15,8 +12,8 @@ internal sealed class EventoFecharPortas : EventoVotacao
             ShipStatus.Instance == null)
             return;
 
-        // Escolhe uma sala por sorteio. Salas sem portas no mapa atual
-        // são ignoradas pelo próprio jogo.
+        // Tenta fechar as portas de todas as salas conhecidas pelos mapas
+        // clássicos. Salas inexistentes no mapa atual são ignoradas pelo jogo.
         SystemTypes[] salas =
         {
             SystemTypes.Cafeteria,
@@ -32,20 +29,14 @@ internal sealed class EventoFecharPortas : EventoVotacao
             SystemTypes.Shields
         };
 
-        // Fecha portas em até quatro salas sorteadas. Isso também aumenta
-        // a chance de afetar salas que realmente existam no mapa atual.
-        HashSet<SystemTypes> escolhidas = new();
+        int tentativas = 0;
 
-        while (escolhidas.Count < 4 && escolhidas.Count < salas.Length)
-            escolhidas.Add(salas[Sorteador.Next(salas.Length)]);
-
-        int executadas = 0;
-        foreach (SystemTypes sala in escolhidas)
+        foreach (SystemTypes sala in salas)
         {
             try
             {
                 ShipStatus.Instance.CloseDoorsOfType(sala);
-                executadas++;
+                tentativas++;
             }
             catch (Exception ex)
             {
@@ -55,6 +46,7 @@ internal sealed class EventoFecharPortas : EventoVotacao
         }
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            "Evento executado: tentativa de fechar portas em " + executadas + " sala(s).");
+            "Evento executado: solicitações de fechamento enviadas para " +
+            tentativas + " salas.");
     }
 }
