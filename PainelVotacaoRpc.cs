@@ -234,6 +234,14 @@ internal static class PainelVotacaoRpcPatch
 
     public static bool Prefix(PlayerControl __instance, byte callId, MessageReader reader)
     {
+        if (callId == 248)
+        {
+            if (AmongUsClient.Instance != null && AmongUsClient.Instance.AmHost &&
+                __instance != null)
+                YouTubeVoteBridgePlugin.RegistrarClienteComMod(__instance.OwnerId);
+            return false;
+        }
+
         if (callId != RpcPainelVotacao) return true;
         try
         {
