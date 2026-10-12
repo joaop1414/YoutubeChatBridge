@@ -1208,6 +1208,9 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 case "Trocar cores de jogadores":
                     new EventoTrocarCores().Executar();
                     break;
+                case "Fechar as portas":
+                    new EventoFecharPortas().Executar();
+                    break;
                 default:
                     Instance.Log.LogWarning("O evento vencedor ainda não tem efeito conectado: " + eventoVencedor.Nome);
                     break;
