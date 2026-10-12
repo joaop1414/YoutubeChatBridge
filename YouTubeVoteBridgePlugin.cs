@@ -1199,6 +1199,9 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 case "Congelar um jogador temporariamente":
                     new EventoCongelarJogador().Executar();
                     break;
+                case "Trocar posição de dois jogadores":
+                    new EventoTrocarPosicoes().Executar();
+                    break;
                 case "Trocar cores de jogadores":
                     new EventoTrocarCores().Executar();
                     break;
