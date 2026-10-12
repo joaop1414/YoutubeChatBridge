@@ -1640,6 +1640,17 @@ public static class YouTubeVoteCancelMeetingPatch
         return false;
     }
 }
+[HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.RpcStartMeeting))]
+public static class YouTubeVoteCancelRpcStartMeetingPatch
+{
+    public static bool Prefix()
+    {
+        if (!YouTubeVoteBridgePlugin.EhHost())
+            return true;
+        YouTubeVoteBridgePlugin.CancelarReuniaoSolicitada();
+        return false;
+    }
+}
 
 [HarmonyPatch(typeof(AmongUsClient), nameof(AmongUsClient.Update))]
 public static class YouTubeVoteUpdatePatch
