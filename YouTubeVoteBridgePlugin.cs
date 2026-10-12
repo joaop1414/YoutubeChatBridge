@@ -1092,8 +1092,12 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
         if (MeetingHud.Instance != null)
         {
+            float pausa = Math.Max(0f, Time.deltaTime);
+            if (RodadaAtiva) FimRodada += pausa;
+            ProximaRodadaPermitida += pausa;
             EventoCongelarJogador.PausarDuranteReuniao();
             RestaurarNomesPainel();
+            RestaurarPlacarNoNick();
             return;
         }
 
