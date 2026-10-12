@@ -135,6 +135,11 @@ namespace YouTubeVoteBridge
             AtualizarUmControle(option);
         }
 
+        internal static void ReaplicarControles(GameOptionsMenu menu)
+        {
+            AtualizarControles(menu);
+        }
+
         private static void AtualizarControles(GameOptionsMenu menu)
         {
             if (menu == null || menu.Children == null)
@@ -204,5 +209,15 @@ namespace YouTubeVoteBridge
             YouTubeVoteLobbySettingsPatch.Alterar(__instance, -1);
             return false;
         }
+    }
+}
+
+
+[HarmonyPatch(typeof(GameOptionsMenu), nameof(GameOptionsMenu.Update))]
+public static class YouTubeVoteLobbySettingsUpdatePatch
+{
+    public static void Postfix(GameOptionsMenu __instance)
+    {
+        YouTubeVoteLobbySettingsPatch.ReaplicarControles(__instance);
     }
 }
