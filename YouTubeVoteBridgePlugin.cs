@@ -78,6 +78,9 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     private static int UltimoTotalVotos = -1;
     private static readonly Dictionary<byte, string> NomesOriginaisPainel = new();
     private static string NomeHostOriginalPlacar;
+    private static readonly Dictionary<byte, string> NomesOriginaisPlacarLocal = new();
+    private static readonly HashSet<int> ClientesComMod = new();
+    private static bool SinalModEnviado;
     private static readonly Dictionary<byte, float> JogadoresCongelados = new();
     private static readonly Dictionary<byte, bool> MovimentoOriginal = new();
     private const float DURACAO_CONGELAMENTO = 15f;
@@ -252,6 +255,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
         writer.Write(remetente.Data.NetId);
         writer.Write(nome);
+        writer.Write(false);
         AmongUsClient.Instance.FinishRpcImmediately(writer);
     }
 
@@ -272,94 +276,131 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         AmongUsClient.Instance.FinishRpcImmediately(writer);
     }
 
-    // Atualiza o placar no nome do host separadamente para cada cliente.
-    // Isso também permite que clientes sem o mod vejam o placar pelo nick,
-    // pois SetName é um RPC normal do jogo enviado apenas ao cliente-alvo.
-    private static void AtualizarPlacarNoNick()
+    // Clientes com o mod enviam um sinal ao host. Os clientes que não
+    // responderem são tratados como vanilla e recebem a alteração local do nick.
+    public static void EnviarSinalModAoHost()
     {
-        if (!EhHost() || PlayerControl.LocalPlayer == null ||
-            PlayerControl.LocalPlayer.Data == null ||
-            AmongUsClient.Instance == null)
+        if (AmongUsClient.Instance == null ||
+            AmongUsClient.Instance.AmHost ||
+            PlayerControl.LocalPlayer == null ||
+            SinalModEnviado)
             return;
 
-        PlayerControl host = PlayerControl.LocalPlayer;
-        if (string.IsNullOrEmpty(NomeHostOriginalPlacar))
-            NomeHostOriginalPlacar = host.Data.PlayerName;
+        try
+        {
+            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
+                PlayerControl.LocalPlayer.NetId,
+                248,
+                SendOption.Reliable,
+                AmongUsClient.Instance.HostId
+            );
+            AmongUsClient.Instance.FinishRpcImmediately(writer);
+            SinalModEnviado = true;
+        }
+        catch (Exception ex)
+        {
+            Instance?.Log.LogWarning("Falha ao sinalizar cliente com mod: " + ex.Message);
+        }
+    }
 
+    public static void RegistrarClienteComMod(int clientId)
+    {
+        if (!EhHost() || clientId < 0)
+            return;
+
+        ClientesComMod.Add(clientId);
+        Instance?.Log.LogInfo("Cliente com YouTubeVoteBridge detectado: " + clientId);
+    }
+
+    private static string CriarNomeComPlacar(string nomeOriginal)
+    {
         int[] contagem = ContarVotos();
         int segundosRestantes = Math.Max(
             0,
             (int)Math.Ceiling(FimRodada - Time.realtimeSinceStartup)
         );
 
-        // O SetName é enviado separadamente para cada cliente, portanto
-        // o placar fica somente na tela do destinatário e não altera o nick
-        // real salvo pelo host.
-        StringBuilder nomeFormatado = new();
-        nomeFormatado.Append(NomeHostOriginalPlacar);
+        StringBuilder nome = new();
+        nome.Append(nomeOriginal);
         for (int i = 0; i < 4; i++)
         {
-            string nomeOpcao = i < Opcoes.Count
-                ? Opcoes[i].Nome
-                : "—";
-            nomeFormatado.Append("\\n");
-            nomeFormatado.Append(nomeOpcao);
-            nomeFormatado.Append(" (");
-            nomeFormatado.Append(contagem[i]);
-            nomeFormatado.Append(" votos)");
+            string nomeOpcao = i < Opcoes.Count ? Opcoes[i].Nome : "—";
+            nome.Append("\n");
+            nome.Append(nomeOpcao);
+            nome.Append(" (");
+            nome.Append(contagem[i]);
+            nome.Append(" votos)");
         }
-        nomeFormatado.Append("\\ntempo: ");
-        nomeFormatado.Append(segundosRestantes);
+        nome.Append("\ntempo: ");
+        nome.Append(segundosRestantes);
+        return nome.ToString();
+    }
 
-        string nomeComPlacar = nomeFormatado.ToString();
+    // Cada jogador sem o mod recebe o placar somente no próprio nick,
+    // enviado apenas ao cliente que controla aquele personagem.
+    private static void AtualizarPlacarNoNick()
+    {
+        if (!EhHost() || AmongUsClient.Instance == null)
+            return;
 
-        var clientesEnviados = new HashSet<int>();
         foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
         {
-            if (jogador == null || jogador.OwnerId < 0 ||
-                !clientesEnviados.Add(jogador.OwnerId))
+            if (jogador == null || jogador.Data == null ||
+                jogador.OwnerId < 0 ||
+                jogador.OwnerId == AmongUsClient.Instance.ClientId ||
+                ClientesComMod.Contains(jogador.OwnerId))
                 continue;
+
+            if (!NomesOriginaisPlacarLocal.ContainsKey(jogador.PlayerId))
+                NomesOriginaisPlacarLocal[jogador.PlayerId] = jogador.Data.PlayerName;
 
             try
             {
-                EnviarRpcNome(host, jogador.OwnerId, nomeComPlacar);
+                DefinirNomeLocal(
+                    jogador,
+                    CriarNomeComPlacar(NomesOriginaisPlacarLocal[jogador.PlayerId])
+                );
             }
             catch (Exception ex)
             {
                 Instance?.Log.LogWarning(
-                    $"Não foi possível atualizar o placar no nick do cliente {jogador.OwnerId}: {ex.Message}");
+                    $"Não foi possível atualizar o nick local do jogador {jogador.PlayerId}: {ex.Message}");
             }
         }
     }
 
     private static void RestaurarPlacarNoNick()
     {
-        if (string.IsNullOrEmpty(NomeHostOriginalPlacar))
+        if (NomesOriginaisPlacarLocal.Count == 0)
             return;
 
-        PlayerControl host = PlayerControl.LocalPlayer;
-        if (host != null && AmongUsClient.Instance != null && EhHost())
+        if (EhHost() && AmongUsClient.Instance != null)
         {
-            var clientesEnviados = new HashSet<int>();
             foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
             {
-                if (jogador == null || jogador.OwnerId < 0 ||
-                    !clientesEnviados.Add(jogador.OwnerId))
+                if (jogador == null || jogador.Data == null ||
+                    !NomesOriginaisPlacarLocal.TryGetValue(
+                        jogador.PlayerId, out string nomeOriginal))
+                    continue;
+
+                if (jogador.OwnerId < 0 ||
+                    jogador.OwnerId == AmongUsClient.Instance.ClientId ||
+                    ClientesComMod.Contains(jogador.OwnerId))
                     continue;
 
                 try
                 {
-                    EnviarRpcNome(host, jogador.OwnerId, NomeHostOriginalPlacar);
+                    DefinirNomeLocal(jogador, nomeOriginal);
                 }
                 catch (Exception ex)
                 {
                     Instance?.Log.LogWarning(
-                        $"Não foi possível restaurar o nick do cliente {jogador.OwnerId}: {ex.Message}");
+                        $"Não foi possível restaurar o nick local do jogador {jogador.PlayerId}: {ex.Message}");
                 }
             }
         }
 
-        NomeHostOriginalPlacar = null;
+        NomesOriginaisPlacarLocal.Clear();
     }
 
     // ========================================================
@@ -1613,6 +1654,7 @@ public static class YouTubeVoteUpdatePatch
 {
     public static void Postfix()
     {
+        YouTubeVoteBridgePlugin.EnviarSinalModAoHost();
         YouTubeVoteBridgePlugin.AtualizarAvisos();
         YouTubeVoteBridgePlugin.AtualizarVotacao();
     }
