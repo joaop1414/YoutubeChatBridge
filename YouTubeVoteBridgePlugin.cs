@@ -942,7 +942,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         RestaurarNomesPainel();
         RestaurarPlacarNoNick();
         EventoCongelarJogador.PausarDuranteReuniao();
-        Instance?.Log.LogDebug("Reunião cancelada pelo YouTubeVoteBridge; nomes restaurados.");
+        Instance?.Log.LogDebug("Solicitação de reunião detectada; nomes restaurados antes de permitir a chamada.");
     }
 
     internal static void Anunciar(string texto)
@@ -1662,7 +1662,9 @@ public static class YouTubeVoteCancelMeetingPatch
         if (!YouTubeVoteBridgePlugin.EhHost())
             return true;
         YouTubeVoteBridgePlugin.CancelarReuniaoSolicitada();
-        return false;
+        // Deixa a chamada original continuar depois de restaurar os nomes.
+        // Retornar false aqui cancelava a reunião e não havia um segundo RPC.
+        return true;
     }
 }
 [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.RpcStartMeeting))]
@@ -1673,7 +1675,8 @@ public static class YouTubeVoteCancelRpcStartMeetingPatch
         if (!YouTubeVoteBridgePlugin.EhHost())
             return true;
         YouTubeVoteBridgePlugin.CancelarReuniaoSolicitada();
-        return false;
+        // Não bloquear o RPC: ele é a chamada que efetivamente abre a reunião.
+        return true;
     }
 }
 
