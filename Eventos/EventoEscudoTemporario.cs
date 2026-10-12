@@ -154,40 +154,52 @@ internal static class EventoEscudoTemporarioMortePatch
             ? GameOptionsManager.Instance.CurrentGameOptions.GetFloat(FloatOptionNames.KillCooldown)
             : 30f;
 
-        // Dobra temporariamente o timer antes da reação; depois da tentativa
-        // protegida, deixa o impostor com o cooldown normal completo.
         impostor.SetKillTimer(cooldownOriginal * 2f);
 
         const int corEscudo = 0;
 
-        // Aplica a proteção também no estado local do host, para que a checagem
-        // autoritativa veja o escudo antes de processar a tentativa de suicídio.
-        impostor.ProtectPlayer(impostor, corEscudo);
-
-        if (!impostor.AmOwner)
+        // O RPC do escudo é direcionado ao cliente dono do impostor.
+        // Assim a proteção chega antes da tentativa de suicídio no mesmo canal confiável.
+        if (impostor.AmOwner)
         {
-            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
+            impostor.ProtectPlayer(impostor, corEscudo);
+        }
+        else
+        {
+            MessageWriter escudo = AmongUsClient.Instance.StartRpcImmediately(
                 impostor.NetId,
                 (byte)RpcCalls.ProtectPlayer,
                 SendOption.Reliable,
                 impostor.OwnerId
             );
-            writer.WriteNetObject(impostor);
-            writer.Write(corEscudo);
-            AmongUsClient.Instance.FinishRpcImmediately(writer);
+            escudo.WriteNetObject(impostor);
+            escudo.Write(corEscudo);
+            AmongUsClient.Instance.FinishRpcImmediately(escudo);
         }
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"Proteção do Anjo da Guarda aplicada ao impostor " +
+            $"Escudo do Anjo da Guarda enviado ao cliente do impostor " +
+            $"{impostor.Data?.PlayerName} (PlayerId={impostor.PlayerId}).");
+
+        // Envia a tentativa de auto-morte SOMENTE ao cliente que controla o impostor.
+        // Não chamar CheckMurder nem RpcMurderPlayer aqui, pois essas chamadas
+        // podem propagar a morte para todos os clientes.
+        MessageWriter suicidio = AmongUsClient.Instance.StartRpcImmediately(
+            impostor.NetId,
+            (byte)RpcCalls.MurderPlayer,
+            SendOption.Reliable,
+            impostor.OwnerId
+        );
+        suicidio.WriteNetObject(impostor);
+        suicidio.Write(true);
+        AmongUsClient.Instance.FinishRpcImmediately(suicidio);
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"RPC de auto-morte enviado somente ao cliente do impostor " +
             $"{impostor.Data?.PlayerName} (PlayerId={impostor.PlayerId}); " +
             $"cooldown temporário dobrado para {cooldownOriginal * 2f:0.0}s.");
 
-        // Usa CheckMurder, que passa pelas verificações normais de proteção.
-        // A proteção deve impedir que o impostor morra nessa tentativa.
-        impostor.CheckMurder(impostor);
-
-        // Reverte a duplicação deixando o cooldown normal completo, em vez
-        // de deixar o timer dobrado após a reação do escudo.
+        // Reverte a duplicação deixando o timer no cooldown normal completo.
         impostor.SetKillTimer(cooldownOriginal);
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
