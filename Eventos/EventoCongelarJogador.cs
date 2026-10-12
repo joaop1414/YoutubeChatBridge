@@ -26,15 +26,18 @@ internal sealed class EventoCongelarJogador : EventoVotacao
         List<PlayerControl> candidatos = new();
         foreach (PlayerControl player in PlayerControl.AllPlayerControls)
         {
-            if (player != null && player.Data != null && !player.Data.IsDead &&
+            if (player != null && player.Data != null &&
+                !player.Data.IsDead && !player.Data.Disconnected &&
                 !FimCongelamento.ContainsKey(player.PlayerId))
+            {
                 candidatos.Add(player);
+            }
         }
 
         if (candidatos.Count == 0)
         {
             YouTubeVoteBridgePlugin.Anunciar(
-                "O evento de congelamento foi sorteado, mas não havia jogador válido.");
+                "O congelamento foi sorteado, mas não havia jogador vivo disponível.");
             return;
         }
 
@@ -46,17 +49,18 @@ internal sealed class EventoCongelarJogador : EventoVotacao
         FimCongelamento[id] = Time.realtimeSinceStartup + DuracaoSegundos;
         ProximoReforco[id] = 0f;
 
-        // moveable=false sozinho só bloqueia o objeto no host. Para impedir
-        // que o cliente vanilla avance, o host também reenvia SnapTo para
-        // todos os clientes, mantendo o jogador na posição inicial.
+        // Bloqueia o movimento local quando o jogador está sob controle do host.
         alvo.moveable = false;
-        EnviarSnapTo(alvo, PosicaoCongelada[id]);
+
+        // O EHR reforça SnapTo individualmente para os clientes. Um único RPC
+        // em broadcast pode não corrigir a posição em todos os clientes vanilla.
+        EnviarSnapToParaClientes(alvo, PosicaoCongelada[id]);
 
         YouTubeVoteBridgePlugin.Anunciar(
             $"❄ {alvo.Data.PlayerName} foi congelado por {DuracaoSegundos:0} segundos pelo chat do YouTube!");
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"Congelamento iniciado: {alvo.Data.PlayerName} (PlayerId={id}), {DuracaoSegundos:0}s.");
+            $"Congelamento iniciado: alvo={alvo.Data.PlayerName}, PlayerId={id}, duração={DuracaoSegundos:0}s.");
     }
 
     public static void Atualizar()
@@ -72,7 +76,8 @@ internal sealed class EventoCongelarJogador : EventoVotacao
             byte id = item.Key;
             PlayerControl alvo = EncontrarJogador(id);
 
-            if (agora >= item.Value || alvo == null || alvo.Data == null || alvo.Data.IsDead)
+            if (agora >= item.Value || alvo == null || alvo.Data == null ||
+                alvo.Data.IsDead || alvo.Data.Disconnected || MeetingHud.Instance != null)
             {
                 RestaurarJogador(alvo, id);
                 expirados.Add(id);
@@ -82,19 +87,13 @@ internal sealed class EventoCongelarJogador : EventoVotacao
             alvo.moveable = false;
             if (!ProximoReforco.TryGetValue(id, out float proximo) || agora >= proximo)
             {
-                EnviarSnapTo(alvo, PosicaoCongelada[id]);
+                EnviarSnapToParaClientes(alvo, PosicaoCongelada[id]);
                 ProximoReforco[id] = agora + IntervaloReforco;
             }
         }
 
         foreach (byte id in expirados)
             RemoverCongelamento(id);
-    }
-
-    public static bool EstaCongelado(byte playerId)
-    {
-        return FimCongelamento.TryGetValue(playerId, out float fim) &&
-               Time.realtimeSinceStartup < fim;
     }
 
     public static void Restaurar()
@@ -108,37 +107,51 @@ internal sealed class EventoCongelarJogador : EventoVotacao
         ProximoReforco.Clear();
     }
 
-    private static void EnviarSnapTo(PlayerControl jogador, Vector2 posicao)
+    private static void EnviarSnapToParaClientes(PlayerControl jogador, Vector2 posicao)
     {
         if (jogador == null || jogador.NetTransform == null ||
-            AmongUsClient.Instance == null)
+            AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost)
             return;
 
-        try
+        ushort sequencia = jogador.NetTransform.lastSequenceId;
+        int enviados = 0;
+
+        foreach (PlayerControl destinatario in PlayerControl.AllPlayerControls)
         {
-            ushort sequencia = jogador.NetTransform.lastSequenceId;
-            EnviarSnapToComSequencia(jogador, posicao, sequencia);
-            // Um segundo número de sequência ajuda clientes que descartam
-            // SnapTo repetido com a mesma sequência.
-            EnviarSnapToComSequencia(
-                jogador, posicao, unchecked((ushort)(sequencia + 16383)));
+            if (destinatario == null || destinatario.AmOwner || destinatario.OwnerId < 0)
+                continue;
+
+            try
+            {
+                EnviarSnapTo(jogador, destinatario.OwnerId, posicao, sequencia);
+                EnviarSnapTo(jogador, destinatario.OwnerId, posicao,
+                    unchecked((ushort)(sequencia + 16383)));
+                enviados++;
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    $"Falha enviando SnapTo de congelamento para OwnerId={destinatario.OwnerId}: {ex.Message}");
+            }
         }
-        catch (Exception ex)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "Não foi possível reforçar o congelamento por SnapTo: " + ex.Message);
-        }
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"SnapTo de congelamento enviado para {enviados} cliente(s); alvo PlayerId={jogador.PlayerId}.");
     }
 
-    private static void EnviarSnapToComSequencia(
-        PlayerControl jogador, Vector2 posicao, ushort sequencia)
+    private static void EnviarSnapTo(
+        PlayerControl jogador, int destinatarioId, Vector2 posicao, ushort sequencia)
     {
         MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
             jogador.NetTransform.NetId,
             (byte)RpcCalls.SnapTo,
-            SendOption.Reliable);
+            SendOption.Reliable,
+            destinatarioId);
 
-        writer.Write(posicao);
+        // MessageWriter da versão do projeto não expõe WriteVector2:
+        // o formato do RPC SnapTo é dois floats (X, Y) e o ushort da sequência.
+        writer.Write(posicao.x);
+        writer.Write(posicao.y);
         writer.Write(sequencia);
         AmongUsClient.Instance.FinishRpcImmediately(writer);
     }
@@ -156,11 +169,14 @@ internal sealed class EventoCongelarJogador : EventoVotacao
 
     private static void RestaurarJogador(PlayerControl jogador, byte playerId)
     {
-        if (jogador == null || jogador.Data == null || jogador.Data.IsDead)
+        if (jogador == null || jogador.Data == null)
             return;
 
-        if (MovimentoOriginal.TryGetValue(playerId, out bool movimento))
+        if (MovimentoOriginal.TryGetValue(playerId, out bool movimento) &&
+            !jogador.Data.IsDead && !jogador.Data.Disconnected)
+        {
             jogador.moveable = movimento;
+        }
     }
 
     private static void RemoverCongelamento(byte playerId)
