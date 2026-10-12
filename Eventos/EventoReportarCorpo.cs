@@ -71,7 +71,7 @@ internal sealed class EventoReportarCorpo : EventoVotacao
             return;
         }
 
-        NetworkedPlayerInfo alvo = candidatos[new Random().Next(candidatos.Count)];
+        NetworkedPlayerInfo alvo = candidatos[new System.Random().Next(candidatos.Count)];
         try
         {
             reporter.ReportDeadBody(alvo);
