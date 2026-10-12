@@ -50,12 +50,16 @@ internal static class EventoVelocidadeJogadores
         efeito.ExpiraEm = Time.realtimeSinceStartup + duracao;
         efeito.ProximoEnvio = 0f;
 
-        AplicarAoJogador(jogador, efeito);
+        float velocidadeSolicitada = Mathf.Clamp(original * multiplicador, 0.0001f, 3f);
+        bool aplicadoOuEnfileirado = AplicarAoJogador(jogador, efeito);
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"Velocidade individual solicitada: jogador={jogador.Data.PlayerName}, " +
+            $"Velocidade individual: jogador={jogador.Data.PlayerName}, " +
             $"PlayerId={playerId}, OwnerId={jogador.OwnerId}, " +
-            $"multiplicador={multiplicador:0.####}x, duração={duracao:0}s.");
+            $"base={original:0.####}, alvo={velocidadeSolicitada:0.####}, " +
+            $"multiplicador={multiplicador:0.####}x, duração={duracao:0}s, " +
+            $"caminho={(jogador.AmOwner ? "local" : "remoto")}, " +
+            $"resultado={(aplicadoOuEnfileirado ? "enviado/aplicado" : "FALHOU")}.");
     }
 
     public static void Limpar(byte playerId)
@@ -125,7 +129,7 @@ internal static class EventoVelocidadeJogadores
             Limpar(id);
     }
 
-    private static void AplicarAoJogador(PlayerControl jogador, Efeito efeito)
+    private static bool AplicarAoJogador(PlayerControl jogador, Efeito efeito)
     {
         float velocidade = Mathf.Clamp(
             efeito.VelocidadeOriginal * efeito.Multiplicador,
@@ -136,12 +140,11 @@ internal static class EventoVelocidadeJogadores
         {
             // Equivalente ao caminho local do EHR: aplicar opções no cliente dono.
             DefinirVelocidadeLocal(velocidade);
+            return true;
         }
-        else
-        {
-            // O cliente remoto recebe opções serializadas só para seu OwnerId.
-            EnviarOpcoesBrutas(jogador, velocidade);
-        }
+
+        // O cliente remoto recebe opções serializadas só para seu OwnerId.
+        return EnviarOpcoesBrutas(jogador, velocidade);
     }
 
     private static bool ObterVelocidadeBase(out float velocidade)
@@ -271,6 +274,7 @@ internal static class EventoVelocidadeJogadores
             return false;
         }
 
+        bool encontrouLogica = false;
         bool enviou = false;
         try
         {
@@ -280,6 +284,7 @@ internal static class EventoVelocidadeJogadores
                 if (GameManager.Instance.LogicComponents[i] is not LogicOptions)
                     continue;
 
+                encontrouLogica = true;
                 MessageWriter pacote = MessageWriter.Get(SendOption.Reliable);
                 try
                 {
@@ -296,19 +301,38 @@ internal static class EventoVelocidadeJogadores
                     pacote.EndMessage();
                     pacote.EndMessage();
 
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                        $"[Velocidade] Enviando opções: PlayerId={jogador.PlayerId}, " +
+                        $"OwnerId={jogador.OwnerId}, LogicOptionsIndex={i}, " +
+                        $"velocidade={velocidade:0.####}, bytesOpções={dadosOpcoes.Length}, " +
+                        $"bytesPacote={pacote.Length}.");
+
                     AmongUsClient.Instance.SendOrDisconnect(pacote);
                     enviou = true;
+
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                        $"[Velocidade] SendOrDisconnect retornou sem exceção: " +
+                        $"PlayerId={jogador.PlayerId}, OwnerId={jogador.OwnerId}, " +
+                        $"LogicOptionsIndex={i}. Isso confirma chamada local, não recebimento pelo cliente.");
                 }
                 finally
                 {
                     pacote.Recycle();
                 }
             }
+
+            if (!encontrouLogica)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    $"[Velocidade] Nenhum LogicOptions encontrado; pacote não enviado. " +
+                    $"PlayerId={jogador.PlayerId}, OwnerId={jogador.OwnerId}.");
+            }
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "Falha ao enviar opções individuais: " + ex);
+                $"[Velocidade] Falha ao enviar opções individuais: " +
+                $"PlayerId={jogador.PlayerId}, OwnerId={jogador.OwnerId}, velocidade={velocidade:0.####}. " + ex);
             return false;
         }
 
