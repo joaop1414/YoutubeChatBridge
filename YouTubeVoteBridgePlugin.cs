@@ -1203,6 +1203,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                     new EventoTrocarCores().Executar();
                     break;
                 case "Fechar as portas":
+                case "Fechar todas as portas":
                     new EventoFecharPortas().Executar();
                     break;
                 case "Fechar uma porta aleatória":
