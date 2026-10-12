@@ -153,11 +153,11 @@ internal static class EventoEscudoTemporarioMortePatch
         // o impostor. Usar o próprio impostor como alvo cria a proteção sobre ele.
         const int corEscudo = 0;
 
-        if (impostor.AmOwner)
-        {
-            impostor.ProtectPlayer(impostor, corEscudo);
-        }
-        else
+        // Aplica a proteção também no estado local do host, para que a checagem
+        // autoritativa veja o escudo antes de processar a tentativa de suicídio.
+        impostor.ProtectPlayer(impostor, corEscudo);
+
+        if (!impostor.AmOwner)
         {
             MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
                 impostor.NetId,
@@ -171,12 +171,12 @@ internal static class EventoEscudoTemporarioMortePatch
         }
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"Proteção do Anjo da Guarda solicitada para o impostor " +
+            $"Proteção do Anjo da Guarda aplicada localmente e enviada ao cliente do impostor " +
             $"{impostor.Data?.PlayerName} (PlayerId={impostor.PlayerId}).");
 
-        // Solicita o auto-assassinato depois de enviar a proteção.
-        // A intenção é que o escudo nativo absorva a tentativa e o jogo atualize
-        // o cooldown normalmente; isso precisa ser validado em partida.
-        impostor.RpcMurderPlayer(impostor, true);
+        // Usa CheckMurder, que passa pelas verificações normais de proteção.
+        // Não chamar RpcMurderPlayer diretamente: isso poderia ignorar a proteção
+        // e matar o impostor antes de o jogo reconhecer o escudo.
+        impostor.CheckMurder(impostor);
     }
 }
