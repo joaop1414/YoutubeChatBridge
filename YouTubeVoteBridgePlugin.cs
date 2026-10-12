@@ -1308,6 +1308,17 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         if (chat == null)
             return;
 
+        string argumentosAntesDaPermissao = comando.Length > "/youtube".Length
+            ? comando.Substring("/youtube".Length).Trim()
+            : "";
+        if (argumentosAntesDaPermissao.Equals("config", StringComparison.OrdinalIgnoreCase) ||
+            argumentosAntesDaPermissao.Equals("configuracoes", StringComparison.OrdinalIgnoreCase) ||
+            argumentosAntesDaPermissao.Equals("configurações", StringComparison.OrdinalIgnoreCase))
+        {
+            Responder(chat, PainelVotacaoRpc.ObterTextoConfiguracoes());
+            return;
+        }
+
         if (!EhHost())
         {
             EnviarMensagemIndividual(
@@ -1601,10 +1612,20 @@ public static class YouTubeVoteChatPatch
         {
             if (!YouTubeVoteBridgePlugin.EhHost())
             {
-                YouTubeVoteBridgePlugin.EnviarMensagemIndividual(
-                    sourcePlayer,
-                    "<color=red>Você não tem permissão para usar esse comando</color>"
-                );
+                string argumentos = mensagem.Length > "/youtube".Length
+                    ? mensagem.Substring("/youtube".Length).Trim()
+                    : "";
+                bool consultaConfig = argumentos.Equals("config", StringComparison.OrdinalIgnoreCase) ||
+                    argumentos.Equals("configuracoes", StringComparison.OrdinalIgnoreCase) ||
+                    argumentos.Equals("configurações", StringComparison.OrdinalIgnoreCase);
+
+                if (consultaConfig)
+                    YouTubeVoteBridgePlugin.ProcessarComando(__instance, mensagem);
+                else
+                    YouTubeVoteBridgePlugin.EnviarMensagemIndividual(
+                        sourcePlayer,
+                        "<color=red>Você não tem permissão para usar esse comando</color>"
+                    );
                 return false;
             }
 
