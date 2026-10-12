@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using UnityEngine;
 
 namespace YouTubeVoteBridge;
 
@@ -15,7 +16,7 @@ internal sealed class EventoReportarCorpo : EventoVotacao
         if (MeetingHud.Instance != null)
         {
             YouTubeVoteBridgePlugin.Anunciar(
-                "O chat sorteou o reporte de um jogador vivo, mas já existe uma reunião em andamento.");
+                "O chat sorteou um reporte, mas já existe uma reunião em andamento.");
             return;
         }
 
@@ -29,48 +30,75 @@ internal sealed class EventoReportarCorpo : EventoVotacao
             }
         }
 
-        if (vivos.Count < 2)
+        if (vivos.Count == 0)
         {
             YouTubeVoteBridgePlugin.Anunciar(
-                "O chat tentou reportar um jogador vivo, mas são necessários pelo menos dois jogadores vivos.");
+                "Não há jogadores vivos para realizar o reporte.");
             return;
         }
 
-        PlayerControl reporter = PlayerControl.LocalPlayer;
-        if (reporter == null || reporter.Data == null ||
-            reporter.Data.IsDead || reporter.Data.Disconnected)
+        // Primeiro, procura um corpo real no mapa.
+        DeadBody[] corpos = UnityEngine.Object.FindObjectsOfType<DeadBody>();
+        DeadBody corpoDisponivel = null;
+
+        foreach (DeadBody corpo in corpos)
         {
-            reporter = vivos[0];
+            if (corpo != null && corpo.enabled && corpo.gameObject != null &&
+                corpo.gameObject.activeInHierarchy)
+            {
+                corpoDisponivel = corpo;
+                break;
+            }
         }
 
-        List<PlayerControl> alvos = vivos.FindAll(p => p.PlayerId != reporter.PlayerId);
-        if (alvos.Count == 0)
-        {
-            YouTubeVoteBridgePlugin.Anunciar(
-                "Não encontrei outro jogador vivo para ser o alvo do reporte.");
-            return;
-        }
-
-        PlayerControl alvo = alvos[new Random().Next(alvos.Count)];
+        PlayerControl reporter = vivos[new Random().Next(vivos.Count)];
 
         try
         {
-            // Passa os dados de um jogador VIVO como alvo do reporte.
-            // O jogo pode validar esse estado e rejeitar o reporte; isso será
-            // registrado no log para facilitar o teste na versão atual.
-            reporter.ReportDeadBody(alvo.Data);
+            if (corpoDisponivel != null)
+            {
+                // Existe corpo: o jogador aleatório reporta o corpo real.
+                NetworkedPlayerInfo dadosCorpo = null;
+                foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+                {
+                    if (jogador != null && jogador.Data != null &&
+                        jogador.PlayerId == corpoDisponivel.ParentId)
+                    {
+                        dadosCorpo = jogador.Data;
+                        break;
+                    }
+                }
 
-            YouTubeVoteBridgePlugin.Anunciar(
-                $"O chat tentou reportar {alvo.Data.PlayerName}, que ainda está vivo!");
-            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                $"Reporte de jogador vivo solicitado pelo evento do YouTube: reporter={reporter.Data.PlayerName}, alvo={alvo.Data.PlayerName} (PlayerId={alvo.PlayerId}).");
+                if (dadosCorpo == null)
+                {
+                    YouTubeVoteBridgePlugin.Anunciar(
+                        "Encontrei um corpo, mas não consegui obter os dados do jogador morto.");
+                    return;
+                }
+
+                reporter.ReportDeadBody(dadosCorpo);
+                YouTubeVoteBridgePlugin.Anunciar(
+                    $"{reporter.Data.PlayerName} reportou um corpo por causa do voto do YouTube!");
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    $"Evento de reporte: reporter={reporter.Data.PlayerName}, corpo={dadosCorpo.PlayerName}.");
+            }
+            else
+            {
+                // Sem corpo: escolhe um jogador aleatório e tenta fazê-lo
+                // reportar a si próprio (1 reportou 1).
+                reporter.ReportDeadBody(reporter.Data);
+                YouTubeVoteBridgePlugin.Anunciar(
+                    $"{reporter.Data.PlayerName} tentou se auto-reportar (jogador reportou a si mesmo), pois não havia corpos no mapa!");
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    $"Evento de auto-reporte sem corpos: jogador={reporter.Data.PlayerName} (PlayerId={reporter.PlayerId}).");
+            }
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "Falha ao tentar reportar um jogador vivo pelo evento do YouTube: " + ex);
+                "Falha no evento de reporte do YouTube: " + ex);
             YouTubeVoteBridgePlugin.Anunciar(
-                "O jogo recusou ou não conseguiu processar o reporte do jogador vivo. Confira o log do mod.");
+                "O jogo recusou ou não conseguiu processar o reporte. Confira o log do mod.");
         }
     }
 }
