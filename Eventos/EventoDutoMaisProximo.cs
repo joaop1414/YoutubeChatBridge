@@ -7,6 +7,14 @@ namespace YouTubeVoteBridge;
 internal static class EventoDutos
 {
     private static readonly System.Random Sorteador = new();
+    private static readonly List<ExpulsaoPendente> ExpulsoesPendentes = new();
+
+    private sealed class ExpulsaoPendente
+    {
+        public PlayerControl Jogador;
+        public int VentId;
+        public float ExecutarEm;
+    }
 
     public static void Executar(bool todos)
     {
@@ -42,7 +50,7 @@ internal static class EventoDutos
             jogadores.Add(escolhido);
         }
 
-        int processados = 0;
+        int agendados = 0;
         foreach (PlayerControl jogador in jogadores)
         {
             try
@@ -63,22 +71,60 @@ internal static class EventoDutos
 
                 if (maisProximo == null || jogador.MyPhysics == null) continue;
 
-                // Teste baseado no Paranoico do EHR:
-                // força a entrada e usa o RPC original de expulsão do duto.
+                // Solicita a entrada e espera um curto intervalo antes de expulsar,
+                // dando tempo para o jogo processar a entrada no duto.
                 jogador.MyPhysics.RpcEnterVent(maisProximo.Id);
-                jogador.MyPhysics.RpcBootFromVent(maisProximo.Id);
-                processados++;
+                ExpulsoesPendentes.Add(new ExpulsaoPendente
+                {
+                    Jogador = jogador,
+                    VentId = maisProximo.Id,
+                    ExecutarEm = Time.realtimeSinceStartup + 0.20f
+                });
+                agendados++;
             }
             catch (Exception ex)
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "Falha no duto para PlayerId=" + jogador.PlayerId + ": " + ex.Message);
+                    "Falha ao iniciar evento de duto para PlayerId=" + jogador.PlayerId + ": " + ex.Message);
             }
         }
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            "Evento de duto executado; jogadores processados=" + processados +
+            "Evento de duto agendado; jogadores=" + agendados +
             ", modo=" + (todos ? "todos" : "um aleatório") + ".");
+    }
+
+    public static void Atualizar()
+    {
+        if (ExpulsoesPendentes.Count == 0) return;
+
+        float agora = Time.realtimeSinceStartup;
+        for (int i = ExpulsoesPendentes.Count - 1; i >= 0; i--)
+        {
+            ExpulsaoPendente pendente = ExpulsoesPendentes[i];
+            if (agora < pendente.ExecutarEm) continue;
+
+            ExpulsoesPendentes.RemoveAt(i);
+
+            try
+            {
+                PlayerControl jogador = pendente.Jogador;
+                if (jogador == null || jogador.MyPhysics == null ||
+                    jogador.Data == null || jogador.Data.IsDead ||
+                    jogador.Data.Disconnected)
+                    continue;
+
+                jogador.MyPhysics.RpcBootFromVent(pendente.VentId);
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "RpcBootFromVent executado para PlayerId=" + jogador.PlayerId +
+                    ", ventId=" + pendente.VentId + ".");
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "Falha ao expulsar jogador do duto: " + ex.Message);
+            }
+        }
     }
 }
 
