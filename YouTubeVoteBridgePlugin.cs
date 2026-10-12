@@ -1022,7 +1022,10 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                     if (espera.ValueKind == JsonValueKind.Number &&
                         espera.TryGetInt32(out int valorEspera))
                     {
-                        esperaMs = Math.Clamp(valorEspera, 1000, 15000);
+                        // Não consultar antes do intervalo solicitado pelo YouTube.
+                        // O limite anterior de 15 s podia acelerar a consulta se o
+                        // servidor pedisse uma espera maior.
+                        esperaMs = Math.Clamp(valorEspera, 1000, 120000);
                     }
                 }
 
