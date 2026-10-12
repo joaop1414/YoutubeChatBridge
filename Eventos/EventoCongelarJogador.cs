@@ -116,20 +116,31 @@ internal sealed class EventoCongelarJogador : EventoVotacao
 
         try
         {
-            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
-                jogador.NetTransform.NetId,
-                (byte)RpcCalls.SnapTo,
-                SendOption.Reliable);
-
-            writer.WriteVector2(posicao);
-            writer.Write(jogador.NetTransform.lastSequenceId);
-            AmongUsClient.Instance.FinishRpcImmediately(writer);
+            ushort sequencia = jogador.NetTransform.lastSequenceId;
+            EnviarSnapToComSequencia(jogador, posicao, sequencia);
+            // Um segundo número de sequência ajuda clientes que descartam
+            // SnapTo repetido com a mesma sequência.
+            EnviarSnapToComSequencia(
+                jogador, posicao, unchecked((ushort)(sequencia + 16383)));
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
                 "Não foi possível reforçar o congelamento por SnapTo: " + ex.Message);
         }
+    }
+
+    private static void EnviarSnapToComSequencia(
+        PlayerControl jogador, Vector2 posicao, ushort sequencia)
+    {
+        MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
+            jogador.NetTransform.NetId,
+            (byte)RpcCalls.SnapTo,
+            SendOption.Reliable);
+
+        writer.WriteVector2(posicao);
+        writer.Write(sequencia);
+        AmongUsClient.Instance.FinishRpcImmediately(writer);
     }
 
     private static PlayerControl EncontrarJogador(byte playerId)
