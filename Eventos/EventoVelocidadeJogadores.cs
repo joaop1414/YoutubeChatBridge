@@ -182,6 +182,19 @@ internal static class EventoVelocidadeJogadores
             opcoes.SetFloat(
                 FloatOptionNames.PlayerSpeedMod,
                 Mathf.Clamp(velocidade, 0.0001f, 3f));
+
+            // O EHR não altera apenas CurrentGameOptions: ele também entrega
+            // as opções ao componente LogicOptions para que o jogo as aplique.
+            if (GameManager.Instance?.LogicComponents != null)
+            {
+                foreach (GameLogicComponent componente in GameManager.Instance.LogicComponents)
+                {
+                    if (componente is LogicOptions logicOptions)
+                        logicOptions.SetGameOptions(opcoes);
+                }
+            }
+
+            GameOptionsManager.Instance.CurrentGameOptions = opcoes;
         }
         catch (Exception ex)
         {
