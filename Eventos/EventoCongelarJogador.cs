@@ -138,7 +138,7 @@ internal sealed class EventoCongelarJogador : EventoVotacao
             (byte)RpcCalls.SnapTo,
             SendOption.Reliable);
 
-        writer.WriteVector2(posicao);
+        writer.Write(posicao);
         writer.Write(sequencia);
         AmongUsClient.Instance.FinishRpcImmediately(writer);
     }
