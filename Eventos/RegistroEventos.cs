@@ -17,6 +17,7 @@ internal static class RegistroEventos
         new EventoDutoMaisProximoTodos(),
         new EventoDutoMaisProximoAleatorio(),
         new EventoTarefaMataJogador(),
+        new EventoTarefaSuicidio(),
         new EventoTrocarCores(),
         new EventoEscudoTemporario(),
         new EventoCriarCorpoFalso()
