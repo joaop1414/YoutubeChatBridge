@@ -936,7 +936,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     // ========================================================
     // MOTOR DE VOTAÇÃO
     // ========================================================
-    private static void Anunciar(string texto)
+    internal static void Anunciar(string texto)
     {
         if (PlayerControl.LocalPlayer != null && HudManager.InstanceExists &&
             HudManager.Instance.Chat != null)
