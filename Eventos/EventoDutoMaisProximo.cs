@@ -75,7 +75,8 @@ internal static class EventoDutos
 
                 // Primeiro posiciona o personagem exatamente na entrada do duto, incluindo
                 // o Offset visual do próprio Vent. Só depois pede ao jogo para entrar.
-                Vector2 posicaoDuto = (Vector2)(maisProximo.transform.position + maisProximo.Offset);
+                // Hydra Teleporter usa a posição do Transform do Vent; Offset é visual e não é a coordenada de snap.
+                Vector2 posicaoDuto = (Vector2)maisProximo.transform.position;
                 jogador.NetTransform.RpcSnapTo(posicaoDuto);
 
                 ExpulsoesPendentes.Add(new ExpulsaoPendente
