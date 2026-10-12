@@ -35,15 +35,8 @@ internal sealed class EventoFecharPortaAleatoria : EventoVotacao
             OpenableDoor escolhida =
                 portasDisponiveis[Sorteador.Next(portasDisponiveis.Count)];
 
-            // Fecha apenas a porta selecionada, não todas as portas da sala.
+            // Fecha a porta selecionada. A sincronização será validada em jogo.
             escolhida.SetDoorway(false);
-
-            // Marca o sistema de portas como alterado para solicitar a sincronização.
-            if (ShipStatus.Instance.Systems.TryGetValue(
-                    SystemTypes.Doors, out ISystemType sistema))
-            {
-                sistema.IsDirty = true;
-            }
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 "Evento executado: porta aleatória selecionada. Id=" +
