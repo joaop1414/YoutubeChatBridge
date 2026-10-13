@@ -20,8 +20,8 @@ internal sealed class EventoTsunami : EventoVotacao
     private const float Velocidade = 3.0f;
     private const float Intervalo = 0.08f;
     private const float ProtecaoDuto = 1.0f;
-    private const float AlcanceDutoTsunami = 0.75f;
-    private const float AlcanceIdentificarDutoTsunami = 0.9f;
+    private const float AlcanceDutoTsunami = 0.25f;
+    private const float AlcanceIdentificarDutoTsunami = 0.35f;
     private const float Alcance = 0.85f;
     private const float IntervaloCicloReator = 1.5f;
     private const float AtrasoInicialReator = 1.0f;
