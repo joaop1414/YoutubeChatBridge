@@ -66,7 +66,6 @@ internal sealed class EventoTsunami : EventoVotacao
             indicador.PlayerId = PlayerIdIndicador;
             indicador.isNew = false;
             indicador.notRealPlayer = true;
-            indicador.CachedPlayerData = PlayerControl.LocalPlayer.Data;
             indicador.NetTransform.SnapTo(posicao);
 
             AmongUsClient.Instance.NetIdCnt += 1U;
@@ -166,61 +165,40 @@ internal sealed class EventoTsunami : EventoVotacao
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning("Tsunami: associação visual incompleta: " + ex.Message);
         }
 
-        var outfit = host.Data.Outfits[PlayerOutfitType.Default];
-        string nome = outfit.PlayerName;
-        int cor = outfit.ColorId;
-        string chapeu = outfit.HatId;
-        string roupa = outfit.SkinId;
-        string mascote = outfit.PetId;
-        string visor = outfit.VisorId;
-        MessageWriter visual = MessageWriter.Get(SendOption.Reliable);
+        // O NPC tem dados próprios: compartilhar host.Data fazia o nome customizado sumir.
         try
         {
-            visual.StartMessage(5);
-            visual.Write(AmongUsClient.Instance.GameId);
+            if (indicador.Data == null)
+                throw new InvalidOperationException("Os dados próprios do NPC não foram inicializados.");
+            var outfit = indicador.Data.Outfits[PlayerOutfitType.Default];
             outfit.PlayerName = NomeOnda;
             outfit.ColorId = 0;
             outfit.HatId = "";
             outfit.SkinId = "";
             outfit.PetId = "";
             outfit.VisorId = "";
+            if (indicador.cosmetics != null && indicador.cosmetics.nameText != null)
+                indicador.cosmetics.nameText.text = NomeOnda;
 
-            visual.StartMessage(1);
-            visual.WritePacked(host.Data.NetId);
-            host.Data.Serialize(visual, false);
-            visual.EndMessage();
-
-            try { indicador.Shapeshift(host, false); } catch { }
-            visual.StartMessage(2);
-            visual.WritePacked(indicador.NetId);
-            visual.Write((byte)RpcCalls.Shapeshift);
-            visual.WriteNetObject(host);
-            visual.Write(false);
-            visual.EndMessage();
-
-            outfit.PlayerName = nome;
-            outfit.ColorId = cor;
-            outfit.HatId = chapeu;
-            outfit.SkinId = roupa;
-            outfit.PetId = mascote;
-            outfit.VisorId = visor;
-            visual.StartMessage(1);
-            visual.WritePacked(host.Data.NetId);
-            host.Data.Serialize(visual, false);
-            visual.EndMessage();
-            visual.EndMessage();
-            AmongUsClient.Instance.SendOrDisconnect(visual);
-            visual = null;
+            MessageWriter visual = MessageWriter.Get(SendOption.Reliable);
+            try
+            {
+                visual.StartMessage(5);
+                visual.Write(AmongUsClient.Instance.GameId);
+                visual.StartMessage(1);
+                visual.WritePacked(indicador.Data.NetId);
+                indicador.Data.Serialize(visual, false);
+                visual.EndMessage();
+                visual.EndMessage();
+                AmongUsClient.Instance.SendOrDisconnect(visual);
+                visual = null;
+            }
+            finally { visual?.Recycle(); }
         }
-        finally
+        catch (Exception ex)
         {
-            visual?.Recycle();
-            outfit.PlayerName = nome;
-            outfit.ColorId = cor;
-            outfit.HatId = chapeu;
-            outfit.SkinId = roupa;
-            outfit.PetId = mascote;
-            outfit.VisorId = visor;
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "Tsunami: não foi possível publicar o nome personalizado do NPC: " + ex.Message);
         }
     }
 
@@ -742,6 +720,21 @@ internal static class EventoTsunamiFlashReatorPatch
 
         // Se o evento terminar sem o jogo ter encerrado o flash, libera o campo.
         hud.ReactorFlash = null;
+    }
+}
+
+
+[HarmonyPatch(typeof(ReactorSystemType), nameof(ReactorSystemType.Detoriorate))]
+internal static class EventoTsunamiIniciarFlashReatorPatch
+{
+    public static void Postfix(ReactorSystemType __instance)
+    {
+        if (!EventoTsunami.AvisoAtivo || __instance == null || !__instance.IsActive ||
+            !HudManager.InstanceExists)
+            return;
+        HudManager hud = HudManager.Instance;
+        if (hud.ReactorFlash == null)
+            hud.StartReactorFlash();
     }
 }
 
