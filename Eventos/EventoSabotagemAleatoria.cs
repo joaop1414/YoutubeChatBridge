@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
+using Il2CppInterop.Runtime.InteropTypes;
 
 namespace YouTubeVoteBridge;
 
@@ -32,13 +32,29 @@ internal sealed class EventoSabotagemAleatoria : EventoVotacao
 
         try
         {
-            // O mapa não guarda cada sabotagem como uma chave separada.
-            // As sabotagens são enviadas pelo sistema genérico SystemTypes.Sabotage,
-            // e o byte enviado identifica qual delas deve começar.
             if (!navio.Systems.ContainsKey(SystemTypes.Sabotage))
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
                     "Sabotagem aleatória: o mapa atual não possui o sistema nativo de sabotagem.");
+                return;
+            }
+
+            // No IL2CPP, Systems armazena ISystemType. O EHR também converte
+            // esse objeto para SabotageSystemType antes de ler Timer/AnyActive.
+            SabotageSystemType sistema = navio.Systems[SystemTypes.Sabotage]
+                .Cast<SabotageSystemType>();
+
+            if (sistema == null)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "Sabotagem aleatória: não foi possível obter SabotageSystemType.");
+                return;
+            }
+
+            if (sistema.AnyActive)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "Sabotagem aleatória ignorada: já existe uma sabotagem ativa.");
                 return;
             }
 
@@ -52,15 +68,20 @@ internal sealed class EventoSabotagemAleatoria : EventoVotacao
                 return;
             }
 
-            // Evita escolher uma sabotagem que já esteja ativa quando isso pode ser
-            // identificado pelos sistemas de sabotagem específicos do mapa.
-            // O jogo ainda valida cooldown e compatibilidade ao receber o RPC.
             SystemTypes escolhida = disponiveis[Sorteador.Next(disponiveis.Count)];
+
+            // O jogo recusa novas sabotagens enquanto Timer > 0. Como este evento
+            // foi acionado pela votação, zeramos o cooldown nativo antes do RPC.
+            // O próprio jogo definirá o cooldown novamente quando aceitar a sabotagem.
+            float cooldownAnterior = sistema.Timer;
+            sistema.Timer = 0f;
+            sistema.IsDirty = true;
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 "Sabotagem aleatória: mapa ID=" + mapa +
                 "; opções=[" + string.Join(", ", disponiveis) +
-                "]; escolhida=" + escolhida + ".");
+                "]; escolhida=" + escolhida +
+                "; cooldown anterior=" + cooldownAnterior + "s.");
 
             navio.RpcUpdateSystem(SystemTypes.Sabotage, (byte)escolhida);
         }
@@ -73,8 +94,8 @@ internal sealed class EventoSabotagemAleatoria : EventoVotacao
 
     private static List<SystemTypes> ObterSabotagensDoMapa(int mapa)
     {
-        // IDs de mapa usados pelo Among Us:
-        // 0 Skeld, 1 Mira HQ, 2 Polus, 3 Dleks, 4 Airship, 5 Fungle.
+        // IDs de mapa do Among Us: 0 Skeld, 1 Mira HQ, 2 Polus,
+        // 3 Dleks, 4 Airship, 5 Fungle.
         return mapa switch
         {
             0 or 3 => new List<SystemTypes>
