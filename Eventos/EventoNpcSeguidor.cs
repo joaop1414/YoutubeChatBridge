@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using AmongUs.InnerNet.GameDataMessages;
 using Hazel;
 using InnerNet;
 using UnityEngine;
@@ -91,6 +92,11 @@ internal sealed class EventoNpcSeguidor : EventoVotacao
             if (PlayerControl.AllPlayerControls.Contains(npc))
                 PlayerControl.AllPlayerControls.Remove(npc);
 
+            // O spawn sozinho cria o objeto localmente, mas clientes vanilla também
+            // precisam registrar o PlayerId falso e receber o RPC de inicialização.
+            // Reproduz a sequência usada por implementações de NPCs de rede.
+            EnviarInicializacaoParaClientes();
+
             // Define o nome e a cor do NPC através de RPCs normais.
             EnviarNome("NPC");
             EnviarCor(5);
@@ -153,6 +159,61 @@ internal sealed class EventoNpcSeguidor : EventoVotacao
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
                 "Falha ao movimentar NPC: " + ex.Message);
+        }
+    }
+
+    private static void EnviarInicializacaoParaClientes()
+    {
+        if (npc == null || AmongUsClient.Instance == null ||
+            !AmongUsClient.Instance.AmHost)
+            return;
+
+        MessageWriter stream = MessageWriter.Get(SendOption.Reliable);
+        try
+        {
+            stream.StartMessage(26);
+            stream.WritePacked(AmongUsClient.Instance.GameId);
+
+            foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+            {
+                if (jogador == null || jogador.AmOwner || jogador.Data == null ||
+                    jogador.Data.Disconnected)
+                    continue;
+
+                // Direciona a sequência ao cliente dono deste jogador.
+                stream.StartMessage(6);
+                stream.Write(AmongUsClient.Instance.GameId);
+                stream.WritePacked(jogador.OwnerId);
+
+                // Associa temporariamente o objeto falso ao PlayerId do cliente.
+                stream.StartMessage(1);
+                stream.WritePacked(npc.NetId);
+                stream.Write(jogador.PlayerId);
+                stream.EndMessage();
+
+                // RPC de inicialização visual usado por NPCs compatíveis com vanilla.
+                stream.StartMessage(2);
+                stream.WritePacked(npc.NetId);
+                stream.Write((byte)RpcCalls.MurderPlayer);
+                stream.WriteNetObject(npc);
+                stream.Write((int)MurderResultFlags.FailedError);
+                stream.EndMessage();
+
+                // Reatribui o ID reservado ao NPC.
+                stream.StartMessage(1);
+                stream.WritePacked(npc.NetId);
+                stream.Write(PlayerIdNpc);
+                stream.EndMessage();
+
+                stream.EndMessage();
+            }
+
+            stream.EndMessage();
+            AmongUsClient.Instance.SendOrDisconnect(stream);
+        }
+        finally
+        {
+            stream.Recycle();
         }
     }
 
