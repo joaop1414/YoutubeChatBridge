@@ -57,14 +57,6 @@ internal sealed class EventoSabotagemAleatoria : EventoVotacao
             return;
         }
 
-        if (sistemaSabotagem.Timer > 0f)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "Sabotagem aleatória ignorada: o cooldown de sabotagem ainda está ativo (" +
-                sistemaSabotagem.Timer.ToString("0.0") + " s).");
-            return;
-        }
-
         List<SystemTypes> disponiveis = new();
 
         foreach (SystemTypes tipo in SabotagensPossiveis)
@@ -85,7 +77,12 @@ internal sealed class EventoSabotagemAleatoria : EventoVotacao
 
         try
         {
-            // O jogo recebe o tipo real da sabotagem pelo RPC nativo.
+            // O evento de votação deve funcionar mesmo durante o cooldown normal.
+            // Zera o temporizador antes do RPC nativo; o próprio jogo aplica o cooldown
+            // novamente quando a sabotagem é processada.
+            sistemaSabotagem.Timer = 0f;
+            sistemaSabotagem.IsDirty = true;
+
             // Assim, clientes vanilla também recebem a sabotagem pelo host.
             navio.RpcUpdateSystem(SystemTypes.Sabotage, (byte)escolhida);
 
