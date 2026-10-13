@@ -78,7 +78,8 @@ internal static class CustomNetObject
 
         try
         {
-            objeto.NetTransform.SnapTo(posicao);
+            objeto.NetTransform.SnapTo(
+                posicao, (ushort)(objeto.NetTransform.lastSequenceId + 1U));
             ushort sequencia = (ushort)(objeto.NetTransform.lastSequenceId + 2U);
             MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
                 objeto.NetTransform.NetId, (byte)RpcCalls.SnapTo, SendOption.None);
