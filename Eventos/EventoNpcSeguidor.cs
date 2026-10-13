@@ -292,6 +292,23 @@ internal sealed class EventoNpcSeguidor : EventoVotacao
                     host.Data.Serialize(visual, false);
                     visual.EndMessage();
 
+                    // O EHR inclui o SnapTo inicial na mesma sequência de rede
+                    // que aplica a aparência, para evitar spawn visual na posição zero.
+                    try { npc.NetTransform.SnapTo(posicaoControlada); }
+                    catch (Exception ex)
+                    {
+                        YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                            "NPC: SnapTo inicial local falhou: " + ex.Message);
+                    }
+
+                    visual.StartMessage(2);
+                    visual.WritePacked(npc.NetTransform.NetId);
+                    visual.Write((byte)RpcCalls.SnapTo);
+                    visual.Write(posicaoControlada.x);
+                    visual.Write(posicaoControlada.y);
+                    visual.Write(npc.NetTransform.lastSequenceId);
+                    visual.EndMessage();
+
                     visual.EndMessage();
                     AmongUsClient.Instance.SendOrDisconnect(visual);
                     visual = null;
@@ -322,8 +339,9 @@ internal sealed class EventoNpcSeguidor : EventoVotacao
             }
         }
 
-        // Não envia movimentação enquanto o NPC estiver em diagnóstico.
-        if (etapaInicializacao != 0)
+        // As etapas 1 e 2 ainda estão inicializando a rede/aparência.
+        // A etapa 3 significa que a inicialização terminou e o NPC já pode andar.
+        if (etapaInicializacao is 1 or 2)
             return;
 
         if (MeetingHud.Instance != null)
