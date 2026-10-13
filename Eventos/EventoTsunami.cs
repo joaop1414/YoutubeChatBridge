@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using BepInEx.Unity.IL2CPP.Utils.Collections;
 using Hazel;
+using HarmonyLib;
 using InnerNet;
 using Il2CppInterop.Runtime.InteropTypes;
 using UnityEngine;
@@ -721,7 +722,7 @@ internal static class EventoTsunamiFlashReatorPatch
         HudManager hud = HudManager.Instance;
         WaitForSeconds espera = new WaitForSeconds(1f);
         hud.FullScreen.color = new Color(0f, 1f, 1f, 0.37254903f);
-        while (EventoTsunami.AvisoAtivo && hud.ReactorFlash != null)
+        while (EventoTsunami.AvisoAtivo)
         {
             hud.FullScreen.enabled = !hud.FullScreen.enabled;
             try
@@ -732,6 +733,9 @@ internal static class EventoTsunamiFlashReatorPatch
             catch { }
             yield return espera;
         }
+
+        // Se o evento terminar sem o jogo ter encerrado o flash, libera o campo.
+        hud.ReactorFlash = null;
     }
 }
 
