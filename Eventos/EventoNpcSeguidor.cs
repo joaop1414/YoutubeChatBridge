@@ -94,6 +94,10 @@ internal sealed class EventoNpcSeguidor : EventoVotacao
             if (PlayerControl.AllPlayerControls.Contains(npc))
                 PlayerControl.AllPlayerControls.Remove(npc);
 
+            // O EHR oculta o corpo padrão; o texto é desenhado pelo sistema visual.
+            try { npc.cosmetics.currentBodySprite.BodySprite.color = Color.clear; } catch { }
+            try { npc.cosmetics.colorBlindText.color = Color.clear; } catch { }
+
             // O EHR espera um pouco após o spawn e inicializa clientes vanilla
             // em etapas separadas para reduzir mensagens fora de ordem.
             npc.CachedPlayerData = PlayerControl.LocalPlayer.Data;
