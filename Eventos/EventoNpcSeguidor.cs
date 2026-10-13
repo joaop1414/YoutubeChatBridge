@@ -75,13 +75,12 @@ internal sealed class EventoNpcSeguidor : EventoVotacao
             npc.isNew = false;
             npc.notRealPlayer = true;
 
-            // PlayerId 254 não possui PlayerInfo próprio no GameData. Sem esse
-            // cache, npc.Data pode ser null e causar NRE ao serializar o spawn.
-            // O EHR também associa temporariamente os dados do jogador local.
-            npc.CachedPlayerData = PlayerControl.LocalPlayer.Data;
-            if (npc.CachedPlayerData == null || npc.NetTransform == null)
+            // Segue a ordem do EHR: não atribuir CachedPlayerData antes do spawn.
+            // O PlayerId 254 ainda não possui dados próprios no GameData; o cache
+            // do host será associado somente depois da etapa de rede com os clientes.
+            if (npc.NetTransform == null)
                 throw new InvalidOperationException(
-                    "O prefab do NPC não inicializou CachedPlayerData ou NetTransform.");
+                    "O prefab do NPC não inicializou NetTransform.");
 
             npc.NetTransform.SnapTo(spawnPos);
 
