@@ -162,6 +162,14 @@ internal sealed class EventoNpcSeguidor : EventoVotacao
                 if (etapaInicializacao == 1)
                 {
                     EnviarInicializacaoParaClientes();
+
+                    // O EHR associa o CachedPlayerData somente depois de enviar
+                    // a sequência temporária de PlayerId/MurderPlayer para os clientes.
+                    // Sem isso, clientes vanilla podem ficar aguardando os containers
+                    // de dados do jogador e desconectar por timeout.
+                    if (npc != null && PlayerControl.LocalPlayer?.Data != null)
+                        npc.CachedPlayerData = PlayerControl.LocalPlayer.Data;
+
                     etapaInicializacao = 2;
                     proximaEtapaInicializacao = Time.realtimeSinceStartup + 0.15f;
                     return;
