@@ -1626,13 +1626,28 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     // AVISOS DE ENTRADA
     // ========================================================
 
-    public static void RegistrarEntrada(int clientId)
+    public static void PrepararAvisoEntrada(int clientId)
     {
         if (!EhHost())
             return;
 
-        AvisosPendentes[clientId] = Time.realtimeSinceStartup + 1f;
+        // Reseta apenas quando um novo cliente entra. O RPC SetLevel pode
+        // chegar mais de uma vez, então RegistrarEntrada não deve duplicar avisos.
+        AvisosPendentes.Remove(clientId);
         AvisosEnviados.Remove(clientId);
+        Instance?.Log.LogInfo(
+            $"Cliente {clientId} entrou; aguardando RPC SetLevel para enviar o aviso.");
+    }
+
+    public static void RegistrarEntrada(int clientId)
+    {
+        if (!EhHost() || AvisosEnviados.Contains(clientId) ||
+            AvisosPendentes.ContainsKey(clientId))
+            return;
+
+        AvisosPendentes[clientId] = Time.realtimeSinceStartup + 1f;
+        Instance?.Log.LogInfo(
+            $"RPC SetLevel recebido do cliente {clientId}; aviso agendado para daqui a 1 segundo.");
     }
 
     public static void AtualizarAvisos()
@@ -1783,7 +1798,7 @@ public static class YouTubeVotePlayerJoinedPatch
             !AmongUsClient.Instance.AmHost)
             return;
 
-        YouTubeVoteBridgePlugin.RegistrarEntrada(client.Id);
+        YouTubeVoteBridgePlugin.PrepararAvisoEntrada(client.Id);
     }
 }
 
