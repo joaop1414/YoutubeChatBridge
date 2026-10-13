@@ -32,6 +32,7 @@ internal sealed class EventoTsunami : EventoVotacao
     private static float repararReatorAte;
     private static bool reparoPendente;
     private static readonly Dictionary<byte, string> nomesOriginais = new();
+    private static readonly HashSet<byte> nomesAlteradosRede = new();
     private static readonly HashSet<byte> atingidos = new();
     private static readonly Dictionary<byte, float> protegidos = new();
     private static readonly Dictionary<byte, int> dutosProtegidos = new();
@@ -498,6 +499,7 @@ internal sealed class EventoTsunami : EventoVotacao
 
             YouTubeVoteBridgePlugin.DefinirNomeLocal(
                 jogador, nomeOriginal + "\n<color=" + cor + ">Um tsunami está vindo</color>");
+            nomesAlteradosRede.Add(jogador.PlayerId);
         }
     }
 
@@ -517,11 +519,12 @@ internal sealed class EventoTsunami : EventoVotacao
                 // Restaura também no cliente vanilla, usando o RPC SetName direcionado.
                 if (YouTubeVoteBridgePlugin.EhHost() && AmongUsClient.Instance != null &&
                     jogador.OwnerId >= 0 && jogador.OwnerId != AmongUsClient.Instance.ClientId &&
-                    !YouTubeVoteBridgePlugin.ClienteTemMod(jogador.OwnerId))
+                    nomesAlteradosRede.Contains(jogador.PlayerId))
                     YouTubeVoteBridgePlugin.DefinirNomeLocal(jogador, nomeOriginal);
             }
         }
         nomesOriginais.Clear();
+        nomesAlteradosRede.Clear();
     }
 
     private static void AtualizarSabotagemReator(float agora)
