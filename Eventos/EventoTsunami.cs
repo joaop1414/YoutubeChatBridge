@@ -89,6 +89,9 @@ internal sealed class EventoTsunami : EventoVotacao
             if (PlayerControl.AllPlayerControls.Contains(indicador))
                 PlayerControl.AllPlayerControls.Remove(indicador);
 
+            // Inicializa o objeto falso nos clientes e aplica o nome visual da onda.
+            PrepararIndicadorVisual();
+
             ativo = true;
             proximaAtualizacao = Time.realtimeSinceStartup;
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
@@ -98,6 +101,109 @@ internal sealed class EventoTsunami : EventoVotacao
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError("Falha ao iniciar tsunami: " + ex);
             Limpar();
+        }
+    }
+
+    private static void PrepararIndicadorVisual()
+    {
+        PlayerControl host = PlayerControl.LocalPlayer;
+        if (host == null || host.Data == null || indicador == null) return;
+
+        try
+        {
+            MessageWriter association = MessageWriter.Get(SendOption.Reliable);
+            association.StartMessage(26);
+            association.WritePacked(AmongUsClient.Instance.GameId);
+
+            foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+            {
+                if (jogador == null || jogador == host || jogador.Data == null || jogador.Data.Disconnected)
+                    continue;
+
+                association.StartMessage(6);
+                association.Write(AmongUsClient.Instance.GameId);
+                association.WritePacked(jogador.OwnerId);
+                association.StartMessage(1);
+                association.WritePacked(indicador.NetId);
+                association.Write(jogador.PlayerId);
+                association.EndMessage();
+                association.StartMessage(2);
+                association.WritePacked(indicador.NetId);
+                association.Write((byte)RpcCalls.MurderPlayer);
+                association.WriteNetObject(indicador);
+                association.Write((int)MurderResultFlags.FailedError);
+                association.EndMessage();
+                association.StartMessage(1);
+                association.WritePacked(indicador.NetId);
+                association.Write(PlayerIdIndicador);
+                association.EndMessage();
+                association.EndMessage();
+            }
+
+            association.EndMessage();
+            AmongUsClient.Instance.SendOrDisconnect(association);
+            association.Recycle();
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning("Tsunami: associação visual incompleta: " + ex.Message);
+        }
+
+        var outfit = host.Data.Outfits[PlayerOutfitType.Default];
+        string nome = outfit.PlayerName;
+        int cor = outfit.ColorId;
+        string chapeu = outfit.HatId;
+        string roupa = outfit.SkinId;
+        string mascote = outfit.PetId;
+        string visor = outfit.VisorId;
+        MessageWriter visual = MessageWriter.Get(SendOption.Reliable);
+        try
+        {
+            visual.StartMessage(5);
+            visual.Write(AmongUsClient.Instance.GameId);
+            outfit.PlayerName = NomeOnda;
+            outfit.ColorId = 0;
+            outfit.HatId = "";
+            outfit.SkinId = "";
+            outfit.PetId = "";
+            outfit.VisorId = "";
+
+            visual.StartMessage(1);
+            visual.WritePacked(host.Data.NetId);
+            host.Data.Serialize(visual, false);
+            visual.EndMessage();
+
+            try { indicador.Shapeshift(host, false); } catch { }
+            visual.StartMessage(2);
+            visual.WritePacked(indicador.NetId);
+            visual.Write((byte)RpcCalls.Shapeshift);
+            visual.WriteNetObject(host);
+            visual.Write(false);
+            visual.EndMessage();
+
+            outfit.PlayerName = nome;
+            outfit.ColorId = cor;
+            outfit.HatId = chapeu;
+            outfit.SkinId = roupa;
+            outfit.PetId = mascote;
+            outfit.VisorId = visor;
+            visual.StartMessage(1);
+            visual.WritePacked(host.Data.NetId);
+            host.Data.Serialize(visual, false);
+            visual.EndMessage();
+            visual.EndMessage();
+            AmongUsClient.Instance.SendOrDisconnect(visual);
+            visual = null;
+        }
+        finally
+        {
+            visual?.Recycle();
+            outfit.PlayerName = nome;
+            outfit.ColorId = cor;
+            outfit.HatId = chapeu;
+            outfit.SkinId = roupa;
+            outfit.PetId = mascote;
+            outfit.VisorId = visor;
         }
     }
 
