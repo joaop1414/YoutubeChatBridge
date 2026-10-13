@@ -313,16 +313,7 @@ internal sealed class EventoNpcSeguidor : EventoVotacao
             posicaoControlada = novaPosicao;
             // Mesmo padrão do EHR: atualizar localmente com +1 e transmitir
             // o SnapTo com +2, sem Reliable para não sobrecarregar a conexão.
-            npc.NetTransform.SnapTo(posicaoControlada,
-                (ushort)(npc.NetTransform.lastSequenceId + 1U));
-
-            ushort sequencia = (ushort)(npc.NetTransform.lastSequenceId + 2U);
-            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
-                npc.NetTransform.NetId, (byte)RpcCalls.SnapTo, SendOption.None);
-            writer.Write(posicaoControlada.x);
-            writer.Write(posicaoControlada.y);
-            writer.Write(sequencia);
-            AmongUsClient.Instance.FinishRpcImmediately(writer);
+            CustomNetObject.EnviarPosicao(npc, posicaoControlada);
         }
         catch (Exception ex)
         {
