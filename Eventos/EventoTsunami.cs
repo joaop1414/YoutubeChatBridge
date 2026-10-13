@@ -390,10 +390,13 @@ internal sealed class EventoTsunami : EventoVotacao
         {
             avisoLocalAtivo = true;
             float agora = Time.realtimeSinceStartup;
+            // O aviso é individual: cada cliente altera somente o próprio nome.
+            PlayerControl local = PlayerControl.LocalPlayer;
             foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
             {
-                if (jogador == null || jogador.PlayerId == PlayerIdIndicador ||
-                    jogador.Data == null || jogador.Data.Disconnected)
+                if (jogador == null || jogador != local ||
+                    jogador.PlayerId == PlayerIdIndicador || jogador.Data == null ||
+                    jogador.Data.Disconnected)
                     continue;
 
                 if (!nomesOriginais.ContainsKey(jogador.PlayerId))
@@ -419,21 +422,23 @@ internal sealed class EventoTsunami : EventoVotacao
     {
         avisoLocalAtivo = true;
         nomesOriginais.Clear();
-        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+        // No host, o aviso aparece apenas no nome do próprio host.
+        // Nos outros clientes, AtualizarAvisoNomesVanilla envia o SetName direcionado
+        // para que cada cliente vanilla veja o aviso somente no seu próprio nome.
+        PlayerControl local = PlayerControl.LocalPlayer;
+        if (local == null || local.Data == null || local.Data.Disconnected)
+            return;
+        try
         {
-            if (jogador == null || jogador.Data == null || jogador.Data.Disconnected)
-                continue;
-            try
-            {
-                string nomeOriginal = jogador.cosmetics.nameText.text ?? jogador.Data.PlayerName ?? "";
-                nomesOriginais[jogador.PlayerId] = nomeOriginal;
-                AtualizarNomeLocal(jogador, Time.realtimeSinceStartup);
-            }
-            catch (Exception ex)
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "Tsunami: não foi possível aplicar o aviso local: " + ex.Message);
-            }
+            PlayerControl jogador = local;
+            string nomeOriginal = jogador.cosmetics.nameText.text ?? jogador.Data.PlayerName ?? "";
+            nomesOriginais[jogador.PlayerId] = nomeOriginal;
+            AtualizarNomeLocal(jogador, Time.realtimeSinceStartup);
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "Tsunami: não foi possível aplicar o aviso local: " + ex.Message);
         }
     }
 
