@@ -339,17 +339,15 @@ internal sealed class EventoTsunami : EventoVotacao
 
             try
             {
-                // Etapa atual: somente troca o papel. Não mata nem chama animação de kill.
-                bool eraImpostor = jogador.Data.Role != null && jogador.Data.Role.IsImpostor;
-                jogador.RpcSetRole(
-                    eraImpostor ? RoleTypes.ImpostorGhost : RoleTypes.CrewmateGhost,
-                    true);
+                // Não transforme o jogador em Ghost aqui: o jogo pode interpretar
+                // a mudança de Role como morte e disparar a condição de vitória.
+                // Apenas registra que a onda o atingiu; o corpo falso é criado
+                // pelo evento existente quando a reunião começa.
                 atingidos.Add(jogador.PlayerId);
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                     "Tsunami atingiu " + jogador.Data.PlayerName +
-                    "; papel alterado para " +
-                    (eraImpostor ? "ImpostorGhost" : "CrewmateGhost") +
-                    " sem executar morte.");
+                    " (PlayerId=" + jogador.PlayerId +
+                    "); jogador mantido vivo para evitar vitória por morte em massa.");
             }
             catch (Exception ex)
             {
@@ -757,11 +755,26 @@ internal static class EventoTsunamiFlashReatorPatch
             yield break;
 
         HudManager hud = HudManager.Instance;
-        WaitForSeconds espera = new WaitForSeconds(1f);
+        WaitForSeconds espera = new WaitForSeconds(0.5f);
+        if (hud.FullScreen == null)
+        {
+            hud.ReactorFlash = null;
+            yield break;
+        }
+
         hud.FullScreen.color = new Color(0f, 1f, 1f, 0.37254903f);
+        hud.FullScreen.enabled = true;
+        bool mostrar = true;
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo("Tsunami: flash ciano iniciado.");
+
         while (EventoTsunami.AvisoAtivo)
         {
-            hud.FullScreen.enabled = !hud.FullScreen.enabled;
+            if (hud == null || hud.FullScreen == null)
+                break;
+
+            mostrar = !mostrar;
+            hud.FullScreen.color = new Color(0f, 1f, 1f, 0.37254903f);
+            hud.FullScreen.enabled = mostrar;
             try
             {
                 if (ShipStatus.Instance != null && SoundManager.Instance != null)
@@ -771,6 +784,8 @@ internal static class EventoTsunamiFlashReatorPatch
             yield return espera;
         }
 
+        if (hud != null && hud.FullScreen != null)
+            hud.FullScreen.enabled = false;
         hud.ReactorFlash = null;
     }
 }
