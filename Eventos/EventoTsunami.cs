@@ -376,7 +376,9 @@ internal sealed class EventoTsunami : EventoVotacao
         posicao.x += Velocidade * Intervalo;
         if (posicao.x > LimiteDireito() + 1.5f)
         {
-            Limpar();
+            // A onda visual terminou, mas os jogadores já atingidos ainda
+            // precisam completar o atraso antes da troca para Ghost.
+            Limpar(preservarMortesPendentes: true);
             return;
         }
 
@@ -753,7 +755,7 @@ internal sealed class EventoTsunami : EventoVotacao
         reuniaoFoiAberta = false;
     }
 
-    public static void Limpar()
+    public static void Limpar(bool preservarMortesPendentes = false)
     {
         if (YouTubeVoteBridgePlugin.EhHost())
             ForcarReparoReator();
@@ -764,24 +766,28 @@ internal sealed class EventoTsunami : EventoVotacao
         RestaurarAvisoNomes();
         protegidos.Clear();
         dutosProtegidos.Clear();
-        // Se o evento for interrompido antes do atraso, não deixe ninguém travado.
-        foreach (byte id in new List<byte>(mortesPendentes.Keys))
+        // Ao terminar normalmente, preserve os atrasos já iniciados.
+        // Em interrupções/reuniões, restaure o movimento e cancele pendências.
+        if (!preservarMortesPendentes)
         {
-            foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+            foreach (byte id in new List<byte>(mortesPendentes.Keys))
             {
-                if (jogador == null || jogador.PlayerId != id) continue;
-                try
+                foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
                 {
-                    if (movimentoOriginal.TryGetValue(id, out bool moveable))
-                        jogador.moveable = moveable;
+                    if (jogador == null || jogador.PlayerId != id) continue;
+                    try
+                    {
+                        if (movimentoOriginal.TryGetValue(id, out bool moveable))
+                            jogador.moveable = moveable;
+                    }
+                    catch { }
+                    break;
                 }
-                catch { }
-                break;
             }
+            mortesPendentes.Clear();
+            alturaAoAtingir.Clear();
+            movimentoOriginal.Clear();
         }
-        mortesPendentes.Clear();
-        alturaAoAtingir.Clear();
-        movimentoOriginal.Clear();
         if (indicador != null && AmongUsClient.Instance != null &&
             YouTubeVoteBridgePlugin.EhHost())
         {
