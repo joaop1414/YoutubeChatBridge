@@ -16,6 +16,8 @@ internal sealed class EventoTsunami : EventoVotacao
     private const float Intervalo = 0.08f;
     private const float ProtecaoDuto = 1.0f;
     private const float Alcance = 0.85f;
+    private const float IntervaloCicloReator = 1.5f;
+    private const float AtrasoInicialReator = 1.0f;
 
     private static PlayerControl indicador;
     private static Vector2 posicao;
@@ -100,7 +102,7 @@ internal sealed class EventoTsunami : EventoVotacao
             AplicarAvisoNomes();
 
             ativo = true;
-            proximaSabotagem = Time.realtimeSinceStartup;
+            proximaSabotagem = Time.realtimeSinceStartup + AtrasoInicialReator;
             reparoPendente = false;
             proximaAtualizacao = Time.realtimeSinceStartup;
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
@@ -229,6 +231,22 @@ internal sealed class EventoTsunami : EventoVotacao
         }
 
         float agora = Time.realtimeSinceStartup;
+        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+        {
+            if (jogador == null || jogador == indicador || jogador.Data == null ||
+                jogador.Data.Disconnected)
+                continue;
+            if (!nomesOriginais.ContainsKey(jogador.PlayerId))
+            {
+                try
+                {
+                    nomesOriginais[jogador.PlayerId] =
+                        jogador.cosmetics.nameText.text ?? jogador.Data.PlayerName ?? "";
+                }
+                catch { nomesOriginais[jogador.PlayerId] = jogador.Data.PlayerName ?? ""; }
+            }
+            AtualizarNomeLocal(jogador, agora);
+        }
         AtualizarSabotagemReator(agora);
         if (agora < proximaAtualizacao) return;
         proximaAtualizacao = agora + Intervalo;
@@ -348,84 +366,52 @@ internal sealed class EventoTsunami : EventoVotacao
     private static void AplicarAvisoNomes()
     {
         nomesOriginais.Clear();
-        if (AmongUsClient.Instance == null) return;
-
         foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
         {
             if (jogador == null || jogador.Data == null || jogador.Data.Disconnected)
                 continue;
-
             try
             {
-                var outfit = jogador.Data.Outfits[PlayerOutfitType.Default];
-                string nomeOriginal = outfit.PlayerName ?? jogador.Data.PlayerName ?? "";
+                string nomeOriginal = jogador.cosmetics.nameText.text ?? jogador.Data.PlayerName ?? "";
                 nomesOriginais[jogador.PlayerId] = nomeOriginal;
-                outfit.PlayerName = nomeOriginal + "<b><color=red>Um tsunami está vindo</color></b>";
-
-                MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
-                try
-                {
-                    writer.StartMessage(5);
-                    writer.Write(AmongUsClient.Instance.GameId);
-                    writer.StartMessage(1);
-                    writer.WritePacked(jogador.Data.NetId);
-                    jogador.Data.Serialize(writer, false);
-                    writer.EndMessage();
-                    writer.EndMessage();
-                    AmongUsClient.Instance.SendOrDisconnect(writer);
-                    writer = null;
-                }
-                finally { writer?.Recycle(); }
+                AtualizarNomeLocal(jogador, Time.realtimeSinceStartup);
             }
             catch (Exception ex)
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "Tsunami: não foi possível aplicar o aviso no nome: " + ex.Message);
+                    "Tsunami: não foi possível aplicar o aviso local: " + ex.Message);
             }
         }
     }
 
+    private static void AtualizarNomeLocal(PlayerControl jogador, float agora)
+    {
+        if (!ativo || jogador == null || jogador.cosmetics == null ||
+            jogador.cosmetics.nameText == null)
+            return;
+
+        if (!nomesOriginais.TryGetValue(jogador.PlayerId, out string nomeOriginal))
+            nomeOriginal = jogador.Data?.PlayerName ?? "";
+
+        string cor = ((int)(agora * 2f) % 2 == 0) ? "red" : "yellow";
+        jogador.cosmetics.nameText.text =
+            nomeOriginal + "<b><color=" + cor + ">Um tsunami está vindo</color></b>";
+    }
+
     private static void RestaurarAvisoNomes()
     {
-        if (AmongUsClient.Instance == null)
-        {
-            nomesOriginais.Clear();
-            return;
-        }
-
         foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
         {
-            if (jogador == null || jogador.Data == null)
+            if (jogador == null || jogador.cosmetics == null ||
+                jogador.cosmetics.nameText == null)
                 continue;
 
-            if (!nomesOriginais.TryGetValue(jogador.PlayerId, out string nomeOriginal))
-                continue;
-
-            try
+            if (nomesOriginais.TryGetValue(jogador.PlayerId, out string nomeOriginal))
             {
-                jogador.Data.Outfits[PlayerOutfitType.Default].PlayerName = nomeOriginal;
-                MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
-                try
-                {
-                    writer.StartMessage(5);
-                    writer.Write(AmongUsClient.Instance.GameId);
-                    writer.StartMessage(1);
-                    writer.WritePacked(jogador.Data.NetId);
-                    jogador.Data.Serialize(writer, false);
-                    writer.EndMessage();
-                    writer.EndMessage();
-                    AmongUsClient.Instance.SendOrDisconnect(writer);
-                    writer = null;
-                }
-                finally { writer?.Recycle(); }
-            }
-            catch (Exception ex)
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "Tsunami: não foi possível restaurar o nome: " + ex.Message);
+                try { jogador.cosmetics.nameText.text = nomeOriginal; }
+                catch { }
             }
         }
-
         nomesOriginais.Clear();
     }
 
@@ -454,9 +440,9 @@ internal sealed class EventoTsunami : EventoVotacao
                 navio.RpcUpdateSystem(SystemTypes.Reactor, 16);
                 navio.RpcUpdateSystem(SystemTypes.Reactor, 17);
                 reparoPendente = false;
-                proximaSabotagem = agora;
+                proximaSabotagem = agora + IntervaloCicloReator;
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "Tsunami: tentativa de reparar o reator após 0,5 segundo.");
+                    "Tsunami: reparo enviado; aguardando antes da próxima sabotagem.");
                 return;
             }
 
@@ -468,6 +454,9 @@ internal sealed class EventoTsunami : EventoVotacao
                 return;
             }
 
+            // Ignora o cooldown global da sabotagem.
+            sistema.Timer = 0f;
+            sistema.IsDirty = true;
             navio.RpcUpdateSystem(SystemTypes.Sabotage, (byte)SystemTypes.Reactor);
             reparoPendente = true;
             repararReatorAte = agora + 0.5f;
