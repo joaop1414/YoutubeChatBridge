@@ -214,7 +214,7 @@ internal sealed class EventoNpcSeguidor : EventoVotacao
                 proximaEtapaInicializacao = Time.realtimeSinceStartup + 0.15f;
 
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    $"NPC: associação EHR enviada para {mensagens} clientes vanilla.");
+                    $"NPC: associação EHR enviada para {mensagens} clientes vanilla; preparando aparência.");
             }
             catch (Exception ex)
             {
@@ -225,7 +225,104 @@ internal sealed class EventoNpcSeguidor : EventoVotacao
             }
         }
 
-        // Não envia movimentação até confirmarmos que o spawn/associação é estável.
+        // Etapa visual do EHR: envia temporariamente o outfit do host com
+        // nome/cor/acessórios neutros, aplica Shapeshift no objeto falso e
+        // restaura imediatamente o outfit real do host na rede.
+        if (etapaInicializacao == 2 && Time.realtimeSinceStartup >= proximaEtapaInicializacao)
+        {
+            PlayerControl host = PlayerControl.LocalPlayer;
+            try
+            {
+                if (host == null || host.Data == null ||
+                    host.Data.Outfits == null || npc == null)
+                    throw new InvalidOperationException("Host, outfit ou NPC indisponível na etapa visual.");
+
+                var outfit = host.Data.Outfits[PlayerOutfitType.Default];
+                string nomeOriginal = outfit.PlayerName;
+                int corOriginal = outfit.ColorId;
+                string chapeuOriginal = outfit.HatId;
+                string roupaOriginal = outfit.SkinId;
+                string mascoteOriginal = outfit.PetId;
+                string visorOriginal = outfit.VisorId;
+
+                MessageWriter visual = MessageWriter.Get(SendOption.Reliable);
+                try
+                {
+                    visual.StartMessage(5);
+                    visual.Write(AmongUsClient.Instance.GameId);
+
+                    outfit.PlayerName = "NPC";
+                    outfit.ColorId = 0;
+                    outfit.HatId = "";
+                    outfit.SkinId = "";
+                    outfit.PetId = "";
+                    outfit.VisorId = "";
+
+                    // EHR envia os dados temporários do host antes do Shapeshift.
+                    visual.StartMessage(1);
+                    visual.WritePacked(host.Data.NetId);
+                    host.Data.Serialize(visual, false);
+                    visual.EndMessage();
+
+                    try { npc.Shapeshift(host, false); }
+                    catch (Exception ex)
+                    {
+                        YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                            "NPC: Shapeshift local falhou: " + ex.Message);
+                    }
+
+                    visual.StartMessage(2);
+                    visual.WritePacked(npc.NetId);
+                    visual.Write((byte)RpcCalls.Shapeshift);
+                    visual.WriteNetObject(host);
+                    visual.Write(false);
+                    visual.EndMessage();
+
+                    // Restaura o outfit original do host e envia a restauração
+                    // no mesmo pacote, como no EHR.
+                    outfit.PlayerName = nomeOriginal;
+                    outfit.ColorId = corOriginal;
+                    outfit.HatId = chapeuOriginal;
+                    outfit.SkinId = roupaOriginal;
+                    outfit.PetId = mascoteOriginal;
+                    outfit.VisorId = visorOriginal;
+
+                    visual.StartMessage(1);
+                    visual.WritePacked(host.Data.NetId);
+                    host.Data.Serialize(visual, false);
+                    visual.EndMessage();
+
+                    visual.EndMessage();
+                    AmongUsClient.Instance.SendOrDisconnect(visual);
+                    visual = null;
+                }
+                finally
+                {
+                    visual?.Recycle();
+
+                    // Garantia local de restauração mesmo se o envio falhar.
+                    outfit.PlayerName = nomeOriginal;
+                    outfit.ColorId = corOriginal;
+                    outfit.HatId = chapeuOriginal;
+                    outfit.SkinId = roupaOriginal;
+                    outfit.PetId = mascoteOriginal;
+                    outfit.VisorId = visorOriginal;
+                }
+
+                etapaInicializacao = 3; // estável/parado; não ativa movimento
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "NPC: sequência visual do EHR enviada; outfit do host restaurado.");
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                    "Falha na etapa visual do NPC: " + ex);
+                // Não removemos automaticamente: preservar o estado para diagnóstico.
+                etapaInicializacao = 3;
+            }
+        }
+
+        // Não envia movimentação enquanto o NPC estiver em diagnóstico.
         if (etapaInicializacao != 0)
             return;
 
