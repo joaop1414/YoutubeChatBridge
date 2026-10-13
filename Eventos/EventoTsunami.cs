@@ -281,52 +281,9 @@ internal sealed class EventoTsunami : EventoVotacao
         if (indicador != null && etapaInicializacaoIndicador == 1 &&
             Time.realtimeSinceStartup >= proximaEtapaInicializacaoIndicador)
         {
-            MessageWriter association = null;
             try
             {
-                association = MessageWriter.Get(SendOption.Reliable);
-                association.StartMessage(26);
-                association.WritePacked(AmongUsClient.Instance.GameId);
-
-                int mensagens = 0;
-                foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
-                {
-                    if (jogador == null || jogador == PlayerControl.LocalPlayer ||
-                        jogador.Data == null || jogador.Data.Disconnected)
-                        continue;
-
-                    association.StartMessage(6);
-                    association.Write(AmongUsClient.Instance.GameId);
-                    association.WritePacked(jogador.OwnerId);
-
-                    association.StartMessage(1);
-                    association.WritePacked(indicador.NetId);
-                    association.Write(jogador.PlayerId);
-                    association.EndMessage();
-
-                    association.StartMessage(2);
-                    association.WritePacked(indicador.NetId);
-                    association.Write((byte)RpcCalls.MurderPlayer);
-                    association.WriteNetObject(indicador);
-                    association.Write((int)MurderResultFlags.FailedError);
-                    association.EndMessage();
-
-                    association.StartMessage(1);
-                    association.WritePacked(indicador.NetId);
-                    association.Write(PlayerIdIndicador);
-                    association.EndMessage();
-
-                    association.EndMessage();
-                    mensagens++;
-                }
-
-                association.EndMessage();
-                if (mensagens > 0)
-                    AmongUsClient.Instance.SendOrDisconnect(association);
-                association.Recycle();
-                association = null;
-
-                indicador.CachedPlayerData = PlayerControl.LocalPlayer.Data;
+                int mensagens = CustomNetObject.AssociarClientes(indicador, PlayerIdIndicador);
                 etapaInicializacaoIndicador = 2;
                 proximaEtapaInicializacaoIndicador = Time.realtimeSinceStartup + 0.15f;
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
