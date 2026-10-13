@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using HarmonyLib;
 using Hazel;
+using InnerNet;
 using UnityEngine;
 
 namespace YouTubeVoteBridge;
