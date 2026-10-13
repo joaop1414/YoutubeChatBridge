@@ -23,7 +23,13 @@ internal static class EventoCooldownIndividual
     {
         if (!YouTubeVoteBridgePlugin.EhHost() || jogador == null ||
             AmongUsClient.Instance == null || GameManager.Instance == null)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                $"[Cooldown individual] Preparação cancelada por referência inválida: " +
+                $"host={YouTubeVoteBridgePlugin.EhHost()}, jogadorNulo={jogador == null}, " +
+                $"clienteNulo={AmongUsClient.Instance == null}, gerenciadorNulo={GameManager.Instance == null}.");
             return false;
+        }
 
         bool aplicado;
         if (jogador.AmOwner)
@@ -127,7 +133,12 @@ internal static class EventoCooldownIndividual
         }
 
         if (normais == null)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                $"[Cooldown individual] CurrentGameOptions não é NormalGameOptionsV12 " +
+                $"(tipo={opcoes.GetType().FullName}); não foi possível serializar cooldown.");
             return false;
+        }
 
         byte[] dados;
         float anterior = normais.GetFloat(FloatOptionNames.KillCooldown);
@@ -160,14 +171,17 @@ internal static class EventoCooldownIndividual
             normais.SetFloat(FloatOptionNames.KillCooldown, anterior);
         }
 
+        bool encontrouLogica = false;
         bool enviou = false;
         try
         {
-            for (int i = 0; i < GameManager.Instance.LogicComponents.Count; i++)
+            int quantidade = GameManager.Instance.LogicComponents.Count;
+            for (int i = 0; i < quantidade; i++)
             {
                 if (GameManager.Instance.LogicComponents[i] is not LogicOptions)
                     continue;
 
+                encontrouLogica = true;
                 MessageWriter pacote = MessageWriter.Get(SendOption.Reliable);
                 try
                 {
@@ -181,6 +195,10 @@ internal static class EventoCooldownIndividual
                     pacote.EndMessage();
                     pacote.EndMessage();
                     pacote.EndMessage();
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                        $"[Cooldown individual] Enviando opções: PlayerId={jogador.PlayerId}, " +
+                        $"OwnerId={jogador.OwnerId}, LogicOptionsIndex={i}, cooldown={cooldown:0.##}s, " +
+                        $"bytesOpções={dados.Length}, bytesPacote={pacote.Length}.");
                     AmongUsClient.Instance.SendOrDisconnect(pacote);
                     enviou = true;
                 }
@@ -195,6 +213,30 @@ internal static class EventoCooldownIndividual
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
                 "[Cooldown individual] Falha ao enviar opções individuais: " + ex);
             return false;
+        }
+
+        if (!encontrouLogica)
+        {
+            string componentes;
+            try
+            {
+                var lista = GameManager.Instance.LogicComponents;
+                var nomes = new List<string>();
+                for (int i = 0; i < lista.Count; i++)
+                    nomes.Add($"{i}:{(lista[i] == null ? "null" : lista[i].GetType().FullName)}");
+                componentes = nomes.Count == 0 ? "(lista vazia)" : string.Join(" || ", nomes);
+            }
+            catch (Exception ex)
+            {
+                componentes = "falha ao inspecionar: " + ex.Message;
+            }
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                $"[Cooldown individual] Nenhum LogicOptions encontrado; pacote não enviado. " +
+                $"PlayerId={jogador.PlayerId}, OwnerId={jogador.OwnerId}, " +
+                $"GameManagerNetId={GameManager.Instance.NetId}, " +
+                $"quantidadeLogicComponents={GameManager.Instance.LogicComponents.Count}, " +
+                $"componentes=[{componentes}].");
         }
 
         return enviou;
