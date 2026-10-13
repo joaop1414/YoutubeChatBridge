@@ -8,7 +8,7 @@ internal sealed class EventoCriarCorpoFalso : EventoVotacao
 {
     public override string Nome => "Criar corpo falso";
 
-    private static readonly Random Sorteador = new();
+    private static readonly System.Random Sorteador = new();
 
     public void Executar()
     {
