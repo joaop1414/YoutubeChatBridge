@@ -291,7 +291,6 @@ internal sealed class EventoTsunami : EventoVotacao
             }
             catch (Exception ex)
             {
-                association?.Recycle();
                 YouTubeVoteBridgePlugin.Instance?.Log.LogError(
                     "Tsunami: falha na associação EHR do indicador: " + ex);
                 etapaInicializacaoIndicador = 0;
