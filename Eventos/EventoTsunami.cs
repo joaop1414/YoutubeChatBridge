@@ -507,13 +507,16 @@ internal sealed class EventoTsunami : EventoVotacao
     {
         foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
         {
-            if (jogador == null || jogador.cosmetics == null ||
-                jogador.cosmetics.nameText == null)
+            if (jogador == null)
                 continue;
 
             if (nomesOriginais.TryGetValue(jogador.PlayerId, out string nomeOriginal))
             {
-                try { jogador.cosmetics.nameText.text = nomeOriginal; }
+                try
+                {
+                    if (jogador.cosmetics != null && jogador.cosmetics.nameText != null)
+                        jogador.cosmetics.nameText.text = nomeOriginal;
+                }
                 catch { }
 
                 // Restaura também no cliente vanilla, usando o RPC SetName direcionado.
