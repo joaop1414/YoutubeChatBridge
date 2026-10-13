@@ -1,7 +1,6 @@
 using System;
 using System.Linq;
 using System.Text;
-using Il2CppInterop.Runtime.Injection;
 using Hazel;
 using HarmonyLib;
 using UnityEngine;
@@ -24,7 +23,6 @@ internal static class PainelVotacaoRpc
     private static bool configuracaoRecebida;
     private static float proximoEnvio;
     private static float proximaSincronizacaoConfiguracoes;
-    private static bool tipoRegistrado;
     private static bool overlayCriado;
 
     internal static bool Ativo => ativo;
@@ -37,22 +35,19 @@ internal static class PainelVotacaoRpc
     {
         try
         {
-            if (!tipoRegistrado)
-            {
-                ClassInjector.RegisterTypeInIl2Cpp<PainelVotacaoOverlay>();
-                tipoRegistrado = true;
-            }
+            if (YouTubeVoteBridgePlugin.Instance == null)
+                throw new InvalidOperationException("Instância do plugin ainda não está disponível.");
 
             if (!overlayCriado)
             {
-                var objeto = new GameObject("YouTubeVoteBridge_VoteOverlay");
-                UnityEngine.Object.DontDestroyOnLoad(objeto);
-                objeto.AddComponent<PainelVotacaoOverlay>();
+                // BasePlugin.AddComponent registra o tipo IL2CPP quando necessário
+                // e adiciona o componente ao objeto persistente gerenciado pelo BepInEx.
+                YouTubeVoteBridgePlugin.Instance.AddComponent<PainelVotacaoOverlay>();
                 overlayCriado = true;
             }
 
-            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "Painel de votação IMGUI inicializado.");
+            YouTubeVoteBridgePlugin.Instance.Log.LogInfo(
+                "Componente do painel IMGUI anexado ao gerenciador persistente do BepInEx.");
         }
         catch (Exception ex)
         {
