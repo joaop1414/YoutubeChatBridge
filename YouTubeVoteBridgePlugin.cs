@@ -1314,6 +1314,9 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 case "Fechar uma porta aleatória":
                     new EventoFecharPortaAleatoria().Executar();
                     break;
+                case "Criar corpo falso":
+                    new EventoCriarCorpoFalso().Executar();
+                    break;
                 case "Reportar um corpo":
                     new EventoReportarCorpo().Executar();
                     break;
