@@ -218,13 +218,34 @@ internal sealed class EventoTsunami : EventoVotacao
         }
     }
 
+    private static bool avisoLocalAtivo;
+
     public static void Atualizar()
     {
-        if (!ativo || !YouTubeVoteBridgePlugin.EhHost() ||
-            AmongUsClient.Instance == null || ShipStatus.Instance == null)
+        if (AmongUsClient.Instance == null || ShipStatus.Instance == null)
             return;
 
-        if (MeetingHud.Instance != null || ShipStatus.Instance == null)
+        // Cada cliente com o mod detecta localmente o indicador de rede do tsunami.
+        // A simulação/mortes/sabotagens continuam exclusivamente no host.
+        if (!YouTubeVoteBridgePlugin.EhHost())
+        {
+            AtualizarAvisoNomesCliente();
+            return;
+        }
+
+        if (!ativo)
+        {
+            if (avisoLocalAtivo)
+            {
+                avisoLocalAtivo = false;
+                RestaurarAvisoNomes();
+            }
+            return;
+        }
+
+        avisoLocalAtivo = true;
+
+        if (MeetingHud.Instance != null)
         {
             Limpar();
             return;
@@ -363,8 +384,55 @@ internal sealed class EventoTsunami : EventoVotacao
         }
     }
 
+    private static void AtualizarAvisoNomesCliente()
+    {
+        bool indicadorEncontrado = false;
+        try
+        {
+            foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+            {
+                if (jogador != null && jogador.PlayerId == PlayerIdIndicador &&
+                    jogador.notRealPlayer)
+                {
+                    indicadorEncontrado = true;
+                    break;
+                }
+            }
+        }
+        catch { }
+
+        if (indicadorEncontrado)
+        {
+            avisoLocalAtivo = true;
+            float agora = Time.realtimeSinceStartup;
+            foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+            {
+                if (jogador == null || jogador.PlayerId == PlayerIdIndicador ||
+                    jogador.Data == null || jogador.Data.Disconnected)
+                    continue;
+
+                if (!nomesOriginais.ContainsKey(jogador.PlayerId))
+                {
+                    try
+                    {
+                        nomesOriginais[jogador.PlayerId] =
+                            jogador.cosmetics.nameText.text ?? jogador.Data.PlayerName ?? "";
+                    }
+                    catch { nomesOriginais[jogador.PlayerId] = jogador.Data.PlayerName ?? ""; }
+                }
+                AtualizarNomeLocal(jogador, agora);
+            }
+        }
+        else if (avisoLocalAtivo)
+        {
+            avisoLocalAtivo = false;
+            RestaurarAvisoNomes();
+        }
+    }
+
     private static void AplicarAvisoNomes()
     {
+        avisoLocalAtivo = true;
         nomesOriginais.Clear();
         foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
         {
@@ -386,16 +454,17 @@ internal sealed class EventoTsunami : EventoVotacao
 
     private static void AtualizarNomeLocal(PlayerControl jogador, float agora)
     {
-        if (!ativo || jogador == null || jogador.cosmetics == null ||
-            jogador.cosmetics.nameText == null)
+        if ((!ativo && !avisoLocalAtivo) || jogador == null ||
+            jogador.cosmetics == null || jogador.cosmetics.nameText == null)
             return;
 
         if (!nomesOriginais.TryGetValue(jogador.PlayerId, out string nomeOriginal))
             nomeOriginal = jogador.Data?.PlayerName ?? "";
 
         string cor = ((int)(agora * 2f) % 2 == 0) ? "red" : "yellow";
+        // A quebra de linha é explícita; <b> apenas aplica negrito.
         jogador.cosmetics.nameText.text =
-            nomeOriginal + "<b><color=" + cor + ">Um tsunami está vindo</color></b>";
+            nomeOriginal + "\\n<color=" + cor + ">Um tsunami está vindo</color>";
     }
 
     private static void RestaurarAvisoNomes()
@@ -513,7 +582,13 @@ internal sealed class EventoTsunami : EventoVotacao
 
     public static void Limpar()
     {
+        // O evento pode acabar antes do timer de reparo. Sempre envia os dois
+        // sinais de conclusão do reator antes de desativar o estado do tsunami.
+        if (YouTubeVoteBridgePlugin.EhHost())
+            ForcarReparoReator();
+
         ativo = false;
+        avisoLocalAtivo = false;
         reparoPendente = false;
         RestaurarAvisoNomes();
         atingidos.Clear();
@@ -542,6 +617,29 @@ internal sealed class EventoTsunami : EventoVotacao
             }
         }
         LimparLocal();
+    }
+
+    private static void ForcarReparoReator()
+    {
+        try
+        {
+            ShipStatus navio = ShipStatus.Instance;
+            if (navio == null || !navio.Systems.ContainsKey(SystemTypes.Reactor))
+                return;
+
+            // Repetir o par de atualizações no encerramento evita deixar a
+            // sabotagem ativa caso a onda termine durante o ciclo de 0,5 s.
+            navio.RpcUpdateSystem(SystemTypes.Reactor, 16);
+            navio.RpcUpdateSystem(SystemTypes.Reactor, 17);
+            reparoPendente = false;
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "Tsunami: sinais finais de reparo do reator enviados.");
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "Tsunami: falha ao forçar o reparo final do reator: " + ex.Message);
+        }
     }
 
     private static void LimparLocal()
