@@ -440,14 +440,7 @@ internal sealed class EventoTsunami : EventoVotacao
 
         try
         {
-            indicador.NetTransform.SnapTo(posicao,
-                (ushort)(indicador.NetTransform.lastSequenceId + 1U));
-            MessageWriter move = AmongUsClient.Instance.StartRpcImmediately(
-                indicador.NetTransform.NetId, (byte)RpcCalls.SnapTo, SendOption.None);
-            move.Write(posicao.x);
-            move.Write(posicao.y);
-            move.Write((ushort)(indicador.NetTransform.lastSequenceId + 2U));
-            AmongUsClient.Instance.FinishRpcImmediately(move);
+            CustomNetObject.EnviarPosicao(indicador, posicao);
         }
         catch (Exception ex)
         {
