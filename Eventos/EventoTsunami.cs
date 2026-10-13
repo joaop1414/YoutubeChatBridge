@@ -25,6 +25,7 @@ internal sealed class EventoTsunami : EventoVotacao
     private const float Alcance = 0.85f;
     private const float IntervaloCicloReator = 1.5f;
     private const float AtrasoInicialReator = 1.0f;
+    private const float AtrasoMorteTsunami = 1.8f;
 
     private static PlayerControl indicador;
     private static Vector2 posicao;
@@ -37,6 +38,9 @@ internal sealed class EventoTsunami : EventoVotacao
     private static readonly Dictionary<byte, string> nomesOriginais = new();
     private static readonly HashSet<byte> nomesAlteradosRede = new();
     private static readonly HashSet<byte> atingidos = new();
+    private static readonly Dictionary<byte, float> mortesPendentes = new();
+    private static readonly Dictionary<byte, float> alturaAoAtingir = new();
+    private static readonly Dictionary<byte, bool> movimentoOriginal = new();
     private static bool reuniaoAguardandoFim;
     private static bool reuniaoFoiAberta;
     private static readonly Dictionary<byte, float> protegidos = new();
@@ -232,6 +236,10 @@ internal sealed class EventoTsunami : EventoVotacao
             }
         }
 
+        // Os jogadores atingidos continuam sendo carregados mesmo que a onda
+        // já tenha saído da tela. A morte/transformação só ocorre após o atraso.
+        AtualizarJogadoresAtingidos(Time.realtimeSinceStartup);
+
         if (!ativo)
         {
             if (avisoLocalAtivo)
@@ -339,20 +347,23 @@ internal sealed class EventoTsunami : EventoVotacao
 
             try
             {
-                // Não transforme o jogador em Ghost aqui: o jogo pode interpretar
-                // a mudança de Role como morte e disparar a condição de vitória.
-                // Apenas registra que a onda o atingiu; o corpo falso é criado
-                // pelo evento existente quando a reunião começa.
-                atingidos.Add(jogador.PlayerId);
+                // A onda prende o jogador na altura atual e o carrega no eixo X.
+                // A troca para Ghost só acontece depois do atraso configurado.
+                byte id = jogador.PlayerId;
+                atingidos.Add(id);
+                mortesPendentes[id] = agora + AtrasoMorteTsunami;
+                alturaAoAtingir[id] = p.y;
+                movimentoOriginal[id] = jogador.moveable;
+                jogador.moveable = false;
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                     "Tsunami atingiu " + jogador.Data.PlayerName +
-                    " (PlayerId=" + jogador.PlayerId +
-                    "); jogador mantido vivo para evitar vitória por morte em massa.");
+                    " (PlayerId=" + id + "); preso e sendo carregado por " +
+                    AtrasoMorteTsunami + "s antes da troca para Ghost.");
             }
             catch (Exception ex)
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                    "Tsunami: falha ao matar ou aplicar papel de fantasma: " + ex);
+                    "Tsunami: falha ao iniciar o transporte/morte atrasada: " + ex);
             }
         }
 
@@ -384,6 +395,88 @@ internal sealed class EventoTsunami : EventoVotacao
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
                 "Tsunami: falha ao mover indicador: " + ex.Message);
+        }
+    }
+
+    private static void AtualizarJogadoresAtingidos(float agora)
+    {
+        if (!YouTubeVoteBridgePlugin.EhHost() || mortesPendentes.Count == 0)
+            return;
+
+        foreach (byte id in new List<byte>(mortesPendentes.Keys))
+        {
+            PlayerControl jogador = null;
+            foreach (PlayerControl candidato in PlayerControl.AllPlayerControls)
+            {
+                if (candidato != null && candidato.PlayerId == id)
+                {
+                    jogador = candidato;
+                    break;
+                }
+            }
+
+            if (jogador == null || jogador.Data == null || jogador.Data.Disconnected)
+            {
+                mortesPendentes.Remove(id);
+                alturaAoAtingir.Remove(id);
+                movimentoOriginal.Remove(id);
+                continue;
+            }
+
+            if (MeetingHud.Instance == null && ativo && indicador != null && jogador.MyPhysics != null)
+            {
+                try
+                {
+                    float y = alturaAoAtingir.TryGetValue(id, out float altura)
+                        ? altura : jogador.GetTruePosition().y;
+                    Vector2 destino = new Vector2(posicao.x, y);
+                    jogador.NetTransform.SnapTo(destino,
+                        (ushort)(jogador.NetTransform.lastSequenceId + 1U));
+                    MessageWriter move = AmongUsClient.Instance.StartRpcImmediately(
+                        jogador.NetTransform.NetId, (byte)RpcCalls.SnapTo, SendOption.Reliable);
+                    move.Write(destino.x);
+                    move.Write(destino.y);
+                    move.Write((ushort)(jogador.NetTransform.lastSequenceId + 2U));
+                    AmongUsClient.Instance.FinishRpcImmediately(move);
+                }
+                catch (Exception ex)
+                {
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                        "Tsunami: falha ao carregar PlayerId=" + id + ": " + ex.Message);
+                }
+            }
+
+            if (agora < mortesPendentes[id] && MeetingHud.Instance == null)
+                continue;
+
+            try
+            {
+                bool eraImpostor = jogador.Data.Role != null && jogador.Data.Role.IsImpostor;
+                jogador.RpcSetRole(
+                    eraImpostor ? RoleTypes.ImpostorGhost : RoleTypes.CrewmateGhost,
+                    true);
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "Tsunami: atraso concluído; PlayerId=" + id +
+                    " trocado para " + (eraImpostor ? "ImpostorGhost" : "CrewmateGhost") +
+                    ". Não é enviado MurderPlayer para evitar deixar corpo real.");
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                    "Tsunami: falha ao trocar PlayerId=" + id + " para Ghost: " + ex);
+            }
+            finally
+            {
+                try
+                {
+                    if (movimentoOriginal.TryGetValue(id, out bool moveable))
+                        jogador.moveable = moveable;
+                }
+                catch { }
+                mortesPendentes.Remove(id);
+                alturaAoAtingir.Remove(id);
+                movimentoOriginal.Remove(id);
+            }
         }
     }
 
@@ -671,6 +764,24 @@ internal sealed class EventoTsunami : EventoVotacao
         RestaurarAvisoNomes();
         protegidos.Clear();
         dutosProtegidos.Clear();
+        // Se o evento for interrompido antes do atraso, não deixe ninguém travado.
+        foreach (byte id in new List<byte>(mortesPendentes.Keys))
+        {
+            foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+            {
+                if (jogador == null || jogador.PlayerId != id) continue;
+                try
+                {
+                    if (movimentoOriginal.TryGetValue(id, out bool moveable))
+                        jogador.moveable = moveable;
+                }
+                catch { }
+                break;
+            }
+        }
+        mortesPendentes.Clear();
+        alturaAoAtingir.Clear();
+        movimentoOriginal.Clear();
         if (indicador != null && AmongUsClient.Instance != null &&
             YouTubeVoteBridgePlugin.EhHost())
         {
