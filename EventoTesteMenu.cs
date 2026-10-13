@@ -202,7 +202,7 @@ internal sealed class EventoTesteMenu : MonoBehaviour
 
                 case WM_APP_STATUS:
                     if (textoStatus != IntPtr.Zero)
-                        SetWindowTextW(textoStatus, mensagem ?? "");
+                        SetWindowTextW(textoStatus, "STATUS: " + (mensagem ?? ""));
                     return IntPtr.Zero;
 
                 case WM_COMMAND:
