@@ -286,10 +286,12 @@ internal sealed class PainelVotacaoOverlay : MonoBehaviour
             Mathf.Max(8f * escala, Screen.height - altura - 8f * escala));
         var painel = new Rect(x, y, largura, altura);
 
-        // Desenhar as texturas diretamente evita depender do estado/skin do GUI.Box,
-        // que em algumas versões do Among Us deixa apenas os textos visíveis.
+        // Use os fundos nativos da skin do Unity e apenas tinja a caixa.
+        // A atribuição de Texture2D a GUIStyleState.background não é confiável
+        // em algumas combinações de Unity/IL2CPP do Among Us.
+        GUI.color = new Color(0.12f, 0.16f, 0.23f, 0.98f);
+        GUI.Box(painel, GUIContent.none, GUI.skin.box);
         GUI.color = Color.white;
-        GUI.Box(painel, GUIContent.none, estiloPainel);
 
         float margem = 16f * escala;
         float dentroX = x + margem;
@@ -315,8 +317,10 @@ internal sealed class PainelVotacaoOverlay : MonoBehaviour
         GUI.Label(new Rect(dentroX, atualY, larguraInterna, 20f * escala),
             $"RODADA #{PainelVotacaoRpc.Rodada}     ● AO VIVO", estiloSubtitulo);
         atualY += 25f * escala;
+        GUI.color = new Color(0.20f, 0.29f, 0.40f, 1f);
         GUI.Box(new Rect(dentroX, atualY, larguraInterna, 2f * escala),
-            GUIContent.none, estiloSeparador);
+            GUIContent.none, GUI.skin.box);
+        GUI.color = Color.white;
         atualY += 10f * escala;
 
         var eventos = PainelVotacaoRpc.Eventos;
@@ -337,7 +341,7 @@ internal sealed class PainelVotacaoOverlay : MonoBehaviour
 
             GUI.color = Cores[i % Cores.Length];
             GUI.Box(new Rect(dentroX, atualY + 3f * escala, 25f * escala, 25f * escala),
-                (i + 1).ToString(), estiloBarra);
+                (i + 1).ToString(), GUI.skin.box);
             GUI.color = Color.white;
 
             GUI.Label(new Rect(dentroX + 33f * escala, atualY, larguraInterna - 105f * escala,
@@ -348,14 +352,16 @@ internal sealed class PainelVotacaoOverlay : MonoBehaviour
             float barraX = dentroX + 33f * escala;
             float barraY = atualY + 29f * escala;
             float barraLargura = larguraInterna - 33f * escala;
+            GUI.color = new Color(0.14f, 0.20f, 0.29f, 1f);
             GUI.Box(new Rect(barraX, barraY, barraLargura, 7f * escala),
-                GUIContent.none, estiloBarraFundo);
+                GUIContent.none, GUI.skin.box);
+            GUI.color = Color.white;
             if (n > 0)
             {
                 GUI.color = Cores[i % Cores.Length];
                 GUI.Box(new Rect(barraX, barraY,
                     barraLargura * n / maior, 7f * escala),
-                    GUIContent.none, estiloBarra);
+                    GUIContent.none, GUI.skin.box);
                 GUI.color = Color.white;
             }
 
