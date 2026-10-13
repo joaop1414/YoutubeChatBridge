@@ -53,7 +53,7 @@ internal sealed class EventoTsunami : EventoVotacao
     private static readonly Dictionary<byte, int> dutosProtegidos = new();
 
     private const string NomeOnda =
-        "<color=#0099d1><size=4><line-height=97%><cspace=0.16em><mark=#000000>W\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\n</mark></cspace></line-height></size></color>";
+        "<color=#0099d1><size=10><line-height=97%><cspace=0.16em><mark=#000000>W\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\n</mark></cspace></line-height></size></color>";
 
     public void Executar()
     {
@@ -731,16 +731,31 @@ internal sealed class EventoTsunami : EventoVotacao
 
     private static Vector2 ObterInicio()
     {
-        float y = 0f;
+        // Começa um pouco atrás do jogador vivo mais à esquerda,
+        // usando a posição atual da partida em vez de uma coordenada fixa.
+        PlayerControl maisAtras = null;
+        float menorX = float.MaxValue;
+
         foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
         {
-            if (jogador != null && jogador.Data != null && !jogador.Data.Disconnected)
+            if (jogador == null || jogador == indicador || jogador.Data == null ||
+                jogador.Data.Disconnected || jogador.Data.IsDead)
+                continue;
+
+            float x = jogador.GetTruePosition().x;
+            if (x < menorX)
             {
-                y = jogador.transform.position.y;
-                break;
+                menorX = x;
+                maisAtras = jogador;
             }
         }
-        return new Vector2(LimiteEsquerdo() - 1.5f, y);
+
+        if (maisAtras == null)
+            return new Vector2(-10f, 0f);
+
+        Vector2 posicaoJogador = maisAtras.GetTruePosition();
+        const float DistanciaAtras = 1.75f;
+        return new Vector2(posicaoJogador.x - DistanciaAtras, posicaoJogador.y);
     }
 
     private static float LimiteEsquerdo()
