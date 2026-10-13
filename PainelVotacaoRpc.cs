@@ -262,11 +262,22 @@ internal sealed class PainelVotacaoOverlay : MonoBehaviour
         CriarEstilos();
         if (!estilosCriados) return;
 
-        float escala = Mathf.Clamp(Screen.width / 1600f, 0.72f, 1.15f);
+        // 1280x720 é a escala de referência. Em janelas menores, reduzimos
+        // proporcionalmente o painel e as fontes para caber nas três instâncias.
+        float escala = Mathf.Clamp(
+            Mathf.Min(Screen.width / 1280f, Screen.height / 720f), 0.40f, 1.0f);
         float largura = 340f * escala;
         float altura = (PainelVotacaoRpc.Ativo && PainelVotacaoRpc.Eventos.Length > 0
             ? 245f + PainelVotacaoRpc.Eventos.Length * 48f
             : 142f) * escala;
+
+        // GUIStyle guarda tamanhos absolutos; acompanhe a mesma escala do painel.
+        estiloTitulo.fontSize = Mathf.Max(9, Mathf.RoundToInt(21f * escala));
+        estiloSubtitulo.fontSize = Mathf.Max(7, Mathf.RoundToInt(12f * escala));
+        estiloOpcao.fontSize = Mathf.Max(8, Mathf.RoundToInt(14f * escala));
+        estiloContagem.fontSize = Mathf.Max(7, Mathf.RoundToInt(13f * escala));
+        estiloTempo.fontSize = estiloContagem.fontSize;
+        estiloPequeno.fontSize = Mathf.Max(6, Mathf.RoundToInt(11f * escala));
         // IMGUI usa coordenadas a partir do canto superior esquerdo. Deixe uma
         // margem fixa e limite a posição para o painel nunca sair da tela.
         float margemTela = 48f * escala;
