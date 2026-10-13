@@ -56,13 +56,20 @@ internal sealed class EventoSabotagemAleatoria : EventoVotacao
                 return;
             }
 
-            int mapa = GameOptionsManager.Instance.CurrentGameOptions.MapId;
+            // LogicOptions.MapId representa o mapa da partida em andamento.
+            // CurrentGameOptions.MapId pode representar apenas as opções atuais do menu/lobby.
+            int mapa = GameManager.Instance.LogicOptions.MapId;
+            int mapaOpcoes = GameOptionsManager.Instance.CurrentGameOptions.MapId;
             List<SystemTypes> disponiveis = ObterSabotagensDoMapa(mapa);
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "Detecção de mapa para sabotagem: LogicOptions.MapId=" + mapa +
+                "; CurrentGameOptions.MapId=" + mapaOpcoes + ".");
 
             if (disponiveis.Count == 0)
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "Sabotagem aleatória: mapa não reconhecido ou sem lista de sabotagens configurada. MapId=" + mapa + ".");
+                    "Sabotagem aleatória: mapa não reconhecido ou sem lista configurada. MapId=" + mapa + ".");
                 return;
             }
 
@@ -89,9 +96,8 @@ internal sealed class EventoSabotagemAleatoria : EventoVotacao
 
     private static List<SystemTypes> ObterSabotagensDoMapa(int mapa)
     {
-        // IDs dos mapas oficiais: 0 Skeld, 1 Mira HQ, 2 Polus,
-        // 3 Dleks, 4 Airship, 5 Fungle.
-        // Cada lista contém apenas os tipos de sabotagem usados naquele mapa.
+        // IDs oficiais: 0 Skeld, 1 Mira HQ, 2 Polus, 3 Dleks,
+        // 4 Airship, 5 Fungle. Mapas adicionados por mods podem usar outros IDs.
         return mapa switch
         {
             0 or 3 => new List<SystemTypes>
