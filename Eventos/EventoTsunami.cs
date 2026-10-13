@@ -9,6 +9,7 @@ namespace YouTubeVoteBridge;
 internal sealed class EventoTsunami : EventoVotacao
 {
     public override string Nome => "Tsunami";
+    public static bool Ativo => ativo;
     private const byte PlayerIdIndicador = 253;
     private const float Velocidade = 3.0f;
     private const float Intervalo = 0.08f;
@@ -20,6 +21,10 @@ internal sealed class EventoTsunami : EventoVotacao
     private static float proximaAtualizacao;
     private static float fimProtecao;
     private static bool ativo;
+    private static float proximaSabotagem;
+    private static float repararReatorAte;
+    private static bool reparoPendente;
+    private static readonly Dictionary<byte, string> nomesOriginais = new();
     private static readonly HashSet<byte> atingidos = new();
     private static readonly Dictionary<byte, float> protegidos = new();
     private static readonly Dictionary<byte, int> dutosProtegidos = new();
@@ -91,8 +96,11 @@ internal sealed class EventoTsunami : EventoVotacao
 
             // Inicializa o objeto falso nos clientes e aplica o nome visual da onda.
             PrepararIndicadorVisual();
+            AplicarAvisoNomes();
 
             ativo = true;
+            proximaSabotagem = Time.realtimeSinceStartup;
+            reparoPendente = false;
             proximaAtualizacao = Time.realtimeSinceStartup;
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 "Tsunami iniciado. Indicador visual separado dos jogadores reais.");
@@ -220,6 +228,7 @@ internal sealed class EventoTsunami : EventoVotacao
         }
 
         float agora = Time.realtimeSinceStartup;
+        AtualizarSabotagemReator(agora);
         if (agora < proximaAtualizacao) return;
         proximaAtualizacao = agora + Intervalo;
 
@@ -335,6 +344,143 @@ internal sealed class EventoTsunami : EventoVotacao
         }
     }
 
+    private static void AplicarAvisoNomes()
+    {
+        nomesOriginais.Clear();
+        if (AmongUsClient.Instance == null) return;
+
+        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+        {
+            if (jogador == null || jogador.Data == null || jogador.Data.Disconnected)
+                continue;
+
+            try
+            {
+                var outfit = jogador.Data.Outfits[PlayerOutfitType.Default];
+                string nomeOriginal = outfit.PlayerName ?? jogador.Data.PlayerName ?? "";
+                nomesOriginais[jogador.PlayerId] = nomeOriginal;
+                outfit.PlayerName = nomeOriginal + "<b><color=red>Um tsunami está vindo</color></b>";
+
+                MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
+                try
+                {
+                    writer.StartMessage(5);
+                    writer.Write(AmongUsClient.Instance.GameId);
+                    writer.StartMessage(1);
+                    writer.WritePacked(jogador.Data.NetId);
+                    jogador.Data.Serialize(writer, false);
+                    writer.EndMessage();
+                    writer.EndMessage();
+                    AmongUsClient.Instance.SendOrDisconnect(writer);
+                    writer = null;
+                }
+                finally { writer?.Recycle(); }
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "Tsunami: não foi possível aplicar o aviso no nome: " + ex.Message);
+            }
+        }
+    }
+
+    private static void RestaurarAvisoNomes()
+    {
+        if (AmongUsClient.Instance == null)
+        {
+            nomesOriginais.Clear();
+            return;
+        }
+
+        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+        {
+            if (jogador == null || jogador.Data == null)
+                continue;
+
+            if (!nomesOriginais.TryGetValue(jogador.PlayerId, out string nomeOriginal))
+                continue;
+
+            try
+            {
+                jogador.Data.Outfits[PlayerOutfitType.Default].PlayerName = nomeOriginal;
+                MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
+                try
+                {
+                    writer.StartMessage(5);
+                    writer.Write(AmongUsClient.Instance.GameId);
+                    writer.StartMessage(1);
+                    writer.WritePacked(jogador.Data.NetId);
+                    jogador.Data.Serialize(writer, false);
+                    writer.EndMessage();
+                    writer.EndMessage();
+                    AmongUsClient.Instance.SendOrDisconnect(writer);
+                    writer = null;
+                }
+                finally { writer?.Recycle(); }
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "Tsunami: não foi possível restaurar o nome: " + ex.Message);
+            }
+        }
+
+        nomesOriginais.Clear();
+    }
+
+    private static void AtualizarSabotagemReator(float agora)
+    {
+        if (!ativo || !YouTubeVoteBridgePlugin.EhHost() ||
+            ShipStatus.Instance == null || AmongUsClient.Instance == null)
+            return;
+
+        try
+        {
+            ShipStatus navio = ShipStatus.Instance;
+            if (!navio.Systems.ContainsKey(SystemTypes.Sabotage) ||
+                !navio.Systems.ContainsKey(SystemTypes.Reactor))
+                return;
+
+            SabotageSystemType sistema = navio.Systems[SystemTypes.Sabotage]
+                .Cast<SabotageSystemType>();
+            if (sistema == null) return;
+
+            if (reparoPendente)
+            {
+                if (agora < repararReatorAte) return;
+
+                // Os dois sinais correspondem às duas mãos/terminais do reparo do reator clássico.
+                navio.RpcUpdateSystem(SystemTypes.Reactor, 16);
+                navio.RpcUpdateSystem(SystemTypes.Reactor, 17);
+                reparoPendente = false;
+                proximaSabotagem = agora;
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "Tsunami: tentativa de reparar o reator após 0,5 segundo.");
+                return;
+            }
+
+            if (agora < proximaSabotagem) return;
+            if (sistema.AnyActive)
+            {
+                // Não interfere numa sabotagem que já estava ativa antes do ciclo do tsunami.
+                proximaSabotagem = agora + 0.5f;
+                return;
+            }
+
+            navio.RpcUpdateSystem(SystemTypes.Sabotage, (byte)SystemTypes.Reactor);
+            reparoPendente = true;
+            repararReatorAte = agora + 0.5f;
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "Tsunami: sabotagem do reator iniciada; reparo programado para 0,5 segundo.");
+        }
+        catch (Exception ex)
+        {
+            proximaSabotagem = agora + 0.5f;
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "Tsunami: falha no ciclo de sabotagem/reparo do reator: " + ex.Message);
+        }
+    }
+
     private static Vector2 ObterInicio()
     {
         float y = 0f;
@@ -378,6 +524,8 @@ internal sealed class EventoTsunami : EventoVotacao
     public static void Limpar()
     {
         ativo = false;
+        reparoPendente = false;
+        RestaurarAvisoNomes();
         atingidos.Clear();
         protegidos.Clear();
         dutosProtegidos.Clear();
