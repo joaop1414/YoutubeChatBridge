@@ -164,51 +164,7 @@ internal sealed class EventoNpcSeguidor : EventoVotacao
         {
             try
             {
-                MessageWriter association = MessageWriter.Get(SendOption.Reliable);
-                association.StartMessage(26);
-                association.WritePacked(AmongUsClient.Instance.GameId);
-
-                int mensagens = 0;
-                foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
-                {
-                    if (jogador == null || jogador == PlayerControl.LocalPlayer ||
-                        jogador.Data == null || jogador.Data.Disconnected)
-                        continue;
-
-                    association.StartMessage(6);
-                    association.Write(AmongUsClient.Instance.GameId);
-                    association.WritePacked(jogador.OwnerId);
-
-                    // Temporariamente associa o objeto falso ao PlayerId do cliente.
-                    association.StartMessage(1);
-                    association.WritePacked(npc.NetId);
-                    association.Write(jogador.PlayerId);
-                    association.EndMessage();
-
-                    // Mesmo RPC de inicialização usado pelo EHR.
-                    association.StartMessage(2);
-                    association.WritePacked(npc.NetId);
-                    association.Write((byte)RpcCalls.MurderPlayer);
-                    association.WriteNetObject(npc);
-                    association.Write((int)MurderResultFlags.FailedError);
-                    association.EndMessage();
-
-                    // Restaura o ID reservado do objeto falso.
-                    association.StartMessage(1);
-                    association.WritePacked(npc.NetId);
-                    association.Write(PlayerIdNpc);
-                    association.EndMessage();
-
-                    association.EndMessage();
-                    mensagens++;
-                }
-
-                association.EndMessage();
-                if (mensagens > 0)
-                    AmongUsClient.Instance.SendOrDisconnect(association);
-                association.Recycle();
-
-                npc.CachedPlayerData = PlayerControl.LocalPlayer.Data;
+                int mensagens = CustomNetObject.AssociarClientes(npc, PlayerIdNpc);
                 etapaInicializacao = 2;
                 proximaEtapaInicializacao = Time.realtimeSinceStartup + 0.15f;
 
