@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using AmongUs.InnerNet.GameDataMessages;
 using Hazel;
 using InnerNet;
 using UnityEngine;
@@ -66,18 +65,17 @@ internal sealed class EventoNpcSeguidor : EventoVotacao
 
         try
         {
-            // Segue o padrão do EHR: cria fora da área jogável e só depois
-            // inicializa os clientes; a posição lógica continua sendo a do host.
+            // Reutiliza a estrutura de pacote que já funcionou no EventoCriarCorpoFalso,
+            // mas mantém o PlayerControl vivo e não envia MurderPlayer nem despawn.
             Vector2 spawnPos = PlayerControl.LocalPlayer.transform.position;
             posicaoControlada = spawnPos;
             npc = UnityEngine.Object.Instantiate(
-                AmongUsClient.Instance.PlayerPrefab, Vector2.zero, Quaternion.identity);
+                AmongUsClient.Instance.PlayerPrefab, spawnPos, Quaternion.identity);
             npc.PlayerId = PlayerIdNpc;
             npc.isNew = false;
             npc.notRealPlayer = true;
-            npc.NetTransform.SnapTo(new Vector2(50f, 50f));
+            npc.NetTransform.SnapTo(spawnPos);
 
-            // Registra e transmite o objeto falso para todos os clientes.
             AmongUsClient.Instance.NetIdCnt += 1U;
             MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
             try
@@ -91,7 +89,7 @@ internal sealed class EventoNpcSeguidor : EventoVotacao
                 spawn.SerializeValues(writer);
                 writer.EndMessage();
 
-                // Os três NetIds auxiliares do prefab não são necessários ao NPC.
+                // Mesmas mensagens auxiliares usadas pelo evento de corpo falso.
                 for (uint i = 1; i <= 3; i++)
                 {
                     writer.StartMessage(4);
@@ -105,6 +103,19 @@ internal sealed class EventoNpcSeguidor : EventoVotacao
                     writer.EndMessage();
                 }
 
+                // Inicializa a cor e os dados como no pacote que já funciona.
+                writer.StartMessage(2);
+                writer.WritePacked(npc.NetId);
+                writer.Write((byte)RpcCalls.SetColor);
+                writer.Write(npc.Data.NetId);
+                writer.Write(PlayerControl.LocalPlayer.Data.DefaultOutfit.ColorId);
+                writer.EndMessage();
+
+                writer.StartMessage(1);
+                writer.WritePacked(npc.Data.NetId);
+                npc.Data.Serialize(writer, false);
+                writer.EndMessage();
+
                 writer.EndMessage();
                 AmongUsClient.Instance.SendOrDisconnect(writer);
                 writer = null;
@@ -117,20 +128,14 @@ internal sealed class EventoNpcSeguidor : EventoVotacao
             if (PlayerControl.AllPlayerControls.Contains(npc))
                 PlayerControl.AllPlayerControls.Remove(npc);
 
-            // O EHR oculta o corpo padrão; o texto é desenhado pelo sistema visual.
-            try { npc.cosmetics.currentBodySprite.BodySprite.color = Color.clear; } catch { }
-            try { npc.cosmetics.colorBlindText.color = Color.clear; } catch { }
-
-            // Não associar os dados do host até o objeto já existir nos clientes.
-            // O EHR aguarda 0,1 s entre o spawn e a associação temporária por cliente.
-            etapaInicializacao = 1;
-            proximaEtapaInicializacao = Time.realtimeSinceStartup + 0.10f;
-
+            // Não escondemos o corpo: o host precisa conseguir ver o objeto no spawn.
+            etapaInicializacao = 0;
+            proximaEtapaInicializacao = 0f;
             alvo = EscolherAlvo();
             proximaAtualizacao = Time.realtimeSinceStartup + IntervaloMovimento;
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "NPC criado; começando a seguir jogadores reais.");
+                $"NPC criado com pacote do corpo falso (sem morte/despawn), posição=({spawnPos.x:0.00}, {spawnPos.y:0.00}).");
         }
         catch (Exception ex)
         {
@@ -154,55 +159,6 @@ internal sealed class EventoNpcSeguidor : EventoVotacao
 
         if (MeetingHud.Instance != null)
             return;
-
-        if (etapaInicializacao > 0 && Time.realtimeSinceStartup >= proximaEtapaInicializacao)
-        {
-            try
-            {
-                if (etapaInicializacao == 1)
-                {
-                    // Reproduz a sequência de associação usada pelo EHR
-                    // depois de dar tempo aos clientes para processar o Spawn.
-                    YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                        "NPC EHR: iniciando associação temporária por cliente.");
-                    EnviarInicializacaoParaClientes();
-                    if (npc != null && PlayerControl.LocalPlayer?.Data != null)
-                        npc.CachedPlayerData = PlayerControl.LocalPlayer.Data;
-
-                    etapaInicializacao = 2;
-                    proximaEtapaInicializacao = Time.realtimeSinceStartup + 0.15f;
-                    return;
-                }
-
-                if (etapaInicializacao == 2)
-                {
-                    // Aplica o visual seguindo o padrão de CustomNetObject do EHR.
-                    YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                        "NPC EHR: enviando atualização visual.");
-                    EnviarVisualNpc();
-                    etapaInicializacao = 0;
-                    YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                        "NPC EHR: sequência de inicialização concluída; NPC permanece parado para teste.");
-                    return;
-                }
-            }
-            catch (Exception ex)
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                    "Falha na inicialização visual do NPC: " + ex);
-                etapaInicializacao = 0;
-            }
-        }
-
-        // Primeiro teste de compatibilidade: manter o NPC parado.
-        // Só reativaremos o seguimento depois de confirmar que o vanilla
-        // mantém o objeto de rede sem desconexões.
-        if (etapaInicializacao > 0)
-            return;
-
-        // Modo de diagnóstico: NPC estacionário. Não envie SnapTo contínuo
-        // enquanto estamos validando a criação em clientes vanilla.
-        return;
 
         if (Time.realtimeSinceStartup < proximaAtualizacao)
             return;
@@ -251,61 +207,6 @@ internal sealed class EventoNpcSeguidor : EventoVotacao
         }
     }
 
-    private static void EnviarInicializacaoParaClientes()
-    {
-        if (npc == null || AmongUsClient.Instance == null ||
-            !AmongUsClient.Instance.AmHost)
-            return;
-
-        MessageWriter stream = MessageWriter.Get(SendOption.Reliable);
-        try
-        {
-            stream.StartMessage(26);
-            stream.WritePacked(AmongUsClient.Instance.GameId);
-
-            foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
-            {
-                if (jogador == null || jogador.AmOwner || jogador.Data == null ||
-                    jogador.Data.Disconnected)
-                    continue;
-
-                // Direciona a sequência ao cliente dono deste jogador.
-                stream.StartMessage(6);
-                stream.Write(AmongUsClient.Instance.GameId);
-                stream.WritePacked(jogador.OwnerId);
-
-                // Associa temporariamente o objeto falso ao PlayerId do cliente.
-                stream.StartMessage(1);
-                stream.WritePacked(npc.NetId);
-                stream.Write(jogador.PlayerId);
-                stream.EndMessage();
-
-                // RPC de inicialização visual usado por NPCs compatíveis com vanilla.
-                stream.StartMessage(2);
-                stream.WritePacked(npc.NetId);
-                stream.Write((byte)RpcCalls.MurderPlayer);
-                stream.WriteNetObject(npc);
-                stream.Write((int)MurderResultFlags.FailedError);
-                stream.EndMessage();
-
-                // Reatribui o ID reservado ao NPC.
-                stream.StartMessage(1);
-                stream.WritePacked(npc.NetId);
-                stream.Write(PlayerIdNpc);
-                stream.EndMessage();
-
-                stream.EndMessage();
-            }
-
-            stream.EndMessage();
-            AmongUsClient.Instance.SendOrDisconnect(stream);
-        }
-        finally
-        {
-            stream.Recycle();
-        }
-    }
-
     private static PlayerControl EscolherAlvo()
     {
         List<PlayerControl> vivos = new();
@@ -323,94 +224,6 @@ internal sealed class EventoNpcSeguidor : EventoVotacao
     private static bool AlvoValido(PlayerControl jogador) =>
         jogador != null && jogador.Data != null &&
         !jogador.Data.Disconnected && !jogador.Data.IsDead;
-
-    // Estratégia visual inspirada no EHR: sincroniza temporariamente o outfit
-    // do host, aplica Shapeshift no objeto falso e restaura o outfit original.
-    private static void EnviarVisualNpc()
-    {
-        if (npc == null || npc.Data == null || PlayerControl.LocalPlayer?.Data == null ||
-            AmongUsClient.Instance == null)
-            return;
-
-        var dadosHost = PlayerControl.LocalPlayer.Data;
-        var roupa = dadosHost.Outfits[PlayerOutfitType.Default];
-
-        string nomeOriginal = roupa.PlayerName;
-        int corOriginal = roupa.ColorId;
-        string chapeuOriginal = roupa.HatId;
-        string peleOriginal = roupa.SkinId;
-        string petOriginal = roupa.PetId;
-        string visorOriginal = roupa.VisorId;
-
-        MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
-        try
-        {
-            writer.StartMessage(5);
-            writer.Write(AmongUsClient.Instance.GameId);
-
-            roupa.PlayerName = "<size=14><br></size>NPC";
-            roupa.ColorId = 0;
-            roupa.HatId = "";
-            roupa.SkinId = "";
-            roupa.PetId = "";
-            roupa.VisorId = "";
-
-            writer.StartMessage(1);
-            writer.WritePacked(dadosHost.NetId);
-            dadosHost.Serialize(writer, false);
-            writer.EndMessage();
-
-            try { npc.Shapeshift(PlayerControl.LocalPlayer, false); }
-            catch (Exception ex)
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "Shapeshift visual do NPC: " + ex.Message);
-            }
-
-            writer.StartMessage(2);
-            writer.WritePacked(npc.NetId);
-            writer.Write((byte)RpcCalls.Shapeshift);
-            writer.WriteNetObject(PlayerControl.LocalPlayer);
-            writer.Write(false);
-            writer.EndMessage();
-
-            roupa.PlayerName = nomeOriginal;
-            roupa.ColorId = corOriginal;
-            roupa.HatId = chapeuOriginal;
-            roupa.SkinId = peleOriginal;
-            roupa.PetId = petOriginal;
-            roupa.VisorId = visorOriginal;
-
-            writer.StartMessage(1);
-            writer.WritePacked(dadosHost.NetId);
-            dadosHost.Serialize(writer, false);
-            writer.EndMessage();
-
-            Vector2 posicao = posicaoControlada;
-            ushort sequencia = (ushort)(npc.NetTransform.lastSequenceId + 1);
-            writer.StartMessage(2);
-            writer.WritePacked(npc.NetTransform.NetId);
-            writer.Write((byte)RpcCalls.SnapTo);
-            writer.Write(posicao.x);
-            writer.Write(posicao.y);
-            writer.Write(sequencia);
-            writer.EndMessage();
-
-            writer.EndMessage();
-            AmongUsClient.Instance.SendOrDisconnect(writer);
-            writer = null;
-        }
-        finally
-        {
-            writer?.Recycle();
-            roupa.PlayerName = nomeOriginal;
-            roupa.ColorId = corOriginal;
-            roupa.HatId = chapeuOriginal;
-            roupa.SkinId = peleOriginal;
-            roupa.PetId = petOriginal;
-            roupa.VisorId = visorOriginal;
-        }
-    }
 
     public static void Limpar()
     {
