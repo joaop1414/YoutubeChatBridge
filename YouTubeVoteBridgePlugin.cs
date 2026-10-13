@@ -1839,6 +1839,7 @@ public static class YouTubeVoteCancelMeetingPatch
     {
         if (!YouTubeVoteBridgePlugin.EhHost())
             return true;
+        EventoTsunami.PrepararAntesDaReuniao();
         YouTubeVoteBridgePlugin.CancelarReuniaoSolicitada();
         EventoTarefaMataJogador.Desativar();
         EventoTarefaSuicidio.Desativar();
