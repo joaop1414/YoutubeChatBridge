@@ -199,7 +199,11 @@ internal sealed class PainelVotacaoOverlay : MonoBehaviour
     {
         var s = new GUIStyle(GUI.skin.box);
         s.normal.background = fundo;
-        s.border = new RectOffset(8, 8, 8, 8);
+        s.border = new RectOffset();
+        s.border.left = 8;
+        s.border.right = 8;
+        s.border.top = 8;
+        s.border.bottom = 8;
         return s;
     }
 
