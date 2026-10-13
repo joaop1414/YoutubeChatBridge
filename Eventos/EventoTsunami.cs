@@ -739,7 +739,7 @@ internal static class EventoTsunamiFlashReatorCorPatch
             if (__instance.ReactorFlash == null && ShipStatus.Instance != null &&
                 ShipStatus.Instance.Systems != null &&
                 ShipStatus.Instance.Systems.TryGetValue(SystemTypes.Reactor, out var sistema) &&
-                sistema != null && sistema.IsActive)
+                sistema is ReactorSystemType reator && reator.IsActive)
                 __instance.StartReactorFlash();
         }
         catch (Exception ex)
