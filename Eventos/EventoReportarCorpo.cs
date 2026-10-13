@@ -1,5 +1,5 @@
 using System;
-using UnityEngine;
+using System.Collections.Generic;
 
 namespace YouTubeVoteBridge;
 
@@ -7,12 +7,13 @@ internal sealed class EventoReportarCorpo : EventoVotacao
 {
     public override string Nome => "Reportar um corpo";
 
+    private static readonly Random Sorteador = new();
+
     public void Executar()
     {
         if (!YouTubeVoteBridgePlugin.EhHost())
             return;
 
-        // Não tenta abrir outro reporte se uma reunião já estiver aberta.
         if (MeetingHud.Instance != null)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
@@ -20,69 +21,43 @@ internal sealed class EventoReportarCorpo : EventoVotacao
             return;
         }
 
-        PlayerControl host = PlayerControl.LocalPlayer;
-        if (host == null || host.Data == null ||
-            host.Data.IsDead || host.Data.Disconnected)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "Evento de reporte cancelado: o host local não está vivo.");
-            return;
-        }
-
         try
         {
-            DeadBody corpoDisponivel = null;
-            DeadBody[] corpos = UnityEngine.Object.FindObjectsOfType<DeadBody>();
+            List<PlayerControl> jogadores = new();
 
-            foreach (DeadBody corpo in corpos)
-            {
-                if (corpo != null && corpo.enabled && corpo.gameObject != null &&
-                    corpo.gameObject.activeInHierarchy)
-                {
-                    corpoDisponivel = corpo;
-                    break;
-                }
-            }
-
-            // Sem corpo real, não fazemos auto-reporte nem reunião de emergência:
-            // essas alternativas causaram softlock em testes anteriores.
-            if (corpoDisponivel == null)
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "Evento de reporte não executado: não há corpo ativo no mapa.");
-                return;
-            }
-
-            NetworkedPlayerInfo dadosCorpo = null;
             foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
             {
-                if (jogador != null && jogador.Data != null &&
-                    jogador.PlayerId == corpoDisponivel.ParentId)
-                {
-                    dadosCorpo = jogador.Data;
-                    break;
-                }
+                if (jogador == null || jogador.Data == null ||
+                    jogador.Data.Disconnected)
+                    continue;
+
+                // Inclui jogadores vivos e mortos: ambos podem ser sorteados.
+                jogadores.Add(jogador);
             }
 
-            if (dadosCorpo == null || !dadosCorpo.IsDead || dadosCorpo.Disconnected)
+            if (jogadores.Count == 0)
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "Evento de reporte cancelado: os dados do corpo não correspondem a um jogador morto válido.");
+                    "Evento de reporte cancelado: não há jogadores disponíveis.");
                 return;
             }
 
-            // Executar pelo host vivo e reportar apenas um corpo existente.
-            host.ReportDeadBody(dadosCorpo);
+            PlayerControl escolhido = jogadores[Sorteador.Next(jogadores.Count)];
+
+            // O evento pede que o jogador sorteado reporte a si próprio.
+            // Não exige que exista um corpo no mapa nem que o sorteado esteja vivo.
+            escolhido.ReportDeadBody(escolhido.Data);
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "Evento de reporte solicitado pelo host. Reporter=" +
-                host.Data.PlayerName + ", corpo=" + dadosCorpo.PlayerName +
-                ", PlayerId=" + corpoDisponivel.ParentId + ".");
+                "Evento de autorreporte solicitado. Jogador=" +
+                escolhido.Data.PlayerName + ", PlayerId=" +
+                escolhido.PlayerId + ", morto=" +
+                escolhido.Data.IsDead + ".");
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "Falha no evento de reporte do YouTube: " + ex);
+                "Falha no evento de autorreporte do YouTube: " + ex);
         }
     }
 }
