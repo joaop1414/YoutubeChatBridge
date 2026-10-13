@@ -41,6 +41,7 @@ internal sealed class EventoTsunami : EventoVotacao
     private static readonly Dictionary<byte, float> mortesPendentes = new();
     private static readonly Dictionary<byte, float> alturaAoAtingir = new();
     private static readonly Dictionary<byte, bool> movimentoOriginal = new();
+    private static readonly Dictionary<byte, float> proximoSnapJogador = new();
     private static bool reuniaoAguardandoFim;
     private static bool reuniaoFoiAberta;
     private static readonly Dictionary<byte, float> protegidos = new();
@@ -422,6 +423,7 @@ internal sealed class EventoTsunami : EventoVotacao
                 mortesPendentes.Remove(id);
                 alturaAoAtingir.Remove(id);
                 movimentoOriginal.Remove(id);
+                proximoSnapJogador.Remove(id);
                 continue;
             }
 
@@ -433,24 +435,20 @@ internal sealed class EventoTsunami : EventoVotacao
                         ? altura : jogador.GetTruePosition().y;
                     Vector2 destino = new Vector2(posicao.x, y);
 
-                    // Usa exatamente o mesmo sequenceId no SnapTo local e no RPC
-                    // enviado aos demais clientes, para evitar que a posição seja
-                    // descartada como pacote antigo/inconsistente.
-                    ushort sequenceId = (ushort)(jogador.NetTransform.lastSequenceId + 1U);
-                    jogador.NetTransform.SnapTo(destino, sequenceId);
+                    // Reutiliza a mesma chamada de teleporte do evento de duto,
+                    // que já foi validada neste projeto: RpcSnapTo publica o SnapTo
+                    // pela API do jogo em vez de montar o RPC manualmente.
+                    // Limita a frequência para não inundar a rede (12,5 atualizações/s).
+                    if (!proximoSnapJogador.TryGetValue(id, out float proximo) || agora >= proximo)
+                    {
+                        jogador.NetTransform.RpcSnapTo(destino);
+                        proximoSnapJogador[id] = agora + Intervalo;
 
-                    MessageWriter move = AmongUsClient.Instance.StartRpcImmediately(
-                        jogador.NetTransform.NetId, (byte)RpcCalls.SnapTo, SendOption.Reliable);
-                    move.Write(destino.x);
-                    move.Write(destino.y);
-                    move.Write(sequenceId);
-                    AmongUsClient.Instance.FinishRpcImmediately(move);
-
-                    YouTubeVoteBridgePlugin.Instance?.Log.LogDebug(
-                        "Tsunami: SnapTo de PlayerId=" + id +
-                        " para X=" + destino.x.ToString("0.00") +
-                        ", Y=" + destino.y.ToString("0.00") +
-                        ", sequência=" + sequenceId + ".");
+                        YouTubeVoteBridgePlugin.Instance?.Log.LogDebug(
+                            "Tsunami: RpcSnapTo de PlayerId=" + id +
+                            " para X=" + destino.x.ToString("0.00") +
+                            ", Y=" + destino.y.ToString("0.00") + ".");
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -802,6 +800,7 @@ internal sealed class EventoTsunami : EventoVotacao
             mortesPendentes.Clear();
             alturaAoAtingir.Clear();
             movimentoOriginal.Clear();
+            proximoSnapJogador.Clear();
         }
         if (indicador != null && AmongUsClient.Instance != null &&
             YouTubeVoteBridgePlugin.EhHost())
