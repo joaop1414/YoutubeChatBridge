@@ -98,8 +98,14 @@ internal static class EventoCooldownIndividual
             if (GameManager.Instance?.LogicComponents != null)
             {
                 foreach (GameLogicComponent componente in GameManager.Instance.LogicComponents)
-                    if (componente is LogicOptions logicOptions)
+                {
+                    LogicOptions logicOptions = null;
+                    try { logicOptions = componente?.TryCast<LogicOptions>(); }
+                    catch { /* O componente pode ser de outro tipo. */ }
+
+                    if (logicOptions != null)
                         logicOptions.SetGameOptions(opcoes);
+                }
             }
 
             GameOptionsManager.Instance.CurrentGameOptions = opcoes;
@@ -178,7 +184,17 @@ internal static class EventoCooldownIndividual
             int quantidade = GameManager.Instance.LogicComponents.Count;
             for (int i = 0; i < quantidade; i++)
             {
-                if (GameManager.Instance.LogicComponents[i] is not LogicOptions)
+                LogicOptions logicOptions = null;
+                try
+                {
+                    logicOptions = GameManager.Instance.LogicComponents[i]?.TryCast<LogicOptions>();
+                }
+                catch
+                {
+                    // IL2CPP pode expor os itens da lista como GameLogicComponent genérico.
+                }
+
+                if (logicOptions == null)
                     continue;
 
                 encontrouLogica = true;
