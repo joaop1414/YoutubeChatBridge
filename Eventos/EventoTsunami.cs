@@ -726,6 +726,10 @@ internal sealed class EventoTsunami : EventoVotacao
             return;
         }
 
+        // Se a reunião for chamada durante o transporte, conclui a troca
+        // para Ghost antes de limpar a onda e publicar os corpos falsos.
+        AtualizarJogadoresAtingidos(float.PositiveInfinity);
+
         List<byte> ids = new(atingidos);
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             "Tsunami: criando " + ids.Count +
