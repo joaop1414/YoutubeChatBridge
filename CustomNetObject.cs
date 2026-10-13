@@ -31,7 +31,7 @@ internal static class CustomNetObject
                 // Pacote direcionado a um único cliente (InnerNet message 6).
                 writer.StartMessage(6);
                 writer.Write(AmongUsClient.Instance.GameId);
-                writer.WritePacked(jogador.GetClientId());
+                writer.WritePacked(jogador.OwnerId);
 
                 // Associa temporariamente o objeto ao PlayerId real desse cliente.
                 writer.StartMessage(1);
@@ -61,7 +61,7 @@ internal static class CustomNetObject
             catch (Exception ex)
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    $"CustomNetObject: falha ao associar objeto ao cliente {jogador.GetClientId()}: {ex.Message}");
+                    $"CustomNetObject: falha ao associar objeto ao cliente OwnerId={jogador.OwnerId}: {ex.Message}");
             }
             finally
             {
