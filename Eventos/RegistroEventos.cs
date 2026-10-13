@@ -21,7 +21,8 @@ internal static class RegistroEventos
         new EventoTarefaSuicidio(),
         new EventoTrocarCores(),
         new EventoEscudoTemporario(),
-        new EventoCriarCorpoFalso()
+        new EventoCriarCorpoFalso(),
+        new EventoReportarCorpo()
     };
 
     public static IReadOnlyList<EventoVotacao> ObterTodos() => Eventos;
