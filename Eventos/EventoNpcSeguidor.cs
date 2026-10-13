@@ -48,14 +48,16 @@ internal sealed class EventoNpcSeguidor : EventoVotacao
 
         try
         {
+            // Segue o padrão do EHR: cria fora da área jogável e só depois
+            // inicializa os clientes; a posição lógica continua sendo a do host.
             Vector2 spawnPos = PlayerControl.LocalPlayer.transform.position;
             posicaoControlada = spawnPos;
             npc = UnityEngine.Object.Instantiate(
-                AmongUsClient.Instance.PlayerPrefab, spawnPos, Quaternion.identity);
+                AmongUsClient.Instance.PlayerPrefab, Vector2.zero, Quaternion.identity);
             npc.PlayerId = PlayerIdNpc;
             npc.isNew = false;
             npc.notRealPlayer = true;
-            npc.NetTransform.SnapTo(spawnPos);
+            npc.NetTransform.SnapTo(new Vector2(50f, 50f));
 
             // Registra e transmite o objeto falso para todos os clientes.
             AmongUsClient.Instance.NetIdCnt += 1U;
@@ -101,9 +103,8 @@ internal sealed class EventoNpcSeguidor : EventoVotacao
             try { npc.cosmetics.currentBodySprite.BodySprite.color = Color.clear; } catch { }
             try { npc.cosmetics.colorBlindText.color = Color.clear; } catch { }
 
-            // O EHR espera um pouco após o spawn e inicializa clientes vanilla
-            // em etapas separadas para reduzir mensagens fora de ordem.
-            npc.CachedPlayerData = PlayerControl.LocalPlayer.Data;
+            // Não associar os dados do host até o objeto já existir nos clientes.
+            // O EHR aguarda 0,1 s entre o spawn e a associação temporária por cliente.
             etapaInicializacao = 1;
             proximaEtapaInicializacao = Time.realtimeSinceStartup + 0.10f;
 
@@ -187,11 +188,14 @@ internal sealed class EventoNpcSeguidor : EventoVotacao
             // Atualiza primeiro a posição lógica; mesmo que a colisão do prefab
             // não acompanhe o movimento, o próximo passo não fica travado nela.
             posicaoControlada = novaPosicao;
-            ushort sequencia = (ushort)(npc.NetTransform.lastSequenceId + 1);
-            npc.NetTransform.SnapTo(posicaoControlada, sequencia);
+            // Mesmo padrão do EHR: atualizar localmente com +1 e transmitir
+            // o SnapTo com +2, sem Reliable para não sobrecarregar a conexão.
+            npc.NetTransform.SnapTo(posicaoControlada,
+                (ushort)(npc.NetTransform.lastSequenceId + 1U));
 
+            ushort sequencia = (ushort)(npc.NetTransform.lastSequenceId + 2U);
             MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
-                npc.NetTransform.NetId, (byte)RpcCalls.SnapTo, SendOption.Reliable);
+                npc.NetTransform.NetId, (byte)RpcCalls.SnapTo, SendOption.None);
             writer.Write(posicaoControlada.x);
             writer.Write(posicaoControlada.y);
             writer.Write(sequencia);
