@@ -81,12 +81,27 @@ internal sealed class EventoTesteMenu : MonoBehaviour
             "[Menu de teste] F6 detectado; alternando a janela nativa.");
     }
 
-    public void Update()
+    // Chamado pelo Harmony no ciclo de atualização do jogo, garantindo
+    // que os eventos sejam executados na thread principal do Unity.
+    public static void ProcessarFilaExecucao()
     {
         while (filaExecucao.TryDequeue(out int indice))
         {
-            if (indice >= 0 && indice < eventos.Count)
+            if (indice < 0 || indice >= eventos.Count)
+                continue;
+
+            try
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[Menu de teste] Processando clique do evento: " + eventos[indice].Nome);
                 ExecutarEvento(eventos[indice]);
+            }
+            catch (Exception ex)
+            {
+                MostrarMensagem("Erro inesperado: " + ex.Message);
+                YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                    "[Menu de teste] Erro ao processar clique: " + ex);
+            }
         }
     }
 
@@ -188,7 +203,9 @@ internal sealed class EventoTesteMenu : MonoBehaviour
                     if (indice >= 0 && indice < eventos.Count)
                     {
                         filaExecucao.Enqueue(indice);
-                        mensagem = "Executando: " + eventos[indice].Nome + "...";
+                        mensagem = "Solicitação recebida: " + eventos[indice].Nome + "...";
+                        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                            "[Menu de teste] Clique recebido para: " + eventos[indice].Nome);
                         if (textoStatus != IntPtr.Zero)
                             SetWindowTextW(textoStatus, mensagem);
                     }
