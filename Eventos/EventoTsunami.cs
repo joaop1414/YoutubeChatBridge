@@ -35,6 +35,8 @@ internal sealed class EventoTsunami : EventoVotacao
     private static readonly Dictionary<byte, string> nomesOriginais = new();
     private static readonly HashSet<byte> nomesAlteradosRede = new();
     private static readonly HashSet<byte> atingidos = new();
+    private static bool reuniaoAguardandoFim;
+    private static bool reuniaoFoiAberta;
     private static readonly Dictionary<byte, float> protegidos = new();
     private static readonly Dictionary<byte, int> dutosProtegidos = new();
 
@@ -57,7 +59,6 @@ internal sealed class EventoTsunami : EventoVotacao
         try
         {
             LimparLocal();
-            atingidos.Clear();
             protegidos.Clear();
             dutosProtegidos.Clear();
             fimProtecao = 0f;
@@ -213,6 +214,20 @@ internal sealed class EventoTsunami : EventoVotacao
         {
             AtualizarAvisoNomesCliente();
             return;
+        }
+
+        if (reuniaoAguardandoFim)
+        {
+            if (MeetingHud.Instance != null)
+                reuniaoFoiAberta = true;
+            else if (reuniaoFoiAberta)
+            {
+                atingidos.Clear();
+                reuniaoAguardandoFim = false;
+                reuniaoFoiAberta = false;
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "Tsunami: lista de atingidos limpa após o encerramento da reunião.");
+            }
         }
 
         if (!ativo)
@@ -599,6 +614,44 @@ internal sealed class EventoTsunami : EventoVotacao
         return encontrado ? x + 5f : 10f;
     }
 
+    public static void PrepararAntesDaReuniao()
+    {
+        if (!YouTubeVoteBridgePlugin.EhHost() || AmongUsClient.Instance == null)
+            return;
+
+        if (atingidos.Count == 0)
+        {
+            // Ainda restaura o aviso e remove o indicador antes da reunião.
+            Limpar();
+            return;
+        }
+
+        List<byte> ids = new(atingidos);
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            "Tsunami: criando " + ids.Count +
+            " corpo(s) falso(s) antes da reunião.");
+
+        // Para a onda e restaura os nomes antes de publicar os corpos.
+        Limpar();
+
+        foreach (byte playerId in ids)
+        {
+            try
+            {
+                EventoCriarCorpoFalso.ExecutarParaJogador(playerId);
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                    "Tsunami: falha ao criar corpo falso para PlayerId=" +
+                    playerId + ": " + ex);
+            }
+        }
+
+        reuniaoAguardandoFim = true;
+        reuniaoFoiAberta = false;
+    }
+
     public static void Limpar()
     {
         if (YouTubeVoteBridgePlugin.EhHost())
@@ -608,7 +661,6 @@ internal sealed class EventoTsunami : EventoVotacao
         avisoLocalAtivo = false;
         reparoPendente = false;
         RestaurarAvisoNomes();
-        atingidos.Clear();
         protegidos.Clear();
         dutosProtegidos.Clear();
         if (indicador != null && AmongUsClient.Instance != null &&
