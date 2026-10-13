@@ -1217,6 +1217,21 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             return;
         }
 
+        // Enquanto o tsunami estiver ativo, não inicia nem processa outra votação/evento.
+        if (EventoTsunami.Ativo)
+        {
+            if (RodadaAtiva)
+            {
+                RestaurarNomesPainel();
+                RestaurarPlacarNoNick();
+                RodadaAtiva = false;
+                Votos.Clear();
+                Opcoes.Clear();
+                while (FilaVotos.TryDequeue(out _)) { }
+            }
+            return;
+        }
+
         EventoCongelarJogador.Atualizar();
 
         if (VotacaoAtiva == null || !VotacaoAtiva.Value || !ChatEmLeitura)
