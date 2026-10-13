@@ -487,6 +487,7 @@ internal sealed class EventoTsunami : EventoVotacao
                 mortesPendentes.Remove(id);
                 alturaAoAtingir.Remove(id);
                 movimentoOriginal.Remove(id);
+                proximoSnapJogador.Remove(id);
             }
         }
     }
