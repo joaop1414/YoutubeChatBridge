@@ -90,7 +90,7 @@ internal sealed class EventoCriarCorpoFalso : EventoVotacao
 
                 // Spawn do PlayerControl temporário.
                 writer.StartMessage(4);
-                SpawnGameDataMessage spawn = AmongUsClient.Instance.CreateSpawnMessage(
+                var spawn = AmongUsClient.Instance.CreateSpawnMessage(
                     temporario, -2, SpawnFlags.None);
                 spawn.SerializeValues(writer);
                 writer.EndMessage();
