@@ -3,6 +3,7 @@ using System.Linq;
 using System.Text;
 using Il2CppInterop.Runtime.Injection;
 using Hazel;
+using HarmonyLib;
 using UnityEngine;
 
 namespace YouTubeVoteBridge;
