@@ -135,9 +135,8 @@ internal sealed class EventoTsunami : EventoVotacao
         PlayerControl host = PlayerControl.LocalPlayer;
         if (host == null || host.Data == null || indicador == null) return;
 
-        // O EHR espera um intervalo após o spawn antes de associar o objeto
-        // falso aos clientes. Esta função é chamada no mesmo frame do spawn,
-        // então a publicação visual é feita na atualização seguinte.
+        // A associação de rede é enviada antes desta etapa; aqui publicamos
+        // a aparência seguindo a sequência usada pelo EHR.
         try
         {
             indicador.CachedPlayerData = host.Data;
