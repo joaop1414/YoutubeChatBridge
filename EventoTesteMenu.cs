@@ -27,17 +27,23 @@ internal sealed class EventoTesteMenu : MonoBehaviour
         GameObject objeto = new GameObject("YouTubeVoteBridge_EventoTesteMenu");
         UnityEngine.Object.DontDestroyOnLoad(objeto);
         objeto.AddComponent<EventoTesteMenu>();
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo("[Menu de teste] Inicializado. Tecla de abertura: F6.");
+    }
+
+    public static void VerificarTecla()
+    {
+        if (!Input.GetKeyDown(KeyCode.F6)) return;
+
+        aberto = !aberto;
+        mensagem = aberto
+            ? "Selecione um evento para executá-lo imediatamente."
+            : "";
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            "[Menu de teste] F6 detectado. Menu " + (aberto ? "aberto." : "fechado."));
     }
 
     public void Update()
     {
-        if (Input.GetKeyDown(KeyCode.F6))
-        {
-            aberto = !aberto;
-            if (aberto)
-                mensagem = "Selecione um evento para executá-lo imediatamente.";
-        }
-
         if (mensagemAte > 0f && Time.unscaledTime > mensagemAte)
         {
             mensagem = "";
