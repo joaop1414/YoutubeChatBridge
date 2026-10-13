@@ -11,6 +11,16 @@ internal sealed class EventoCriarCorpoFalso : EventoVotacao
     public override string Nome => "Criar corpo falso";
 
     private static readonly System.Random Sorteador = new();
+    private static byte? jogadorForcado;
+
+    // Reutiliza exatamente a sequência de criação/sincronização do evento,
+    // mas escolhe o jogador específico que foi atingido pelo tsunami.
+    public static void ExecutarParaJogador(byte playerId)
+    {
+        jogadorForcado = playerId;
+        try { new EventoCriarCorpoFalso().Executar(); }
+        finally { jogadorForcado = null; }
+    }
 
     public void Executar()
     {
@@ -45,7 +55,9 @@ internal sealed class EventoCriarCorpoFalso : EventoVotacao
             foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
             {
                 if (jogador == null || jogador.Data == null ||
-                    jogador.Data.Disconnected || jogador.Data.IsDead ||
+                    jogador.Data.Disconnected ||
+                    (jogadorForcado.HasValue && jogador.PlayerId != jogadorForcado.Value) ||
+                    (!jogadorForcado.HasValue && jogador.Data.IsDead) ||
                     jogador.KillAnimations == null ||
                     jogador.KillAnimations.Length == 0)
                     continue;
