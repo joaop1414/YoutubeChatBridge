@@ -1317,6 +1317,9 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 case "Criar corpo falso":
                     new EventoCriarCorpoFalso().Executar();
                     break;
+                case "Tsunami":
+                    new EventoTsunami().Executar();
+                    break;
                 case "Reportar um corpo":
                     new EventoReportarCorpo().Executar();
                     break;
@@ -1853,6 +1856,7 @@ public static class YouTubeVoteUpdatePatch
         EventoCongelarJogador.Atualizar();
         EventoVelocidadeJogadores.Atualizar();
         EventoNpcSeguidor.Atualizar();
+        EventoTsunami.Atualizar();
     }
 }
 
