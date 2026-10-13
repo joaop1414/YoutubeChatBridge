@@ -1,6 +1,9 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Threading;
 using Il2CppInterop.Runtime.Injection;
 using UnityEngine;
 
@@ -8,11 +11,31 @@ namespace YouTubeVoteBridge;
 
 internal sealed class EventoTesteMenu : MonoBehaviour
 {
+    private const string CLASSE_JANELA = "YouTubeVoteBridge_EventoTesteWindow";
+    private const uint WM_CLOSE = 0x0010;
+    private const uint WM_COMMAND = 0x0111;
+    private const uint WM_APP_TOGGLE = 0x8001;
+    private const uint WM_APP_STATUS = 0x8002;
+    private const uint WS_OVERLAPPEDWINDOW = 0x00CF0000;
+    private const uint WS_CHILD = 0x40000000;
+    private const uint WS_VISIBLE = 0x10000000;
+    private const uint SS_LEFT = 0x00000000;
+    private const uint BS_PUSHBUTTON = 0x00000000;
+    private const int SW_HIDE = 0;
+    private const int SW_SHOW = 5;
+    private const int SW_RESTORE = 9;
+    private const int ID_BOTAO_BASE = 1000;
+    private const int ALTURA_LINHA = 34;
+
     private static bool registrado;
-    private static bool aberto;
-    private static Vector2 scroll;
-    private static string mensagem = "Pressione F6 para abrir/fechar.";
-    private static float mensagemAte;
+    private static bool janelaIniciada;
+    private static IntPtr janela;
+    private static IntPtr textoStatus;
+    private static string mensagem = "Pressione F6 para abrir/fechar a janela.";
+    private static IReadOnlyList<EventoVotacao> eventos = Array.Empty<EventoVotacao>();
+    private static readonly ConcurrentQueue<int> filaExecucao = new();
+    private static readonly WndProcDelegate procedimentoJanela = ProcedimentoJanela;
+    private static Thread threadJanela;
 
     public EventoTesteMenu(IntPtr ptr) : base(ptr) { }
 
@@ -27,84 +50,210 @@ internal sealed class EventoTesteMenu : MonoBehaviour
         GameObject objeto = new GameObject("YouTubeVoteBridge_EventoTesteMenu");
         UnityEngine.Object.DontDestroyOnLoad(objeto);
         objeto.AddComponent<EventoTesteMenu>();
-        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo("[Menu de teste] Inicializado. Tecla de abertura: F6.");
+
+        eventos = RegistroEventos.ObterTodos();
+        threadJanela = new Thread(CriarJanelaNativa)
+        {
+            IsBackground = true,
+            Name = "YouTubeVoteBridge janela de testes"
+        };
+        threadJanela.Start();
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            "[Menu de teste] Inicializado. Pressione F6 para abrir a janela nativa.");
     }
 
     public static void VerificarTecla()
     {
-        if (!Input.GetKeyDown(KeyCode.F6)) return;
+        if (!Input.GetKeyDown(KeyCode.F6))
+            return;
 
-        aberto = !aberto;
-        mensagem = aberto
-            ? "Selecione um evento para executá-lo imediatamente."
-            : "";
+        IntPtr hwnd = janela;
+        if (hwnd == IntPtr.Zero)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[Menu de teste] F6 detectado, mas a janela nativa ainda não está pronta.");
+            return;
+        }
+
+        PostMessageW(hwnd, WM_APP_TOGGLE, IntPtr.Zero, IntPtr.Zero);
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            "[Menu de teste] F6 detectado. Menu " + (aberto ? "aberto." : "fechado."));
+            "[Menu de teste] F6 detectado; alternando a janela nativa.");
     }
 
     public void Update()
     {
-        if (mensagemAte > 0f && Time.unscaledTime > mensagemAte)
+        while (filaExecucao.TryDequeue(out int indice))
         {
-            mensagem = "";
-            mensagemAte = 0f;
+            if (indice >= 0 && indice < eventos.Count)
+                ExecutarEvento(eventos[indice]);
         }
     }
 
-    public void OnGUI()
+    private static void CriarJanelaNativa()
     {
-        // O menu também pode ser aberto no lobby; só a execução dos eventos
-        // exige que a partida já tenha jogadores carregados.
-        if (!aberto)
-            return;
+        try
+        {
+            IntPtr instancia = GetModuleHandleW(null);
+            WNDCLASSEX wc = new()
+            {
+                cbSize = (uint)Marshal.SizeOf<WNDCLASSEX>(),
+                lpfnWndProc = procedimentoJanela,
+                hInstance = instancia,
+                hCursor = LoadCursorW(IntPtr.Zero, new IntPtr(32512)),
+                hbrBackground = new IntPtr(6), // COLOR_WINDOW + 1
+                lpszClassName = CLASSE_JANELA
+            };
 
-        float largura = Mathf.Min(620f, Screen.width - 30f);
-        float altura = Mathf.Min(620f, Screen.height - 30f);
-        Rect janela = new Rect(
-            (Screen.width - largura) / 2f,
-            (Screen.height - altura) / 2f,
-            largura,
-            altura
-        );
+            ushort classeAtom = RegisterClassExW(ref wc);
+            if (classeAtom == 0)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                    "[Menu de teste] RegisterClassEx falhou. Código Win32: " +
+                    Marshal.GetLastWin32Error());
+                return;
+            }
 
-        GUI.Box(janela, "YouTubeVoteBridge — Teste de eventos (F6 fecha)");
-        GUILayout.BeginArea(new Rect(janela.x + 14f, janela.y + 34f, janela.width - 28f, janela.height - 48f));
-        GUILayout.Label(YouTubeVoteBridgePlugin.EhHost()
-            ? "Host detectado: os eventos serão executados localmente pelo host."
-            : "Você não é o host. Os eventos que exigem autoridade não serão executados.");
-        GUILayout.Space(6f);
+            IntPtr hwnd = CreateWindowExW(
+                0,
+                CLASSE_JANELA,
+                "YouTubeChatBridge - Teste de eventos",
+                WS_OVERLAPPEDWINDOW,
+                unchecked((int)0x80000000), // CW_USEDEFAULT
+                unchecked((int)0x80000000),
+                680,
+                700,
+                IntPtr.Zero,
+                IntPtr.Zero,
+                instancia,
+                IntPtr.Zero);
 
-        scroll = GUILayout.BeginScrollView(scroll, GUILayout.ExpandHeight(true));
-        IReadOnlyList<EventoVotacao> eventos = RegistroEventos.ObterTodos();
+            if (hwnd == IntPtr.Zero)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                    "[Menu de teste] CreateWindowEx falhou. Código Win32: " +
+                    Marshal.GetLastWin32Error());
+                return;
+            }
+
+            janela = hwnd;
+            janelaIniciada = true;
+            ShowWindow(hwnd, SW_HIDE);
+
+            MSG msg;
+            while (GetMessageW(out msg, IntPtr.Zero, 0, 0) > 0)
+            {
+                TranslateMessage(ref msg);
+                DispatchMessageW(ref msg);
+            }
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "[Menu de teste] Erro ao criar janela nativa: " + ex);
+        }
+    }
+
+    private static IntPtr ProcedimentoJanela(
+        IntPtr hwnd, uint mensagemJanela, IntPtr wParam, IntPtr lParam)
+    {
+        try
+        {
+            switch (mensagemJanela)
+            {
+                case 0x0001: // WM_CREATE
+                    CriarControles(hwnd);
+                    return IntPtr.Zero;
+
+                case WM_APP_TOGGLE:
+                    if (IsWindowVisible(hwnd))
+                    {
+                        ShowWindow(hwnd, SW_HIDE);
+                    }
+                    else
+                    {
+                        ShowWindow(hwnd, SW_RESTORE);
+                        SetForegroundWindow(hwnd);
+                    }
+                    return IntPtr.Zero;
+
+                case WM_APP_STATUS:
+                    if (textoStatus != IntPtr.Zero)
+                        SetWindowTextW(textoStatus, mensagem ?? "");
+                    return IntPtr.Zero;
+
+                case WM_COMMAND:
+                    int id = wParam.ToInt32() & 0xFFFF;
+                    int indice = id - ID_BOTAO_BASE;
+                    if (indice >= 0 && indice < eventos.Count)
+                    {
+                        filaExecucao.Enqueue(indice);
+                        mensagem = "Executando: " + eventos[indice].Nome + "...";
+                        if (textoStatus != IntPtr.Zero)
+                            SetWindowTextW(textoStatus, mensagem);
+                    }
+                    return IntPtr.Zero;
+
+                case WM_CLOSE:
+                    ShowWindow(hwnd, SW_HIDE);
+                    return IntPtr.Zero;
+
+                case 0x0002: // WM_DESTROY
+                    PostQuitMessage(0);
+                    return IntPtr.Zero;
+            }
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "[Menu de teste] Erro na janela nativa: " + ex);
+        }
+
+        return DefWindowProcW(hwnd, mensagemJanela, wParam, lParam);
+    }
+
+    private static void CriarControles(IntPtr hwnd)
+    {
+        IntPtr instancia = GetModuleHandleW(null);
+        CriarControle("STATIC",
+            "Selecione um evento. A execução acontece dentro do jogo e exige que você seja o host.",
+            WS_CHILD | WS_VISIBLE | SS_LEFT,
+            18, 15, 625, 42, hwnd, IntPtr.Zero, instancia);
+
         for (int i = 0; i < eventos.Count; i++)
         {
-            EventoVotacao evento = eventos[i];
-            if (evento == null) continue;
+            int y = 65 + i * ALTURA_LINHA;
+            CriarControle("STATIC", eventos[i]?.Nome ?? "(evento inválido)",
+                WS_CHILD | WS_VISIBLE | SS_LEFT,
+                22, y + 7, 455, 24, hwnd, IntPtr.Zero, instancia);
 
-            GUILayout.BeginHorizontal("box");
-            GUILayout.Label(evento.Nome, GUILayout.ExpandWidth(true));
-            if (GUILayout.Button("Executar", GUILayout.Width(105f)))
-                ExecutarEvento(evento);
-            GUILayout.EndHorizontal();
-        }
-        GUILayout.EndScrollView();
-
-        if (!string.IsNullOrEmpty(mensagem))
-        {
-            GUILayout.Space(5f);
-            GUILayout.Label(mensagem);
+            CriarControle("BUTTON", "Executar",
+                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                490, y + 1, 145, 28, hwnd,
+                new IntPtr(ID_BOTAO_BASE + i), instancia);
         }
 
-        GUILayout.Space(5f);
-        if (GUILayout.Button("Fechar menu (F6)", GUILayout.Height(30f)))
-            aberto = false;
+        int statusY = 75 + eventos.Count * ALTURA_LINHA;
+        textoStatus = CriarControle("STATIC", mensagem,
+            WS_CHILD | WS_VISIBLE | SS_LEFT,
+            22, statusY, 615, 45, hwnd, IntPtr.Zero, instancia);
+    }
 
-        GUILayout.EndArea();
+    private static IntPtr CriarControle(
+        string classe, string texto, uint estilo,
+        int x, int y, int largura, int altura,
+        IntPtr pai, IntPtr id, IntPtr instancia)
+    {
+        return CreateWindowExW(
+            0, classe, texto, estilo,
+            x, y, largura, altura,
+            pai, id, instancia, IntPtr.Zero);
     }
 
     private static void ExecutarEvento(EventoVotacao evento)
     {
-        if (evento == null) return;
+        if (evento == null)
+            return;
 
         if (AmongUsClient.Instance == null || PlayerControl.LocalPlayer == null)
         {
@@ -124,10 +273,7 @@ internal sealed class EventoTesteMenu : MonoBehaviour
             MethodInfo executar = tipo.GetMethod(
                 "Executar",
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
-                null,
-                Type.EmptyTypes,
-                null
-            );
+                null, Type.EmptyTypes, null);
 
             if (executar != null)
             {
@@ -141,10 +287,7 @@ internal sealed class EventoTesteMenu : MonoBehaviour
             MethodInfo ativar = tipo.GetMethod(
                 "Ativar",
                 BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic,
-                null,
-                Type.EmptyTypes,
-                null
-            );
+                null, Type.EmptyTypes, null);
 
             if (ativar != null)
             {
@@ -176,7 +319,94 @@ internal sealed class EventoTesteMenu : MonoBehaviour
 
     private static void MostrarMensagem(string texto)
     {
-        mensagem = texto;
-        mensagemAte = Time.unscaledTime + 5f;
+        mensagem = texto ?? "";
+        IntPtr hwnd = janela;
+        if (hwnd != IntPtr.Zero)
+            PostMessageW(hwnd, WM_APP_STATUS, IntPtr.Zero, IntPtr.Zero);
     }
+
+    private delegate IntPtr WndProcDelegate(
+        IntPtr hwnd, uint mensagemJanela, IntPtr wParam, IntPtr lParam);
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct WNDCLASSEX
+    {
+        public uint cbSize;
+        public uint style;
+        public WndProcDelegate lpfnWndProc;
+        public int cbClsExtra;
+        public int cbWndExtra;
+        public IntPtr hInstance;
+        public IntPtr hIcon;
+        public IntPtr hCursor;
+        public IntPtr hbrBackground;
+        [MarshalAs(UnmanagedType.LPWStr)] public string lpszMenuName;
+        [MarshalAs(UnmanagedType.LPWStr)] public string lpszClassName;
+        public IntPtr hIconSm;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT
+    {
+        public int x;
+        public int y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MSG
+    {
+        public IntPtr hwnd;
+        public uint message;
+        public UIntPtr wParam;
+        public IntPtr lParam;
+        public uint time;
+        public POINT pt;
+        public uint lPrivate;
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, EntryPoint = "GetModuleHandleW", SetLastError = true)]
+    private static extern IntPtr GetModuleHandleW(string lpModuleName);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "RegisterClassExW", SetLastError = true)]
+    private static extern ushort RegisterClassExW(ref WNDCLASSEX lpwcx);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "CreateWindowExW", SetLastError = true)]
+    private static extern IntPtr CreateWindowExW(
+        uint dwExStyle, string lpClassName, string lpWindowName, uint dwStyle,
+        int x, int y, int nWidth, int nHeight, IntPtr hWndParent,
+        IntPtr hMenu, IntPtr hInstance, IntPtr lpParam);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "DefWindowProcW")]
+    private static extern IntPtr DefWindowProcW(
+        IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "LoadCursorW", SetLastError = true)]
+    private static extern IntPtr LoadCursorW(IntPtr hInstance, IntPtr lpCursorName);
+
+    [DllImport("user32.dll", EntryPoint = "ShowWindow")]
+    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    [DllImport("user32.dll", EntryPoint = "IsWindowVisible")]
+    private static extern bool IsWindowVisible(IntPtr hWnd);
+
+    [DllImport("user32.dll", EntryPoint = "SetForegroundWindow")]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "SetWindowTextW", SetLastError = true)]
+    private static extern bool SetWindowTextW(IntPtr hWnd, string lpString);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "PostMessageW", SetLastError = true)]
+    private static extern bool PostMessageW(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", EntryPoint = "GetMessageW", SetLastError = true)]
+    private static extern int GetMessageW(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax);
+
+    [DllImport("user32.dll", EntryPoint = "TranslateMessage")]
+    private static extern bool TranslateMessage(ref MSG lpMsg);
+
+    [DllImport("user32.dll", EntryPoint = "DispatchMessageW")]
+    private static extern IntPtr DispatchMessageW(ref MSG lpMsg);
+
+    [DllImport("user32.dll", EntryPoint = "PostQuitMessage")]
+    private static extern void PostQuitMessage(int nExitCode);
 }
