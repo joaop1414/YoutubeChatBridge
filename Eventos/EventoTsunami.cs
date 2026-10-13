@@ -621,8 +621,12 @@ internal sealed class EventoTsunami : EventoVotacao
 
         if (atingidos.Count == 0)
         {
-            // Ainda restaura o aviso e remove o indicador antes da reunião.
-            Limpar();
+            // Só encerra o evento se ele ainda estiver ativo; não envia RPCs
+            // de reparo do reator em reuniões sem tsunami.
+            if (ativo || avisoLocalAtivo || indicador != null)
+                Limpar();
+            else
+                RestaurarAvisoNomes();
             return;
         }
 
@@ -632,7 +636,10 @@ internal sealed class EventoTsunami : EventoVotacao
             " corpo(s) falso(s) antes da reunião.");
 
         // Para a onda e restaura os nomes antes de publicar os corpos.
-        Limpar();
+        if (ativo || avisoLocalAtivo || indicador != null)
+            Limpar();
+        else
+            RestaurarAvisoNomes();
 
         foreach (byte playerId in ids)
         {
