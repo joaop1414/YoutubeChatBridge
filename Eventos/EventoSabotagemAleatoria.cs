@@ -39,8 +39,6 @@ internal sealed class EventoSabotagemAleatoria : EventoVotacao
                 return;
             }
 
-            // No IL2CPP, Systems armazena ISystemType. O EHR também converte
-            // esse objeto para SabotageSystemType antes de ler Timer/AnyActive.
             SabotageSystemType sistema = navio.Systems[SystemTypes.Sabotage]
                 .Cast<SabotageSystemType>();
 
@@ -64,15 +62,12 @@ internal sealed class EventoSabotagemAleatoria : EventoVotacao
             if (disponiveis.Count == 0)
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "Sabotagem aleatória: nenhum tipo configurado para o mapa ID=" + mapa + ".");
+                    "Sabotagem aleatória: mapa não reconhecido ou sem lista de sabotagens configurada. MapId=" + mapa + ".");
                 return;
             }
 
             SystemTypes escolhida = disponiveis[Sorteador.Next(disponiveis.Count)];
 
-            // O jogo recusa novas sabotagens enquanto Timer > 0. Como este evento
-            // foi acionado pela votação, zeramos o cooldown nativo antes do RPC.
-            // O próprio jogo definirá o cooldown novamente quando aceitar a sabotagem.
             float cooldownAnterior = sistema.Timer;
             sistema.Timer = 0f;
             sistema.IsDirty = true;
@@ -94,8 +89,9 @@ internal sealed class EventoSabotagemAleatoria : EventoVotacao
 
     private static List<SystemTypes> ObterSabotagensDoMapa(int mapa)
     {
-        // IDs de mapa do Among Us: 0 Skeld, 1 Mira HQ, 2 Polus,
+        // IDs dos mapas oficiais: 0 Skeld, 1 Mira HQ, 2 Polus,
         // 3 Dleks, 4 Airship, 5 Fungle.
+        // Cada lista contém apenas os tipos de sabotagem usados naquele mapa.
         return mapa switch
         {
             0 or 3 => new List<SystemTypes>
@@ -123,23 +119,15 @@ internal sealed class EventoSabotagemAleatoria : EventoVotacao
             {
                 SystemTypes.Electrical,
                 SystemTypes.HeliSabotage,
-                SystemTypes.LifeSupp,
                 SystemTypes.Comms
             },
             5 => new List<SystemTypes>
             {
                 SystemTypes.Electrical,
                 SystemTypes.MushroomMixupSabotage,
-                SystemTypes.LifeSupp,
                 SystemTypes.Comms
             },
-            _ => new List<SystemTypes>
-            {
-                SystemTypes.Electrical,
-                SystemTypes.Reactor,
-                SystemTypes.LifeSupp,
-                SystemTypes.Comms
-            }
+            _ => new List<SystemTypes>()
         };
     }
 }
