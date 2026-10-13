@@ -23,6 +23,7 @@ internal static class RegistroEventos
         new EventoEscudoTemporario(),
         new EventoCriarCorpoFalso(),
         new EventoNpcSeguidor(),
+        new EventoTsunami(),
         new EventoReportarCorpo()
     };
 
