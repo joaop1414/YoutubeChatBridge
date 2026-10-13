@@ -154,7 +154,18 @@ internal static class EventoEscudoTemporarioMortePatch
             ? GameOptionsManager.Instance.CurrentGameOptions.GetFloat(FloatOptionNames.KillCooldown)
             : 30f;
 
-        impostor.SetKillTimer(cooldownOriginal * 2f);
+        // Prepara opções com cooldown dobrado somente para o cliente do impostor.
+        // O RPC FailedProtected reduz o temporizador pela metade; depois as opções
+        // individuais são restauradas ao valor original.
+        bool cooldownPreparado = EventoCooldownIndividual.PrepararParaEscudo(
+            impostor, cooldownOriginal * 2f, cooldownOriginal);
+
+        if (!cooldownPreparado)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                $"Não foi possível preparar opções individuais de cooldown para PlayerId={impostor.PlayerId}; " +
+                "a reação do escudo continuará, mas o cooldown pode ser dividido.");
+        }
 
         const int corEscudo = 0;
 
