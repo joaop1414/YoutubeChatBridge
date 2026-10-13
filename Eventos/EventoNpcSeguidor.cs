@@ -191,8 +191,15 @@ internal sealed class EventoNpcSeguidor : EventoVotacao
             }
         }
 
+        // Primeiro teste de compatibilidade: manter o NPC parado.
+        // Só reativaremos o seguimento depois de confirmar que o vanilla
+        // mantém o objeto de rede sem desconexões.
         if (etapaInicializacao > 0)
             return;
+
+        // Modo de diagnóstico: NPC estacionário. Não envie SnapTo contínuo
+        // enquanto estamos validando a criação em clientes vanilla.
+        return;
 
         if (Time.realtimeSinceStartup < proximaAtualizacao)
             return;
