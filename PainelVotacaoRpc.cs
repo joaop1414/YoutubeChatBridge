@@ -267,11 +267,18 @@ internal sealed class PainelVotacaoOverlay : MonoBehaviour
         float altura = (PainelVotacaoRpc.Ativo && PainelVotacaoRpc.Eventos.Length > 0
             ? 245f + PainelVotacaoRpc.Eventos.Length * 48f
             : 142f) * escala;
-        float x = Screen.width - largura - 22f * escala;
-        float y = Mathf.Max(18f, Screen.height * 0.18f);
+        // IMGUI usa coordenadas a partir do canto superior esquerdo. Deixe uma
+        // margem fixa e limite a posição para o painel nunca sair da tela.
+        float margemTela = 48f * escala;
+        float x = Mathf.Max(8f * escala, Screen.width - largura - 22f * escala);
+        float y = Mathf.Clamp(margemTela, 8f * escala,
+            Mathf.Max(8f * escala, Screen.height - altura - 8f * escala));
         var painel = new Rect(x, y, largura, altura);
 
-        GUI.Box(painel, GUIContent.none, estiloPainel);
+        // Desenhar as texturas diretamente evita depender do estado/skin do GUI.Box,
+        // que em algumas versões do Among Us deixa apenas os textos visíveis.
+        GUI.color = Color.white;
+        GUI.DrawTexture(painel, texturaPainel, ScaleMode.StretchToFill, true);
 
         float margem = 16f * escala;
         float dentroX = x + margem;
@@ -297,8 +304,8 @@ internal sealed class PainelVotacaoOverlay : MonoBehaviour
         GUI.Label(new Rect(dentroX, atualY, larguraInterna, 20f * escala),
             $"RODADA #{PainelVotacaoRpc.Rodada}     ● AO VIVO", estiloSubtitulo);
         atualY += 25f * escala;
-        GUI.Box(new Rect(dentroX, atualY, larguraInterna, 2f * escala), GUIContent.none,
-            estiloSeparador);
+        GUI.DrawTexture(new Rect(dentroX, atualY, larguraInterna, 2f * escala),
+            texturaLinha, ScaleMode.StretchToFill, true);
         atualY += 10f * escala;
 
         var eventos = PainelVotacaoRpc.Eventos;
@@ -318,9 +325,11 @@ internal sealed class PainelVotacaoOverlay : MonoBehaviour
             float linhaAltura = 43f * escala;
 
             GUI.color = Cores[i % Cores.Length];
-            GUI.Box(new Rect(dentroX, atualY + 3f * escala, 25f * escala, 25f * escala),
-                (i + 1).ToString(), estiloBarra);
+            GUI.DrawTexture(new Rect(dentroX, atualY + 3f * escala,
+                25f * escala, 25f * escala), texturaBarra, ScaleMode.StretchToFill, true);
             GUI.color = Color.white;
+            GUI.Label(new Rect(dentroX, atualY + 3f * escala,
+                25f * escala, 25f * escala), (i + 1).ToString(), estiloContagem);
 
             GUI.Label(new Rect(dentroX + 33f * escala, atualY, larguraInterna - 105f * escala,
                 28f * escala), eventos[i], estiloOpcao);
@@ -330,13 +339,14 @@ internal sealed class PainelVotacaoOverlay : MonoBehaviour
             float barraX = dentroX + 33f * escala;
             float barraY = atualY + 29f * escala;
             float barraLargura = larguraInterna - 33f * escala;
-            GUI.Box(new Rect(barraX, barraY, barraLargura, 7f * escala),
-                GUIContent.none, estiloBarraFundo);
+            GUI.DrawTexture(new Rect(barraX, barraY, barraLargura, 7f * escala),
+                texturaBarra, ScaleMode.StretchToFill, true);
             if (n > 0)
             {
                 GUI.color = Cores[i % Cores.Length];
-                GUI.Box(new Rect(barraX, barraY, barraLargura * n / maior, 7f * escala),
-                    GUIContent.none, estiloBarra);
+                GUI.DrawTexture(new Rect(barraX, barraY,
+                    barraLargura * n / maior, 7f * escala),
+                    texturaLinha, ScaleMode.StretchToFill, true);
                 GUI.color = Color.white;
             }
 
@@ -344,8 +354,8 @@ internal sealed class PainelVotacaoOverlay : MonoBehaviour
         }
 
         atualY += 2f * escala;
-        GUI.Box(new Rect(dentroX, atualY, larguraInterna, 2f * escala), GUIContent.none,
-            EstiloComFundo(texturaLinha));
+        GUI.DrawTexture(new Rect(dentroX, atualY, larguraInterna, 2f * escala),
+            texturaLinha, ScaleMode.StretchToFill, true);
         atualY += 9f * escala;
 
         GUI.Label(new Rect(dentroX, atualY, larguraInterna * 0.58f, 22f * escala),
