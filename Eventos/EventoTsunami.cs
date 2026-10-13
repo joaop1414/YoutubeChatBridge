@@ -147,6 +147,25 @@ internal sealed class EventoTsunami : EventoVotacao
         {
             indicador.CachedPlayerData = host.Data;
 
+            // Mesmo preparo visual usado pelo CustomNetObject do End K not:
+            // garante que o renderer do corpo não fique transparente/inativo
+            // antes de aplicar o outfit via Shapeshift.
+            try
+            {
+                var body = indicador.cosmetics?.currentBodySprite?.BodySprite;
+                if (body != null)
+                {
+                    PlayerMaterial.SetColors(0, body);
+                    body.color = Color.white;
+                    body.enabled = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "Tsunami: preparação do renderer do corpo falhou: " + ex.Message);
+            }
+
             var outfit = host.Data.Outfits[PlayerOutfitType.Default];
             string nomeOriginal = outfit.PlayerName;
             int corOriginal = outfit.ColorId;
