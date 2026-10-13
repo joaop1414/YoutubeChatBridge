@@ -1875,7 +1875,6 @@ public static class YouTubeVoteUpdatePatch
         EventoCooldownIndividual.Atualizar();
         EventoCongelarJogador.Atualizar();
         EventoVelocidadeJogadores.Atualizar();
-        EventoNpcSeguidor.Atualizar();
         EventoTsunami.Atualizar();
     }
 }
