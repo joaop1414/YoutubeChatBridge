@@ -1,24 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace YouTubeVoteBridge;
 
 internal sealed class EventoSabotagemAleatoria : EventoVotacao
 {
     private static readonly Random Sorteador = new();
-
-    // Estes são os tipos de sabotagem nativos usados pelo Among Us.
-    // A presença do sistema no mapa serve para excluir sabotagens incompatíveis.
-    private static readonly SystemTypes[] SabotagensPossiveis =
-    {
-        SystemTypes.Electrical,
-        SystemTypes.Reactor,
-        SystemTypes.Laboratory,
-        SystemTypes.LifeSupp,
-        SystemTypes.Comms,
-        SystemTypes.HeliSabotage,
-        SystemTypes.MushroomMixupSabotage
-    };
 
     public override string Nome => "Sabotagem aleatória";
 
@@ -42,40 +30,95 @@ internal sealed class EventoSabotagemAleatoria : EventoVotacao
             return;
         }
 
-        // Não fazemos cast para SabotageSystemType: na versão atual das
-        // GameLibs, o tipo exposto por ShipStatus.Systems não aceita esse padrão.
-        // A solicitação é enviada pelo RPC nativo do jogo.
-        List<SystemTypes> disponiveis = new();
-
-        foreach (SystemTypes tipo in SabotagensPossiveis)
-        {
-            // Os mapas só registram os sistemas que realmente suportam.
-            if (navio.Systems.ContainsKey(tipo))
-                disponiveis.Add(tipo);
-        }
-
-        if (disponiveis.Count == 0)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "Sabotagem aleatória: não encontrei sabotagens compatíveis com o mapa atual.");
-            return;
-        }
-
-        SystemTypes escolhida = disponiveis[Sorteador.Next(disponiveis.Count)];
-
         try
         {
-            // Envia o tipo escolhido pelo RPC nativo do jogo.
-            navio.RpcUpdateSystem(SystemTypes.Sabotage, (byte)escolhida);
+            // O mapa não guarda cada sabotagem como uma chave separada.
+            // As sabotagens são enviadas pelo sistema genérico SystemTypes.Sabotage,
+            // e o byte enviado identifica qual delas deve começar.
+            if (!navio.Systems.ContainsKey(SystemTypes.Sabotage))
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "Sabotagem aleatória: o mapa atual não possui o sistema nativo de sabotagem.");
+                return;
+            }
+
+            int mapa = GameOptionsManager.Instance.CurrentGameOptions.MapId;
+            List<SystemTypes> disponiveis = ObterSabotagensDoMapa(mapa);
+
+            if (disponiveis.Count == 0)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "Sabotagem aleatória: nenhum tipo configurado para o mapa ID=" + mapa + ".");
+                return;
+            }
+
+            // Evita escolher uma sabotagem que já esteja ativa quando isso pode ser
+            // identificado pelos sistemas de sabotagem específicos do mapa.
+            // O jogo ainda valida cooldown e compatibilidade ao receber o RPC.
+            SystemTypes escolhida = disponiveis[Sorteador.Next(disponiveis.Count)];
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "Evento executado: sabotagem aleatória iniciada. Tipo=" + escolhida +
-                "; opções compatíveis=" + disponiveis.Count + ".");
+                "Sabotagem aleatória: mapa ID=" + mapa +
+                "; opções=[" + string.Join(", ", disponiveis) +
+                "]; escolhida=" + escolhida + ".");
+
+            navio.RpcUpdateSystem(SystemTypes.Sabotage, (byte)escolhida);
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
                 "Falha ao iniciar a sabotagem aleatória: " + ex);
         }
+    }
+
+    private static List<SystemTypes> ObterSabotagensDoMapa(int mapa)
+    {
+        // IDs de mapa usados pelo Among Us:
+        // 0 Skeld, 1 Mira HQ, 2 Polus, 3 Dleks, 4 Airship, 5 Fungle.
+        return mapa switch
+        {
+            0 or 3 => new List<SystemTypes>
+            {
+                SystemTypes.Electrical,
+                SystemTypes.Reactor,
+                SystemTypes.LifeSupp,
+                SystemTypes.Comms
+            },
+            1 => new List<SystemTypes>
+            {
+                SystemTypes.Electrical,
+                SystemTypes.Reactor,
+                SystemTypes.LifeSupp,
+                SystemTypes.Comms
+            },
+            2 => new List<SystemTypes>
+            {
+                SystemTypes.Electrical,
+                SystemTypes.Laboratory,
+                SystemTypes.LifeSupp,
+                SystemTypes.Comms
+            },
+            4 => new List<SystemTypes>
+            {
+                SystemTypes.Electrical,
+                SystemTypes.HeliSabotage,
+                SystemTypes.LifeSupp,
+                SystemTypes.Comms
+            },
+            5 => new List<SystemTypes>
+            {
+                SystemTypes.Electrical,
+                SystemTypes.MushroomMixupSabotage,
+                SystemTypes.LifeSupp,
+                SystemTypes.Comms
+            },
+            _ => new List<SystemTypes>
+            {
+                SystemTypes.Electrical,
+                SystemTypes.Reactor,
+                SystemTypes.LifeSupp,
+                SystemTypes.Comms
+            }
+        };
     }
 }
