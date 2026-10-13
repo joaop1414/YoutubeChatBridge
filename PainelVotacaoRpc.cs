@@ -177,6 +177,7 @@ internal sealed class PainelVotacaoOverlay : MonoBehaviour
     private static GUIStyle estiloPequeno;
     private static GUIStyle estiloBarraFundo;
     private static GUIStyle estiloBarra;
+    private static GUIStyle estiloSeparador;
     private static bool estilosCriados;
     private static readonly Color[] Cores =
     {
@@ -212,7 +213,8 @@ internal sealed class PainelVotacaoOverlay : MonoBehaviour
 
         estiloPainel = EstiloComFundo(texturaPainel);
         estiloBarraFundo = EstiloComFundo(texturaBarra);
-        estiloBarra = estiloBarra;
+        estiloBarra = EstiloComFundo(CriarTextura(Color.white));
+        estiloSeparador = EstiloComFundo(texturaLinha);
 
         estiloTitulo = new GUIStyle(GUI.skin.label)
         {
@@ -287,7 +289,7 @@ internal sealed class PainelVotacaoOverlay : MonoBehaviour
             $"RODADA #{PainelVotacaoRpc.Rodada}     ● AO VIVO", estiloSubtitulo);
         atualY += 25f * escala;
         GUI.Box(new Rect(dentroX, atualY, larguraInterna, 2f * escala), GUIContent.none,
-            EstiloComFundo(texturaLinha));
+            estiloSeparador);
         atualY += 10f * escala;
 
         var eventos = PainelVotacaoRpc.Eventos;
