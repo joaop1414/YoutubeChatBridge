@@ -38,6 +38,8 @@ internal sealed class EventoTsunami : EventoVotacao
     private static readonly Dictionary<byte, string> nomesOriginais = new();
     private static readonly HashSet<byte> nomesAlteradosRede = new();
     private static readonly HashSet<byte> atingidos = new();
+    // Só jogadores que realmente chegaram à etapa de troca para Ghost podem gerar corpo falso.
+    private static readonly HashSet<byte> mortosPeloTsunami = new();
     private static readonly Dictionary<byte, float> mortesPendentes = new();
     private static readonly Dictionary<byte, float> alturaAoAtingir = new();
     private static readonly Dictionary<byte, bool> movimentoOriginal = new();
@@ -230,6 +232,7 @@ internal sealed class EventoTsunami : EventoVotacao
             else if (reuniaoFoiAberta)
             {
                 atingidos.Clear();
+                mortosPeloTsunami.Clear();
                 reuniaoAguardandoFim = false;
                 reuniaoFoiAberta = false;
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
@@ -466,6 +469,7 @@ internal sealed class EventoTsunami : EventoVotacao
                 jogador.RpcSetRole(
                     eraImpostor ? RoleTypes.ImpostorGhost : RoleTypes.CrewmateGhost,
                     true);
+                mortosPeloTsunami.Add(id);
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                     "Tsunami: atraso concluído; PlayerId=" + id +
                     " trocado para " + (eraImpostor ? "ImpostorGhost" : "CrewmateGhost") +
@@ -736,14 +740,17 @@ internal sealed class EventoTsunami : EventoVotacao
             return;
         }
 
-        // Se a reunião for chamada durante o transporte, conclui a troca
-        // para Ghost antes de limpar a onda e publicar os corpos falsos.
-        AtualizarJogadoresAtingidos(float.PositiveInfinity);
+        // Não force a morte de quem ainda está dentro dos 2 segundos.
+        // Processa apenas os prazos que já venceram no relógio real.
+        AtualizarJogadoresAtingidos(Time.realtimeSinceStartup);
 
-        List<byte> ids = new(atingidos);
+        // Corpos falsos só para jogadores cuja troca para Ghost já foi solicitada
+        // após o atraso normal. Os demais não devem virar corpos só por abrir reunião.
+        List<byte> ids = new(mortosPeloTsunami);
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             "Tsunami: criando " + ids.Count +
-            " corpo(s) falso(s) antes da reunião. MeetingHud ativo=" + (MeetingHud.Instance != null) + ".");
+            " corpo(s) falso(s) de jogadores convertidos para Ghost. Atingidos=" +
+            atingidos.Count + ", pendentes=" + mortesPendentes.Count + ".");
 
         // Para a onda e restaura os nomes antes de publicar os corpos.
         if (ativo || avisoLocalAtivo || indicador != null)
