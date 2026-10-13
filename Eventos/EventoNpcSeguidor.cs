@@ -236,6 +236,24 @@ internal sealed class EventoNpcSeguidor : EventoVotacao
                     host.Data.Outfits == null || npc == null)
                     throw new InvalidOperationException("Host, outfit ou NPC indisponível na etapa visual.");
 
+                // Mesmo preparo do corpo usado pelo CustomNetObject/Gemini do End K not.
+                // Sem isso, o PlayerPrefab pode existir na rede mas manter o renderer invisível.
+                try
+                {
+                    var body = npc.cosmetics?.currentBodySprite?.BodySprite;
+                    if (body != null)
+                    {
+                        PlayerMaterial.SetColors(0, body);
+                        body.color = Color.white;
+                        body.enabled = true;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                        "NPC: preparação do renderer do corpo falhou: " + ex.Message);
+                }
+
                 var outfit = host.Data.Outfits[PlayerOutfitType.Default];
                 string nomeOriginal = outfit.PlayerName;
                 int corOriginal = outfit.ColorId;
