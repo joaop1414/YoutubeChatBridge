@@ -64,6 +64,11 @@ internal static class RpcCapturaHandlePatch
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 $"[RPC TRACE] owner={ownerId} playerId={__instance.PlayerId} " +
                 $"netId={__instance.NetId} nome=\"{nome}\" callId={callId} nomeRpc={rpc}");
+
+            // Só envia o aviso depois que o cliente terminou a etapa SetLevel.
+            // RegistrarEntrada agenda o envio para 1 segundo depois deste RPC.
+            if (callId == (byte)RpcCalls.SetLevel)
+                YouTubeVoteBridgePlugin.RegistrarEntrada(ownerId);
         }
         catch (Exception ex)
         {
