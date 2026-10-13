@@ -724,27 +724,31 @@ internal static class EventoTsunamiFlashReatorPatch
 }
 
 
-[HarmonyPatch(typeof(ReactorSystemType), nameof(ReactorSystemType.Detoriorate))]
-internal static class EventoTsunamiIniciarFlashReatorPatch
-{
-    public static void Postfix(ReactorSystemType __instance)
-    {
-        if (!EventoTsunami.AvisoAtivo || __instance == null || !__instance.IsActive ||
-            !HudManager.InstanceExists)
-            return;
-        HudManager hud = HudManager.Instance;
-        if (hud.ReactorFlash == null)
-            hud.StartReactorFlash();
-    }
-}
-
 [HarmonyPatch(typeof(HudManager), nameof(HudManager.Update))]
 internal static class EventoTsunamiFlashReatorCorPatch
 {
     public static void Postfix(HudManager __instance)
     {
-        if (EventoTsunami.AvisoAtivo && __instance.ReactorFlash != null &&
-            __instance.FullScreen != null)
+        if (!EventoTsunami.AvisoAtivo || __instance == null)
+            return;
+
+        // Inicia o flash pelo Update do HUD, sem depender de um método inexistente
+        // em ReactorSystemType (o nome varia entre versões do jogo).
+        try
+        {
+            if (__instance.ReactorFlash == null && ShipStatus.Instance != null &&
+                ShipStatus.Instance.Systems != null &&
+                ShipStatus.Instance.Systems.TryGetValue(SystemTypes.Reactor, out var sistema) &&
+                sistema != null && sistema.IsActive)
+                __instance.StartReactorFlash();
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogDebug(
+                "Tsunami: não foi possível iniciar o flash do reator: " + ex.Message);
+        }
+
+        if (__instance.ReactorFlash != null && __instance.FullScreen != null)
             __instance.FullScreen.color = new Color(0f, 1f, 1f, 0.37254903f);
     }
 }
