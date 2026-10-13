@@ -112,19 +112,9 @@ internal sealed class EventoNpcSeguidor : EventoVotacao
                     writer.EndMessage();
                 }
 
-                // Inicializa a cor e os dados como no pacote que já funciona.
-                writer.StartMessage(2);
-                writer.WritePacked(npc.NetId);
-                writer.Write((byte)RpcCalls.SetColor);
-                writer.Write(npc.Data.NetId);
-                writer.Write(PlayerControl.LocalPlayer.Data.DefaultOutfit.ColorId);
-                writer.EndMessage();
-
-                writer.StartMessage(1);
-                writer.WritePacked(npc.Data.NetId);
-                npc.Data.Serialize(writer, false);
-                writer.EndMessage();
-
+                // Igual ao EHR: não enviar SetColor nem serializar npc.Data aqui.
+                // npc.Data usa CachedPlayerData do host; esses pacotes acabam
+                // apontando para os dados do host, não para uma identidade própria.
                 writer.EndMessage();
                 AmongUsClient.Instance.SendOrDisconnect(writer);
                 writer = null;
