@@ -42,21 +42,9 @@ internal sealed class EventoSabotagemAleatoria : EventoVotacao
             return;
         }
 
-        if (!navio.Systems.TryGetValue(SystemTypes.Sabotage, out ISystemType sistema) ||
-            sistema is not SabotageSystemType sistemaSabotagem)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "Sabotagem aleatória: o sistema de sabotagem não está disponível neste mapa.");
-            return;
-        }
-
-        if (sistemaSabotagem.AnyActive)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "Sabotagem aleatória ignorada: já existe uma sabotagem ativa.");
-            return;
-        }
-
+        // Não fazemos cast para SabotageSystemType: na versão atual das
+        // GameLibs, o tipo exposto por ShipStatus.Systems não aceita esse padrão.
+        // A solicitação é enviada pelo RPC nativo do jogo.
         List<SystemTypes> disponiveis = new();
 
         foreach (SystemTypes tipo in SabotagensPossiveis)
@@ -77,13 +65,7 @@ internal sealed class EventoSabotagemAleatoria : EventoVotacao
 
         try
         {
-            // O evento de votação deve funcionar mesmo durante o cooldown normal.
-            // Zera o temporizador antes do RPC nativo; o próprio jogo aplica o cooldown
-            // novamente quando a sabotagem é processada.
-            sistemaSabotagem.Timer = 0f;
-            sistemaSabotagem.IsDirty = true;
-
-            // Assim, clientes vanilla também recebem a sabotagem pelo host.
+            // Envia o tipo escolhido pelo RPC nativo do jogo.
             navio.RpcUpdateSystem(SystemTypes.Sabotage, (byte)escolhida);
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
