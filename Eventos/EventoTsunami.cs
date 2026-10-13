@@ -492,7 +492,7 @@ internal sealed class EventoTsunami : EventoVotacao
             }
 
             YouTubeVoteBridgePlugin.DefinirNomeLocal(
-                jogador, nomeOriginal + "\n<color=" + cor + ">Um tsunami está vindo</color>");
+                jogador, nomeOriginal + "\n<color=" + cor + ">Um tsunami está vindo\nVá para o duto mais próximo</color>");
             nomesAlteradosRede.Add(jogador.PlayerId);
         }
     }
