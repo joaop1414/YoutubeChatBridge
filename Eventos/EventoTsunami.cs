@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Hazel;
 using InnerNet;
+using Il2CppInterop.Runtime.InteropTypes;
 using UnityEngine;
 
 namespace YouTubeVoteBridge;
