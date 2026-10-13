@@ -161,22 +161,28 @@ internal sealed class EventoNpcSeguidor : EventoVotacao
             {
                 if (etapaInicializacao == 1)
                 {
-                    // TESTE ISOLADO: não enviar ainda a associação temporária
-                    // PlayerId/MurderPlayer nem o Shapeshift visual do EHR.
-                    // Se o vanilla parar de desconectar, o problema está nessa
-                    // etapa de inicialização, não no pacote Spawn do objeto.
+                    // Reproduz a sequência de associação usada pelo EHR
+                    // depois de dar tempo aos clientes para processar o Spawn.
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                        "NPC EHR: iniciando associação temporária por cliente.");
+                    EnviarInicializacaoParaClientes();
                     if (npc != null && PlayerControl.LocalPlayer?.Data != null)
                         npc.CachedPlayerData = PlayerControl.LocalPlayer.Data;
 
-                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                        "NPC DIAGNÓSTICO: spawn enviado; associação e visual desativados temporariamente.");
-                    etapaInicializacao = 0;
+                    etapaInicializacao = 2;
+                    proximaEtapaInicializacao = Time.realtimeSinceStartup + 0.15f;
                     return;
                 }
 
                 if (etapaInicializacao == 2)
                 {
+                    // Aplica o visual seguindo o padrão de CustomNetObject do EHR.
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                        "NPC EHR: enviando atualização visual.");
+                    EnviarVisualNpc();
                     etapaInicializacao = 0;
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                        "NPC EHR: sequência de inicialização concluída; NPC permanece parado para teste.");
                     return;
                 }
             }
