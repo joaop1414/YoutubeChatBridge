@@ -29,12 +29,21 @@ internal sealed class EventoCriarCorpoFalso : EventoVotacao
             PlayerControl.LocalPlayer == null)
             return;
 
-        if (MeetingHud.Instance != null)
+        // O evento normal não cria corpos depois que a reunião começou.
+        // No modo forçado pelo tsunami, porém, tentamos reutilizar a mesma
+        // rotina mesmo se o StartMeeting já tiver instanciado o MeetingHud.
+        if (MeetingHud.Instance != null && !jogadorForcado.HasValue)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
                 "Corpo falso cancelado: já existe uma reunião em andamento.");
             return;
         }
+
+        if (jogadorForcado.HasValue)
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "Corpo falso do tsunami: execução forçada para PlayerId=" +
+                jogadorForcado.Value + "; MeetingHud ativo=" +
+                (MeetingHud.Instance != null) + ".");
 
         PlayerControl temporario = null;
 
