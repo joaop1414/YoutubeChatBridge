@@ -25,7 +25,7 @@ internal sealed class EventoTsunami : EventoVotacao
     private const float Alcance = 0.85f;
     private const float IntervaloCicloReator = 1.5f;
     private const float AtrasoInicialReator = 1.0f;
-    private const float AtrasoMorteTsunami = 1.8f;
+    private const float AtrasoMorteTsunami = 2.0f;
 
     private static PlayerControl indicador;
     private static Vector2 posicao;
@@ -357,7 +357,7 @@ internal sealed class EventoTsunami : EventoVotacao
                 jogador.moveable = false;
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                     "Tsunami atingiu " + jogador.Data.PlayerName +
-                    " (PlayerId=" + id + "); preso e sendo carregado por " +
+                    " (PlayerId=" + id + "); movimento bloqueado, Y preservado e SnapTo acompanhando a onda por " +
                     AtrasoMorteTsunami + "s antes da troca para Ghost.");
             }
             catch (Exception ex)
@@ -432,14 +432,25 @@ internal sealed class EventoTsunami : EventoVotacao
                     float y = alturaAoAtingir.TryGetValue(id, out float altura)
                         ? altura : jogador.GetTruePosition().y;
                     Vector2 destino = new Vector2(posicao.x, y);
-                    jogador.NetTransform.SnapTo(destino,
-                        (ushort)(jogador.NetTransform.lastSequenceId + 1U));
+
+                    // Usa exatamente o mesmo sequenceId no SnapTo local e no RPC
+                    // enviado aos demais clientes, para evitar que a posição seja
+                    // descartada como pacote antigo/inconsistente.
+                    ushort sequenceId = (ushort)(jogador.NetTransform.lastSequenceId + 1U);
+                    jogador.NetTransform.SnapTo(destino, sequenceId);
+
                     MessageWriter move = AmongUsClient.Instance.StartRpcImmediately(
                         jogador.NetTransform.NetId, (byte)RpcCalls.SnapTo, SendOption.Reliable);
                     move.Write(destino.x);
                     move.Write(destino.y);
-                    move.Write((ushort)(jogador.NetTransform.lastSequenceId + 2U));
+                    move.Write(sequenceId);
                     AmongUsClient.Instance.FinishRpcImmediately(move);
+
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogDebug(
+                        "Tsunami: SnapTo de PlayerId=" + id +
+                        " para X=" + destino.x.ToString("0.00") +
+                        ", Y=" + destino.y.ToString("0.00") +
+                        ", sequência=" + sequenceId + ".");
                 }
                 catch (Exception ex)
                 {
