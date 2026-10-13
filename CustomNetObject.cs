@@ -82,7 +82,7 @@ internal static class CustomNetObject
             ushort sequencia = (ushort)(objeto.NetTransform.lastSequenceId + 2U);
             MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
                 objeto.NetTransform.NetId, (byte)RpcCalls.SnapTo, SendOption.None);
-            writer.Write(posicao);
+            NetHelpers.WriteVector2(posicao, writer);
             writer.Write(sequencia);
             AmongUsClient.Instance.FinishRpcImmediately(writer);
         }
