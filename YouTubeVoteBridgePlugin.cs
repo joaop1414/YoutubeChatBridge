@@ -1820,6 +1820,7 @@ public static class YouTubeVoteUpdatePatch
     public static void Postfix()
     {
         EventoTesteMenu.VerificarTecla();
+        EventoTesteMenu.ProcessarFilaExecucao();
         YouTubeVoteBridgePlugin.EnviarSinalModAoHost();
         YouTubeVoteBridgePlugin.AtualizarAvisos();
         YouTubeVoteBridgePlugin.AtualizarVotacao();
