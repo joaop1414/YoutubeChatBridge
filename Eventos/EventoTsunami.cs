@@ -135,79 +135,105 @@ internal sealed class EventoTsunami : EventoVotacao
         PlayerControl host = PlayerControl.LocalPlayer;
         if (host == null || host.Data == null || indicador == null) return;
 
+        // O EHR espera um intervalo após o spawn antes de associar o objeto
+        // falso aos clientes. Esta função é chamada no mesmo frame do spawn,
+        // então a publicação visual é feita na atualização seguinte.
         try
         {
-            MessageWriter association = MessageWriter.Get(SendOption.Reliable);
-            association.StartMessage(26);
-            association.WritePacked(AmongUsClient.Instance.GameId);
+            indicador.CachedPlayerData = host.Data;
 
-            foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
-            {
-                if (jogador == null || jogador == host || jogador.Data == null || jogador.Data.Disconnected)
-                    continue;
-
-                association.StartMessage(6);
-                association.Write(AmongUsClient.Instance.GameId);
-                association.WritePacked(jogador.OwnerId);
-                association.StartMessage(1);
-                association.WritePacked(indicador.NetId);
-                association.Write(jogador.PlayerId);
-                association.EndMessage();
-                association.StartMessage(2);
-                association.WritePacked(indicador.NetId);
-                association.Write((byte)RpcCalls.MurderPlayer);
-                association.WriteNetObject(indicador);
-                association.Write((int)MurderResultFlags.FailedError);
-                association.EndMessage();
-                association.StartMessage(1);
-                association.WritePacked(indicador.NetId);
-                association.Write(PlayerIdIndicador);
-                association.EndMessage();
-                association.EndMessage();
-            }
-
-            association.EndMessage();
-            AmongUsClient.Instance.SendOrDisconnect(association);
-            association.Recycle();
-        }
-        catch (Exception ex)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning("Tsunami: associação visual incompleta: " + ex.Message);
-        }
-
-        try
-        {
-            if (indicador.Data == null)
-                throw new InvalidOperationException("Os dados próprios do NPC não foram inicializados.");
-            var outfit = indicador.Data.Outfits[PlayerOutfitType.Default];
-            outfit.PlayerName = NomeOnda;
-            outfit.ColorId = 0;
-            outfit.HatId = "";
-            outfit.SkinId = "";
-            outfit.PetId = "";
-            outfit.VisorId = "";
-            if (indicador.cosmetics != null && indicador.cosmetics.nameText != null)
-                indicador.cosmetics.nameText.text = NomeOnda;
+            var outfit = host.Data.Outfits[PlayerOutfitType.Default];
+            string nomeOriginal = outfit.PlayerName;
+            int corOriginal = outfit.ColorId;
+            string chapeuOriginal = outfit.HatId;
+            string roupaOriginal = outfit.SkinId;
+            string mascoteOriginal = outfit.PetId;
+            string visorOriginal = outfit.VisorId;
 
             MessageWriter visual = MessageWriter.Get(SendOption.Reliable);
             try
             {
                 visual.StartMessage(5);
                 visual.Write(AmongUsClient.Instance.GameId);
+
+                // Segue a sequência do EHR: serializa temporariamente o outfit
+                // do host, aplica Shapeshift no objeto falso e restaura o host.
+                outfit.PlayerName = NomeOnda;
+                outfit.ColorId = 0;
+                outfit.HatId = "";
+                outfit.SkinId = "";
+                outfit.PetId = "";
+                outfit.VisorId = "";
+
                 visual.StartMessage(1);
-                visual.WritePacked(indicador.Data.NetId);
-                indicador.Data.Serialize(visual, false);
+                visual.WritePacked(host.Data.NetId);
+                host.Data.Serialize(visual, false);
                 visual.EndMessage();
+
+                try { indicador.Shapeshift(host, false); }
+                catch (Exception ex)
+                {
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                        "Tsunami: Shapeshift local falhou: " + ex.Message);
+                }
+
+                visual.StartMessage(2);
+                visual.WritePacked(indicador.NetId);
+                visual.Write((byte)RpcCalls.Shapeshift);
+                visual.WriteNetObject(host);
+                visual.Write(false);
+                visual.EndMessage();
+
+                outfit.PlayerName = nomeOriginal;
+                outfit.ColorId = corOriginal;
+                outfit.HatId = chapeuOriginal;
+                outfit.SkinId = roupaOriginal;
+                outfit.PetId = mascoteOriginal;
+                outfit.VisorId = visorOriginal;
+
+                visual.StartMessage(1);
+                visual.WritePacked(host.Data.NetId);
+                host.Data.Serialize(visual, false);
+                visual.EndMessage();
+
+                // Publica também a posição inicial junto da aparência.
+                try { indicador.NetTransform.SnapTo(posicao); }
+                catch (Exception ex)
+                {
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                        "Tsunami: SnapTo visual inicial falhou: " + ex.Message);
+                }
+
+                visual.StartMessage(2);
+                visual.WritePacked(indicador.NetTransform.NetId);
+                visual.Write((byte)RpcCalls.SnapTo);
+                visual.Write(posicao.x);
+                visual.Write(posicao.y);
+                visual.Write(indicador.NetTransform.lastSequenceId);
+                visual.EndMessage();
+
                 visual.EndMessage();
                 AmongUsClient.Instance.SendOrDisconnect(visual);
                 visual = null;
             }
-            finally { visual?.Recycle(); }
+            finally
+            {
+                visual?.Recycle();
+                outfit.PlayerName = nomeOriginal;
+                outfit.ColorId = corOriginal;
+                outfit.HatId = chapeuOriginal;
+                outfit.SkinId = roupaOriginal;
+                outfit.PetId = mascoteOriginal;
+                outfit.VisorId = visorOriginal;
+            }
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "Tsunami: sequência visual compatível com EHR enviada.");
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "Tsunami: não foi possível publicar o nome personalizado do NPC: " + ex.Message);
+                "Tsunami: falha ao publicar a aparência do indicador: " + ex);
         }
     }
 
