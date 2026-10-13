@@ -56,14 +56,15 @@ internal sealed class EventoSabotagemAleatoria : EventoVotacao
                 return;
             }
 
-            // LogicOptions.MapId representa o mapa da partida em andamento.
-            // CurrentGameOptions.MapId pode representar apenas as opções atuais do menu/lobby.
-            int mapa = GameManager.Instance.LogicOptions.MapId;
             int mapaOpcoes = GameOptionsManager.Instance.CurrentGameOptions.MapId;
+            int mapaLogica = GameManager.Instance.LogicOptions.MapId;
+            int mapa = DetectarMapaCarregado(navio, mapaLogica);
             List<SystemTypes> disponiveis = ObterSabotagensDoMapa(mapa);
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "Detecção de mapa para sabotagem: LogicOptions.MapId=" + mapa +
+                "Detecção de mapa: ShipStatus=" + navio.GetType().Name +
+                "; mapa detectado=" + mapa +
+                "; LogicOptions.MapId=" + mapaLogica +
                 "; CurrentGameOptions.MapId=" + mapaOpcoes + ".");
 
             if (disponiveis.Count == 0)
@@ -94,10 +95,41 @@ internal sealed class EventoSabotagemAleatoria : EventoVotacao
         }
     }
 
+    private static int DetectarMapaCarregado(ShipStatus navio, int mapaFallback)
+    {
+        // Primeiro usa sistemas exclusivos do mapa realmente carregado.
+        // IDs oficiais: 0 Skeld, 1 Mira HQ, 2 Polus, 3 Dleks, 4 Airship, 5 Fungle.
+        if (navio.Systems.ContainsKey(SystemTypes.HeliSabotage))
+            return 4;
+
+        if (navio.Systems.ContainsKey(SystemTypes.MushroomMixupSabotage))
+            return 5;
+
+        if (navio.Systems.ContainsKey(SystemTypes.Laboratory))
+            return 2;
+
+        // Os mapas clássicos compartilham vários sistemas; nesses casos,
+        // o tipo real do objeto ShipStatus ajuda a distinguir Skeld de Mira.
+        string tipoNavio = navio.GetType().Name;
+        if (tipoNavio.IndexOf("Airship", StringComparison.OrdinalIgnoreCase) >= 0)
+            return 4;
+        if (tipoNavio.IndexOf("Fungle", StringComparison.OrdinalIgnoreCase) >= 0)
+            return 5;
+        if (tipoNavio.IndexOf("Polus", StringComparison.OrdinalIgnoreCase) >= 0)
+            return 2;
+        if (tipoNavio.IndexOf("Mira", StringComparison.OrdinalIgnoreCase) >= 0)
+            return 1;
+        if (tipoNavio.IndexOf("Skeld", StringComparison.OrdinalIgnoreCase) >= 0)
+            return 0;
+        if (tipoNavio.IndexOf("Dleks", StringComparison.OrdinalIgnoreCase) >= 0)
+            return 3;
+
+        // Só recorre às opções se não houver assinatura reconhecível do mapa carregado.
+        return mapaFallback;
+    }
+
     private static List<SystemTypes> ObterSabotagensDoMapa(int mapa)
     {
-        // IDs oficiais: 0 Skeld, 1 Mira HQ, 2 Polus, 3 Dleks,
-        // 4 Airship, 5 Fungle. Mapas adicionados por mods podem usar outros IDs.
         return mapa switch
         {
             0 or 3 => new List<SystemTypes>
