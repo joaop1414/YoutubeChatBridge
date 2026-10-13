@@ -32,6 +32,9 @@ internal sealed class EventoTsunami : EventoVotacao
     private static float proximaAtualizacao;
     private static float fimProtecao;
     private static bool ativo;
+    // Inicialização de rede do indicador em etapas, como no NPC seguidor/EHR.
+    private static int etapaInicializacaoIndicador;
+    private static float proximaEtapaInicializacaoIndicador;
     private static float proximaSabotagem;
     private static float repararReatorAte;
     private static bool reparoPendente;
@@ -112,7 +115,10 @@ internal sealed class EventoTsunami : EventoVotacao
             if (PlayerControl.AllPlayerControls.Contains(indicador))
                 PlayerControl.AllPlayerControls.Remove(indicador);
 
-            PrepararIndicadorVisual();
+            // Espera o spawn chegar aos clientes antes de associar o PlayerId falso.
+            // A aparência será publicada numa etapa posterior, após outra pequena pausa.
+            etapaInicializacaoIndicador = 1;
+            proximaEtapaInicializacaoIndicador = Time.realtimeSinceStartup + 0.15f;
             AplicarAvisoNomes();
 
             ativo = true;
@@ -248,6 +254,79 @@ internal sealed class EventoTsunami : EventoVotacao
         {
             AtualizarAvisoNomesCliente();
             return;
+        }
+
+        // A sequência é deliberadamente dividida em duas atualizações:
+        // 1) associação temporária do objeto a cada cliente (EHR);
+        // 2) aparência e posição inicial depois que a associação foi enviada.
+        if (indicador != null && etapaInicializacaoIndicador == 1 &&
+            Time.realtimeSinceStartup >= proximaEtapaInicializacaoIndicador)
+        {
+            MessageWriter association = null;
+            try
+            {
+                association = MessageWriter.Get(SendOption.Reliable);
+                association.StartMessage(26);
+                association.WritePacked(AmongUsClient.Instance.GameId);
+
+                int mensagens = 0;
+                foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+                {
+                    if (jogador == null || jogador == PlayerControl.LocalPlayer ||
+                        jogador.Data == null || jogador.Data.Disconnected)
+                        continue;
+
+                    association.StartMessage(6);
+                    association.Write(AmongUsClient.Instance.GameId);
+                    association.WritePacked(jogador.OwnerId);
+
+                    association.StartMessage(1);
+                    association.WritePacked(indicador.NetId);
+                    association.Write(jogador.PlayerId);
+                    association.EndMessage();
+
+                    association.StartMessage(2);
+                    association.WritePacked(indicador.NetId);
+                    association.Write((byte)RpcCalls.MurderPlayer);
+                    association.WriteNetObject(indicador);
+                    association.Write((int)MurderResultFlags.FailedError);
+                    association.EndMessage();
+
+                    association.StartMessage(1);
+                    association.WritePacked(indicador.NetId);
+                    association.Write(PlayerIdIndicador);
+                    association.EndMessage();
+
+                    association.EndMessage();
+                    mensagens++;
+                }
+
+                association.EndMessage();
+                if (mensagens > 0)
+                    AmongUsClient.Instance.SendOrDisconnect(association);
+                association.Recycle();
+                association = null;
+
+                indicador.CachedPlayerData = PlayerControl.LocalPlayer.Data;
+                etapaInicializacaoIndicador = 2;
+                proximaEtapaInicializacaoIndicador = Time.realtimeSinceStartup + 0.15f;
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    $"Tsunami: associação EHR enviada para {mensagens} clientes vanilla; preparando aparência.");
+            }
+            catch (Exception ex)
+            {
+                association?.Recycle();
+                YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                    "Tsunami: falha na associação EHR do indicador: " + ex);
+                etapaInicializacaoIndicador = 0;
+            }
+        }
+
+        if (indicador != null && etapaInicializacaoIndicador == 2 &&
+            Time.realtimeSinceStartup >= proximaEtapaInicializacaoIndicador)
+        {
+            PrepararIndicadorVisual();
+            etapaInicializacaoIndicador = 3;
         }
 
         if (reuniaoAguardandoFim)
@@ -895,6 +974,8 @@ internal sealed class EventoTsunami : EventoVotacao
             catch { }
         }
         indicador = null;
+        etapaInicializacaoIndicador = 0;
+        proximaEtapaInicializacaoIndicador = 0f;
     }
 }
 
