@@ -72,6 +72,10 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     private static readonly HashSet<int> ClientesComMod = new();
     private static bool SinalModEnviado;
 
+    // Usado por eventos que precisam alterar o nick somente na tela do cliente dono,
+    // inclusive em clientes vanilla, sem replicar a mudança para a sala inteira.
+    public static bool ClienteTemMod(int clientId) => ClientesComMod.Contains(clientId);
+
     private static CancellationTokenSource leitorToken;
     private static Task tarefaLeitor;
 
@@ -1084,7 +1088,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
     // Altera o nome apenas na tela do cliente dono daquele jogador.
     // Segue o padrão de RPC SetName direcionado usado pelo EHR.
-    private static void DefinirNomeLocal(PlayerControl jogador, string nome)
+    public static void DefinirNomeLocal(PlayerControl jogador, string nome)
     {
         if (jogador == null)
         {
