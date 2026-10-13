@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using BepInEx.Unity.IL2CPP.Utils.Collections;
+using AmongUs.GameOptions;
 using Hazel;
 using HarmonyLib;
 using InnerNet;
@@ -320,17 +321,17 @@ internal sealed class EventoTsunami : EventoVotacao
 
             try
             {
-                // Preserva o time original e troca para o papel de fantasma correspondente.
+                // Etapa atual: somente troca o papel. Não mata nem chama animação de kill.
                 bool eraImpostor = jogador.Data.Role != null && jogador.Data.Role.IsImpostor;
-                jogador.RpcMurderPlayer(jogador, true);
                 jogador.RpcSetRole(
                     eraImpostor ? RoleTypes.ImpostorGhost : RoleTypes.CrewmateGhost,
                     true);
                 atingidos.Add(jogador.PlayerId);
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                     "Tsunami atingiu " + jogador.Data.PlayerName +
-                    "; papel de fantasma aplicado: " +
-                    (eraImpostor ? "ImpostorGhost" : "CrewmateGhost") + ".");
+                    "; papel alterado para " +
+                    (eraImpostor ? "ImpostorGhost" : "CrewmateGhost") +
+                    " sem executar morte.");
             }
             catch (Exception ex)
             {
