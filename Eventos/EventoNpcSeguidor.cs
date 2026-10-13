@@ -137,9 +137,12 @@ internal sealed class EventoNpcSeguidor : EventoVotacao
             if (PlayerControl.AllPlayerControls.Contains(npc))
                 PlayerControl.AllPlayerControls.Remove(npc);
 
-            // Não escondemos o corpo: o host precisa conseguir ver o objeto no spawn.
-            etapaInicializacao = 0;
-            proximaEtapaInicializacao = 0f;
+            // A criação do objeto, sozinha, não basta para clientes vanilla.
+            // O EHR associa temporariamente o PlayerId falso a cada cliente,
+            // envia MurderPlayer com FailedError e restaura o ID 254.
+            // Fazemos isso em uma etapa atrasada, depois do pacote de spawn.
+            etapaInicializacao = 1;
+            proximaEtapaInicializacao = Time.realtimeSinceStartup + 0.15f;
             alvo = EscolherAlvo();
             proximaAtualizacao = Time.realtimeSinceStartup + IntervaloMovimento;
 
@@ -166,9 +169,75 @@ internal sealed class EventoNpcSeguidor : EventoVotacao
             AmongUsClient.Instance == null || ShipStatus.Instance == null)
             return;
 
-        // Diagnóstico: manter o NPC parado para isolar o pacote de criação.
-        // O RPC SnapTo será reativado depois de confirmar estabilidade no vanilla.
-        return;
+        // Mantém o NPC parado durante o diagnóstico. Primeiro, conclui a
+        // associação de rede usada pelo EHR para objetos falsos em clientes vanilla.
+        if (etapaInicializacao == 1 && Time.realtimeSinceStartup >= proximaEtapaInicializacao)
+        {
+            try
+            {
+                MessageWriter association = MessageWriter.Get(SendOption.Reliable);
+                association.StartMessage(26);
+                association.WritePacked(AmongUsClient.Instance.GameId);
+
+                int mensagens = 0;
+                foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+                {
+                    if (jogador == null || jogador == PlayerControl.LocalPlayer ||
+                        jogador.Data == null || jogador.Data.Disconnected)
+                        continue;
+
+                    association.StartMessage(6);
+                    association.Write(AmongUsClient.Instance.GameId);
+                    association.WritePacked(jogador.OwnerId);
+
+                    // Temporariamente associa o objeto falso ao PlayerId do cliente.
+                    association.StartMessage(1);
+                    association.WritePacked(npc.NetId);
+                    association.Write(jogador.PlayerId);
+                    association.EndMessage();
+
+                    // Mesmo RPC de inicialização usado pelo EHR.
+                    association.StartMessage(2);
+                    association.WritePacked(npc.NetId);
+                    association.Write((byte)RpcCalls.MurderPlayer);
+                    association.WriteNetObject(npc);
+                    association.Write((int)MurderResultFlags.FailedError);
+                    association.EndMessage();
+
+                    // Restaura o ID reservado do objeto falso.
+                    association.StartMessage(1);
+                    association.WritePacked(npc.NetId);
+                    association.Write(PlayerIdNpc);
+                    association.EndMessage();
+
+                    association.EndMessage();
+                    mensagens++;
+                }
+
+                association.EndMessage();
+                if (mensagens > 0)
+                    AmongUsClient.Instance.SendOrDisconnect(association);
+                association.Recycle();
+
+                npc.CachedPlayerData = PlayerControl.LocalPlayer.Data;
+                etapaInicializacao = 2;
+                proximaEtapaInicializacao = Time.realtimeSinceStartup + 0.15f;
+
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    $"NPC: associação EHR enviada para {mensagens} clientes vanilla.");
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                    "Falha na associação EHR do NPC: " + ex);
+                Limpar();
+                return;
+            }
+        }
+
+        // Não envia movimentação até confirmarmos que o spawn/associação é estável.
+        if (etapaInicializacao != 0)
+            return;
 
         if (MeetingHud.Instance != null)
             return;
