@@ -1825,6 +1825,7 @@ public static class YouTubeVoteUpdatePatch
         YouTubeVoteBridgePlugin.AtualizarAvisos();
         YouTubeVoteBridgePlugin.AtualizarVotacao();
         EventoEscudoTemporario.Atualizar();
+        EventoCooldownIndividual.Atualizar();
         EventoCongelarJogador.Atualizar();
         EventoVelocidadeJogadores.Atualizar();
     }
