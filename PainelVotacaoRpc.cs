@@ -29,8 +29,8 @@ internal static class PainelVotacaoRpc
     private static float proximaTentativaCriarTexto;
 
     // Dimensões em unidades do mundo do HUD.
-    private const float LARGURA_PAINEL = 6.2f;
-    private const float ALTURA_FUNDO = 4.5f;
+    private const float LARGURA_PAINEL = 7.0f;
+    private const float ALTURA_FUNDO = 5.25f;
     private static readonly Vector3 POSICAO_PAINEL = new(3.0f, 0.0f, 0f);
 
     public static void Inicializar()
@@ -123,33 +123,67 @@ internal static class PainelVotacaoRpc
         if (!ativo || eventos.Length == 0)
         {
             textoPainel.text =
-                "<b><color=#39BFFF>YouTubeVoteBridge</color></b>\n" +
-                "<color=#FFD966>PAINEL DE VOTAÇÃO</color>\n" +
-                "<color=#FFFFFF>Estado:</color> aguardando votação\n" +
-                "<size=70%>Inicie a live e a votação com /youtube.</size>";
+                "<size=115%><b><color=#46D9FF>YOUTUBE</color><color=#FFFFFF> VOTE</color></b></size>\n" +
+                "<color=#FFD166>━━━━━━━━━━━━━━━━━━━━━━━━</color>\n" +
+                "<color=#D8E2F0>PAINEL DE VOTAÇÃO</color>\n\n" +
+                "<color=#9AA9BD>STATUS</color>  <color=#FFD166><b>AGUARDANDO VOTAÇÃO</b></color>\n" +
+                "<size=85%><color=#C3CDDA>Inicie a live e a votação com /youtube.</color></size>";
             return;
         }
 
         StringBuilder sb = new();
-        sb.AppendLine("<b><color=#39BFFF>YouTubeVoteBridge</color></b>");
-        sb.AppendLine("<color=#7CFF8A>VOTAÇÃO ATIVA</color>  |  Rodada #" + rodada);
+        int totalVotos = votos == null ? 0 : votos.Sum(x => Math.Max(0, x));
+        int maiorVoto = Math.Max(1, eventos.Select((_, i) =>
+            i < votos.Length ? Math.Max(0, votos[i]) : 0).DefaultIfEmpty(0).Max());
+
+        string[] cores = { "#45D6FF", "#B69CFF", "#63E6A5", "#FFBE69" };
+        sb.AppendLine("<size=115%><b><color=#46D9FF>YOUTUBE</color><color=#FFFFFF> VOTE</color></b></size>");
+        sb.Append("<color=#9BAEC4>RODADA #");
+        sb.Append(rodada);
+        sb.Append("</color>  <color=#63E6A5>● AO VIVO</color>");
+        sb.AppendLine();
+        sb.AppendLine("<color=#40546D>━━━━━━━━━━━━━━━━━━━━━━━━━━━━</color>");
 
         for (int i = 0; i < eventos.Length; i++)
         {
-            int quantidade = i < votos.Length ? votos[i] : 0;
-            sb.Append("<color=#FFD966>");
+            int quantidade = i < votos.Length ? Math.Max(0, votos[i]) : 0;
+            int blocos = (int)Math.Round(8.0 * quantidade / maiorVoto);
+            if (quantidade > 0) blocos = Math.Max(1, blocos);
+            string barra = new string('■', Math.Clamp(blocos, 0, 8)) +
+                           new string('·', Math.Clamp(8 - blocos, 0, 8));
+
+            sb.Append("<color=");
+            sb.Append(cores[i % cores.Length]);
+            sb.Append("><b>");
             sb.Append(i + 1);
-            sb.Append(".</color> ");
+            sb.Append("</b></color>  <b><color=#F3F6FC>");
             sb.Append(eventos[i]);
-            sb.Append("  <color=#7CFF8A>(");
+            sb.Append("</color></b>  <color=#");
+            sb.Append("DCE6F2>");
             sb.Append(quantidade);
-            sb.AppendLine(" votos)</color>");
+            sb.Append(quantidade == 1 ? " voto" : " votos");
+            sb.AppendLine("</color>");
+
+            sb.Append("<size=75%><color=");
+            sb.Append(cores[i % cores.Length]);
+            sb.Append(">");
+            sb.Append(barra);
+            sb.Append("</color></size>");
+            if (i < eventos.Length - 1)
+                sb.AppendLine();
         }
 
         sb.AppendLine();
-        sb.Append("<color=#FFFFFF>Tempo restante: <b>");
+        sb.AppendLine("<color=#40546D>━━━━━━━━━━━━━━━━━━━━━━━━━━━━</color>");
+        sb.Append("<color=#9BAEC4>VOTOS CONTABILIZADOS</color>  <b><color=#FFFFFF>");
+        sb.Append(totalVotos);
+        sb.AppendLine("</color></b>");
+        sb.Append("<color=#9BAEC4>TEMPO RESTANTE</color>  <size=120%><b><color=");
+        sb.Append(segundos <= 5 ? "#FF6B6B" : segundos <= 10 ? "#FFD166" : "#63E6A5");
+        sb.Append(">");
         sb.Append(segundos);
-        sb.AppendLine("s</b></color>");
+        sb.AppendLine("s</color></b></size>");
+
         textoPainel.text = sb.ToString();
     }
 
@@ -175,7 +209,7 @@ internal static class PainelVotacaoRpc
 
         SpriteRenderer renderer = fundoPainel.AddComponent<SpriteRenderer>();
         renderer.sprite = spriteFundo;
-        renderer.color = new Color(0f, 0f, 0f, 0.78f);
+        renderer.color = new Color(0.035f, 0.055f, 0.09f, 0.88f);
         renderer.sortingOrder = -10;
     }
 
@@ -205,9 +239,9 @@ internal static class PainelVotacaoRpc
                 textoPainel.transform.localPosition = POSICAO_PAINEL;
                 textoPainel.transform.localScale = Vector3.one;
                 textoPainel.rectTransform.sizeDelta = new Vector2(LARGURA_PAINEL, ALTURA_FUNDO);
-                textoPainel.fontSize = 1.25f;
-                textoPainel.fontSizeMin = 1.25f;
-                textoPainel.fontSizeMax = 1.25f;
+                textoPainel.fontSize = 1.05f;
+                textoPainel.fontSizeMin = 1.05f;
+                textoPainel.fontSizeMax = 1.05f;
                 textoPainel.enableWordWrapping = true;
                 textoPainel.overflowMode = TextOverflowModes.Overflow;
                 textoPainel.color = Color.white;
@@ -218,7 +252,7 @@ internal static class PainelVotacaoRpc
 
                 AtualizarTexto();
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "Painel de eventos criado com fundo preto semitransparente (alpha 0.78).");
+                    "Painel de votação estilizado criado com fundo azul-escuro semitransparente.");
             }
             catch (Exception ex)
             {
