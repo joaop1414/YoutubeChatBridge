@@ -253,7 +253,6 @@ internal sealed class EventoCriarCorpoFalso : EventoVotacao
         DeadBody corpo = UnityEngine.Object.Instantiate(
             GameManager.Instance.deadBodyPrefab[0]);
 
-        corpo.enabled = false;
         corpo.ParentId = modelo.PlayerId;
 
         foreach (SpriteRenderer renderer in corpo.bodyRenderers)
@@ -261,5 +260,10 @@ internal sealed class EventoCriarCorpoFalso : EventoVotacao
 
         modelo.SetPlayerMaterialColors(corpo.bloodSplatter);
         corpo.transform.position = posicaoCorpo;
+        corpo.gameObject.SetActive(true);
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"Corpo falso local criado e ativado; ParentId={modelo.PlayerId}, " +
+            $"posição=({posicaoCorpo.x:0.00}, {posicaoCorpo.y:0.00}).");
     }
 }
