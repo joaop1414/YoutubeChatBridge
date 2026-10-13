@@ -1,20 +1,17 @@
 using System;
 using System.Linq;
 using System.Text;
-using HarmonyLib;
+using Il2CppInterop.Runtime.Injection;
 using Hazel;
-using TMPro;
 using UnityEngine;
 
 namespace YouTubeVoteBridge;
 
+// Painel desenhado com IMGUI (GUI.Box/GUI.Label), seguindo a abordagem usada
+// em overlays de outros mods, em vez de depender de texto no mundo do jogo.
 internal static class PainelVotacaoRpc
 {
     private const byte RpcPainelVotacao = 250;
-    private static TextMeshPro textoPainel;
-    private static GameObject fundoPainel;
-    private static Sprite spriteFundo;
-    private static Texture2D texturaFundo;
     private static string[] eventos = Array.Empty<string>();
     private static int[] votos = new int[4];
     private static int rodada;
@@ -26,17 +23,41 @@ internal static class PainelVotacaoRpc
     private static bool configuracaoRecebida;
     private static float proximoEnvio;
     private static float proximaSincronizacaoConfiguracoes;
-    private static float proximaTentativaCriarTexto;
+    private static bool tipoRegistrado;
+    private static bool overlayCriado;
 
-    // Dimensões em unidades do mundo do HUD.
-    private const float LARGURA_PAINEL = 7.0f;
-    private const float ALTURA_FUNDO = 5.25f;
-    private static readonly Vector3 POSICAO_PAINEL = new(3.0f, 0.0f, 0f);
+    internal static bool Ativo => ativo;
+    internal static int Rodada => rodada;
+    internal static int Segundos => segundos;
+    internal static string[] Eventos => eventos;
+    internal static int[] Votos => votos;
 
     public static void Inicializar()
     {
-        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            "Painel de votação: inicialização concluída; aguardando HudManager.");
+        try
+        {
+            if (!tipoRegistrado)
+            {
+                ClassInjector.RegisterTypeInIl2Cpp<PainelVotacaoOverlay>();
+                tipoRegistrado = true;
+            }
+
+            if (!overlayCriado)
+            {
+                var objeto = new GameObject("YouTubeVoteBridge_VoteOverlay");
+                UnityEngine.Object.DontDestroyOnLoad(objeto);
+                objeto.AddComponent<PainelVotacaoOverlay>();
+                overlayCriado = true;
+            }
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "Painel de votação IMGUI inicializado.");
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "Falha ao inicializar painel IMGUI: " + ex);
+        }
     }
 
     public static void Publicar(int numeroRodada, bool rodadaAtiva, int tempo,
@@ -58,7 +79,6 @@ internal static class PainelVotacaoRpc
         intervaloConfig = YouTubeVoteBridgePlugin.IntervaloRodadas?.Value ?? 15;
         preparacaoConfig = YouTubeVoteBridgePlugin.PreparacaoChat?.Value ?? 10;
         configuracaoRecebida = true;
-        AtualizarTexto();
         EnviarEstadoParaClientes();
     }
 
@@ -116,173 +136,6 @@ internal static class PainelVotacaoRpc
             intervaloConfig + "s | preparação=" + preparacaoConfig + "s.";
     }
 
-    private static void AtualizarTexto()
-    {
-        if (!textoPainel) return;
-
-        if (!ativo || eventos.Length == 0)
-        {
-            textoPainel.text =
-                "<size=115%><b><color=#46D9FF>YOUTUBE</color><color=#FFFFFF> VOTE</color></b></size>\n" +
-                "<color=#FFD166>━━━━━━━━━━━━━━━━━━━━━━━━</color>\n" +
-                "<color=#D8E2F0>PAINEL DE VOTAÇÃO</color>\n\n" +
-                "<color=#9AA9BD>STATUS</color>  <color=#FFD166><b>AGUARDANDO VOTAÇÃO</b></color>\n" +
-                "<size=85%><color=#C3CDDA>Inicie a live e a votação com /youtube.</color></size>";
-            return;
-        }
-
-        StringBuilder sb = new();
-        int totalVotos = votos == null ? 0 : votos.Sum(x => Math.Max(0, x));
-        int maiorVoto = Math.Max(1, eventos.Select((_, i) =>
-            i < votos.Length ? Math.Max(0, votos[i]) : 0).DefaultIfEmpty(0).Max());
-
-        string[] cores = { "#45D6FF", "#B69CFF", "#63E6A5", "#FFBE69" };
-        sb.AppendLine("<size=115%><b><color=#46D9FF>YOUTUBE</color><color=#FFFFFF> VOTE</color></b></size>");
-        sb.Append("<color=#9BAEC4>RODADA #");
-        sb.Append(rodada);
-        sb.Append("</color>  <color=#63E6A5>● AO VIVO</color>");
-        sb.AppendLine();
-        sb.AppendLine("<color=#40546D>━━━━━━━━━━━━━━━━━━━━━━━━━━━━</color>");
-
-        for (int i = 0; i < eventos.Length; i++)
-        {
-            int quantidade = i < votos.Length ? Math.Max(0, votos[i]) : 0;
-            int blocos = (int)Math.Round(8.0 * quantidade / maiorVoto);
-            if (quantidade > 0) blocos = Math.Max(1, blocos);
-            string barra = new string('■', Math.Clamp(blocos, 0, 8)) +
-                           new string('·', Math.Clamp(8 - blocos, 0, 8));
-
-            sb.Append("<color=");
-            sb.Append(cores[i % cores.Length]);
-            sb.Append("><b>");
-            sb.Append(i + 1);
-            sb.Append("</b></color>  <b><color=#F3F6FC>");
-            sb.Append(eventos[i]);
-            sb.Append("</color></b>  <color=#");
-            sb.Append("DCE6F2>");
-            sb.Append(quantidade);
-            sb.Append(quantidade == 1 ? " voto" : " votos");
-            sb.AppendLine("</color>");
-
-            sb.Append("<size=75%><color=");
-            sb.Append(cores[i % cores.Length]);
-            sb.Append(">");
-            sb.Append(barra);
-            sb.Append("</color></size>");
-            if (i < eventos.Length - 1)
-                sb.AppendLine();
-        }
-
-        sb.AppendLine();
-        sb.AppendLine("<color=#40546D>━━━━━━━━━━━━━━━━━━━━━━━━━━━━</color>");
-        sb.Append("<color=#9BAEC4>VOTOS CONTABILIZADOS</color>  <b><color=#FFFFFF>");
-        sb.Append(totalVotos);
-        sb.AppendLine("</color></b>");
-        sb.Append("<color=#9BAEC4>TEMPO RESTANTE</color>  <size=120%><b><color=");
-        sb.Append(segundos <= 5 ? "#FF6B6B" : segundos <= 10 ? "#FFD166" : "#63E6A5");
-        sb.Append(">");
-        sb.Append(segundos);
-        sb.AppendLine("s</color></b></size>");
-
-        textoPainel.text = sb.ToString();
-    }
-
-    private static void CriarFundo(Transform pai)
-    {
-        // Fundo preto semitransparente atrás do título, dos eventos e dos votos.
-        // Isso evita depender de um Canvas adicional dentro do HUD do jogo.
-        texturaFundo = new Texture2D(1, 1, TextureFormat.RGBA32, false);
-        texturaFundo.name = "YouTubeVoteBridge_FundoTexture";
-        texturaFundo.SetPixel(0, 0, Color.white);
-        texturaFundo.Apply();
-
-        spriteFundo = Sprite.Create(
-            texturaFundo, new Rect(0, 0, 1, 1), new Vector2(0.5f, 0.5f), 1f);
-        spriteFundo.name = "YouTubeVoteBridge_FundoSprite";
-
-        fundoPainel = new GameObject("YouTubeVoteBridge_VotePanelBackground");
-        fundoPainel.transform.SetParent(pai, false);
-        fundoPainel.transform.localPosition =
-            POSICAO_PAINEL + new Vector3(0.04f, -0.12f, 0.12f);
-        fundoPainel.transform.localScale =
-            new Vector3(LARGURA_PAINEL, ALTURA_FUNDO, 1f);
-
-        SpriteRenderer renderer = fundoPainel.AddComponent<SpriteRenderer>();
-        renderer.sprite = spriteFundo;
-        renderer.color = new Color(0.035f, 0.055f, 0.09f, 0.88f);
-        renderer.sortingOrder = -10;
-    }
-
-    public static void GarantirInterface(HudManager hud)
-    {
-        if (!hud || !hud.KillButton || !hud.KillButton.cooldownTimerText)
-            return;
-
-        if (!textoPainel)
-        {
-            if (Time.realtimeSinceStartup < proximaTentativaCriarTexto) return;
-            proximaTentativaCriarTexto = Time.realtimeSinceStartup + 2f;
-
-            try
-            {
-                CriarFundo(hud.transform);
-
-                textoPainel = UnityEngine.Object.Instantiate(
-                    hud.KillButton.cooldownTimerText,
-                    hud.transform,
-                    true
-                );
-
-                textoPainel.gameObject.name = "YouTubeVoteBridge_VotePanel";
-                textoPainel.alignment = TextAlignmentOptions.TopLeft;
-                textoPainel.verticalAlignment = VerticalAlignmentOptions.Top;
-                textoPainel.transform.localPosition = POSICAO_PAINEL;
-                textoPainel.transform.localScale = Vector3.one;
-                textoPainel.rectTransform.sizeDelta = new Vector2(LARGURA_PAINEL, ALTURA_FUNDO);
-                textoPainel.fontSize = 1.05f;
-                textoPainel.fontSizeMin = 1.05f;
-                textoPainel.fontSizeMax = 1.05f;
-                textoPainel.enableWordWrapping = true;
-                textoPainel.overflowMode = TextOverflowModes.Overflow;
-                textoPainel.color = Color.white;
-                textoPainel.enabled = true;
-
-                if (textoPainel.GetComponent<MeshRenderer>())
-                    textoPainel.GetComponent<MeshRenderer>().sortingOrder = 0;
-
-                AtualizarTexto();
-                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "Painel de votação estilizado criado com fundo azul-escuro semitransparente.");
-            }
-            catch (Exception ex)
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                    "Não foi possível criar o painel em HudManager: " + ex);
-            }
-        }
-        else
-        {
-            if (textoPainel.transform.parent != hud.transform)
-                textoPainel.transform.SetParent(hud.transform, false);
-
-            if (fundoPainel && fundoPainel.transform.parent != hud.transform)
-                fundoPainel.transform.SetParent(hud.transform, false);
-
-            textoPainel.transform.localPosition = POSICAO_PAINEL;
-            textoPainel.rectTransform.sizeDelta = new Vector2(LARGURA_PAINEL, ALTURA_FUNDO);
-            if (fundoPainel)
-            {
-                fundoPainel.transform.localPosition =
-                    POSICAO_PAINEL + new Vector3(0.04f, -0.12f, 0.12f);
-                fundoPainel.transform.localScale =
-                    new Vector3(LARGURA_PAINEL, ALTURA_FUNDO, 1f);
-            }
-
-            textoPainel.enabled = true;
-            AtualizarTexto();
-        }
-    }
-
     public static void Receber(string payload)
     {
         try
@@ -300,7 +153,6 @@ internal static class PainelVotacaoRpc
             intervaloConfig = int.Parse(p[6]);
             preparacaoConfig = int.Parse(p[7]);
             configuracaoRecebida = true;
-            AtualizarTexto();
         }
         catch (Exception ex)
         {
@@ -310,24 +162,188 @@ internal static class PainelVotacaoRpc
     }
 }
 
-[HarmonyPatch(typeof(HudManager), nameof(HudManager.Update))]
-internal static class PainelVotacaoHudPatch
+internal sealed class PainelVotacaoOverlay : MonoBehaviour
 {
-    public static void Postfix(HudManager __instance)
+    private static Texture2D texturaPainel;
+    private static Texture2D texturaLinha;
+    private static Texture2D texturaBarra;
+    private static GUIStyle estiloPainel;
+    private static GUIStyle estiloTitulo;
+    private static GUIStyle estiloSubtitulo;
+    private static GUIStyle estiloOpcao;
+    private static GUIStyle estiloContagem;
+    private static GUIStyle estiloPequeno;
+    private static GUIStyle estiloBarraFundo;
+    private static GUIStyle estiloBarra;
+    private static bool estilosCriados;
+    private static readonly Color[] Cores =
     {
-        try
+        new Color(0.20f, 0.78f, 1.00f),
+        new Color(0.70f, 0.55f, 1.00f),
+        new Color(0.28f, 0.90f, 0.62f),
+        new Color(1.00f, 0.68f, 0.30f)
+    };
+
+    private static Texture2D CriarTextura(Color cor)
+    {
+        var tex = new Texture2D(1, 1, TextureFormat.RGBA32, false);
+        tex.SetPixel(0, 0, cor);
+        tex.Apply();
+        return tex;
+    }
+
+    private static GUIStyle EstiloComFundo(Texture2D fundo)
+    {
+        var s = new GUIStyle(GUI.skin.box);
+        s.normal.background = fundo;
+        s.border = new RectOffset(8, 8, 8, 8);
+        return s;
+    }
+
+    private static void CriarEstilos()
+    {
+        if (estilosCriados || Event.current == null) return;
+
+        texturaPainel = CriarTextura(new Color(0.035f, 0.055f, 0.09f, 0.96f));
+        texturaLinha = CriarTextura(new Color(0.20f, 0.29f, 0.40f, 1f));
+        texturaBarra = CriarTextura(new Color(0.14f, 0.20f, 0.29f, 1f));
+
+        estiloPainel = EstiloComFundo(texturaPainel);
+        estiloBarraFundo = EstiloComFundo(texturaBarra);
+        estiloBarra = EstiloComFundo(texturaLinha);
+
+        estiloTitulo = new GUIStyle(GUI.skin.label)
         {
-            if (AmongUsClient.Instance == null || PlayerControl.LocalPlayer == null)
-                return;
-            if (AmongUsClient.Instance.AmHost)
-                PainelVotacaoRpc.SincronizarConfiguracoes();
-            PainelVotacaoRpc.GarantirInterface(__instance);
-        }
-        catch (Exception ex)
+            fontSize = 21, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleLeft,
+            normal = { textColor = Color.white }
+        };
+        estiloSubtitulo = new GUIStyle(GUI.skin.label)
         {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "Erro ao atualizar a interface do painel: " + ex.Message);
+            fontSize = 12, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleLeft,
+            normal = { textColor = new Color(0.60f, 0.70f, 0.82f) }
+        };
+        estiloOpcao = new GUIStyle(GUI.skin.label)
+        {
+            fontSize = 14, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleLeft,
+            clipping = TextClipping.Clip, normal = { textColor = Color.white }
+        };
+        estiloContagem = new GUIStyle(GUI.skin.label)
+        {
+            fontSize = 13, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleRight,
+            normal = { textColor = Color.white }
+        };
+        estiloPequeno = new GUIStyle(GUI.skin.label)
+        {
+            fontSize = 11, alignment = TextAnchor.MiddleLeft,
+            normal = { textColor = new Color(0.65f, 0.73f, 0.83f) }
+        };
+        estilosCriados = true;
+    }
+
+    private void OnGUI()
+    {
+        if (AmongUsClient.Instance == null || PlayerControl.LocalPlayer == null)
+            return;
+
+        CriarEstilos();
+        if (!estilosCriados) return;
+
+        float escala = Mathf.Clamp(Screen.width / 1600f, 0.72f, 1.15f);
+        float largura = 340f * escala;
+        float altura = (PainelVotacaoRpc.Ativo && PainelVotacaoRpc.Eventos.Length > 0
+            ? 245f + PainelVotacaoRpc.Eventos.Length * 48f
+            : 142f) * escala;
+        float x = Screen.width - largura - 22f * escala;
+        float y = Mathf.Max(18f, Screen.height * 0.18f);
+        var painel = new Rect(x, y, largura, altura);
+
+        GUI.Box(painel, GUIContent.none, estiloPainel);
+
+        float margem = 16f * escala;
+        float dentroX = x + margem;
+        float larguraInterna = largura - margem * 2f;
+        float atualY = y + 12f * escala;
+
+        GUI.Label(new Rect(dentroX, atualY, larguraInterna, 30f * escala),
+            "YOUTUBE VOTE", estiloTitulo);
+        atualY += 30f * escala;
+
+        if (!PainelVotacaoRpc.Ativo || PainelVotacaoRpc.Eventos.Length == 0)
+        {
+            GUI.Label(new Rect(dentroX, atualY, larguraInterna, 22f * escala),
+                "PAINEL DE VOTAÇÃO", estiloSubtitulo);
+            atualY += 26f * escala;
+            GUI.Label(new Rect(dentroX, atualY, larguraInterna, 34f * escala),
+                "Aguardando a próxima votação...", estiloOpcao);
+            GUI.Label(new Rect(dentroX, atualY + 36f * escala, larguraInterna, 24f * escala),
+                "A votação começa automaticamente quando a live estiver ativa.", estiloPequeno);
+            return;
         }
+
+        GUI.Label(new Rect(dentroX, atualY, larguraInterna, 20f * escala),
+            $"RODADA #{PainelVotacaoRpc.Rodada}     ● AO VIVO", estiloSubtitulo);
+        atualY += 25f * escala;
+        GUI.Box(new Rect(dentroX, atualY, larguraInterna, 2f * escala), GUIContent.none,
+            EstiloComFundo(texturaLinha));
+        atualY += 10f * escala;
+
+        var eventos = PainelVotacaoRpc.Eventos;
+        var votos = PainelVotacaoRpc.Votos;
+        int maior = 1;
+        int total = 0;
+        for (int i = 0; i < eventos.Length; i++)
+        {
+            int n = i < votos.Length ? Math.Max(0, votos[i]) : 0;
+            maior = Math.Max(maior, n);
+            total += n;
+        }
+
+        for (int i = 0; i < eventos.Length; i++)
+        {
+            int n = i < votos.Length ? Math.Max(0, votos[i]) : 0;
+            float linhaAltura = 43f * escala;
+
+            GUI.color = Cores[i % Cores.Length];
+            GUI.Box(new Rect(dentroX, atualY + 3f * escala, 25f * escala, 25f * escala),
+                (i + 1).ToString(), estiloBarra);
+            GUI.color = Color.white;
+
+            GUI.Label(new Rect(dentroX + 33f * escala, atualY, larguraInterna - 105f * escala,
+                28f * escala), eventos[i], estiloOpcao);
+            GUI.Label(new Rect(x + largura - margem - 76f * escala, atualY, 76f * escala,
+                28f * escala), n + (n == 1 ? " voto" : " votos"), estiloContagem);
+
+            float barraX = dentroX + 33f * escala;
+            float barraY = atualY + 29f * escala;
+            float barraLargura = larguraInterna - 33f * escala;
+            GUI.Box(new Rect(barraX, barraY, barraLargura, 7f * escala),
+                GUIContent.none, estiloBarraFundo);
+            if (n > 0)
+            {
+                GUI.color = Cores[i % Cores.Length];
+                GUI.Box(new Rect(barraX, barraY, barraLargura * n / maior, 7f * escala),
+                    GUIContent.none, estiloBarra);
+                GUI.color = Color.white;
+            }
+
+            atualY += linhaAltura;
+        }
+
+        atualY += 2f * escala;
+        GUI.Box(new Rect(dentroX, atualY, larguraInterna, 2f * escala), GUIContent.none,
+            EstiloComFundo(texturaLinha));
+        atualY += 9f * escala;
+
+        GUI.Label(new Rect(dentroX, atualY, larguraInterna * 0.58f, 22f * escala),
+            $"TOTAL DE VOTOS: {total}", estiloSubtitulo);
+        string corTempo = PainelVotacaoRpc.Segundos <= 5 ? "#FF6B6B" :
+            PainelVotacaoRpc.Segundos <= 10 ? "#FFD166" : "#63E6A5";
+        var tempoStyle = new GUIStyle(estiloContagem);
+        tempoStyle.normal.textColor = PainelVotacaoRpc.Segundos <= 5 ? new Color(1f, 0.35f, 0.35f) :
+            PainelVotacaoRpc.Segundos <= 10 ? new Color(1f, 0.82f, 0.35f) :
+            new Color(0.39f, 0.90f, 0.65f);
+        GUI.Label(new Rect(dentroX + larguraInterna * 0.58f, atualY, larguraInterna * 0.42f,
+            22f * escala), $"TEMPO: {PainelVotacaoRpc.Segundos}s", tempoStyle);
     }
 }
 
