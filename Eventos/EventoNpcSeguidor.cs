@@ -84,44 +84,8 @@ internal sealed class EventoNpcSeguidor : EventoVotacao
 
             npc.NetTransform.SnapTo(spawnPos);
 
-            AmongUsClient.Instance.NetIdCnt += 1U;
-            MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
-            try
-            {
-                writer.StartMessage(5);
-                writer.Write(AmongUsClient.Instance.GameId);
-
-                writer.StartMessage(4);
-                var spawn = AmongUsClient.Instance.CreateSpawnMessage(
-                    npc, -2, SpawnFlags.None);
-                spawn.SerializeValues(writer);
-                writer.EndMessage();
-
-                // Mesmas mensagens auxiliares usadas pelo evento de corpo falso.
-                for (uint i = 1; i <= 3; i++)
-                {
-                    writer.StartMessage(4);
-                    writer.WritePacked(2U);
-                    writer.WritePacked(-2);
-                    writer.Write((byte)SpawnFlags.None);
-                    writer.WritePacked(1);
-                    writer.WritePacked(AmongUsClient.Instance.NetIdCnt - i);
-                    writer.StartMessage(1);
-                    writer.EndMessage();
-                    writer.EndMessage();
-                }
-
-                // Igual ao EHR: não enviar SetColor nem serializar npc.Data aqui.
-                // npc.Data usa CachedPlayerData do host; esses pacotes acabam
-                // apontando para os dados do host, não para uma identidade própria.
-                writer.EndMessage();
-                AmongUsClient.Instance.SendOrDisconnect(writer);
-                writer = null;
-            }
-            finally
-            {
-                writer?.Recycle();
-            }
+            // Criação de rede centralizada no helper portado do EHR.
+            CustomNetObject.EnviarSpawn(npc);
 
             if (PlayerControl.AllPlayerControls.Contains(npc))
                 PlayerControl.AllPlayerControls.Remove(npc);
