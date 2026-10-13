@@ -1317,6 +1317,9 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 case "Reportar um corpo":
                     new EventoReportarCorpo().Executar();
                     break;
+                case "Sabotagem aleatória":
+                    new EventoSabotagemAleatoria().Executar();
+                    break;
                 case "Expulsar todos para o duto mais próximo":
                     new EventoDutoMaisProximoTodos().Executar();
                     break;
