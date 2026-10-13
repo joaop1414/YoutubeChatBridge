@@ -289,7 +289,7 @@ internal sealed class PainelVotacaoOverlay : MonoBehaviour
         // Desenhar as texturas diretamente evita depender do estado/skin do GUI.Box,
         // que em algumas versões do Among Us deixa apenas os textos visíveis.
         GUI.color = Color.white;
-        GUI.DrawTexture(painel, texturaPainel, ScaleMode.StretchToFill, true);
+        GUI.Box(painel, GUIContent.none, estiloPainel);
 
         float margem = 16f * escala;
         float dentroX = x + margem;
@@ -315,8 +315,8 @@ internal sealed class PainelVotacaoOverlay : MonoBehaviour
         GUI.Label(new Rect(dentroX, atualY, larguraInterna, 20f * escala),
             $"RODADA #{PainelVotacaoRpc.Rodada}     ● AO VIVO", estiloSubtitulo);
         atualY += 25f * escala;
-        GUI.DrawTexture(new Rect(dentroX, atualY, larguraInterna, 2f * escala),
-            texturaLinha, ScaleMode.StretchToFill, true);
+        GUI.Box(new Rect(dentroX, atualY, larguraInterna, 2f * escala),
+            GUIContent.none, estiloSeparador);
         atualY += 10f * escala;
 
         var eventos = PainelVotacaoRpc.Eventos;
@@ -336,11 +336,9 @@ internal sealed class PainelVotacaoOverlay : MonoBehaviour
             float linhaAltura = 43f * escala;
 
             GUI.color = Cores[i % Cores.Length];
-            GUI.DrawTexture(new Rect(dentroX, atualY + 3f * escala,
-                25f * escala, 25f * escala), texturaBarra, ScaleMode.StretchToFill, true);
+            GUI.Box(new Rect(dentroX, atualY + 3f * escala, 25f * escala, 25f * escala),
+                (i + 1).ToString(), estiloBarra);
             GUI.color = Color.white;
-            GUI.Label(new Rect(dentroX, atualY + 3f * escala,
-                25f * escala, 25f * escala), (i + 1).ToString(), estiloContagem);
 
             GUI.Label(new Rect(dentroX + 33f * escala, atualY, larguraInterna - 105f * escala,
                 28f * escala), eventos[i], estiloOpcao);
@@ -350,14 +348,14 @@ internal sealed class PainelVotacaoOverlay : MonoBehaviour
             float barraX = dentroX + 33f * escala;
             float barraY = atualY + 29f * escala;
             float barraLargura = larguraInterna - 33f * escala;
-            GUI.DrawTexture(new Rect(barraX, barraY, barraLargura, 7f * escala),
-                texturaBarra, ScaleMode.StretchToFill, true);
+            GUI.Box(new Rect(barraX, barraY, barraLargura, 7f * escala),
+                GUIContent.none, estiloBarraFundo);
             if (n > 0)
             {
                 GUI.color = Cores[i % Cores.Length];
-                GUI.DrawTexture(new Rect(barraX, barraY,
+                GUI.Box(new Rect(barraX, barraY,
                     barraLargura * n / maior, 7f * escala),
-                    texturaLinha, ScaleMode.StretchToFill, true);
+                    GUIContent.none, estiloBarra);
                 GUI.color = Color.white;
             }
 
@@ -365,8 +363,8 @@ internal sealed class PainelVotacaoOverlay : MonoBehaviour
         }
 
         atualY += 2f * escala;
-        GUI.DrawTexture(new Rect(dentroX, atualY, larguraInterna, 2f * escala),
-            texturaLinha, ScaleMode.StretchToFill, true);
+        GUI.Box(new Rect(dentroX, atualY, larguraInterna, 2f * escala),
+            GUIContent.none, estiloSeparador);
         atualY += 9f * escala;
 
         GUI.Label(new Rect(dentroX, atualY, larguraInterna * 0.58f, 22f * escala),
