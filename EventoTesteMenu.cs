@@ -53,8 +53,9 @@ internal sealed class EventoTesteMenu : MonoBehaviour
 
     public void OnGUI()
     {
-        if (!aberto || AmongUsClient.Instance == null ||
-            PlayerControl.LocalPlayer == null)
+        // O menu também pode ser aberto no lobby; só a execução dos eventos
+        // exige que a partida já tenha jogadores carregados.
+        if (!aberto)
             return;
 
         float largura = Mathf.Min(620f, Screen.width - 30f);
@@ -104,6 +105,12 @@ internal sealed class EventoTesteMenu : MonoBehaviour
     private static void ExecutarEvento(EventoVotacao evento)
     {
         if (evento == null) return;
+
+        if (AmongUsClient.Instance == null || PlayerControl.LocalPlayer == null)
+        {
+            MostrarMensagem("Entre em uma partida antes de executar eventos.");
+            return;
+        }
 
         if (!YouTubeVoteBridgePlugin.EhHost())
         {
