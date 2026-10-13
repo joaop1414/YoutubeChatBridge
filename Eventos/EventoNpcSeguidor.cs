@@ -15,6 +15,8 @@ internal sealed class EventoNpcSeguidor : EventoVotacao
     private static PlayerControl npc;
     private static float proximaAtualizacao;
     private static PlayerControl alvo;
+    // Posição autoritativa mantida pelo host, independente da posição física do prefab.
+    private static Vector2 posicaoControlada;
     private static readonly System.Random Sorteador = new();
     private static int etapaInicializacao;
     private static float proximaEtapaInicializacao;
@@ -47,6 +49,7 @@ internal sealed class EventoNpcSeguidor : EventoVotacao
         try
         {
             Vector2 spawnPos = PlayerControl.LocalPlayer.transform.position;
+            posicaoControlada = spawnPos;
             npc = UnityEngine.Object.Instantiate(
                 AmongUsClient.Instance.PlayerPrefab, spawnPos, Quaternion.identity);
             npc.PlayerId = PlayerIdNpc;
@@ -168,7 +171,9 @@ internal sealed class EventoNpcSeguidor : EventoVotacao
         if (!AlvoValido(alvo))
             return;
 
-        Vector2 atual = npc.transform.position;
+        // Não usa transform.position como fonte da verdade: colisões ou física podem
+        // deixar o prefab preso. O host calcula cada passo usando a variável própria.
+        Vector2 atual = posicaoControlada;
         Vector2 destino = alvo.transform.position;
         Vector2 diferenca = destino - atual;
         if (diferenca.sqrMagnitude <= DistanciaParada * DistanciaParada)
@@ -179,13 +184,16 @@ internal sealed class EventoNpcSeguidor : EventoVotacao
 
         try
         {
+            // Atualiza primeiro a posição lógica; mesmo que a colisão do prefab
+            // não acompanhe o movimento, o próximo passo não fica travado nela.
+            posicaoControlada = novaPosicao;
             ushort sequencia = (ushort)(npc.NetTransform.lastSequenceId + 1);
-            npc.NetTransform.SnapTo(novaPosicao, sequencia);
+            npc.NetTransform.SnapTo(posicaoControlada, sequencia);
 
             MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
                 npc.NetTransform.NetId, (byte)RpcCalls.SnapTo, SendOption.Reliable);
-            writer.Write(novaPosicao.x);
-            writer.Write(novaPosicao.y);
+            writer.Write(posicaoControlada.x);
+            writer.Write(posicaoControlada.y);
             writer.Write(sequencia);
             AmongUsClient.Instance.FinishRpcImmediately(writer);
         }
@@ -331,7 +339,7 @@ internal sealed class EventoNpcSeguidor : EventoVotacao
             dadosHost.Serialize(writer, false);
             writer.EndMessage();
 
-            Vector2 posicao = npc.transform.position;
+            Vector2 posicao = posicaoControlada;
             ushort sequencia = (ushort)(npc.NetTransform.lastSequenceId + 1);
             writer.StartMessage(2);
             writer.WritePacked(npc.NetTransform.NetId);
@@ -407,6 +415,7 @@ internal sealed class EventoNpcSeguidor : EventoVotacao
 
         npc = null;
         alvo = null;
+        posicaoControlada = Vector2.zero;
         etapaInicializacao = 0;
         proximaEtapaInicializacao = 0f;
     }
