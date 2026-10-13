@@ -166,6 +166,10 @@ internal sealed class EventoNpcSeguidor : EventoVotacao
             AmongUsClient.Instance == null || ShipStatus.Instance == null)
             return;
 
+        // Diagnóstico: manter o NPC parado para isolar o pacote de criação.
+        // O RPC SnapTo será reativado depois de confirmar estabilidade no vanilla.
+        return;
+
         if (MeetingHud.Instance != null)
             return;
 
