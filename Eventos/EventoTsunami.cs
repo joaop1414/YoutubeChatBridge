@@ -16,7 +16,7 @@ internal sealed class EventoTsunami : EventoVotacao
     public override string Nome => "Tsunami";
     public static bool Ativo => ativo;
     public static bool AvisoAtivo => ativo || avisoLocalAtivo;
-    private const byte PlayerIdIndicador = 253;
+    private const byte PlayerIdIndicador = 254;
     private const float Velocidade = 3.0f;
     private const float Intervalo = 0.08f;
     private const float ProtecaoDuto = 1.0f;
@@ -118,7 +118,7 @@ internal sealed class EventoTsunami : EventoVotacao
             // Espera o spawn chegar aos clientes antes de associar o PlayerId falso.
             // A aparência será publicada numa etapa posterior, após outra pequena pausa.
             etapaInicializacaoIndicador = 1;
-            proximaEtapaInicializacaoIndicador = Time.realtimeSinceStartup + 0.15f;
+            proximaEtapaInicializacaoIndicador = Time.realtimeSinceStartup + 0.1f;
             AplicarAvisoNomes();
 
             ativo = true;
