@@ -8,9 +8,6 @@ internal static class EventoDutos
 {
     private static readonly System.Random Sorteador = new();
 
-    // Só considera dutos próximos do jogador. Evita selecionar um duto do outro lado do mapa.
-    private const float DistanciaMaximaDutoProximo = 2.5f;
-
     public static void Executar(bool todos, bool dutoAleatorio = false)
     {
         if (!YouTubeVoteBridgePlugin.EhHost() || ShipStatus.Instance == null) return;
@@ -72,7 +69,7 @@ internal static class EventoDutos
                             (Vector2)duto.transform.position
                         );
 
-                        if (distancia < menorDistancia && distancia <= DistanciaMaximaDutoProximo)
+                        if (distancia < menorDistancia)
                         {
                             menorDistancia = distancia;
                             dutoEscolhido = duto;
@@ -82,12 +79,6 @@ internal static class EventoDutos
 
                 if (dutoEscolhido == null)
                 {
-                    if (!dutoAleatorio)
-                    {
-                        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                            "Nenhum duto dentro do alcance de " + DistanciaMaximaDutoProximo +
-                            " unidades para PlayerId=" + jogador.PlayerId + "; jogador ignorado.");
-                    }
                     continue;
                 }
 
