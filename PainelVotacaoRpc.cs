@@ -172,6 +172,7 @@ internal sealed class PainelVotacaoOverlay : MonoBehaviour
     private static GUIStyle estiloSubtitulo;
     private static GUIStyle estiloOpcao;
     private static GUIStyle estiloContagem;
+    private static GUIStyle estiloTempo;
     private static GUIStyle estiloPequeno;
     private static GUIStyle estiloBarraFundo;
     private static GUIStyle estiloBarra;
@@ -210,7 +211,7 @@ internal sealed class PainelVotacaoOverlay : MonoBehaviour
 
         estiloPainel = EstiloComFundo(texturaPainel);
         estiloBarraFundo = EstiloComFundo(texturaBarra);
-        estiloBarra = EstiloComFundo(texturaLinha);
+        estiloBarra = estiloBarra;
 
         estiloTitulo = new GUIStyle(GUI.skin.label)
         {
@@ -232,6 +233,7 @@ internal sealed class PainelVotacaoOverlay : MonoBehaviour
             fontSize = 13, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleRight,
             normal = { textColor = Color.white }
         };
+        estiloTempo = new GUIStyle(estiloContagem);
         estiloPequeno = new GUIStyle(GUI.skin.label)
         {
             fontSize = 11, alignment = TextAnchor.MiddleLeft,
@@ -336,14 +338,11 @@ internal sealed class PainelVotacaoOverlay : MonoBehaviour
 
         GUI.Label(new Rect(dentroX, atualY, larguraInterna * 0.58f, 22f * escala),
             $"TOTAL DE VOTOS: {total}", estiloSubtitulo);
-        string corTempo = PainelVotacaoRpc.Segundos <= 5 ? "#FF6B6B" :
-            PainelVotacaoRpc.Segundos <= 10 ? "#FFD166" : "#63E6A5";
-        var tempoStyle = new GUIStyle(estiloContagem);
-        tempoStyle.normal.textColor = PainelVotacaoRpc.Segundos <= 5 ? new Color(1f, 0.35f, 0.35f) :
+        estiloTempo.normal.textColor = PainelVotacaoRpc.Segundos <= 5 ? new Color(1f, 0.35f, 0.35f) :
             PainelVotacaoRpc.Segundos <= 10 ? new Color(1f, 0.82f, 0.35f) :
             new Color(0.39f, 0.90f, 0.65f);
         GUI.Label(new Rect(dentroX + larguraInterna * 0.58f, atualY, larguraInterna * 0.42f,
-            22f * escala), $"TEMPO: {PainelVotacaoRpc.Segundos}s", tempoStyle);
+            22f * escala), $"TEMPO: {PainelVotacaoRpc.Segundos}s", estiloTempo);
     }
 }
 
