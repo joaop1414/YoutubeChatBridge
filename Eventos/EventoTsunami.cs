@@ -732,20 +732,17 @@ internal static class EventoTsunamiFlashReatorCorPatch
         if (!EventoTsunami.AvisoAtivo || __instance == null)
             return;
 
-        // Inicia o flash pelo Update do HUD, sem depender de um método inexistente
-        // em ReactorSystemType (o nome varia entre versões do jogo).
+        // O flash é parte do aviso do tsunami. Não consultamos IsActive:
+        // ISystemType desta versão não expõe essa propriedade.
         try
         {
-            if (__instance.ReactorFlash == null && ShipStatus.Instance != null &&
-                ShipStatus.Instance.Systems != null &&
-                ShipStatus.Instance.Systems.TryGetValue(SystemTypes.Reactor, out var sistema) &&
-                sistema is ReactorSystemType reator && reator.IsActive)
+            if (__instance.ReactorFlash == null)
                 __instance.StartReactorFlash();
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogDebug(
-                "Tsunami: não foi possível iniciar o flash do reator: " + ex.Message);
+                "Tsunami: não foi possível iniciar o flash ciano: " + ex.Message);
         }
 
         if (__instance.ReactorFlash != null && __instance.FullScreen != null)
