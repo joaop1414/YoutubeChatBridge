@@ -391,8 +391,7 @@ internal sealed class EventoTsunami : EventoVotacao
         {
             foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
             {
-                if (jogador != null && jogador.PlayerId == PlayerIdIndicador &&
-                    jogador.notRealPlayer)
+                if (jogador != null && jogador.PlayerId == PlayerIdIndicador)
                 {
                     indicadorEncontrado = true;
                     break;
@@ -464,7 +463,7 @@ internal sealed class EventoTsunami : EventoVotacao
         string cor = ((int)(agora * 2f) % 2 == 0) ? "red" : "yellow";
         // A quebra de linha é explícita; <b> apenas aplica negrito.
         jogador.cosmetics.nameText.text =
-            nomeOriginal + "\\n<color=" + cor + ">Um tsunami está vindo</color>";
+            nomeOriginal + "\n<color=" + cor + ">Um tsunami está vindo</color>";
     }
 
     private static void RestaurarAvisoNomes()
