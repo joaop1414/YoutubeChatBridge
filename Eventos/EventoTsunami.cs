@@ -465,7 +465,7 @@ internal sealed class EventoTsunami : EventoVotacao
 
         string cor = ((int)(agora * 2f) % 2 == 0) ? "red" : "yellow";
         jogador.cosmetics.nameText.text =
-            nomeOriginal + "\n<color=" + cor + ">Um tsunami está vindo</color>";
+            nomeOriginal + "\n<color=" + cor + ">Um tsunami está vindo\nVá para o duto mais próximo</color>";
     }
 
     private static void AtualizarAvisoNomesVanilla(float agora)
