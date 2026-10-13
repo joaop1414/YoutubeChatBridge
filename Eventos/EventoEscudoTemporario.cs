@@ -203,10 +203,10 @@ internal static class EventoEscudoTemporarioMortePatch
             $"{impostor.Data?.PlayerName} (PlayerId={impostor.PlayerId}); " +
             $"cooldown temporário dobrado para {cooldownOriginal * 2f:0.0}s.");
 
-        // Reverte a duplicação deixando o timer no cooldown normal completo.
-        impostor.SetKillTimer(cooldownOriginal);
-
+        // Não restaurar para o valor original aqui: a aplicação do escudo divide
+        // o cooldown. Mantemos o valor dobrado para que, após essa divisão,
+        // o impostor fique com o cooldown normal.
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"Cooldown do impostor restaurado para {cooldownOriginal:0.0}s.");
+            $"Cooldown mantido em {cooldownOriginal * 2f:0.0}s antes da divisão do escudo.");
     }
 }
