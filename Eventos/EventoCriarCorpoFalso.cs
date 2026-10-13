@@ -60,11 +60,45 @@ internal sealed class EventoCriarCorpoFalso : EventoVotacao
                 return;
             }
 
+            if (ShipStatus.Instance == null || ShipStatus.Instance.AllRooms == null)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                    "Não foi possível criar corpo falso: salas do mapa não encontradas.");
+                return;
+            }
+
+            List<PlainShipRoom> salas = new();
+
+            foreach (PlainShipRoom sala in ShipStatus.Instance.AllRooms)
+            {
+                if (sala == null || sala.roomArea == null ||
+                    sala.RoomId == SystemTypes.Hallway ||
+                    sala.RoomId == SystemTypes.Outside)
+                    continue;
+
+                salas.Add(sala);
+            }
+
+            if (salas.Count == 0)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "Corpo falso cancelado: não foram encontradas salas válidas no mapa.");
+                return;
+            }
+
             PlayerControl modelo = candidatos[Sorteador.Next(candidatos.Count)];
-            Vector3 posicao = modelo.transform.position;
+            PlainShipRoom salaEscolhida = salas[Sorteador.Next(salas.Count)];
+
+            // Usa o centro da área da sala escolhida, em vez da posição de um jogador.
+            Vector2 centroSala = salaEscolhida.roomArea.bounds.center;
+            Vector3 posicao = new(centroSala.x, centroSala.y, centroSala.y / 1000f);
             Vector3 deslocamento = modelo.KillAnimations[0].BodyOffset;
             Vector3 posicaoCorpo = posicao + deslocamento;
             posicaoCorpo.z = posicaoCorpo.y / 1000f;
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                $"Sala escolhida para o corpo falso: {salaEscolhida.RoomId}, " +
+                $"posição=({posicaoCorpo.x:0.00}, {posicaoCorpo.y:0.00}).");
 
             // O host cria o corpo localmente. Nos clientes, o RPC MurderPlayer
             // do jogador temporário fará o jogo criar o corpo correspondente.
