@@ -144,7 +144,8 @@ internal sealed class EventoNpcSeguidor : EventoVotacao
 
             MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
                 npc.NetTransform.NetId, (byte)RpcCalls.SnapTo, SendOption.Reliable);
-            writer.WriteVector2(novaPosicao);
+            writer.Write(novaPosicao.x);
+            writer.Write(novaPosicao.y);
             writer.Write(sequencia);
             AmongUsClient.Instance.FinishRpcImmediately(writer);
         }
