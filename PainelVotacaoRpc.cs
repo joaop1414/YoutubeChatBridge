@@ -163,6 +163,10 @@ internal sealed class PainelVotacaoOverlay : MonoBehaviour
     public PainelVotacaoOverlay(IntPtr ptr) : base(ptr) { }
 
     private bool diagnosticoDesenhoRegistrado;
+    private bool posicaoManual;
+    private bool arrastando;
+    private Vector2 posicaoPainel;
+    private Vector2 offsetArraste;
     private static Texture2D texturaPainel;
     private static Texture2D texturaLinha;
     private static Texture2D texturaBarra;
@@ -231,7 +235,8 @@ internal sealed class PainelVotacaoOverlay : MonoBehaviour
         estiloOpcao = new GUIStyle(GUI.skin.label)
         {
             fontSize = 14, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleLeft,
-            clipping = TextClipping.Clip, normal = { textColor = Color.white }
+            clipping = TextClipping.Overflow, wordWrap = true,
+            normal = { textColor = Color.white }
         };
         estiloContagem = new GUIStyle(GUI.skin.label)
         {
@@ -266,10 +271,11 @@ internal sealed class PainelVotacaoOverlay : MonoBehaviour
         // proporcionalmente o painel e as fontes para caber nas três instâncias.
         float escala = Mathf.Clamp(
             Mathf.Min(Screen.width / 1280f, Screen.height / 720f), 0.40f, 1.0f);
-        float largura = 340f * escala;
+        // Um pouco maior na resolução de referência, com espaço para nomes longos.
+        float largura = 420f * escala;
         float altura = (PainelVotacaoRpc.Ativo && PainelVotacaoRpc.Eventos.Length > 0
-            ? 245f + PainelVotacaoRpc.Eventos.Length * 48f
-            : 142f) * escala;
+            ? 180f + PainelVotacaoRpc.Eventos.Length * 58f
+            : 160f) * escala;
 
         // GUIStyle guarda tamanhos absolutos; acompanhe a mesma escala do painel.
         estiloTitulo.fontSize = Mathf.Max(9, Mathf.RoundToInt(21f * escala));
@@ -284,6 +290,47 @@ internal sealed class PainelVotacaoOverlay : MonoBehaviour
         float x = Mathf.Max(8f * escala, Screen.width - largura - 22f * escala);
         float y = Mathf.Clamp(margemTela, 8f * escala,
             Mathf.Max(8f * escala, Screen.height - altura - 8f * escala));
+
+        if (posicaoManual)
+        {
+            x = posicaoPainel.x;
+            y = posicaoPainel.y;
+        }
+
+        // Mantém o painel inteiro visível mesmo após redimensionar a janela do jogo.
+        x = Mathf.Clamp(x, 0f, Mathf.Max(0f, Screen.width - largura));
+        y = Mathf.Clamp(y, 0f, Mathf.Max(0f, Screen.height - altura));
+        posicaoPainel = new Vector2(x, y);
+
+        // Arraste pela faixa do título "YOUTUBE VOTE".
+        Event eventoGUI = Event.current;
+        Rect areaArraste = new Rect(x, y, largura, 38f * escala);
+        if (eventoGUI != null)
+        {
+            if (eventoGUI.type == EventType.MouseDown && eventoGUI.button == 0 &&
+                areaArraste.Contains(eventoGUI.mousePosition))
+            {
+                arrastando = true;
+                posicaoManual = true;
+                offsetArraste = eventoGUI.mousePosition - posicaoPainel;
+                eventoGUI.Use();
+            }
+            else if (eventoGUI.type == EventType.MouseDrag && arrastando)
+            {
+                posicaoPainel = eventoGUI.mousePosition - offsetArraste;
+                posicaoPainel.x = Mathf.Clamp(posicaoPainel.x, 0f, Mathf.Max(0f, Screen.width - largura));
+                posicaoPainel.y = Mathf.Clamp(posicaoPainel.y, 0f, Mathf.Max(0f, Screen.height - altura));
+                eventoGUI.Use();
+            }
+            else if (eventoGUI.type == EventType.MouseUp && arrastando)
+            {
+                arrastando = false;
+                eventoGUI.Use();
+            }
+        }
+
+        x = posicaoPainel.x;
+        y = posicaoPainel.y;
         var painel = new Rect(x, y, largura, altura);
 
         // Use os fundos nativos da skin do Unity e apenas tinja a caixa.
@@ -337,7 +384,7 @@ internal sealed class PainelVotacaoOverlay : MonoBehaviour
         for (int i = 0; i < eventos.Length; i++)
         {
             int n = i < votos.Length ? Math.Max(0, votos[i]) : 0;
-            float linhaAltura = 43f * escala;
+            float linhaAltura = 54f * escala;
 
             GUI.color = Cores[i % Cores.Length];
             GUI.Box(new Rect(dentroX, atualY + 3f * escala, 25f * escala, 25f * escala),
@@ -345,12 +392,12 @@ internal sealed class PainelVotacaoOverlay : MonoBehaviour
             GUI.color = Color.white;
 
             GUI.Label(new Rect(dentroX + 33f * escala, atualY, larguraInterna - 105f * escala,
-                28f * escala), eventos[i], estiloOpcao);
+                38f * escala), eventos[i], estiloOpcao);
             GUI.Label(new Rect(x + largura - margem - 76f * escala, atualY, 76f * escala,
                 28f * escala), n + (n == 1 ? " voto" : " votos"), estiloContagem);
 
             float barraX = dentroX + 33f * escala;
-            float barraY = atualY + 29f * escala;
+            float barraY = atualY + 40f * escala;
             float barraLargura = larguraInterna - 33f * escala;
             GUI.color = new Color(0.14f, 0.20f, 0.29f, 1f);
             GUI.Box(new Rect(barraX, barraY, barraLargura, 7f * escala),
