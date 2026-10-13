@@ -165,6 +165,9 @@ internal static class PainelVotacaoRpc
 
 internal sealed class PainelVotacaoOverlay : MonoBehaviour
 {
+    public PainelVotacaoOverlay(IntPtr ptr) : base(ptr) { }
+
+    private bool diagnosticoDesenhoRegistrado;
     private static Texture2D texturaPainel;
     private static Texture2D texturaLinha;
     private static Texture2D texturaBarra;
@@ -251,8 +254,15 @@ internal sealed class PainelVotacaoOverlay : MonoBehaviour
 
     private void OnGUI()
     {
-        if (AmongUsClient.Instance == null || PlayerControl.LocalPlayer == null)
+        if (AmongUsClient.Instance == null)
             return;
+
+        if (!diagnosticoDesenhoRegistrado)
+        {
+            diagnosticoDesenhoRegistrado = true;
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "Overlay de votação recebeu OnGUI; resolução=" + Screen.width + "x" + Screen.height);
+        }
 
         CriarEstilos();
         if (!estilosCriados) return;
