@@ -22,6 +22,7 @@ internal sealed class EventoTsunami : EventoVotacao
     private static bool ativo;
     private static readonly HashSet<byte> atingidos = new();
     private static readonly Dictionary<byte, float> protegidos = new();
+    private static readonly Dictionary<byte, int> dutosProtegidos = new();
 
     private const string NomeOnda =
         "<color=#0099d1><size=4><line-height=97%><cspace=0.16em><mark=#000000>WWWWWWWWWWWWWWWWWWWWWWWW</mark></cspace></line-height></size></color>";
@@ -44,6 +45,7 @@ internal sealed class EventoTsunami : EventoVotacao
             LimparLocal();
             atingidos.Clear();
             protegidos.Clear();
+            dutosProtegidos.Clear();
             fimProtecao = 0f;
             posicao = ObterInicio();
             indicador = UnityEngine.Object.Instantiate(
@@ -128,8 +130,10 @@ internal sealed class EventoTsunami : EventoVotacao
                 try
                 {
                     // Saída de emergência: só tenta sair se o jogo ainda o considera dentro de um duto.
-                    if (jogador.inVent && jogador.MyPhysics != null)
-                        jogador.MyPhysics.RpcExitVent(0);
+                    if (jogador.inVent && jogador.MyPhysics != null &&
+                        dutosProtegidos.TryGetValue(jogador.PlayerId, out int idDuto))
+                        jogador.MyPhysics.RpcExitVent(idDuto);
+                    dutosProtegidos.Remove(jogador.PlayerId);
                 }
                 catch (Exception ex)
                 {
@@ -141,21 +145,47 @@ internal sealed class EventoTsunami : EventoVotacao
             if (jogador.inVent)
             {
                 // Entrar manualmente num duto depende da API e do estado de cada mapa.
-                // Quem já está no duto recebe proteção contra a onda.
-                protegidos[jogador.PlayerId] = agora + ProtecaoDuto;
+                if (!protegidos.ContainsKey(jogador.PlayerId))
+                {
+                    protegidos[jogador.PlayerId] = agora + ProtecaoDuto;
+                    try
+                    {
+                        foreach (Vent duto in ShipStatus.Instance.AllVents)
+                            if (duto != null && Vector2.Distance(jogador.transform.position, duto.transform.position) < 1.8f)
+                            { dutosProtegidos[jogador.PlayerId] = duto.Id; break; }
+                    }
+                    catch { }
+                }
                 continue;
             }
 
             if (atingidos.Contains(jogador.PlayerId)) continue;
             Vector2 p = jogador.transform.position;
-            if (Mathf.Abs(p.x - posicao.x) > Alcance ||
-                Mathf.Abs(p.y - posicao.y) > 1.35f)
+            if (Mathf.Abs(p.x - posicao.x) > Alcance)
                 continue;
+
+            bool entrouNoDuto = false;
+            try
+            {
+                foreach (Vent duto in ShipStatus.Instance.AllVents)
+                {
+                    if (duto == null || Vector2.Distance(p, duto.transform.position) > 1.5f) continue;
+                    jogador.MyPhysics.RpcEnterVent(duto.Id);
+                    protegidos[jogador.PlayerId] = agora + ProtecaoDuto;
+                    dutosProtegidos[jogador.PlayerId] = duto.Id;
+                    entrouNoDuto = true;
+                    break;
+                }
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning("Tsunami: falha ao entrar no duto: " + ex.Message);
+            }
+            if (entrouNoDuto) continue;
 
             try
             {
-                // A morte real é registrada antes da reunião, para que a vítima
-                // apareça na lista de mortos. A API padrão pode tocar animação.
+                // Morte real registrada antes da reunião. O RPC padrão pode tocar animação.
                 jogador.RpcMurderPlayer(jogador, true);
                 atingidos.Add(jogador.PlayerId);
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
@@ -244,6 +274,7 @@ internal sealed class EventoTsunami : EventoVotacao
         ativo = false;
         atingidos.Clear();
         protegidos.Clear();
+        dutosProtegidos.Clear();
         if (indicador != null && AmongUsClient.Instance != null &&
             YouTubeVoteBridgePlugin.EhHost())
         {
