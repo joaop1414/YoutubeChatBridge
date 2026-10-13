@@ -14,6 +14,7 @@ internal sealed class EventoNpcSeguidor : EventoVotacao
 
     private static PlayerControl npc;
     private static float proximaAtualizacao;
+    private static float inicioPartida = -1f;
     private static PlayerControl alvo;
     // Posição autoritativa mantida pelo host, independente da posição física do prefab.
     private static Vector2 posicaoControlada;
@@ -36,6 +37,23 @@ internal sealed class EventoNpcSeguidor : EventoVotacao
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
                 "NPC cancelado: entre na fase de tarefas antes de criá-lo.");
+            return;
+        }
+
+        // Evita criar o Player(Clone) durante a intro/inicialização dos dados.
+        // O EHR também posterga objetos de rede até a partida estar estável.
+        if (inicioPartida < 0f)
+        {
+            inicioPartida = Time.realtimeSinceStartup;
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "NPC aguardando: espere 10 segundos após o início das tarefas e clique novamente.");
+            return;
+        }
+
+        if (Time.realtimeSinceStartup - inicioPartida < 10f)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "NPC ainda não criado: espere 10 segundos após o início das tarefas e clique novamente.");
             return;
         }
 
@@ -123,6 +141,13 @@ internal sealed class EventoNpcSeguidor : EventoVotacao
 
     public static void Atualizar()
     {
+        if (YouTubeVoteBridgePlugin.EhHost() &&
+            AmongUsClient.Instance != null && ShipStatus.Instance != null &&
+            MeetingHud.Instance == null && inicioPartida < 0f)
+        {
+            inicioPartida = Time.realtimeSinceStartup;
+        }
+
         if (npc == null || !YouTubeVoteBridgePlugin.EhHost() ||
             AmongUsClient.Instance == null || ShipStatus.Instance == null)
             return;
@@ -422,5 +447,6 @@ internal sealed class EventoNpcSeguidor : EventoVotacao
         posicaoControlada = Vector2.zero;
         etapaInicializacao = 0;
         proximaEtapaInicializacao = 0f;
+        // inicioPartida permanece até o fim da partida para impedir um spawn precoce.
     }
 }
