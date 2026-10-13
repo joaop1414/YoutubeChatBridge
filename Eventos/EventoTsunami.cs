@@ -1,5 +1,7 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
+using BepInEx.Unity.IL2CPP.Utils.Collections;
 using Hazel;
 using InnerNet;
 using Il2CppInterop.Runtime.InteropTypes;
@@ -11,6 +13,7 @@ internal sealed class EventoTsunami : EventoVotacao
 {
     public override string Nome => "Tsunami";
     public static bool Ativo => ativo;
+    public static bool AvisoAtivo => ativo || avisoLocalAtivo;
     private const byte PlayerIdIndicador = 253;
     private const float Velocidade = 3.0f;
     private const float Intervalo = 0.08f;
@@ -102,6 +105,7 @@ internal sealed class EventoTsunami : EventoVotacao
             AplicarAvisoNomes();
 
             ativo = true;
+            proximaAtualizacaoAvisoRede = 0f;
             proximaSabotagem = Time.realtimeSinceStartup + AtrasoInicialReator;
             reparoPendente = false;
             proximaAtualizacao = Time.realtimeSinceStartup;
@@ -219,6 +223,7 @@ internal sealed class EventoTsunami : EventoVotacao
     }
 
     private static bool avisoLocalAtivo;
+    private static float proximaAtualizacaoAvisoRede;
 
     public static void Atualizar()
     {
@@ -268,6 +273,7 @@ internal sealed class EventoTsunami : EventoVotacao
             }
             AtualizarNomeLocal(jogador, agora);
         }
+        AtualizarAvisoNomesVanilla(agora);
         AtualizarSabotagemReator(agora);
         if (agora < proximaAtualizacao) return;
         proximaAtualizacao = agora + Intervalo;
@@ -466,6 +472,34 @@ internal sealed class EventoTsunami : EventoVotacao
             nomeOriginal + "\n<color=" + cor + ">Um tsunami está vindo</color>";
     }
 
+    private static void AtualizarAvisoNomesVanilla(float agora)
+    {
+        if (!YouTubeVoteBridgePlugin.EhHost() || AmongUsClient.Instance == null ||
+            (!ativo && !avisoLocalAtivo) || agora < proximaAtualizacaoAvisoRede)
+            return;
+
+        // O mesmo SetName direcionado usado pelo placar: cada cliente vanilla recebe
+        // o aviso somente no nick que ele próprio controla.
+        proximaAtualizacaoAvisoRede = agora + 0.5f;
+        string cor = ((int)(agora * 2f) % 2 == 0) ? "red" : "yellow";
+        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+        {
+            if (jogador == null || jogador.Data == null || jogador.Data.Disconnected ||
+                jogador.OwnerId < 0 || jogador.OwnerId == AmongUsClient.Instance.ClientId ||
+                YouTubeVoteBridgePlugin.ClienteTemMod(jogador.OwnerId))
+                continue;
+
+            if (!nomesOriginais.TryGetValue(jogador.PlayerId, out string nomeOriginal))
+            {
+                nomeOriginal = jogador.Data.PlayerName ?? "";
+                nomesOriginais[jogador.PlayerId] = nomeOriginal;
+            }
+
+            YouTubeVoteBridgePlugin.DefinirNomeLocal(
+                jogador, nomeOriginal + "\n<color=" + cor + ">Um tsunami está vindo</color>");
+        }
+    }
+
     private static void RestaurarAvisoNomes()
     {
         foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
@@ -478,6 +512,12 @@ internal sealed class EventoTsunami : EventoVotacao
             {
                 try { jogador.cosmetics.nameText.text = nomeOriginal; }
                 catch { }
+
+                // Restaura também no cliente vanilla, usando o RPC SetName direcionado.
+                if (YouTubeVoteBridgePlugin.EhHost() && AmongUsClient.Instance != null &&
+                    jogador.OwnerId >= 0 && jogador.OwnerId != AmongUsClient.Instance.ClientId &&
+                    !YouTubeVoteBridgePlugin.ClienteTemMod(jogador.OwnerId))
+                    YouTubeVoteBridgePlugin.DefinirNomeLocal(jogador, nomeOriginal);
             }
         }
         nomesOriginais.Clear();
@@ -655,5 +695,53 @@ internal sealed class EventoTsunami : EventoVotacao
             catch { }
         }
         indicador = null;
+    }
+}
+
+// O flash padrão do jogo usa vermelho fixo. Durante o tsunami, substituímos
+// apenas o flash do reator por ciano nos clientes que têm este mod.
+[HarmonyPatch(typeof(HudManager), nameof(HudManager.StartReactorFlash))]
+internal static class EventoTsunamiFlashReatorPatch
+{
+    public static bool Prefix(HudManager __instance)
+    {
+        if (!EventoTsunami.AvisoAtivo)
+            return true;
+
+        if (__instance.ReactorFlash == null)
+            __instance.ReactorFlash = __instance.StartCoroutine(FlashCiano().WrapToIl2Cpp());
+        return false;
+    }
+
+    private static IEnumerator FlashCiano()
+    {
+        if (!HudManager.InstanceExists)
+            yield break;
+
+        HudManager hud = HudManager.Instance;
+        WaitForSeconds espera = new WaitForSeconds(1f);
+        hud.FullScreen.color = new Color(0f, 1f, 1f, 0.37254903f);
+        while (EventoTsunami.AvisoAtivo && hud.ReactorFlash != null)
+        {
+            hud.FullScreen.enabled = !hud.FullScreen.enabled;
+            try
+            {
+                if (ShipStatus.Instance != null && SoundManager.Instance != null)
+                    SoundManager.Instance.PlaySound(ShipStatus.Instance.SabotageSound, false, 1f);
+            }
+            catch { }
+            yield return espera;
+        }
+    }
+}
+
+[HarmonyPatch(typeof(HudManager), nameof(HudManager.Update))]
+internal static class EventoTsunamiFlashReatorCorPatch
+{
+    public static void Postfix(HudManager __instance)
+    {
+        if (EventoTsunami.AvisoAtivo && __instance.ReactorFlash != null &&
+            __instance.FullScreen != null)
+            __instance.FullScreen.color = new Color(0f, 1f, 1f, 0.37254903f);
     }
 }
