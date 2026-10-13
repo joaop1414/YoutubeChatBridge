@@ -191,7 +191,11 @@ internal static class EventoEscudoTemporarioMortePatch
             impostor.OwnerId
         );
         suicidio.WriteNetObject(impostor);
-        suicidio.Write(true);
+
+        // Em versões recentes, MurderPlayer espera MurderResultFlags (int), não bool.
+        // Succeeded matava o próprio impostor localmente. FailedProtected dispara
+        // a reação visual de escudo sem marcar o jogador como morto.
+        suicidio.Write((int)MurderResultFlags.FailedProtected);
         AmongUsClient.Instance.FinishRpcImmediately(suicidio);
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
