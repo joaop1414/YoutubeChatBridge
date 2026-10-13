@@ -101,7 +101,6 @@ internal sealed class EventoTsunami : EventoVotacao
             if (PlayerControl.AllPlayerControls.Contains(indicador))
                 PlayerControl.AllPlayerControls.Remove(indicador);
 
-            // Inicializa o objeto falso nos clientes e aplica o nome visual da onda.
             PrepararIndicadorVisual();
             AplicarAvisoNomes();
 
@@ -165,7 +164,6 @@ internal sealed class EventoTsunami : EventoVotacao
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning("Tsunami: associação visual incompleta: " + ex.Message);
         }
 
-        // O NPC tem dados próprios: compartilhar host.Data fazia o nome customizado sumir.
         try
         {
             if (indicador.Data == null)
@@ -210,8 +208,6 @@ internal sealed class EventoTsunami : EventoVotacao
         if (AmongUsClient.Instance == null || ShipStatus.Instance == null)
             return;
 
-        // Cada cliente com o mod detecta localmente o indicador de rede do tsunami.
-        // A simulação/mortes/sabotagens continuam exclusivamente no host.
         if (!YouTubeVoteBridgePlugin.EhHost())
         {
             AtualizarAvisoNomesCliente();
@@ -270,7 +266,6 @@ internal sealed class EventoTsunami : EventoVotacao
                 protegidos.Remove(jogador.PlayerId);
                 try
                 {
-                    // Saída de emergência: só tenta sair se o jogo ainda o considera dentro de um duto.
                     if (jogador.inVent && jogador.MyPhysics != null &&
                         dutosProtegidos.TryGetValue(jogador.PlayerId, out int idDuto))
                         jogador.MyPhysics.RpcExitVent(idDuto);
@@ -285,7 +280,6 @@ internal sealed class EventoTsunami : EventoVotacao
 
             if (jogador.inVent)
             {
-                // Entrar manualmente num duto depende da API e do estado de cada mapa.
                 if (!protegidos.ContainsKey(jogador.PlayerId))
                 {
                     protegidos[jogador.PlayerId] = agora + ProtecaoDuto;
@@ -326,16 +320,22 @@ internal sealed class EventoTsunami : EventoVotacao
 
             try
             {
-                // Morte real registrada antes da reunião. O RPC padrão pode tocar animação.
+                // Preserva o time original e troca para o papel de fantasma correspondente.
+                bool eraImpostor = jogador.Data.Role != null && jogador.Data.Role.IsImpostor;
                 jogador.RpcMurderPlayer(jogador, true);
+                jogador.RpcSetRole(
+                    eraImpostor ? RoleTypes.ImpostorGhost : RoleTypes.CrewmateGhost,
+                    true);
                 atingidos.Add(jogador.PlayerId);
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "Tsunami atingiu " + jogador.Data.PlayerName + ".");
+                    "Tsunami atingiu " + jogador.Data.PlayerName +
+                    "; papel de fantasma aplicado: " +
+                    (eraImpostor ? "ImpostorGhost" : "CrewmateGhost") + ".");
             }
             catch (Exception ex)
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                    "Tsunami: falha ao matar jogador: " + ex);
+                    "Tsunami: falha ao matar ou aplicar papel de fantasma: " + ex);
             }
         }
 
@@ -390,7 +390,6 @@ internal sealed class EventoTsunami : EventoVotacao
         {
             avisoLocalAtivo = true;
             float agora = Time.realtimeSinceStartup;
-            // O aviso é individual: cada cliente altera somente o próprio nome.
             PlayerControl local = PlayerControl.LocalPlayer;
             foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
             {
@@ -422,9 +421,6 @@ internal sealed class EventoTsunami : EventoVotacao
     {
         avisoLocalAtivo = true;
         nomesOriginais.Clear();
-        // No host, o aviso aparece apenas no nome do próprio host.
-        // Nos outros clientes, AtualizarAvisoNomesVanilla envia o SetName direcionado
-        // para que cada cliente vanilla veja o aviso somente no seu próprio nome.
         PlayerControl local = PlayerControl.LocalPlayer;
         if (local == null || local.Data == null || local.Data.Disconnected)
             return;
@@ -452,7 +448,6 @@ internal sealed class EventoTsunami : EventoVotacao
             nomeOriginal = jogador.Data?.PlayerName ?? "";
 
         string cor = ((int)(agora * 2f) % 2 == 0) ? "red" : "yellow";
-        // A quebra de linha é explícita; <b> apenas aplica negrito.
         jogador.cosmetics.nameText.text =
             nomeOriginal + "\n<color=" + cor + ">Um tsunami está vindo</color>";
     }
@@ -463,8 +458,6 @@ internal sealed class EventoTsunami : EventoVotacao
             (!ativo && !avisoLocalAtivo) || agora < proximaAtualizacaoAvisoRede)
             return;
 
-        // O mesmo SetName direcionado usado pelo placar: cada cliente vanilla recebe
-        // o aviso somente no nick que ele próprio controla.
         proximaAtualizacaoAvisoRede = agora + 0.5f;
         string cor = ((int)(agora * 2f) % 2 == 0) ? "red" : "yellow";
         foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
@@ -502,7 +495,6 @@ internal sealed class EventoTsunami : EventoVotacao
                 }
                 catch { }
 
-                // Restaura também no cliente vanilla, usando o RPC SetName direcionado.
                 if (YouTubeVoteBridgePlugin.EhHost() && AmongUsClient.Instance != null &&
                     jogador.OwnerId >= 0 && jogador.OwnerId != AmongUsClient.Instance.ClientId &&
                     nomesAlteradosRede.Contains(jogador.PlayerId))
@@ -534,7 +526,6 @@ internal sealed class EventoTsunami : EventoVotacao
             {
                 if (agora < repararReatorAte) return;
 
-                // Os dois sinais correspondem às duas mãos/terminais do reparo do reator clássico.
                 navio.RpcUpdateSystem(SystemTypes.Reactor, 16);
                 navio.RpcUpdateSystem(SystemTypes.Reactor, 17);
                 reparoPendente = false;
@@ -547,12 +538,10 @@ internal sealed class EventoTsunami : EventoVotacao
             if (agora < proximaSabotagem) return;
             if (sistema.AnyActive)
             {
-                // Não interfere numa sabotagem que já estava ativa antes do ciclo do tsunami.
                 proximaSabotagem = agora + 0.5f;
                 return;
             }
 
-            // Ignora o cooldown global da sabotagem.
             sistema.Timer = 0f;
             sistema.IsDirty = true;
             navio.RpcUpdateSystem(SystemTypes.Sabotage, (byte)SystemTypes.Reactor);
@@ -611,8 +600,6 @@ internal sealed class EventoTsunami : EventoVotacao
 
     public static void Limpar()
     {
-        // O evento pode acabar antes do timer de reparo. Sempre envia os dois
-        // sinais de conclusão do reator antes de desativar o estado do tsunami.
         if (YouTubeVoteBridgePlugin.EhHost())
             ForcarReparoReator();
 
@@ -656,8 +643,6 @@ internal sealed class EventoTsunami : EventoVotacao
             if (navio == null || !navio.Systems.ContainsKey(SystemTypes.Reactor))
                 return;
 
-            // Repetir o par de atualizações no encerramento evita deixar a
-            // sabotagem ativa caso a onda termine durante o ciclo de 0,5 s.
             navio.RpcUpdateSystem(SystemTypes.Reactor, 16);
             navio.RpcUpdateSystem(SystemTypes.Reactor, 17);
             reparoPendente = false;
@@ -723,7 +708,6 @@ internal static class EventoTsunamiFlashReatorPatch
             yield return espera;
         }
 
-        // Se o evento terminar sem o jogo ter encerrado o flash, libera o campo.
         hud.ReactorFlash = null;
     }
 }
@@ -737,8 +721,6 @@ internal static class EventoTsunamiFlashReatorCorPatch
         if (!EventoTsunami.AvisoAtivo || __instance == null)
             return;
 
-        // O flash é parte do aviso do tsunami. Não consultamos IsActive:
-        // ISystemType desta versão não expõe essa propriedade.
         try
         {
             if (__instance.ReactorFlash == null)
