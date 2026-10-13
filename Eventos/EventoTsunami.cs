@@ -20,6 +20,8 @@ internal sealed class EventoTsunami : EventoVotacao
     private const float Velocidade = 3.0f;
     private const float Intervalo = 0.08f;
     private const float ProtecaoDuto = 1.0f;
+    private const float AlcanceDutoTsunami = 0.75f;
+    private const float AlcanceIdentificarDutoTsunami = 0.9f;
     private const float Alcance = 0.85f;
     private const float IntervaloCicloReator = 1.5f;
     private const float AtrasoInicialReator = 1.0f;
@@ -302,7 +304,7 @@ internal sealed class EventoTsunami : EventoVotacao
                     try
                     {
                         foreach (Vent duto in ShipStatus.Instance.AllVents)
-                            if (duto != null && Vector2.Distance(jogador.transform.position, duto.transform.position) < 1.8f)
+                            if (duto != null && Vector2.Distance(jogador.transform.position, duto.transform.position) < AlcanceIdentificarDutoTsunami)
                             { dutosProtegidos[jogador.PlayerId] = duto.Id; break; }
                     }
                     catch { }
@@ -320,7 +322,7 @@ internal sealed class EventoTsunami : EventoVotacao
             {
                 foreach (Vent duto in ShipStatus.Instance.AllVents)
                 {
-                    if (duto == null || Vector2.Distance(p, duto.transform.position) > 1.5f) continue;
+                    if (duto == null || Vector2.Distance(p, duto.transform.position) > AlcanceDutoTsunami) continue;
                     jogador.MyPhysics.RpcEnterVent(duto.Id);
                     protegidos[jogador.PlayerId] = agora + ProtecaoDuto;
                     dutosProtegidos[jogador.PlayerId] = duto.Id;
@@ -633,7 +635,7 @@ internal sealed class EventoTsunami : EventoVotacao
         List<byte> ids = new(atingidos);
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             "Tsunami: criando " + ids.Count +
-            " corpo(s) falso(s) antes da reunião.");
+            " corpo(s) falso(s) antes da reunião. MeetingHud ativo=" + (MeetingHud.Instance != null) + ".");
 
         // Para a onda e restaura os nomes antes de publicar os corpos.
         if (ativo || avisoLocalAtivo || indicador != null)
