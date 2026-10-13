@@ -13,6 +13,86 @@ internal static class CustomNetObject
 {
     private const int TamanhoMaximoLote = 500;
 
+
+    /// <summary>
+    /// Envia a criação de um PlayerControl falso no formato usado pelo EHR.
+    /// O objeto deve ter sido instanciado, configurado com PlayerId/isNew/notRealPlayer
+    /// e posicionado pelo chamador antes desta chamada.
+    /// </summary>
+    public static void EnviarSpawn(PlayerControl objeto)
+    {
+        if (objeto == null || AmongUsClient.Instance == null ||
+            PlayerControl.LocalPlayer == null || !AmongUsClient.Instance.AmHost)
+            throw new InvalidOperationException("Não é possível criar o PlayerControl falso fora do host.");
+
+        AmongUsClient.Instance.NetIdCnt += 1U;
+        MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
+
+        try
+        {
+            writer.StartMessage(5);
+            writer.Write(AmongUsClient.Instance.GameId);
+
+            writer.StartMessage(4);
+            var spawn = AmongUsClient.Instance.CreateSpawnMessage(
+                objeto, -2, SpawnFlags.None);
+            spawn.SerializeValues(writer);
+            writer.EndMessage();
+
+            // O EHR envia três mensagens auxiliares de spawn para manter a
+            // sequência de NetId esperada por clientes vanilla.
+            for (uint i = 1; i <= 3; i++)
+            {
+                writer.StartMessage(4);
+                writer.WritePacked(2U);
+                writer.WritePacked(-2);
+                writer.Write((byte)SpawnFlags.None);
+                writer.WritePacked(1);
+                writer.WritePacked(AmongUsClient.Instance.NetIdCnt - i);
+                writer.StartMessage(1);
+                writer.EndMessage();
+                writer.EndMessage();
+            }
+
+            writer.EndMessage();
+            AmongUsClient.Instance.SendOrDisconnect(writer);
+            writer = null;
+        }
+        finally
+        {
+            writer?.Recycle();
+        }
+
+        if (PlayerControl.AllPlayerControls.Contains(objeto))
+            PlayerControl.AllPlayerControls.Remove(objeto);
+    }
+
+    /// <summary>
+    /// Replica a atualização de posição no padrão usado pelo CustomNetObject do EHR.
+    /// </summary>
+    public static void EnviarPosicao(PlayerControl objeto, UnityEngine.Vector2 posicao)
+    {
+        if (objeto == null || objeto.NetTransform == null ||
+            AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost)
+            return;
+
+        try
+        {
+            objeto.NetTransform.SnapTo(posicao);
+            ushort sequencia = (ushort)(objeto.NetTransform.lastSequenceId + 2U);
+            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
+                objeto.NetTransform.NetId, (byte)RpcCalls.SnapTo, SendOption.None);
+            writer.Write(posicao);
+            writer.Write(sequencia);
+            AmongUsClient.Instance.FinishRpcImmediately(writer);
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "CustomNetObject: falha ao sincronizar posição: " + ex.Message);
+        }
+    }
+
     public static int AssociarClientes(PlayerControl objeto, byte playerIdReservado)
     {
         if (objeto == null || AmongUsClient.Instance == null ||
