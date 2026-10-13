@@ -130,6 +130,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
         Harmony.PatchAll();
         PainelVotacaoRpc.Inicializar();
+        EventoTesteMenu.Inicializar();
 
         Log.LogInfo("YouTubeVoteBridge carregado!");
     }
