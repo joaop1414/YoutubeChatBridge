@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using HarmonyLib;
+using Hazel;
 using InnerNet;
 using UnityEngine;
 
@@ -26,11 +27,11 @@ internal static class EntradaJogadorTraceStartPatch
 internal static class EntradaJogadorHandleRpcTracePatch
 {
     [HarmonyPrefix]
-    private static void Prefix(PlayerControl __instance, object[] __args)
+    private static void Prefix(PlayerControl __instance, byte callId, MessageReader reader)
     {
         try
         {
-            if (__instance == null || __args == null || __args.Length == 0 ||
+            if (__instance == null ||
                 AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost)
                 return;
 
@@ -38,7 +39,6 @@ internal static class EntradaJogadorHandleRpcTracePatch
             if (!EntradaJogadorRpcTrace.EstaCapturando(ownerId))
                 return;
 
-            byte callId = Convert.ToByte(__args[0]);
             string rpcName = Enum.GetName(typeof(RpcCalls), callId) ?? "RPC_" + callId;
             string playerName = "";
             try
