@@ -20,8 +20,8 @@ internal sealed class EventoTsunami : EventoVotacao
     private const float Velocidade = 3.0f;
     private const float Intervalo = 0.08f;
     private const float ProtecaoDuto = 1.0f;
-    private const float AlcanceDutoTsunami = 0.25f;
-    private const float AlcanceIdentificarDutoTsunami = 0.35f;
+    private const float AlcanceDutoTsunami = 0.65f;
+    private const float AlcanceIdentificarDutoTsunami = 0.85f;
     private const float Alcance = 0.85f;
     private const float IntervaloCicloReator = 1.5f;
     private const float AtrasoInicialReator = 1.0f;
@@ -304,7 +304,7 @@ internal sealed class EventoTsunami : EventoVotacao
                     try
                     {
                         foreach (Vent duto in ShipStatus.Instance.AllVents)
-                            if (duto != null && Vector2.Distance(jogador.transform.position, duto.transform.position) < AlcanceIdentificarDutoTsunami)
+                            if (duto != null && Vector2.Distance(jogador.GetTruePosition(), (Vector2)duto.transform.position) < AlcanceIdentificarDutoTsunami)
                             { dutosProtegidos[jogador.PlayerId] = duto.Id; break; }
                     }
                     catch { }
@@ -313,7 +313,7 @@ internal sealed class EventoTsunami : EventoVotacao
             }
 
             if (atingidos.Contains(jogador.PlayerId)) continue;
-            Vector2 p = jogador.transform.position;
+            Vector2 p = jogador.GetTruePosition();
             if (Mathf.Abs(p.x - posicao.x) > Alcance)
                 continue;
 
@@ -322,7 +322,8 @@ internal sealed class EventoTsunami : EventoVotacao
             {
                 foreach (Vent duto in ShipStatus.Instance.AllVents)
                 {
-                    if (duto == null || Vector2.Distance(p, duto.transform.position) > AlcanceDutoTsunami) continue;
+                    if (duto == null || Vector2.Distance(p, (Vector2)duto.transform.position) > AlcanceDutoTsunami) continue;
+                    if (jogador.MyPhysics == null) break;
                     jogador.MyPhysics.RpcEnterVent(duto.Id);
                     protegidos[jogador.PlayerId] = agora + ProtecaoDuto;
                     dutosProtegidos[jogador.PlayerId] = duto.Id;
