@@ -18,14 +18,21 @@ internal sealed class EventoTesteMenu : MonoBehaviour
     private const uint WM_APP_STATUS = 0x8002;
     private const uint WS_OVERLAPPEDWINDOW = 0x00CF0000;
     private const uint WS_CHILD = 0x40000000;
+    private const uint WS_BORDER = 0x00800000;
     private const uint WS_VISIBLE = 0x10000000;
     private const uint SS_LEFT = 0x00000000;
     private const uint BS_PUSHBUTTON = 0x00000000;
+    private const uint SS_ETCHEDHORZ = 0x00000010;
+    private const uint WM_SETFONT = 0x0030;
     private const int SW_HIDE = 0;
     private const int SW_SHOW = 5;
     private const int SW_RESTORE = 9;
     private const int ID_BOTAO_BASE = 1000;
-    private const int ALTURA_LINHA = 34;
+    private const int ALTURA_LINHA = 38;
+    private const int LARGURA_JANELA = 600;
+    private const int ALTURA_MINIMA = 330;
+    private static IntPtr fonteNormal;
+    private static IntPtr fonteTitulo;
 
     private static bool registrado;
     private static bool janelaIniciada;
@@ -136,8 +143,8 @@ internal sealed class EventoTesteMenu : MonoBehaviour
                 WS_OVERLAPPEDWINDOW,
                 unchecked((int)0x80000000), // CW_USEDEFAULT
                 unchecked((int)0x80000000),
-                680,
-                700,
+                LARGURA_JANELA,
+                Math.Max(ALTURA_MINIMA, Math.Min(900, 190 + eventos.Count * ALTURA_LINHA)),
                 IntPtr.Zero,
                 IntPtr.Zero,
                 instancia,
@@ -177,6 +184,7 @@ internal sealed class EventoTesteMenu : MonoBehaviour
             switch (mensagemJanela)
             {
                 case 0x0001: // WM_CREATE
+                    CriarFontes();
                     CriarControles(hwnd);
                     return IntPtr.Zero;
 
@@ -207,7 +215,7 @@ internal sealed class EventoTesteMenu : MonoBehaviour
                         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                             "[Menu de teste] Clique recebido para: " + eventos[indice].Nome);
                         if (textoStatus != IntPtr.Zero)
-                            SetWindowTextW(textoStatus, mensagem);
+                            SetWindowTextW(textoStatus, "STATUS: " + mensagem);
                     }
                     return IntPtr.Zero;
 
@@ -232,28 +240,80 @@ internal sealed class EventoTesteMenu : MonoBehaviour
     private static void CriarControles(IntPtr hwnd)
     {
         IntPtr instancia = GetModuleHandleW(null);
-        CriarControle("STATIC",
-            "Selecione um evento. A execução acontece dentro do jogo e exige que você seja o host.",
+
+        IntPtr titulo = CriarControle("STATIC",
+            "PAINEL DE TESTE DE EVENTOS",
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            18, 15, 625, 42, hwnd, IntPtr.Zero, instancia);
+            18, 14, 520, 28, hwnd, IntPtr.Zero, instancia);
+        AplicarFonte(titulo, fonteTitulo);
+
+        IntPtr subtitulo = CriarControle("STATIC",
+            "Clique em Testar para executar no jogo. É necessário ser o host.",
+            WS_CHILD | WS_VISIBLE | SS_LEFT,
+            20, 44, 535, 25, hwnd, IntPtr.Zero, instancia);
+        AplicarFonte(subtitulo, fonteNormal);
+
+        CriarControle("STATIC", "",
+            WS_CHILD | WS_VISIBLE | SS_ETCHEDHORZ,
+            18, 76, 545, 2, hwnd, IntPtr.Zero, instancia);
+
+        if (eventos.Count == 0)
+        {
+            IntPtr vazio = CriarControle("STATIC",
+                "Nenhum evento foi registrado.",
+                WS_CHILD | WS_VISIBLE | SS_LEFT,
+                22, 94, 520, 30, hwnd, IntPtr.Zero, instancia);
+            AplicarFonte(vazio, fonteNormal);
+        }
 
         for (int i = 0; i < eventos.Count; i++)
         {
-            int y = 65 + i * ALTURA_LINHA;
-            CriarControle("STATIC", eventos[i]?.Nome ?? "(evento inválido)",
+            int y = 88 + i * ALTURA_LINHA;
+            IntPtr nome = CriarControle("STATIC",
+                $"{i + 1:00}   {eventos[i]?.Nome ?? "(evento inválido)"}",
                 WS_CHILD | WS_VISIBLE | SS_LEFT,
-                22, y + 7, 455, 24, hwnd, IntPtr.Zero, instancia);
+                22, y + 8, 365, 24, hwnd, IntPtr.Zero, instancia);
+            AplicarFonte(nome, fonteNormal);
 
-            CriarControle("BUTTON", "Executar",
+            IntPtr botao = CriarControle("BUTTON", "▶  Testar",
                 WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                490, y + 1, 145, 28, hwnd,
+                405, y + 2, 140, 30, hwnd,
                 new IntPtr(ID_BOTAO_BASE + i), instancia);
+            AplicarFonte(botao, fonteNormal);
+
+            if (i < eventos.Count - 1)
+            {
+                CriarControle("STATIC", "",
+                    WS_CHILD | WS_VISIBLE | SS_ETCHEDHORZ,
+                    22, y + ALTURA_LINHA - 1, 520, 2, hwnd, IntPtr.Zero, instancia);
+            }
         }
 
-        int statusY = 75 + eventos.Count * ALTURA_LINHA;
-        textoStatus = CriarControle("STATIC", mensagem,
+        int statusY = 96 + eventos.Count * ALTURA_LINHA;
+        CriarControle("STATIC", "",
+            WS_CHILD | WS_VISIBLE | SS_ETCHEDHORZ,
+            18, statusY, 545, 2, hwnd, IntPtr.Zero, instancia);
+
+        textoStatus = CriarControle("STATIC", "STATUS: " + (mensagem ?? ""),
             WS_CHILD | WS_VISIBLE | SS_LEFT,
-            22, statusY, 615, 45, hwnd, IntPtr.Zero, instancia);
+            22, statusY + 12, 520, 44, hwnd, IntPtr.Zero, instancia);
+        AplicarFonte(textoStatus, fonteNormal);
+    }
+
+    private static void CriarFontes()
+    {
+        fonteNormal = CreateFontW(
+            18, 0, 0, 0, 400, false, false, false,
+            1, 0, 0, 5, 0, "Segoe UI");
+        fonteTitulo = CreateFontW(
+            25, 0, 0, 0, 700, false, false, false,
+            1, 0, 0, 5, 0, "Segoe UI Semibold");
+    }
+
+    private static void AplicarFonte(IntPtr controle, IntPtr fonte)
+    {
+        if (controle != IntPtr.Zero && fonte != IntPtr.Zero)
+            SendMessageW(controle, WM_SETFONT, fonte, new IntPtr(1));
     }
 
     private static IntPtr CriarControle(
@@ -411,6 +471,16 @@ internal sealed class EventoTesteMenu : MonoBehaviour
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "SetWindowTextW", SetLastError = true)]
     private static extern bool SetWindowTextW(IntPtr hWnd, string lpString);
+
+    [DllImport("user32.dll", EntryPoint = "SendMessageW")]
+    private static extern IntPtr SendMessageW(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("gdi32.dll", CharSet = CharSet.Unicode, EntryPoint = "CreateFontW", SetLastError = true)]
+    private static extern IntPtr CreateFontW(
+        int cHeight, int cWidth, int cEscapement, int cOrientation, int cWeight,
+        bool bItalic, bool bUnderline, bool bStrikeOut, uint iCharSet,
+        uint iOutPrecision, uint iClipPrecision, uint iQuality, uint iPitchAndFamily,
+        string pszFaceName);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "PostMessageW", SetLastError = true)]
     private static extern bool PostMessageW(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
