@@ -230,78 +230,69 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
         int clientId = destinatario.OwnerId;
         string nomeOriginal = host.Data.PlayerName;
-        bool nomeAlterado = false;
 
         try
         {
-            // Envia o título e o texto em uma única mensagem de chat.
-            // O método antigo fazia duas mensagens e seis RPCs separados,
-            // aumentando o tráfego durante a entrada de um cliente vanilla.
-            EnviarRpcNome(host, clientId, TITULO_SISTEMA);
-            nomeAlterado = true;
-
-            EnviarRpcChat(host, clientId, "\n" + mensagem);
+            // Segue o padrão do EHR: os três RPCs ficam dentro de um único
+            // pacote GameDataTo direcionado exclusivamente ao cliente vanilla.
+            EnviarAvisoAgrupado(host, clientId, nomeOriginal, mensagem);
         }
         catch (Exception ex)
         {
             Instance?.Log.LogError(
-                "Erro ao enviar aviso privado ao cliente " + clientId + ": " + ex
+                "Erro ao enviar aviso privado agrupado ao cliente " + clientId + ": " + ex
             );
-        }
-        finally
-        {
-            // Sempre tenta restaurar o nome mesmo se o envio do chat falhar.
-            if (nomeAlterado)
-            {
-                try
-                {
-                    EnviarRpcNome(host, clientId, nomeOriginal);
-                }
-                catch (Exception erroRestauracao)
-                {
-                    Instance?.Log.LogError(
-                        "Erro ao restaurar o nome do host após mensagem privada: " +
-                        erroRestauracao
-                    );
-                }
-            }
         }
     }
 
-    private static void EnviarRpcNome(
+    private static void EnviarAvisoAgrupado(
         PlayerControl remetente,
         int destinatarioClientId,
-        string nome)
-    {
-        MessageWriter writer =
-            AmongUsClient.Instance.StartRpcImmediately(
-                remetente.NetId,
-                (byte)RpcCalls.SetName,
-                SendOption.Reliable,
-                destinatarioClientId
-            );
-
-        writer.Write(remetente.Data.NetId);
-        writer.Write(nome);
-        writer.Write(false);
-        AmongUsClient.Instance.FinishRpcImmediately(writer);
-    }
-
-    private static void EnviarRpcChat(
-        PlayerControl remetente,
-        int destinatarioClientId,
+        string nomeOriginal,
         string mensagem)
     {
-        MessageWriter writer =
-            AmongUsClient.Instance.StartRpcImmediately(
-                remetente.NetId,
-                (byte)RpcCalls.SendChat,
-                SendOption.Reliable,
-                destinatarioClientId
-            );
+        MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
 
-        writer.Write(mensagem);
-        AmongUsClient.Instance.FinishRpcImmediately(writer);
+        try
+        {
+            // Message type 6 = GameDataTo, equivalente ao usado pelo CustomRpcSender do EHR.
+            writer.StartMessage(6);
+            writer.Write(AmongUsClient.Instance.GameId);
+            writer.WritePacked(destinatarioClientId);
+
+            // RPC 1: altera o nome somente na visão do cliente destinatário.
+            writer.StartMessage(2);
+            writer.WritePacked(remetente.NetId);
+            writer.Write((byte)RpcCalls.SetName);
+            writer.Write(remetente.Data.NetId);
+            writer.Write(TITULO_SISTEMA);
+            writer.Write(false);
+            writer.EndMessage();
+
+            // RPC 2: envia o texto do aviso.
+            writer.StartMessage(2);
+            writer.WritePacked(remetente.NetId);
+            writer.Write((byte)RpcCalls.SendChat);
+            writer.Write("\\n" + mensagem);
+            writer.EndMessage();
+
+            // RPC 3: restaura o nome original antes de encerrar o pacote.
+            writer.StartMessage(2);
+            writer.WritePacked(remetente.NetId);
+            writer.Write((byte)RpcCalls.SetName);
+            writer.Write(remetente.Data.NetId);
+            writer.Write(nomeOriginal);
+            writer.Write(false);
+            writer.EndMessage();
+
+            writer.EndMessage();
+            AmongUsClient.Instance.SendOrDisconnect(writer);
+        }
+        catch
+        {
+            writer.Recycle();
+            throw;
+        }
     }
 
     // Clientes com o mod enviam um sinal ao host. Os clientes que não
