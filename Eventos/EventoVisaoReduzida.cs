@@ -1,24 +1,22 @@
 using System;
-using System.Collections.Generic;
-using System.Reflection;
 using AmongUs.GameOptions;
-using Hazel;
 using UnityEngine;
 
 namespace YouTubeVoteBridge;
 
-// Reduz temporariamente a visão de tripulantes e impostores em conjunto.
-// A opção é global, portanto a restauração sempre devolve os dois valores
-// originais capturados antes da primeira ativação.
+// Usa o mesmo envio individual de LogicOptions dos eventos de velocidade:
+// aplica as opções localmente no host e envia um pacote de opções específico
+// para cada cliente remoto, sem depender de um broadcast global.
 internal sealed class EventoVisaoReduzida : EventoVotacao
 {
     private const float DuracaoSegundos = 20f;
     private const float MultiplicadorVisao = 0.15f;
+    private const float IntervaloReenvio = 0.75f;
+
     private static float? VisaoTripulanteOriginal;
     private static float? VisaoImpostorOriginal;
     private static float ExpiraEm;
     private static float ProximoReenvio;
-    private const float IntervaloReenvio = 0.75f;
 
     public override string Nome => "Visão reduzida para todos por 20 segundos";
 
@@ -33,7 +31,7 @@ internal sealed class EventoVisaoReduzida : EventoVotacao
             if (opcoes == null)
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "Visão reduzida cancelada: opções da partida indisponíveis.");
+                    "[Visão] Evento cancelado: opções da partida indisponíveis.");
                 return;
             }
 
@@ -43,24 +41,22 @@ internal sealed class EventoVisaoReduzida : EventoVotacao
                 VisaoImpostorOriginal = opcoes.GetFloat(FloatOptionNames.ImpostorLightMod);
             }
 
-            opcoes.SetFloat(FloatOptionNames.CrewLightMod,
-                Mathf.Clamp(VisaoTripulanteOriginal.Value * MultiplicadorVisao, 0.05f, 5f));
-            opcoes.SetFloat(FloatOptionNames.ImpostorLightMod,
-                Mathf.Clamp(VisaoImpostorOriginal.Value * MultiplicadorVisao, 0.05f, 5f));
+            float tripulante = Mathf.Clamp(VisaoTripulanteOriginal.Value * MultiplicadorVisao, 0.05f, 5f);
+            float impostor = Mathf.Clamp(VisaoImpostorOriginal.Value * MultiplicadorVisao, 0.05f, 5f);
 
-            AplicarOpcoesLocais(opcoes);
-            SincronizarConfiguracoes();
+            AplicarConfiguracaoLocal(tripulante, impostor);
+            EnviarConfiguracaoParaClientes(tripulante, impostor);
 
             ExpiraEm = Time.realtimeSinceStartup + DuracaoSegundos;
             ProximoReenvio = Time.realtimeSinceStartup + IntervaloReenvio;
+
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "Visão reduzida ativada para tripulantes e impostores por " +
-                DuracaoSegundos + " segundos.");
+                $"[Visão] Ativada por {DuracaoSegundos}s. Crew={tripulante:0.####}, " +
+                $"Impostor={impostor:0.####}. O envio individual será repetido a cada {IntervaloReenvio}s.");
         }
         catch (Exception ex)
         {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "Falha ao ativar visão reduzida: " + ex);
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError("[Visão] Falha ao ativar: " + ex);
         }
     }
 
@@ -76,12 +72,16 @@ internal sealed class EventoVisaoReduzida : EventoVotacao
             return;
         }
 
-        // Reenvia periodicamente: o jogo/EHR pode recalcular opções individuais
-        // após a primeira mensagem. Isso mantém a visão aplicada nos clientes.
         if (agora >= ProximoReenvio)
         {
             ProximoReenvio = agora + IntervaloReenvio;
-            SincronizarConfiguracoes();
+            if (VisaoTripulanteOriginal.HasValue && VisaoImpostorOriginal.HasValue)
+            {
+                float tripulante = Mathf.Clamp(VisaoTripulanteOriginal.Value * MultiplicadorVisao, 0.05f, 5f);
+                float impostor = Mathf.Clamp(VisaoImpostorOriginal.Value * MultiplicadorVisao, 0.05f, 5f);
+                AplicarConfiguracaoLocal(tripulante, impostor);
+                EnviarConfiguracaoParaClientes(tripulante, impostor);
+            }
         }
     }
 
@@ -89,20 +89,15 @@ internal sealed class EventoVisaoReduzida : EventoVotacao
     {
         try
         {
-            var opcoes = GameOptionsManager.Instance?.CurrentGameOptions;
-            if (opcoes != null && VisaoTripulanteOriginal.HasValue &&
-                VisaoImpostorOriginal.HasValue)
+            if (VisaoTripulanteOriginal.HasValue && VisaoImpostorOriginal.HasValue)
             {
-                opcoes.SetFloat(FloatOptionNames.CrewLightMod, VisaoTripulanteOriginal.Value);
-                opcoes.SetFloat(FloatOptionNames.ImpostorLightMod, VisaoImpostorOriginal.Value);
-                AplicarOpcoesLocais(opcoes);
-                SincronizarConfiguracoes();
+                AplicarConfiguracaoLocal(VisaoTripulanteOriginal.Value, VisaoImpostorOriginal.Value);
+                EnviarConfiguracaoParaClientes(VisaoTripulanteOriginal.Value, VisaoImpostorOriginal.Value);
             }
         }
         catch (Exception ex)
         {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "Falha ao restaurar visão original: " + ex);
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError("[Visão] Falha ao restaurar: " + ex);
         }
         finally
         {
@@ -110,13 +105,19 @@ internal sealed class EventoVisaoReduzida : EventoVotacao
             ProximoReenvio = 0f;
             VisaoTripulanteOriginal = null;
             VisaoImpostorOriginal = null;
-            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "Visão original da partida restaurada.");
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo("[Visão] Configurações originais restauradas.");
         }
     }
 
-    private static void AplicarOpcoesLocais(IGameOptions opcoes)
+    private static void AplicarConfiguracaoLocal(float tripulante, float impostor)
     {
+        var opcoes = GameOptionsManager.Instance?.CurrentGameOptions;
+        if (opcoes == null)
+            return;
+
+        opcoes.SetFloat(FloatOptionNames.CrewLightMod, tripulante);
+        opcoes.SetFloat(FloatOptionNames.ImpostorLightMod, impostor);
+
         if (GameManager.Instance?.LogicComponents != null)
         {
             foreach (GameLogicComponent componente in GameManager.Instance.LogicComponents)
@@ -129,86 +130,23 @@ internal sealed class EventoVisaoReduzida : EventoVotacao
         GameOptionsManager.Instance.CurrentGameOptions = opcoes;
     }
 
-    // Replica o envelope de LogicOptions usado pelo próprio jogo/EHR e
-    // envia as opções modificadas individualmente a todos os donos dos jogadores.
-    private static void SincronizarConfiguracoes()
+    private static void EnviarConfiguracaoParaClientes(float tripulante, float impostor)
     {
-        if (AmongUsClient.Instance == null || GameManager.Instance == null ||
-            !YouTubeVoteBridgePlugin.EhHost())
+        if (PlayerControl.AllPlayerControls == null)
             return;
 
-        var opcoes = GameOptionsManager.Instance?.CurrentGameOptions;
-        if (opcoes == null)
-            return;
-
-        NormalGameOptionsV12 normais;
-        try
+        int enviados = 0;
+        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
         {
-            normais = opcoes.TryCast<NormalGameOptionsV12>();
-        }
-        catch (Exception ex)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "Não foi possível converter opções para sincronizar a visão: " + ex.Message);
-            return;
-        }
-
-        if (normais == null)
-            return;
-
-        byte[] dados;
-        MessageWriter serializador = MessageWriter.Get();
-        try
-        {
-            serializador.Write(normais.Version);
-            serializador.StartMessage(0);
-            serializador.Write((byte)normais.GameMode);
-            NormalGameOptionsV12.Serialize(serializador, normais);
-            serializador.EndMessage();
-            dados = serializador.ToByteArray(false);
-        }
-        finally
-        {
-            serializador.Recycle();
-        }
-
-        bool enviou = false;
-        for (int p = 0; p < PlayerControl.AllPlayerControls.Count; p++)
-        {
-            PlayerControl jogador = PlayerControl.AllPlayerControls[p];
-            if (jogador == null || jogador.Data == null || jogador.Data.Disconnected)
+            if (jogador?.Data == null || jogador.Data.Disconnected || jogador.AmOwner)
                 continue;
 
-            for (int i = 0; i < GameManager.Instance.LogicComponents.Count; i++)
-            {
-                if (GameManager.Instance.LogicComponents[i] is not LogicOptions)
-                    continue;
-
-                MessageWriter pacote = MessageWriter.Get(SendOption.Reliable);
-                try
-                {
-                    pacote.StartMessage(6);
-                    pacote.Write(AmongUsClient.Instance.GameId);
-                    pacote.WritePacked(jogador.OwnerId);
-                    pacote.StartMessage(1);
-                    pacote.WritePacked(GameManager.Instance.NetId);
-                    pacote.StartMessage((byte)i);
-                    pacote.WriteBytesAndSize(dados);
-                    pacote.EndMessage();
-                    pacote.EndMessage();
-                    pacote.EndMessage();
-                    AmongUsClient.Instance.SendOrDisconnect(pacote);
-                    enviou = true;
-                }
-                finally
-                {
-                    pacote.Recycle();
-                }
-            }
+            if (EventoVelocidadeJogadores.EnviarVisaoBruta(jogador, tripulante, impostor))
+                enviados++;
         }
 
-        if (!enviou)
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "Nenhum pacote de opções foi enviado para a visão reduzida.");
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"[Visão] Pacotes individuais enviados para {enviados} cliente(s) remoto(s); " +
+            "isso confirma envio pelo host, não recebimento/aplicação pelo jogo.");
     }
 }
