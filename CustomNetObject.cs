@@ -35,7 +35,20 @@ internal static class CustomNetObject
                 "CustomNetObject: falha ao posicionar o objeto fora da tela antes do spawn: " + ex.Message);
         }
 
-        AmongUsClient.Instance.NetIdCnt += 1U;
+        // Instantiate(PlayerPrefab) já reserva NetIds para PlayerControl,
+        // PlayerPhysics e NetworkTransform. Reservar apenas +1 fazia os três
+        // spawns auxiliares do Lobby reutilizarem esses NetIds (ex.: 54, 55, 56),
+        // gerando "Attempt to add duplicate net object ... LobbyBehaviour".
+        // Avançamos quatro posições: uma para o spawn e três para os auxiliares.
+        uint contadorAntes = AmongUsClient.Instance.NetIdCnt;
+        AmongUsClient.Instance.NetIdCnt += 4U;
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"CustomNetObject: preparando spawn falso; NetId do PlayerControl={objeto.NetId}, " +
+            $"NetIdCnt {contadorAntes} -> {AmongUsClient.Instance.NetIdCnt}; " +
+            $"NetIds auxiliares={AmongUsClient.Instance.NetIdCnt - 1U}," +
+            $"{AmongUsClient.Instance.NetIdCnt - 2U},{AmongUsClient.Instance.NetIdCnt - 3U}.");
+
         MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
 
         try
