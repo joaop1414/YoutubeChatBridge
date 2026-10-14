@@ -165,19 +165,10 @@ internal static class EventoVelocidadeJogadores
             return true;
         }
 
-        // Opções negativas não são válidas em PlayerSpeedMod. A inversão usa
-        // a física local do host; efeitos positivos remotos continuam por LogicOptions.
-        if (efeito.Multiplicador < 0f)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "Não é possível inverter a física de um cliente remoto apenas com PlayerSpeedMod.");
-            return false;
-        }
-
-        float velocidade = Mathf.Clamp(
-            efeito.VelocidadeOriginal * efeito.Multiplicador,
-            0.0001f,
-            3f);
+        float velocidade = efeito.VelocidadeOriginal * efeito.Multiplicador;
+        velocidade = velocidade < 0f
+            ? -Mathf.Clamp(Mathf.Abs(velocidade), 0.0001f, 3f)
+            : Mathf.Clamp(velocidade, 0.0001f, 3f);
 
         return EnviarOpcoesBrutas(jogador, velocidade);
     }
@@ -219,7 +210,7 @@ internal static class EventoVelocidadeJogadores
 
             opcoes.SetFloat(
                 FloatOptionNames.PlayerSpeedMod,
-                Mathf.Clamp(velocidade, 0.0001f, 3f));
+                (velocidade < 0f ? -Mathf.Clamp(Mathf.Abs(velocidade), 0.0001f, 3f) : Mathf.Clamp(velocidade, 0.0001f, 3f)));
 
             // O EHR não altera apenas CurrentGameOptions: ele também entrega
             // as opções ao componente LogicOptions para que o jogo as aplique.
