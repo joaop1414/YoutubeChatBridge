@@ -91,6 +91,8 @@ namespace YouTubeVoteBridge
                     __instance.Children.Clear();
                 }
 
+                __instance.InitializeControllerNavigation();
+
                 if (__instance.MapPicker != null)
                     __instance.MapPicker.gameObject.SetActive(false);
 
