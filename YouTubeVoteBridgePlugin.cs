@@ -454,7 +454,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         {
             HudManager.Instance.Chat.AddChat(
                 PlayerControl.LocalPlayer,
-                titulo + "\\n" + mensagem,
+                titulo + "\n" + mensagem,
                 false
             );
         }
@@ -477,7 +477,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             try
             {
                 EnviarRpcNome(PlayerControl.LocalPlayer, clientId, titulo);
-                EnviarRpcChat(PlayerControl.LocalPlayer, clientId, "\\n");
+                EnviarRpcChat(PlayerControl.LocalPlayer, clientId, "\n");
                 EnviarRpcNome(PlayerControl.LocalPlayer, clientId, nomeOriginalHost);
 
                 EnviarRpcNome(PlayerControl.LocalPlayer, clientId, titulo);
