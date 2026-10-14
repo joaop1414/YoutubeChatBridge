@@ -112,25 +112,32 @@ internal static class CustomNetObject
             AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost)
             throw new InvalidOperationException("Não é possível sincronizar a aparência do PlayerControl falso.");
 
+        nome ??= "Bot";
+
+        // O host não processa automaticamente os RPCs que ele mesmo envia.
+        // Atualiza também os dados locais para não deixar o objeto como ???.
+        objeto.Data.PlayerName = nome;
+
         MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
         try
         {
             writer.StartMessage(5);
             writer.Write(AmongUsClient.Instance.GameId);
 
-            // SetName: associa o nome ao PlayerInfo pertencente ao objeto.
+            // SetName moderno inclui PlayerInfo.NetId, nome e a flag de exibição.
             writer.StartMessage(2);
             writer.WritePacked(objeto.NetId);
             writer.Write((byte)RpcCalls.SetName);
             writer.Write(objeto.Data.NetId);
-            writer.Write(nome ?? "Bot");
+            writer.Write(nome);
+            writer.Write(false);
             writer.EndMessage();
 
-            // SetColor: a sequência usada pelo evento de corpo falso do próprio projeto.
+            // SetColor usa o NetId do PlayerInfo no formato não packed nesta versão.
             writer.StartMessage(2);
             writer.WritePacked(objeto.NetId);
             writer.Write((byte)RpcCalls.SetColor);
-            writer.WritePacked(objeto.Data.NetId);
+            writer.Write(objeto.Data.NetId);
             writer.Write(corId);
             writer.EndMessage();
 
