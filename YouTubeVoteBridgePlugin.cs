@@ -1361,6 +1361,9 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 case "Trocar identidades de dois jogadores por 20 segundos":
                     new EventoTrocarIdentidades().Executar();
                     break;
+                case "Esconde-esconde: um caçador contra um fugitivo por 60 segundos":
+                    new EventoEscondeEsconde().Executar();
+                    break;
                 case "Visão reduzida para todos por 20 segundos":
                     new EventoVisaoReduzida().Executar();
                     break;
@@ -1904,6 +1907,7 @@ public static class YouTubeVoteUpdatePatch
         EventoTsunami.Atualizar();
         EventoVisaoReduzida.Atualizar();
         EventoTrocarIdentidades.Atualizar();
+        EventoEscondeEsconde.Atualizar();
     }
 }
 
