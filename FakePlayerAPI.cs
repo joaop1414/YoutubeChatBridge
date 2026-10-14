@@ -12,7 +12,8 @@ namespace YouTubeVoteBridge;
 /// </summary>
 public static class FakePlayerAPI
 {
-    public const byte PlayerIdFalso = 254;
+    // 253 é reservado à API; 254 fica exclusivo do indicador visual do tsunami.
+    public const byte PlayerIdFalso = 253;
     private static readonly HashSet<PlayerControl> ObjetosCriados = new();
 
     private sealed class CriacaoPendente
