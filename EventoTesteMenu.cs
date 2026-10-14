@@ -41,7 +41,6 @@ internal sealed class EventoTesteMenu : MonoBehaviour
     private const int ALTURA_LINHA = 38;
     private const int LARGURA_JANELA = 620;
     private const int ALTURA_JANELA = 620;
-    private static int posicaoRolagem;
     private static IntPtr fonteNormal;
     private static IntPtr fonteTitulo;
 
@@ -334,7 +333,6 @@ internal sealed class EventoTesteMenu : MonoBehaviour
             nPos = 0
         };
         SetScrollInfo(hwnd, SB_VERT, ref info, true);
-        posicaoRolagem = 0;
     }
 
     private static void ProcessarRolagem(IntPtr hwnd, int codigo, int posicaoInformada)
@@ -371,7 +369,6 @@ internal sealed class EventoTesteMenu : MonoBehaviour
             RECT retangulo;
             ScrollWindowEx(hwnd, 0, deslocamento, IntPtr.Zero, IntPtr.Zero,
                 IntPtr.Zero, out retangulo, SW_SCROLLCHILDREN | SW_INVALIDATE);
-            posicaoRolagem = novaPosicao;
         }
     }
 
