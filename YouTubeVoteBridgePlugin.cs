@@ -1060,28 +1060,21 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
             if (!EhHost())
             {
-                Instance.Log.LogWarning($"DIAG Painel: sem host; ignorando PlayerId={jogador.PlayerId}.");
+                Instance?.Log.LogWarning($"DIAG Painel: sem host; ignorando PlayerId={jogador.PlayerId}.");
                 return;
             }
 
             if (jogador.OwnerId < 0)
             {
-                Instance.Log.LogWarning($"DIAG Painel: OwnerId inválido ({jogador.OwnerId}) para PlayerId={jogador.PlayerId}.");
+                Instance?.Log.LogWarning($"DIAG Painel: OwnerId inválido ({jogador.OwnerId}) para PlayerId={jogador.PlayerId}.");
                 return;
             }
 
-
-            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
-                jogador.NetId,
-                (byte)RpcCalls.SetName,
-                SendOption.Reliable,
-                jogador.OwnerId
-            );
-            writer.Write(jogador.Data.NetId);
-            writer.Write(nome);
-            writer.Write(false);
-            AmongUsClient.Instance.FinishRpcImmediately(writer);
-
+            // Não enviar SetName via GameDataTo para clientes remotos.
+            // Em salas vanilla/não registradas, o servidor oficial pode expulsar
+            // o host por esse tipo de pacote. O placar por nick fica desativado
+            // para jogadores remotos; o painel normal do mod continua disponível.
+            return;
         }
         catch (Exception ex)
         {
