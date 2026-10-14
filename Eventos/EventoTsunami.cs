@@ -17,7 +17,7 @@ internal sealed class EventoTsunami : EventoVotacao
     public static bool Ativo => ativo;
     public static bool AvisoAtivo => ativo || avisoLocalAtivo;
     public static bool FlashReatorCianoAtivo => ativo && flashReatorCianoAtivo;
-    private const byte PlayerIdIndicador = 254;
+    private const byte PlayerIdIndicador = CompatibilidadeClientes.PlayerIdIndicadorTsunami;
     private const float Velocidade = 3.0f;
     private const float Intervalo = 0.08f;
     private const float ProtecaoDuto = 1.0f;
