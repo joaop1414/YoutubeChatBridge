@@ -1889,6 +1889,7 @@ public static class YouTubeVoteUpdatePatch
         EventoTesteMenu.ProcessarFilaExecucao();
         YouTubeVoteBridgePlugin.EnviarSinalModAoHost();
         YouTubeVoteBridgePlugin.AtualizarAvisos();
+        FakePlayerAPI.Atualizar();
         YouTubeVoteBridgePlugin.AtualizarVotacao();
         EventoEscudoTemporario.Atualizar();
         EventoCooldownIndividual.Atualizar();
