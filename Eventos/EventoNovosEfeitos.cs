@@ -87,28 +87,36 @@ internal sealed class EventoTeleporteAleatorio : EventoVotacao
     }
 }
 
-internal sealed class EventoMatarJogadorAleatorio : EventoVotacao
+internal sealed class EventoSuicidioAleatorio : EventoVotacao
 {
     private static readonly System.Random Sorteador = new();
-    public override string Nome => "Matar um jogador aleatório";
+    public override string Nome => "Um jogador aleatório comete suicídio";
+
     public void Executar()
     {
-        if (!YouTubeVoteBridgePlugin.EhHost() || PlayerControl.LocalPlayer == null) return;
+        if (!YouTubeVoteBridgePlugin.EhHost()) return;
         List<PlayerControl> candidatos = new();
         foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
-            if (jogador != null && jogador.Data != null && !jogador.Data.IsDead && !jogador.Data.Disconnected) candidatos.Add(jogador);
+            if (jogador != null && jogador.Data != null && !jogador.Data.IsDead && !jogador.Data.Disconnected)
+                candidatos.Add(jogador);
+
         if (candidatos.Count == 0)
         {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning("Matar jogador aleatório cancelado: não há jogadores vivos.");
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning("Suicídio aleatório cancelado: não há jogadores vivos.");
             return;
         }
+
         PlayerControl alvo = candidatos[Sorteador.Next(candidatos.Count)];
         try
         {
-            PlayerControl.LocalPlayer.RpcMurderPlayer(alvo, true);
-            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo("Pedido de morte aleatória enviado para " + alvo.Data.PlayerName + " (PlayerId=" + alvo.PlayerId + ").");
+            alvo.RpcMurderPlayer(alvo, true);
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "Suicídio aleatório solicitado para " + alvo.Data.PlayerName + " (PlayerId=" + alvo.PlayerId + ").");
         }
-        catch (Exception ex) { YouTubeVoteBridgePlugin.Instance?.Log.LogError("Falha ao matar jogador aleatório: " + ex); }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError("Falha ao executar suicídio aleatório: " + ex);
+        }
     }
 }
 
