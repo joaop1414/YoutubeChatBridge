@@ -165,7 +165,7 @@ internal sealed class EventoTsunami : EventoVotacao
 
                 // Segue a sequência do EHR: serializa temporariamente o outfit
                 // do host, aplica Shapeshift no objeto falso e restaura o host.
-                outfit.PlayerName = NomeOnda;
+                outfit.PlayerName = "<size=14><br></size>" + NomeOnda;
                 outfit.ColorId = 0;
                 outfit.HatId = "";
                 outfit.SkinId = "";
@@ -203,22 +203,6 @@ internal sealed class EventoTsunami : EventoVotacao
                 host.Data.Serialize(visual, false);
                 visual.EndMessage();
 
-                // Publica também a posição inicial junto da aparência.
-                try { indicador.NetTransform.SnapTo(posicao); }
-                catch (Exception ex)
-                {
-                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                        "Tsunami: SnapTo visual inicial falhou: " + ex.Message);
-                }
-
-                visual.StartMessage(2);
-                visual.WritePacked(indicador.NetTransform.NetId);
-                visual.Write((byte)RpcCalls.SnapTo);
-                visual.Write(posicao.x);
-                visual.Write(posicao.y);
-                visual.Write(indicador.NetTransform.lastSequenceId);
-                visual.EndMessage();
-
                 visual.EndMessage();
                 AmongUsClient.Instance.SendOrDisconnect(visual);
                 visual = null;
@@ -234,8 +218,13 @@ internal sealed class EventoTsunami : EventoVotacao
                 outfit.VisorId = visorOriginal;
             }
 
+            // A posição é enviada em um RPC separado, usando NetHelpers.WriteVector2,
+            // exatamente como no helper de posição. Não embutir floats manualmente no
+            // lote de aparência: isso pode corromper a mensagem e impedir o Shapeshift.
+            CustomNetObject.EnviarPosicao(indicador, posicao);
+
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "Tsunami: sequência visual compatível com EHR enviada.");
+                "Tsunami: aparência enviada; posição inicial sincronizada em RPC separado.");
         }
         catch (Exception ex)
         {
