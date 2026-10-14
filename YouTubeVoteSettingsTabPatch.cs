@@ -1,9 +1,7 @@
 using System;
-using System.Linq;
 using HarmonyLib;
 using TMPro;
 using UnityEngine;
-using UnityEngine.Events;
 
 namespace YouTubeVoteBridge
 {
@@ -47,14 +45,8 @@ namespace YouTubeVoteBridge
                     BotaoMod.transform.localPosition = new Vector3(-2.4f, -0.95f, 0f);
                     BotaoMod.transform.localScale = new Vector3(0.45f, 0.35f, 1f);
 
-                    PassiveButton click = BotaoMod.GetComponent<PassiveButton>();
-                    click.OnClick = new UnityEvent();
-                    click.OnClick.AddListener(new UnityAction(() =>
-                    {
-                        if (GameSettingMenu.Instance != null)
-                            GameSettingMenu.Instance.ChangeTab(3, false);
-                    }));
-
+                    // O clique é tratado por Harmony para evitar incompatibilidade
+                    // entre UnityEvent e os delegates gerados pelo IL2CPP.
                     __instance.ControllerSelectable.Add(BotaoMod);
                 }
 
@@ -65,6 +57,20 @@ namespace YouTubeVoteBridge
                 YouTubeVoteBridgePlugin.Instance?.Log.LogError(
                     "Falha ao criar a aba de configurações do mod: " + ex);
             }
+        }
+    }
+
+    [HarmonyPatch(typeof(PassiveButton), nameof(PassiveButton.ReceiveClick))]
+    internal static class YouTubeVoteSettingsTabButtonClickPatch
+    {
+        [HarmonyPostfix]
+        private static void Postfix(PassiveButton __instance)
+        {
+            if (__instance == null || __instance != YouTubeVoteSettingsTabCreatePatch.BotaoMod)
+                return;
+
+            if (GameSettingMenu.Instance != null)
+                GameSettingMenu.Instance.ChangeTab(3, false);
         }
     }
 
