@@ -1441,6 +1441,9 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 case "Quem completar uma tarefa se mata":
                     EventoTarefaSuicidio.Ativar();
                     break;
+                case "Simular desconexão por erro (ninguém sai)":
+                    new EventoDesconexaoFalsa().Executar();
+                    break;
                 default:
                     Instance.Log.LogWarning("O evento vencedor ainda não tem efeito conectado: " + eventoVencedor.Nome);
                     break;
