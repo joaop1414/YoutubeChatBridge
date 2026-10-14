@@ -129,9 +129,19 @@ internal sealed class EventoTsunami : EventoVotacao
                 if (body != null)
                 {
                     PlayerMaterial.SetColors(0, body);
-                    body.color = Color.white;
+                    // O EHR mantém o corpo transparente: o objeto serve apenas
+                    // para transportar o nome/sprite da onda nos clientes vanilla.
+                    body.color = Color.clear;
                     body.enabled = true;
                 }
+
+                try
+                {
+                    var textoCor = indicador.cosmetics?.colorBlindText;
+                    if (textoCor != null)
+                        textoCor.color = Color.clear;
+                }
+                catch { }
             }
             catch (Exception ex)
             {
