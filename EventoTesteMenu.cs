@@ -17,6 +17,16 @@ internal sealed class EventoTesteMenu : MonoBehaviour
     private const uint WM_APP_TOGGLE = 0x8001;
     private const uint WM_APP_STATUS = 0x8002;
     private const uint WS_OVERLAPPEDWINDOW = 0x00CF0000;
+    private const uint WS_VSCROLL = 0x00200000;
+    private const uint WM_VSCROLL = 0x0115;
+    private const uint WM_MOUSEWHEEL = 0x020A;
+    private const uint SW_SCROLLCHILDREN = 0x0001;
+    private const uint SW_INVALIDATE = 0x0002;
+    private const int SB_VERT = 1;
+    private const uint SIF_RANGE = 0x0001;
+    private const uint SIF_PAGE = 0x0002;
+    private const uint SIF_POS = 0x0004;
+    private const uint SIF_ALL = SIF_RANGE | SIF_PAGE | SIF_POS | 0x0010;
     private const uint WS_CHILD = 0x40000000;
     private const uint WS_BORDER = 0x00800000;
     private const uint WS_VISIBLE = 0x10000000;
@@ -29,8 +39,9 @@ internal sealed class EventoTesteMenu : MonoBehaviour
     private const int SW_RESTORE = 9;
     private const int ID_BOTAO_BASE = 1000;
     private const int ALTURA_LINHA = 38;
-    private const int LARGURA_JANELA = 600;
-    private const int ALTURA_MINIMA = 330;
+    private const int LARGURA_JANELA = 620;
+    private const int ALTURA_JANELA = 620;
+    private static int posicaoRolagem;
     private static IntPtr fonteNormal;
     private static IntPtr fonteTitulo;
 
@@ -140,11 +151,11 @@ internal sealed class EventoTesteMenu : MonoBehaviour
                 0,
                 CLASSE_JANELA,
                 "YouTubeChatBridge - Teste de eventos",
-                WS_OVERLAPPEDWINDOW,
+                WS_OVERLAPPEDWINDOW | WS_VSCROLL,
                 unchecked((int)0x80000000), // CW_USEDEFAULT
                 unchecked((int)0x80000000),
                 LARGURA_JANELA,
-                Math.Max(ALTURA_MINIMA, Math.Min(900, 190 + eventos.Count * ALTURA_LINHA)),
+                ALTURA_JANELA,
                 IntPtr.Zero,
                 IntPtr.Zero,
                 instancia,
@@ -203,6 +214,15 @@ internal sealed class EventoTesteMenu : MonoBehaviour
                 case WM_APP_STATUS:
                     if (textoStatus != IntPtr.Zero)
                         SetWindowTextW(textoStatus, "STATUS: " + (mensagem ?? ""));
+                    return IntPtr.Zero;
+
+                case WM_VSCROLL:
+                    ProcessarRolagem(hwnd, wParam.ToInt32() & 0xFFFF, (wParam.ToInt32() >> 16) & 0xFFFF);
+                    return IntPtr.Zero;
+
+                case WM_MOUSEWHEEL:
+                    int deltaRoda = unchecked((short)((wParam.ToInt64() >> 16) & 0xFFFF));
+                    ProcessarRolagem(hwnd, deltaRoda > 0 ? 0 : 1, 0);
                     return IntPtr.Zero;
 
                 case WM_COMMAND:
@@ -298,6 +318,61 @@ internal sealed class EventoTesteMenu : MonoBehaviour
             WS_CHILD | WS_VISIBLE | SS_LEFT,
             22, statusY + 12, 520, 44, hwnd, IntPtr.Zero, instancia);
         AplicarFonte(textoStatus, fonteNormal);
+        ConfigurarRolagem(hwnd);
+    }
+
+    private static void ConfigurarRolagem(IntPtr hwnd)
+    {
+        int alturaConteudo = 150 + eventos.Count * ALTURA_LINHA + 90;
+        SCROLLINFO info = new()
+        {
+            cbSize = (uint)Marshal.SizeOf<SCROLLINFO>(),
+            fMask = SIF_RANGE | SIF_PAGE | SIF_POS,
+            nMin = 0,
+            nMax = Math.Max(ALTURA_JANELA, alturaConteudo),
+            nPage = ALTURA_JANELA - 45,
+            nPos = 0
+        };
+        SetScrollInfo(hwnd, SB_VERT, ref info, true);
+        posicaoRolagem = 0;
+    }
+
+    private static void ProcessarRolagem(IntPtr hwnd, int codigo, int posicaoInformada)
+    {
+        SCROLLINFO info = new()
+        {
+            cbSize = (uint)Marshal.SizeOf<SCROLLINFO>(),
+            fMask = SIF_ALL
+        };
+        GetScrollInfo(hwnd, SB_VERT, ref info);
+        int anterior = info.nPos;
+        int maximo = Math.Max(0, info.nMax - (int)info.nPage + 1);
+
+        switch (codigo)
+        {
+            case 0: info.nPos -= ALTURA_LINHA; break; // SB_LINEUP
+            case 1: info.nPos += ALTURA_LINHA; break; // SB_LINEDOWN
+            case 2: info.nPos -= (int)info.nPage; break; // SB_PAGEUP
+            case 3: info.nPos += (int)info.nPage; break; // SB_PAGEDOWN
+            case 4: info.nPos = posicaoInformada; break; // SB_THUMBPOSITION
+            case 5: info.nPos = posicaoInformada; break; // SB_THUMBTRACK
+            case 6: info.nPos = 0; break; // SB_TOP
+            case 7: info.nPos = maximo; break; // SB_BOTTOM
+            default: return;
+        }
+
+        info.nPos = Math.Max(0, Math.Min(maximo, info.nPos));
+        info.fMask = SIF_POS;
+        SetScrollInfo(hwnd, SB_VERT, ref info, true);
+        int novaPosicao = info.nPos;
+        int deslocamento = anterior - novaPosicao;
+        if (deslocamento != 0)
+        {
+            RECT retangulo;
+            ScrollWindowEx(hwnd, 0, deslocamento, IntPtr.Zero, IntPtr.Zero,
+                IntPtr.Zero, out retangulo, SW_SCROLLCHILDREN | SW_INVALIDATE);
+            posicaoRolagem = novaPosicao;
+        }
     }
 
     private static void CriarFontes()
@@ -423,6 +498,27 @@ internal sealed class EventoTesteMenu : MonoBehaviour
     }
 
     [StructLayout(LayoutKind.Sequential)]
+    private struct SCROLLINFO
+    {
+        public uint cbSize;
+        public uint fMask;
+        public int nMin;
+        public int nMax;
+        public uint nPage;
+        public int nPos;
+        public int nTrackPos;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RECT
+    {
+        public int left;
+        public int top;
+        public int right;
+        public int bottom;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
     private struct POINT
     {
         public int x;
@@ -496,4 +592,15 @@ internal sealed class EventoTesteMenu : MonoBehaviour
 
     [DllImport("user32.dll", EntryPoint = "PostQuitMessage")]
     private static extern void PostQuitMessage(int nExitCode);
+
+    [DllImport("user32.dll", EntryPoint = "SetScrollInfo", SetLastError = true)]
+    private static extern int SetScrollInfo(IntPtr hwnd, int nBar, ref SCROLLINFO lpsi, bool redraw);
+
+    [DllImport("user32.dll", EntryPoint = "GetScrollInfo", SetLastError = true)]
+    private static extern bool GetScrollInfo(IntPtr hwnd, int nBar, ref SCROLLINFO lpsi);
+
+    [DllImport("user32.dll", EntryPoint = "ScrollWindowEx", SetLastError = true)]
+    private static extern int ScrollWindowEx(
+        IntPtr hwnd, int dx, int dy, IntPtr prcScroll, IntPtr prcClip,
+        IntPtr hrgnUpdate, out RECT prcUpdate, uint flags);
 }
