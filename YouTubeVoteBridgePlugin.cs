@@ -425,87 +425,6 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     }
 
     // ========================================================
-    // DESCONEXÃO FALSA NO CHAT (SEM REMOVER O JOGADOR)
-    // ========================================================
-
-    // Simula para todos os clientes uma mensagem de saída por erro.
-    // Não envia PlayerLeft, Disconnect, KickPlayer nem altera Data.Disconnected.
-    // Para clientes vanilla, a mensagem é entregue por RPCs normais de nome/chat,
-    // direcionados individualmente para que o nome temporário não seja global.
-    public static void SimularDesconexaoPorErro(PlayerControl jogador)
-    {
-        if (!EhHost() ||
-            AmongUsClient.Instance == null ||
-            PlayerControl.LocalPlayer == null ||
-            jogador == null ||
-            jogador.Data == null)
-            return;
-
-        string nomeJogador = jogador.Data.PlayerName;
-        if (string.IsNullOrWhiteSpace(nomeJogador))
-            nomeJogador = "Um jogador";
-
-        string titulo = "<color=#FF5555>Sistema</color>";
-        string mensagem = $"<color=#FF5555>{nomeJogador}</color> saiu do jogo devido a um erro.";
-
-        // A mensagem local é adicionada diretamente; nenhum estado de rede é alterado.
-        if (HudManager.InstanceExists &&
-            HudManager.Instance.Chat != null)
-        {
-            HudManager.Instance.Chat.AddChat(
-                PlayerControl.LocalPlayer,
-                titulo + "\n" + mensagem,
-                false
-            );
-        }
-
-        var clientesEnviados = new HashSet<int>();
-        int clientIdLocal = AmongUsClient.Instance.ClientId;
-
-        foreach (PlayerControl controle in PlayerControl.AllPlayerControls)
-        {
-            if (controle == null || controle.Data == null)
-                continue;
-
-            int clientId = controle.OwnerId;
-            if (clientId < 0 ||
-                clientId == clientIdLocal ||
-                !clientesEnviados.Add(clientId))
-                continue;
-
-            string nomeOriginalHost = PlayerControl.LocalPlayer.Data.PlayerName;
-            try
-            {
-                EnviarRpcNome(PlayerControl.LocalPlayer, clientId, titulo);
-                EnviarRpcChat(PlayerControl.LocalPlayer, clientId, "\n");
-                EnviarRpcNome(PlayerControl.LocalPlayer, clientId, nomeOriginalHost);
-
-                EnviarRpcNome(PlayerControl.LocalPlayer, clientId, titulo);
-                EnviarRpcChat(PlayerControl.LocalPlayer, clientId, mensagem);
-                EnviarRpcNome(PlayerControl.LocalPlayer, clientId, nomeOriginalHost);
-            }
-            catch (Exception ex)
-            {
-                Instance?.Log.LogWarning(
-                    $"Falha ao simular mensagem de desconexão para o cliente {clientId}: {ex.Message}");
-
-                try
-                {
-                    EnviarRpcNome(PlayerControl.LocalPlayer, clientId, nomeOriginalHost);
-                }
-                catch (Exception erroRestauracao)
-                {
-                    Instance?.Log.LogError(
-                        "Falha ao restaurar o nome após a mensagem simulada: " + erroRestauracao.Message);
-                }
-            }
-        }
-
-        Instance?.Log.LogInfo(
-            $"Mensagem falsa de saída por erro enviada. Jogador citado: {nomeJogador}. Nenhum jogador foi desconectado.");
-    }
-
-    // ========================================================
     // EXTRAÇÃO DE JSON
     // ========================================================
 
@@ -1440,9 +1359,6 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                     break;
                 case "Quem completar uma tarefa se mata":
                     EventoTarefaSuicidio.Ativar();
-                    break;
-                case "Simular desconexão por erro (ninguém sai)":
-                    new EventoDesconexaoFalsa().Executar();
                     break;
                 default:
                     Instance.Log.LogWarning("O evento vencedor ainda não tem efeito conectado: " + eventoVencedor.Nome);
