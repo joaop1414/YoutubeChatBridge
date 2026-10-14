@@ -210,9 +210,8 @@ internal sealed class EventoReviverJogadorMorto : EventoVotacao
         try
         {
             // Mesmo formato usado pelo EHR em RpcSetRoleGlobal: ushort + bool.
-            // Evita RpcSetRole, que pode bloquear novas chamadas SetRole na partida.
-            try { alvo.SetRole(funcaoOriginal); } catch { }
-
+            // Não chamamos SetRole diretamente porque esse método é uma extensão
+            // do EHR e não existe na API vanilla referenciada por este projeto.
             MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
                 alvo.NetId, (byte)RpcCalls.SetRole, SendOption.Reliable);
             writer.Write((ushort)funcaoOriginal);
