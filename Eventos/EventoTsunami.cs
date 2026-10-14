@@ -52,9 +52,8 @@ internal sealed class EventoTsunami : EventoVotacao
     private static readonly Dictionary<byte, float> protegidos = new();
     private static readonly Dictionary<byte, int> dutosProtegidos = new();
 
-    private const string NomeOnda =
-        "<color=#0099d1><size=25><line-height=97%><cspace=0.16em><mark=#0099d1>W\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\n</mark></cspace></line-height></size></color>";
-
+    // Nome simples para testar a replicação do nome em clientes vanilla.
+    private const string NomeOnda = "TSUNAMI";
     public void Executar()
     {
         if (!YouTubeVoteBridgePlugin.EhHost() || AmongUsClient.Instance == null ||
