@@ -26,7 +26,7 @@ internal static class RegistroEventos
         new EventoReportarCorpo(),
         new EventoInverterControles(),
         new EventoTeleporteAleatorio(),
-        new EventoMatarJogadorAleatorio(),
+        new EventoSuicidioAleatorio(),
         new EventoReviverJogadorMorto(),
         new EventoPersonalizado()
     };
