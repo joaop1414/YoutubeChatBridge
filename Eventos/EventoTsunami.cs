@@ -114,81 +114,64 @@ internal sealed class EventoTsunami : EventoVotacao
         if (host == null || host.Data == null || indicador == null ||
             AmongUsClient.Instance == null) return;
 
+        indicador.CachedPlayerData = host.Data;
+
         try
         {
-            indicador.CachedPlayerData = host.Data;
-
-            try
+            // O corpo físico do prefab é ocultado de propósito: o tsunami é
+            // desenhado pelo texto do nome, como nos CustomNetObject do EHR.
+            var body = indicador.cosmetics?.currentBodySprite?.BodySprite;
+            if (body != null)
             {
-                var body = indicador.cosmetics?.currentBodySprite?.BodySprite;
-                if (body != null)
-                {
-                    PlayerMaterial.SetColors(0, body);
-                    body.color = Color.clear;
-                    body.enabled = true;
-                }
-
-                var textoCor = indicador.cosmetics?.colorBlindText;
-                if (textoCor != null)
-                    textoCor.color = Color.clear;
-            }
-            catch (Exception ex)
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "Tsunami: preparação do renderer falhou: " + ex.Message);
+                PlayerMaterial.SetColors(0, body);
+                body.color = Color.clear;
+                body.enabled = true;
             }
 
-            var outfit = host.Data.Outfits[PlayerOutfitType.Default];
-            string nomeOriginal = outfit.PlayerName;
-            int corOriginal = outfit.ColorId;
-            string chapeuOriginal = outfit.HatId;
-            string roupaOriginal = outfit.SkinId;
-            string mascoteOriginal = outfit.PetId;
-            string visorOriginal = outfit.VisorId;
-            string nomeSprite = "<size=14><br></size>" + NomeOnda;
+            var textoCor = indicador.cosmetics?.colorBlindText;
+            if (textoCor != null)
+                textoCor.color = Color.clear;
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "Tsunami: preparação do renderer falhou: " + ex.Message);
+        }
 
-            // Etapa 1: publicar o outfit temporário do host num pacote próprio.
-            // Separar os pacotes permite que cada cliente processe a atualização
-            // de GameData antes de receber o Shapeshift do objeto falso.
-            try
-            {
-                outfit.PlayerName = nomeSprite;
-                outfit.ColorId = 0;
-                outfit.HatId = "";
-                outfit.SkinId = "";
-                outfit.PetId = "";
-                outfit.VisorId = "";
+        var outfit = host.Data.Outfits[PlayerOutfitType.Default];
+        string nomeOriginal = outfit.PlayerName;
+        int corOriginal = outfit.ColorId;
+        string chapeuOriginal = outfit.HatId;
+        string roupaOriginal = outfit.SkinId;
+        string mascoteOriginal = outfit.PetId;
+        string visorOriginal = outfit.VisorId;
+        string nomeSprite = "<size=14><br></size>" + NomeOnda;
 
-                MessageWriter dadosTemporarios = MessageWriter.Get(SendOption.Reliable);
-                try
-                {
-                    dadosTemporarios.StartMessage(5);
-                    dadosTemporarios.Write(AmongUsClient.Instance.GameId);
-                    dadosTemporarios.StartMessage(1);
-                    dadosTemporarios.WritePacked(host.Data.NetId);
-                    host.Data.Serialize(dadosTemporarios, false);
-                    dadosTemporarios.EndMessage();
-                    dadosTemporarios.EndMessage();
-                    AmongUsClient.Instance.SendOrDisconnect(dadosTemporarios);
-                    dadosTemporarios = null;
-                }
-                finally
-                {
-                    dadosTemporarios?.Recycle();
-                }
-            }
-            finally
-            {
-                outfit.PlayerName = nomeOriginal;
-                outfit.ColorId = corOriginal;
-                outfit.HatId = chapeuOriginal;
-                outfit.SkinId = roupaOriginal;
-                outfit.PetId = mascoteOriginal;
-                outfit.VisorId = visorOriginal;
-            }
+        // IMPORTANTE: os três subpacotes precisam estar no MESMO GameData,
+        // exatamente como EHR CustomNetObject.RpcChangeSprite. Se a restauração
+        // chegar antes do Shapeshift, o indicador copia as roupas do host e os
+        // clientes vanilla continuam vendo Fortegreen/???.
+        MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
+        try
+        {
+            writer.StartMessage(5);
+            writer.Write(AmongUsClient.Instance.GameId);
 
-            // Etapa 2: enviar o Shapeshift num pacote separado, usando o helper
-            // oficial do Among Us para montar o RPC.
+            // 1) Publica temporariamente o nome que contém o sprite.
+            outfit.PlayerName = nomeSprite;
+            outfit.ColorId = 0;
+            outfit.HatId = "";
+            outfit.SkinId = "";
+            outfit.PetId = "";
+            outfit.VisorId = "";
+
+            writer.StartMessage(1);
+            writer.WritePacked(host.Data.NetId);
+            host.Data.Serialize(writer, false);
+            writer.EndMessage();
+
+            // O Shapeshift local precisa acontecer ENQUANTO o outfit temporário
+            // ainda está ativo; fazê-lo depois de restaurar copia as roupas.
             try
             {
                 indicador.Shapeshift(host, false);
@@ -199,41 +182,52 @@ internal sealed class EventoTsunami : EventoVotacao
                     "Tsunami: Shapeshift local falhou: " + ex.Message);
             }
 
-            MessageWriter rpc = AmongUsClient.Instance.StartRpcImmediately(
-                indicador.NetId, (byte)RpcCalls.Shapeshift, SendOption.Reliable);
-            rpc.WriteNetObject(host);
-            rpc.Write(false);
-            AmongUsClient.Instance.FinishRpcImmediately(rpc);
+            // 2) Shapeshift do objeto falso para os dados temporários do host.
+            writer.StartMessage(2);
+            writer.WritePacked(indicador.NetId);
+            writer.Write((byte)RpcCalls.Shapeshift);
+            writer.WriteNetObject(host);
+            writer.Write(false);
+            writer.EndMessage();
 
-            // Etapa 3: restaurar os dados reais do host num terceiro pacote.
-            MessageWriter restauracao = MessageWriter.Get(SendOption.Reliable);
-            try
-            {
-                restauracao.StartMessage(5);
-                restauracao.Write(AmongUsClient.Instance.GameId);
-                restauracao.StartMessage(1);
-                restauracao.WritePacked(host.Data.NetId);
-                host.Data.Serialize(restauracao, false);
-                restauracao.EndMessage();
-                restauracao.EndMessage();
-                AmongUsClient.Instance.SendOrDisconnect(restauracao);
-                restauracao = null;
-            }
-            finally
-            {
-                restauracao?.Recycle();
-            }
+            // 3) Restaura o jogador real dentro do MESMO pacote, depois do RPC.
+            outfit.PlayerName = nomeOriginal;
+            outfit.ColorId = corOriginal;
+            outfit.HatId = chapeuOriginal;
+            outfit.SkinId = roupaOriginal;
+            outfit.PetId = mascoteOriginal;
+            outfit.VisorId = visorOriginal;
+
+            writer.StartMessage(1);
+            writer.WritePacked(host.Data.NetId);
+            host.Data.Serialize(writer, false);
+            writer.EndMessage();
+
+            writer.EndMessage();
+            AmongUsClient.Instance.SendOrDisconnect(writer);
+            writer = null;
 
             CustomNetObject.EnviarPosicao(indicador, posicao);
-
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                $"Tsunami: aparência enviada em 3 etapas separadas; NetId={indicador.NetId}, " +
+                $"Tsunami: aparência enviada no pacote único do EHR; NetId={indicador.NetId}, " +
                 $"PlayerId={indicador.PlayerId}, nomeSprite={nomeSprite.Length} caracteres.");
         }
         catch (Exception ex)
         {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
                 "Tsunami: falha ao publicar a aparência do indicador: " + ex);
+        }
+        finally
+        {
+            // Garante que o outfit do host nunca fique modificado, mesmo se
+            // ocorrer uma exceção durante a montagem do pacote.
+            outfit.PlayerName = nomeOriginal;
+            outfit.ColorId = corOriginal;
+            outfit.HatId = chapeuOriginal;
+            outfit.SkinId = roupaOriginal;
+            outfit.PetId = mascoteOriginal;
+            outfit.VisorId = visorOriginal;
+            writer?.Recycle();
         }
     }
 
