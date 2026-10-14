@@ -91,15 +91,33 @@ internal sealed class EventoReviverJogadorMorto : EventoVotacao
                 tipoCliente.GetProperty("allClients", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?.GetValue(AmongUsClient.Instance) ??
                 tipoCliente.GetField("allClients", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?.GetValue(AmongUsClient.Instance);
 
-            if (!(colecao is IEnumerable clientes))
+            if (colecao == null)
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "Não foi possível enumerar clientes para sincronizar a ressurreição vanilla.");
+                    "Não foi possível encontrar a coleção de clientes para sincronizar a ressurreição vanilla.");
                 return;
             }
 
-            foreach (object cliente in clientes)
+            // A coleção pode ser um wrapper IL2CPP, que nem sempre implementa
+            // System.Collections.IEnumerable diretamente.
+            MethodInfo obterEnumerador = colecao.GetType().GetMethod("GetEnumerator",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            object enumerador = obterEnumerador?.Invoke(colecao, null);
+            if (enumerador == null)
             {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "A coleção de clientes não disponibilizou um enumerador.");
+                return;
+            }
+            Type tipoEnumerador = enumerador.GetType();
+            MethodInfo avancar = tipoEnumerador.GetMethod("MoveNext");
+            PropertyInfo atual = tipoEnumerador.GetProperty("Current");
+            if (avancar == null || atual == null)
+                return;
+
+            while ((bool)avancar.Invoke(enumerador, null))
+            {
+                object cliente = atual.GetValue(enumerador);
                 if (cliente == null) continue;
                 Type tipo = cliente.GetType();
                 object idObjeto =
