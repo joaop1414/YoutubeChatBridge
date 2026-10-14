@@ -35,13 +35,14 @@ internal static class CustomNetObject
                 "CustomNetObject: falha ao posicionar o objeto fora da tela antes do spawn: " + ex.Message);
         }
 
-        // Instantiate(PlayerPrefab) já reserva NetIds para PlayerControl,
-        // PlayerPhysics e NetworkTransform. Reservar apenas +1 fazia os três
-        // spawns auxiliares do Lobby reutilizarem esses NetIds (ex.: 54, 55, 56),
-        // gerando "Attempt to add duplicate net object ... LobbyBehaviour".
-        // Avançamos quatro posições: uma para o spawn e três para os auxiliares.
+        // O teste com +4 ainda produziu IDs auxiliares 31, 30 e 29,
+        // que colidiram com NetObjects já registrados pelo PlayerPrefab nesta
+        // versão do jogo. O log indica que o contador está três IDs atrás dos
+        // componentes criados pelo Instantiate; reservar sete posições coloca
+        // os três LobbyBehaviour acima do último ID do prefab.
+        // Mantemos o spawn auxiliar do EHR, mas com faixa de IDs não sobreposta.
         uint contadorAntes = AmongUsClient.Instance.NetIdCnt;
-        AmongUsClient.Instance.NetIdCnt += 4U;
+        AmongUsClient.Instance.NetIdCnt += 7U;
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             $"CustomNetObject: preparando spawn falso; NetId do PlayerControl={objeto.NetId}, " +
