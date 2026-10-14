@@ -1361,9 +1361,6 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 case "Um jogador aleatório comete suicídio":
                     new EventoSuicidioAleatorio().Executar();
                     break;
-                case "Reviver um jogador morto":
-                    new EventoReviverJogadorMorto().Executar();
-                    break;
                 case "Visão reduzida para todos por 20 segundos":
                     new EventoVisaoReduzida().Executar();
                     break;
@@ -1894,7 +1891,6 @@ public static class YouTubeVoteUpdatePatch
         DiagnosticoPlayerReal.Atualizar();
         JogadorRealExperimental.Atualizar();
         EventoTesteMenu.VerificarTecla();
-        EventoReviverJogadorMorto.RegistrarFuncoesVivas();
         EventoTesteMenu.ProcessarFilaExecucao();
         YouTubeVoteBridgePlugin.EnviarSinalModAoHost();
         YouTubeVoteBridgePlugin.AtualizarAvisos();
@@ -1908,7 +1904,6 @@ public static class YouTubeVoteUpdatePatch
         EventoVelocidadeJogadores.Atualizar();
         EventoTsunami.Atualizar();
         EventoVisaoReduzida.Atualizar();
-        EventoReviverJogadorMorto.AtualizarRestauracoesPendentes();
     }
 }
 
