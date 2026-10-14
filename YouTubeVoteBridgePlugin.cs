@@ -273,7 +273,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             writer.StartMessage(2);
             writer.WritePacked(remetente.NetId);
             writer.Write((byte)RpcCalls.SendChat);
-            writer.Write("\\n" + mensagem);
+            writer.Write("\n" + mensagem);
             writer.EndMessage();
 
             // RPC 3: restaura o nome original antes de encerrar o pacote.
@@ -288,10 +288,9 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             writer.EndMessage();
             AmongUsClient.Instance.SendOrDisconnect(writer);
         }
-        catch
+        finally
         {
             writer.Recycle();
-            throw;
         }
     }
 
