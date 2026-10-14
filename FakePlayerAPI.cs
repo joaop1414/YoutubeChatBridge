@@ -7,30 +7,17 @@ using UnityEngine;
 namespace YouTubeVoteBridge;
 
 /// <summary>
-/// API centralizada para criar, movimentar e destruir PlayerControls artificiais
-/// no host, reutilizando o mecanismo de rede existente em CustomNetObject.
-/// 
-/// IMPORTANTE:
-/// - Executar somente no host e durante uma partida iniciada.
-/// - Um PlayerControl artificial não é uma conexão real nem um bot completo.
-/// - Esta API cuida do objeto/rede; a aparência personalizada deve ser aplicada
-///   separadamente e testada na versão exata do Among Us.
+/// API para criar e controlar PlayerControls artificiais para clientes vanilla.
 /// </summary>
 public static class FakePlayerAPI
 {
-    /// <summary>
-    /// ID artificial usado pelo mecanismo atual do YouTubeVoteBridge/EHR.
-    /// Não representa um jogador conectado.
-    /// </summary>
     public const byte PlayerIdFalso = 254;
-
     private static readonly HashSet<PlayerControl> ObjetosCriados = new();
 
     /// <summary>
-    /// Cria um PlayerControl artificial e tenta associá-lo aos clientes remotos.
-    /// Retorna null se não for possível iniciar a criação.
+    /// Cria personagem artificial. Nome e cor são enviados por RPC após a associação.
     /// </summary>
-    public static PlayerControl Criar(Vector2 posicaoInicial)
+    public static PlayerControl Criar(Vector2 posicaoInicial, string nome = "Bot", byte corId = 0)
     {
         if (!PodeCriar(out string motivo))
         {
@@ -39,64 +26,44 @@ public static class FakePlayerAPI
         }
 
         PlayerControl falso = null;
-
         try
         {
             falso = UnityEngine.Object.Instantiate(
-                AmongUsClient.Instance.PlayerPrefab,
-                Vector2.zero,
-                Quaternion.identity);
+                AmongUsClient.Instance.PlayerPrefab, Vector2.zero, Quaternion.identity);
 
             falso.PlayerId = PlayerIdFalso;
             falso.isNew = false;
             falso.notRealPlayer = true;
+            falso.NetTransform.SnapTo(new Vector2(50f, 50f));
 
-            // Mantém o prefab fora da área visível até os clientes receberem
-            // a sequência de spawn/associação.
-            try
-            {
-                falso.NetTransform.SnapTo(new Vector2(50f, 50f));
-            }
-            catch (Exception ex)
-            {
-                LogAviso("Não foi possível posicionar o objeto antes do spawn: " + ex.Message);
-            }
-
-            // Reutiliza o código de rede que já existe no projeto.
             CustomNetObject.EnviarSpawn(falso);
             ObjetosCriados.Add(falso);
 
             int associados = CustomNetObject.AssociarClientes(falso, PlayerIdFalso);
-            LogInfo($"PlayerControl artificial criado. NetId={falso.NetId}; clientes associados={associados}.");
+            LogInfo($"Spawn enviado. NetId={falso.NetId}; clientes associados={associados}.");
 
-            // Posiciona após enviar o spawn e a associação.
-            Mover(falso, posicaoInicial);
+            // Corrige a causa mais provável de Fortegreen/???:
+            // a API antiga não enviava nome nem cor aos clientes vanilla.
+            CustomNetObject.EnviarAparencia(falso, nome, corId);
+
+            if (!Mover(falso, posicaoInicial))
+                LogAviso("O personagem foi criado, mas a posição não pôde ser sincronizada.");
+
             return falso;
         }
         catch (Exception ex)
         {
             LogErro("Falha ao criar PlayerControl artificial: " + ex);
-
             if (falso != null)
                 DestruirInterno(falso, enviarRemocao: false);
-
             return null;
         }
     }
 
-    /// <summary>
-    /// Atualiza a posição de um objeto criado por esta API e envia a alteração
-    /// aos clientes pelo mecanismo de sincronização existente.
-    /// </summary>
     public static bool Mover(PlayerControl falso, Vector2 novaPosicao)
     {
-        if (!EhObjetoGerenciado(falso))
-        {
-            LogAviso("Mover ignorado: o objeto não foi criado pela FakePlayerAPI.");
-            return false;
-        }
-
-        if (AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost)
+        if (!EhObjetoGerenciado(falso) ||
+            AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost)
             return false;
 
         try
@@ -106,84 +73,44 @@ public static class FakePlayerAPI
         }
         catch (Exception ex)
         {
-            LogErro("Falha ao mover PlayerControl artificial: " + ex);
+            LogErro("Falha ao mover personagem artificial: " + ex);
             return false;
         }
     }
 
-    /// <summary>
-    /// Remove um objeto artificial criado por esta API.
-    /// </summary>
     public static bool Destruir(PlayerControl falso)
     {
-        if (!EhObjetoGerenciado(falso))
-            return false;
-
-        if (AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost)
+        if (!EhObjetoGerenciado(falso) ||
+            AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost)
             return false;
 
         return DestruirInterno(falso, enviarRemocao: true);
     }
 
-    /// <summary>
-    /// Destrói todos os objetos artificiais que ainda estiverem registrados.
-    /// </summary>
     public static void DestruirTodos()
     {
         if (AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost)
             return;
 
-        var copia = new List<PlayerControl>(ObjetosCriados);
-        foreach (PlayerControl falso in copia)
+        foreach (PlayerControl falso in new List<PlayerControl>(ObjetosCriados))
             DestruirInterno(falso, enviarRemocao: true);
     }
 
-    /// <summary>
-    /// Informa quantos objetos artificiais esta API mantém registrados localmente.
-    /// </summary>
     public static int Quantidade => ObjetosCriados.Count;
 
     private static bool PodeCriar(out string motivo)
     {
         motivo = null;
-
-        if (AmongUsClient.Instance == null)
-        {
-            motivo = "AmongUsClient.Instance é null.";
-            return false;
-        }
-
-        if (!AmongUsClient.Instance.AmHost)
-        {
-            motivo = "somente o host pode criar objetos artificiais.";
-            return false;
-        }
-
-        if (PlayerControl.LocalPlayer == null)
-        {
-            motivo = "PlayerControl.LocalPlayer é null.";
-            return false;
-        }
-
-        if (AmongUsClient.Instance.PlayerPrefab == null)
-        {
-            motivo = "PlayerPrefab não foi encontrado.";
-            return false;
-        }
-
-        if (GameManager.Instance == null || ShipStatus.Instance == null)
-        {
-            motivo = "a partida ainda não está carregada.";
-            return false;
-        }
-
-        return true;
+        if (AmongUsClient.Instance == null) motivo = "AmongUsClient.Instance é null.";
+        else if (!AmongUsClient.Instance.AmHost) motivo = "somente o host pode criar personagens artificiais.";
+        else if (PlayerControl.LocalPlayer == null) motivo = "PlayerControl.LocalPlayer é null.";
+        else if (AmongUsClient.Instance.PlayerPrefab == null) motivo = "PlayerPrefab não foi encontrado.";
+        else if (GameManager.Instance == null || ShipStatus.Instance == null) motivo = "a partida ainda não está carregada.";
+        return motivo == null;
     }
 
-    private static bool EhObjetoGerenciado(PlayerControl falso)
-    {
-        return falso != null && ObjetosCriados.Contains(falso);
-    }
+    private static bool EhObjetoGerenciado(PlayerControl falso) =>
+        falso != null && ObjetosCriados.Contains(falso);
 
     private static bool DestruirInterno(PlayerControl falso, bool enviarRemocao)
     {
@@ -194,38 +121,31 @@ public static class FakePlayerAPI
         }
 
         bool sucesso = true;
+        uint netId = falso.NetId;
 
         try
         {
-            if (enviarRemocao && AmongUsClient.Instance != null &&
-                AmongUsClient.Instance.AmHost)
+            if (enviarRemocao && AmongUsClient.Instance != null && AmongUsClient.Instance.AmHost)
             {
-                // Mensagem de remoção no formato usado pelo CustomNetObject do EHR.
                 MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
-
                 try
                 {
                     writer.StartMessage(5);
                     writer.Write(AmongUsClient.Instance.GameId);
-
                     writer.StartMessage(5);
-                    writer.WritePacked(falso.NetId);
+                    writer.WritePacked(netId);
                     writer.EndMessage();
-
                     writer.EndMessage();
                     AmongUsClient.Instance.SendOrDisconnect(writer);
                     writer = null;
                 }
-                finally
-                {
-                    writer?.Recycle();
-                }
+                finally { writer?.Recycle(); }
             }
         }
         catch (Exception ex)
         {
             sucesso = false;
-            LogErro("Falha ao enviar remoção do PlayerControl artificial: " + ex);
+            LogErro("Falha ao enviar remoção: " + ex);
         }
 
         try
@@ -233,49 +153,25 @@ public static class FakePlayerAPI
             if (PlayerControl.AllPlayerControls.Contains(falso))
                 PlayerControl.AllPlayerControls.Remove(falso);
         }
-        catch (Exception ex)
-        {
-            LogAviso("Falha ao remover objeto de AllPlayerControls: " + ex.Message);
-        }
+        catch (Exception ex) { LogAviso("Falha ao remover de AllPlayerControls: " + ex.Message); }
 
-        try
-        {
-            if (AmongUsClient.Instance != null)
-                AmongUsClient.Instance.RemoveNetObject(falso);
-        }
-        catch (Exception ex)
-        {
-            sucesso = false;
-            LogAviso("Falha ao remover objeto da tabela de rede: " + ex.Message);
-        }
+        try { AmongUsClient.Instance?.RemoveNetObject(falso); }
+        catch (Exception ex) { sucesso = false; LogAviso("Falha ao remover NetObject: " + ex.Message); }
 
-        try
-        {
-            UnityEngine.Object.Destroy(falso.gameObject);
-        }
-        catch (Exception ex)
-        {
-            sucesso = false;
-            LogAviso("Falha ao destruir GameObject: " + ex.Message);
-        }
+        try { UnityEngine.Object.Destroy(falso.gameObject); }
+        catch (Exception ex) { sucesso = false; LogAviso("Falha ao destruir GameObject: " + ex.Message); }
 
         ObjetosCriados.Remove(falso);
-        LogInfo($"PlayerControl artificial removido. NetId={falso.NetId}.");
+        LogInfo($"Personagem artificial removido. NetId={netId}.");
         return sucesso;
     }
 
-    private static void LogInfo(string mensagem)
-    {
+    private static void LogInfo(string mensagem) =>
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo("[FakePlayerAPI] " + mensagem);
-    }
 
-    private static void LogAviso(string mensagem)
-    {
+    private static void LogAviso(string mensagem) =>
         YouTubeVoteBridgePlugin.Instance?.Log.LogWarning("[FakePlayerAPI] " + mensagem);
-    }
 
-    private static void LogErro(string mensagem)
-    {
+    private static void LogErro(string mensagem) =>
         YouTubeVoteBridgePlugin.Instance?.Log.LogError("[FakePlayerAPI] " + mensagem);
-    }
 }
