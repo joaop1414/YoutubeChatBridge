@@ -226,6 +226,60 @@ internal static class DiagnosticoPlayerReal
     }
 }
 
+[HarmonyPatch]
+internal static class DiagnosticoPlayerRealChamadasPatch
+{
+    private static readonly string[] MetodosObservados =
+    {
+        "Awake", "Start", "Deserialize", "SetName", "RpcSetName",
+        "SetColor", "RpcSetColor", "Shapeshift", "Serialize",
+        "SetPlayerName", "SetOutfit", "HandleRpc"
+    };
+
+    public static IEnumerable<MethodBase> TargetMethods()
+    {
+        var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+        foreach (MethodInfo metodo in typeof(PlayerControl).GetMethods(flags))
+        {
+            if (Array.IndexOf(MetodosObservados, metodo.Name) >= 0)
+                yield return metodo;
+        }
+    }
+
+    public static void Prefix(object __instance, object[] __args, MethodBase __originalMethod)
+    {
+        if (!DiagnosticoPlayerReal.Ativo)
+            return;
+
+        try
+        {
+            var args = new List<string>();
+            if (__args != null)
+            {
+                foreach (object arg in __args)
+                {
+                    if (arg == null) args.Add("null");
+                    else if (arg is string || arg.GetType().IsPrimitive || arg.GetType().IsEnum)
+                        args.Add(arg.GetType().Name + "=" + arg);
+                    else
+                        args.Add(arg.GetType().FullName);
+                }
+            }
+
+            string identificacao = __instance is PlayerControl p
+                ? " PlayerId=" + p.PlayerId + "; NetId=" + p.NetId +
+                  "; DataName='" + (p.Data?.PlayerName ?? "<null>") + "'"
+                : "";
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[DIAG-PLAYER-REAL][CALL] " + __originalMethod.DeclaringType?.FullName +
+                "." + __originalMethod.Name + "(" + string.Join(", ", args) + ")" +
+                ";" + identificacao);
+        }
+        catch { }
+    }
+}
+
 [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.HandleRpc))]
 internal static class DiagnosticoPlayerRealRpcPatch
 {
