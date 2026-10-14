@@ -15,6 +15,18 @@ public static class FakePlayerAPI
     public const byte PlayerIdFalso = 253;
     private static readonly HashSet<PlayerControl> ObjetosCriados = new();
 
+    private sealed class CriacaoPendente
+    {
+        public PlayerControl Falso;
+        public Vector2 Posicao;
+        public string Nome;
+        public byte CorId;
+        public float ExecutarEm;
+        public int Etapa;
+    }
+
+    private static readonly List<CriacaoPendente> CriacoesPendentes = new();
+
     /// <summary>
     /// Cria personagem artificial. Nome e cor são enviados por RPC após a associação.
     /// </summary>
@@ -42,10 +54,17 @@ public static class FakePlayerAPI
             ObjetosCriados.Add(falso);
             LogDiagnostico("DEPOIS DO SPAWN", falso, nome, corId);
 
-            // O EHR espera 0,1 s após o spawn antes de associar os clientes.
-            // Não fazer spawn + associação no mesmo frame.
-            AmongUsClient.Instance.StartCoroutine(
-                FinalizarCriacaoAposSpawn(falso, posicaoInicial, nome, corId));
+            // O IL2CPP desta versão expõe StartCoroutine(string), não
+            // StartCoroutine(IEnumerator). Agendamos as etapas pelo Update.
+            CriacoesPendentes.Add(new CriacaoPendente
+            {
+                Falso = falso,
+                Posicao = posicaoInicial,
+                Nome = nome,
+                CorId = corId,
+                ExecutarEm = Time.realtimeSinceStartup + 0.1f,
+                Etapa = 0
+            });
 
             return falso;
         }
@@ -58,52 +77,71 @@ public static class FakePlayerAPI
         }
     }
 
-    private static IEnumerator FinalizarCriacaoAposSpawn(
-        PlayerControl falso, Vector2 posicaoInicial, string nome, byte corId)
+    /// <summary>
+    /// Processa a criação em etapas temporizadas no thread principal do Unity.
+    /// Chamado pelo patch de AmongUsClient.Update.
+    /// </summary>
+    public static void Atualizar()
     {
-        // Mesmos intervalos do EHR: 0,1 s para o spawn ser processado,
-        // associação individual por cliente e mais 0,15 s antes do Shapeshift.
-        yield return new UnityEngine.WaitForSecondsRealtime(0.1f);
+        if (CriacoesPendentes.Count == 0)
+            return;
 
-        if (falso == null || !ObjetosCriados.Contains(falso) ||
-            AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost)
-            yield break;
+        if (AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost)
+            return;
 
-        bool associacaoOk = true;
-        try
+        float agora = Time.realtimeSinceStartup;
+
+        for (int i = CriacoesPendentes.Count - 1; i >= 0; i--)
         {
-            int associados = CustomNetObject.AssociarClientes(falso, PlayerIdFalso);
-            LogInfo($"Associação concluída. NetId={falso.NetId}; clientes associados={associados}.");
-            LogDiagnostico("DEPOIS DA ASSOCIACAO", falso, nome, corId);
-        }
-        catch (Exception ex)
-        {
-            associacaoOk = false;
-            LogErro("Falha ao associar o personagem falso aos clientes: " + ex);
-        }
+            CriacaoPendente pendente = CriacoesPendentes[i];
+            if (agora < pendente.ExecutarEm)
+                continue;
 
-        if (!associacaoOk)
-            yield break;
+            PlayerControl falso = pendente.Falso;
+            if (falso == null || !ObjetosCriados.Contains(falso))
+            {
+                CriacoesPendentes.RemoveAt(i);
+                continue;
+            }
 
-        yield return new UnityEngine.WaitForSecondsRealtime(0.15f);
+            if (pendente.Etapa == 0)
+            {
+                try
+                {
+                    int associados = CustomNetObject.AssociarClientes(falso, PlayerIdFalso);
+                    LogInfo($"Associação concluída. NetId={falso.NetId}; clientes associados={associados}.");
+                    LogDiagnostico("DEPOIS DA ASSOCIACAO", falso, pendente.Nome, pendente.CorId);
 
-        if (falso == null || !ObjetosCriados.Contains(falso) ||
-            AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost)
-            yield break;
+                    pendente.Etapa = 1;
+                    pendente.ExecutarEm = agora + 0.15f;
+                }
+                catch (Exception ex)
+                {
+                    LogErro("Falha ao associar o personagem falso aos clientes: " + ex);
+                    CriacoesPendentes.RemoveAt(i);
+                }
 
-        try
-        {
-            CustomNetObject.EnviarAparencia(falso, nome, corId);
-            LogDiagnostico("DEPOIS DE ENVIAR APARENCIA", falso, nome, corId);
+                continue;
+            }
 
-            if (!Mover(falso, posicaoInicial))
-                LogAviso("O personagem foi criado, mas a posição não pôde ser sincronizada.");
+            try
+            {
+                CustomNetObject.EnviarAparencia(falso, pendente.Nome, pendente.CorId);
+                LogDiagnostico("DEPOIS DE ENVIAR APARENCIA", falso, pendente.Nome, pendente.CorId);
 
-            LogDiagnostico("FINAL DA CRIACAO", falso, nome, corId);
-        }
-        catch (Exception ex)
-        {
-            LogErro("Falha ao finalizar a aparência/posição do personagem falso: " + ex);
+                if (!Mover(falso, pendente.Posicao))
+                    LogAviso("O personagem foi criado, mas a posição não pôde ser sincronizada.");
+
+                LogDiagnostico("FINAL DA CRIACAO", falso, pendente.Nome, pendente.CorId);
+            }
+            catch (Exception ex)
+            {
+                LogErro("Falha ao finalizar a aparência/posição do personagem falso: " + ex);
+            }
+            finally
+            {
+                CriacoesPendentes.RemoveAt(i);
+            }
         }
     }
 
@@ -209,6 +247,7 @@ public static class FakePlayerAPI
         catch (Exception ex) { sucesso = false; LogAviso("Falha ao destruir GameObject: " + ex.Message); }
 
         ObjetosCriados.Remove(falso);
+        CriacoesPendentes.RemoveAll(p => p.Falso == falso);
         LogInfo($"Personagem artificial removido. NetId={netId}.");
         return sucesso;
     }
