@@ -25,7 +25,6 @@ internal static class RegistroEventos
         new EventoTrocarIdentidades(),
         new EventoEscudoTemporario(),
         new EventoCriarCorpoFalso(),
-        new EventoNpcSeguidor(),
         new EventoTsunami(),
         new EventoReportarCorpo(),
         new EventoInverterControles(),
