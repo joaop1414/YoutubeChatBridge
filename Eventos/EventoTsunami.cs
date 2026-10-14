@@ -16,6 +16,7 @@ internal sealed class EventoTsunami : EventoVotacao
     public override string Nome => "Tsunami";
     public static bool Ativo => ativo;
     public static bool AvisoAtivo => ativo || avisoLocalAtivo;
+    public static bool FlashReatorCianoAtivo => ativo && flashReatorCianoAtivo;
     private const byte PlayerIdIndicador = 254;
     private const float Velocidade = 3.0f;
     private const float Intervalo = 0.08f;
@@ -38,6 +39,7 @@ internal sealed class EventoTsunami : EventoVotacao
     private static float proximaSabotagem;
     private static float repararReatorAte;
     private static bool reparoPendente;
+    private static bool flashReatorCianoAtivo;
     private static readonly Dictionary<byte, string> nomesOriginais = new();
     private static readonly HashSet<byte> nomesAlteradosRede = new();
     private static readonly HashSet<byte> atingidos = new();
@@ -98,6 +100,7 @@ internal sealed class EventoTsunami : EventoVotacao
             proximaAtualizacaoAvisoRede = 0f;
             proximaSabotagem = Time.realtimeSinceStartup + AtrasoInicialReator;
             reparoPendente = false;
+            flashReatorCianoAtivo = false;
             proximaAtualizacao = Time.realtimeSinceStartup;
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 "Tsunami iniciado. Indicador visual separado dos jogadores reais.");
@@ -376,7 +379,13 @@ internal sealed class EventoTsunami : EventoVotacao
 
             if (atingidos.Contains(jogador.PlayerId)) continue;
             Vector2 p = jogador.GetTruePosition();
-            if (Mathf.Abs(p.x - posicao.x) > Alcance)
+
+            // A entrada no duto é antecipada sem antecipar o dano:
+            // jogadores à frente da onda ganham uma janela extra para se esconder,
+            // mas só são atingidos quando a onda chega ao alcance normal.
+            float distanciaX = p.x - posicao.x;
+            const float AlcanceAntecipadoDuto = 1.35f;
+            if (distanciaX < -Alcance || distanciaX > AlcanceAntecipadoDuto)
                 continue;
 
             bool entrouNoDuto = false;
@@ -398,6 +407,9 @@ internal sealed class EventoTsunami : EventoVotacao
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning("Tsunami: falha ao entrar no duto: " + ex.Message);
             }
             if (entrouNoDuto) continue;
+
+            if (Mathf.Abs(distanciaX) > Alcance)
+                continue;
 
             try
             {
@@ -697,6 +709,8 @@ internal sealed class EventoTsunami : EventoVotacao
 
                 navio.RpcUpdateSystem(SystemTypes.Reactor, 16);
                 navio.RpcUpdateSystem(SystemTypes.Reactor, 17);
+                flashReatorCianoAtivo = false;
+                FlashOverlay.DefinirFlashTsunami(false);
                 reparoPendente = false;
                 proximaSabotagem = agora + IntervaloCicloReator;
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
@@ -714,6 +728,7 @@ internal sealed class EventoTsunami : EventoVotacao
             sistema.Timer = 0f;
             sistema.IsDirty = true;
             navio.RpcUpdateSystem(SystemTypes.Sabotage, (byte)SystemTypes.Reactor);
+            flashReatorCianoAtivo = true;
             reparoPendente = true;
             repararReatorAte = agora + 0.5f;
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
@@ -752,7 +767,7 @@ internal sealed class EventoTsunami : EventoVotacao
             return new Vector2(-10f, 0f);
 
         Vector2 posicaoJogador = maisAtras.GetTruePosition();
-        const float DistanciaAtras = 1.75f;
+        const float DistanciaAtras = 2.4f;
         return new Vector2(posicaoJogador.x - DistanciaAtras, posicaoJogador.y);
     }
 
@@ -842,6 +857,8 @@ internal sealed class EventoTsunami : EventoVotacao
         ativo = false;
         avisoLocalAtivo = false;
         reparoPendente = false;
+        flashReatorCianoAtivo = false;
+        FlashOverlay.DefinirFlashTsunami(false);
         RestaurarAvisoNomes();
         protegidos.Clear();
         dutosProtegidos.Clear();
@@ -933,8 +950,8 @@ internal sealed class EventoTsunami : EventoVotacao
     }
 }
 
-// Durante o tsunami, bloqueia o flash vermelho padrão e usa um overlay ciano
-// separado do FullScreen do HUD, que o jogo pode desativar a qualquer momento.
+// O flash ciano substitui o vermelho durante o tsunami, mas só fica ativo
+// enquanto a sabotagem do reator está realmente em andamento.
 [HarmonyPatch(typeof(HudManager), nameof(HudManager.StartReactorFlash))]
 internal static class EventoTsunamiFlashReatorPatch
 {
@@ -943,7 +960,7 @@ internal static class EventoTsunamiFlashReatorPatch
         if (!EventoTsunami.AvisoAtivo)
             return true;
 
-        if (__instance.ReactorFlash == null)
+        if (EventoTsunami.FlashReatorCianoAtivo && __instance.ReactorFlash == null)
             __instance.ReactorFlash = __instance.StartCoroutine(FlashCiano().WrapToIl2Cpp());
         return false;
     }
@@ -954,21 +971,21 @@ internal static class EventoTsunamiFlashReatorPatch
             yield break;
 
         HudManager hud = HudManager.Instance;
-        WaitForSeconds espera = new WaitForSeconds(0.35f);
+        WaitForSeconds espera = new WaitForSeconds(0.25f);
         bool mostrar = true;
-        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo("Tsunami: flash ciano independente iniciado.");
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo("Tsunami: flash ciano sincronizado com a sabotagem do reator.");
 
-        while (EventoTsunami.AvisoAtivo)
+        while (EventoTsunami.FlashReatorCianoAtivo)
         {
             if (hud == null) break;
             FlashOverlay.DefinirFlashTsunami(mostrar);
-            mostrar = !mostrar;
             try
             {
-                if (ShipStatus.Instance != null && SoundManager.Instance != null)
+                if (mostrar && ShipStatus.Instance != null && SoundManager.Instance != null)
                     SoundManager.Instance.PlaySound(ShipStatus.Instance.SabotageSound, false, 1f);
             }
             catch { }
+            mostrar = !mostrar;
             yield return espera;
         }
 
@@ -984,6 +1001,12 @@ internal static class EventoTsunamiFlashReatorCorPatch
     public static void Postfix(HudManager __instance)
     {
         if (!EventoTsunami.AvisoAtivo || __instance == null)
+        {
+            FlashOverlay.DefinirFlashTsunami(false);
+            return;
+        }
+
+        if (!EventoTsunami.FlashReatorCianoAtivo)
         {
             FlashOverlay.DefinirFlashTsunami(false);
             return;
