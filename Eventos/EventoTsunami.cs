@@ -935,8 +935,8 @@ internal sealed class EventoTsunami : EventoVotacao
     }
 }
 
-// O flash padrão do jogo usa vermelho fixo. Durante o tsunami, substituímos
-// apenas o flash do reator por ciano nos clientes que têm este mod.
+// Durante o tsunami, bloqueia o flash vermelho padrão e usa um overlay ciano
+// separado do FullScreen do HUD, que o jogo pode desativar a qualquer momento.
 [HarmonyPatch(typeof(HudManager), nameof(HudManager.StartReactorFlash))]
 internal static class EventoTsunamiFlashReatorPatch
 {
@@ -956,26 +956,15 @@ internal static class EventoTsunamiFlashReatorPatch
             yield break;
 
         HudManager hud = HudManager.Instance;
-        WaitForSeconds espera = new WaitForSeconds(0.5f);
-        if (hud.FullScreen == null)
-        {
-            hud.ReactorFlash = null;
-            yield break;
-        }
-
-        hud.FullScreen.color = new Color(0f, 1f, 1f, 0.37254903f);
-        hud.FullScreen.enabled = true;
+        WaitForSeconds espera = new WaitForSeconds(0.35f);
         bool mostrar = true;
-        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo("Tsunami: flash ciano iniciado.");
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo("Tsunami: flash ciano independente iniciado.");
 
         while (EventoTsunami.AvisoAtivo)
         {
-            if (hud == null || hud.FullScreen == null)
-                break;
-
+            if (hud == null) break;
+            FlashOverlay.DefinirFlashTsunami(mostrar);
             mostrar = !mostrar;
-            hud.FullScreen.color = new Color(0f, 1f, 1f, 0.37254903f);
-            hud.FullScreen.enabled = mostrar;
             try
             {
                 if (ShipStatus.Instance != null && SoundManager.Instance != null)
@@ -985,12 +974,11 @@ internal static class EventoTsunamiFlashReatorPatch
             yield return espera;
         }
 
-        if (hud != null && hud.FullScreen != null)
-            hud.FullScreen.enabled = false;
-        hud.ReactorFlash = null;
+        FlashOverlay.DefinirFlashTsunami(false);
+        if (hud != null)
+            hud.ReactorFlash = null;
     }
 }
-
 
 [HarmonyPatch(typeof(HudManager), nameof(HudManager.Update))]
 internal static class EventoTsunamiFlashReatorCorPatch
@@ -998,7 +986,10 @@ internal static class EventoTsunamiFlashReatorCorPatch
     public static void Postfix(HudManager __instance)
     {
         if (!EventoTsunami.AvisoAtivo || __instance == null)
+        {
+            FlashOverlay.DefinirFlashTsunami(false);
             return;
+        }
 
         try
         {
@@ -1010,8 +1001,5 @@ internal static class EventoTsunamiFlashReatorCorPatch
             YouTubeVoteBridgePlugin.Instance?.Log.LogDebug(
                 "Tsunami: não foi possível iniciar o flash ciano: " + ex.Message);
         }
-
-        if (__instance.ReactorFlash != null && __instance.FullScreen != null)
-            __instance.FullScreen.color = new Color(0f, 1f, 1f, 0.37254903f);
     }
 }
