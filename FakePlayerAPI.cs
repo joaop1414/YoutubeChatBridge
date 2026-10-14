@@ -69,6 +69,7 @@ public static class FakePlayerAPI
             AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost)
             yield break;
 
+        bool associacaoOk = true;
         try
         {
             int associados = CustomNetObject.AssociarClientes(falso, PlayerIdFalso);
@@ -77,9 +78,12 @@ public static class FakePlayerAPI
         }
         catch (Exception ex)
         {
+            associacaoOk = false;
             LogErro("Falha ao associar o personagem falso aos clientes: " + ex);
-            yield break;
         }
+
+        if (!associacaoOk)
+            yield break;
 
         yield return new UnityEngine.WaitForSecondsRealtime(0.15f);
 
