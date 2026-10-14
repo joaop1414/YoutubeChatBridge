@@ -12,7 +12,7 @@ namespace YouTubeVoteBridge
     {
         private const string PREFIX = "YTVB_LOBBY_";
         private const string CABECALHO = PREFIX + "CABECALHO";
-        private static GameOptionsMenu menuAtual;
+        private static CategoryHeaderMasked cabecalhoAtual;
 
         public static void Postfix(GameOptionsMenu __instance)
         {
@@ -23,7 +23,10 @@ namespace YouTubeVoteBridge
                     settingMenu == null || __instance != settingMenu.GameSettingsTab)
                     return;
 
-                menuAtual = __instance;
+                var headerExistente = __instance.GetComponentsInChildren<CategoryHeaderMasked>(true)
+                    .FirstOrDefault(x => x != null && x.name == CABECALHO);
+                if (headerExistente != null)
+                    cabecalhoAtual = headerExistente;
 
                 var existentes = __instance.GetComponentsInChildren<StringOption>(true)
                     .Where(x => x != null && x.name != null && x.name.StartsWith(PREFIX))
@@ -45,6 +48,7 @@ namespace YouTubeVoteBridge
                         if (!encontrado)
                             __instance.Children.Add(existente);
                     }
+                    GarantirCabecalho(__instance, cabecalhoAtual);
                     AtualizarControles(__instance);
                     return;
                 }
@@ -71,9 +75,11 @@ namespace YouTubeVoteBridge
                         y = Math.Min(y, child.transform.localPosition.y - 0.52f);
                 }
 
-                // Linha de título da categoria dentro do painel Jogo.
-                CriarControle(__instance, modelo, "YouTubeVoteBridge", CABECALHO, y, true);
-                y -= 0.52f;
+                // Usa o componente nativo de cabeçalho de categoria do Among Us.
+                GarantirCabecalho(__instance, null);
+                if (cabecalhoAtual != null)
+                    cabecalhoAtual.transform.localPosition = new Vector3(-0.903f, y, -2f);
+                y -= 0.72f;
 
                 CriarControle(__instance, modelo, "Tempo da votação", PREFIX + "TEMPO", y);
                 y -= 0.52f;
@@ -86,7 +92,7 @@ namespace YouTubeVoteBridge
                     __instance.scrollBar.SetYBoundsMax(Math.Max(6f, -y + 2f));
 
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "Configurações do YouTubeVoteBridge adicionadas ao painel Jogo.");
+                    "Categoria e configurações do YouTubeVoteBridge adicionadas ao painel Jogo.");
             }
             catch (Exception ex)
             {
@@ -96,8 +102,7 @@ namespace YouTubeVoteBridge
         }
 
         private static void CriarControle(
-            GameOptionsMenu menu, StringOption modelo, string titulo, string nome, float y,
-            bool cabecalho = false)
+            GameOptionsMenu menu, StringOption modelo, string titulo, string nome, float y)
         {
             StringOption controle = UnityEngine.Object.Instantiate(modelo, menu.settingsContainer);
             controle.name = nome;
@@ -109,25 +114,39 @@ namespace YouTubeVoteBridge
             controle.OnValueChanged = new Action<OptionBehaviour>(_ => { });
             controle.Value = 0;
             controle.oldValue = 0;
-            controle.ValueText.text = cabecalho ? "" : "0 s";
-
-            // O cabeçalho é apenas visual; desativa o texto de valor e não permite ajuste.
-            if (cabecalho)
-                controle.ValueText.gameObject.SetActive(false);
+            controle.ValueText.text = "0 s";
 
             menu.Children.Add(controle);
         }
 
-        internal static bool EhControle(StringOption option)
+        private static void GarantirCabecalho(GameOptionsMenu menu, CategoryHeaderMasked existente)
         {
-            return option != null && option.name != null &&
-                option.name.StartsWith(PREFIX) && option.name != CABECALHO;
+            if (menu == null)
+                return;
+
+            if (existente != null)
+                cabecalhoAtual = existente;
+
+            if (cabecalhoAtual == null)
+            {
+                cabecalhoAtual = UnityEngine.Object.Instantiate(
+                    menu.categoryHeaderOrigin, menu.settingsContainer);
+                cabecalhoAtual.name = CABECALHO;
+                cabecalhoAtual.SetHeader(StringNames.Name, GameOptionsMenu.MASK_LAYER);
+                cabecalhoAtual.Title.text = "YouTubeVoteBridge";
+                cabecalhoAtual.transform.localScale = Vector3.one * 0.63f;
+            }
+
+            cabecalhoAtual.Title.text = "YouTubeVoteBridge";
+            cabecalhoAtual.gameObject.SetActive(YouTubeVoteBridgePlugin.EhHost());
         }
 
-        internal static bool EhCabecalho(StringOption option)
+        internal static bool EhControle(StringOption option)
         {
-            return option != null && option.name == CABECALHO;
+            return option != null && option.name != null && option.name.StartsWith(PREFIX);
         }
+
+        internal static bool EhCabecalho(StringOption option) => false;
 
         internal static void Alterar(StringOption option, int delta)
         {
@@ -167,18 +186,11 @@ namespace YouTubeVoteBridge
                 return;
 
             bool host = YouTubeVoteBridgePlugin.EhHost();
+            if (cabecalhoAtual != null)
+                cabecalhoAtual.gameObject.SetActive(host);
             foreach (OptionBehaviour item in menu.Children)
             {
                 StringOption option = item as StringOption;
-                if (EhCabecalho(option))
-                {
-                    option.gameObject.SetActive(host);
-                    option.TitleText.text = "YouTubeVoteBridge";
-                    if (option.ValueText != null)
-                        option.ValueText.gameObject.SetActive(false);
-                    continue;
-                }
-
                 if (!EhControle(option))
                     continue;
 
