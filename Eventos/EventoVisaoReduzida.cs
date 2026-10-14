@@ -12,11 +12,15 @@ internal sealed class EventoVisaoReduzida : EventoVotacao
     private const float DuracaoSegundos = 20f;
     private const float MultiplicadorVisao = 0.15f;
     private const float IntervaloReenvio = 0.75f;
+    private const float IntervaloRestauracao = 0.5f;
+    private const float DuracaoTentativasRestauracao = 3f;
 
     private static float? VisaoTripulanteOriginal;
     private static float? VisaoImpostorOriginal;
     private static float ExpiraEm;
     private static float ProximoReenvio;
+    private static float RestauracaoAte;
+    private static float ProximaTentativaRestauracao;
 
     public override string Nome => "Visão reduzida para todos por 20 segundos";
 
@@ -24,6 +28,14 @@ internal sealed class EventoVisaoReduzida : EventoVotacao
     {
         if (!YouTubeVoteBridgePlugin.EhHost())
             return;
+
+        // Não captura a visão já reduzida como se fosse a configuração original.
+        if (ExpiraEm > 0f || RestauracaoAte > 0f)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[Visão] Evento ignorado: a alteração anterior ainda está ativa ou sendo restaurada.");
+            return;
+        }
 
         try
         {
@@ -62,13 +74,48 @@ internal sealed class EventoVisaoReduzida : EventoVotacao
 
     public static void Atualizar()
     {
-        if (!YouTubeVoteBridgePlugin.EhHost() || ExpiraEm <= 0f)
+        if (!YouTubeVoteBridgePlugin.EhHost())
             return;
 
         float agora = Time.realtimeSinceStartup;
+
+        // Depois do efeito, reenviar a visão original por alguns segundos.
+        // Isso combate outras atualizações de opções que possam sobrescrever
+        // o primeiro pacote de restauração.
+        if (RestauracaoAte > 0f)
+        {
+            if (agora >= ProximaTentativaRestauracao)
+            {
+                ProximaTentativaRestauracao = agora + IntervaloRestauracao;
+                TentarRestaurarConfiguracao();
+            }
+
+            if (agora >= RestauracaoAte)
+            {
+                RestauracaoAte = 0f;
+                ProximaTentativaRestauracao = 0f;
+                ExpiraEm = 0f;
+                ProximoReenvio = 0f;
+                VisaoTripulanteOriginal = null;
+                VisaoImpostorOriginal = null;
+
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[Visão] Ciclo de restauração concluído.");
+            }
+
+            return;
+        }
+
+        if (ExpiraEm <= 0f)
+            return;
+
         if (agora >= ExpiraEm)
         {
-            Restaurar();
+            ExpiraEm = 0f;
+            RestauracaoAte = agora + DuracaoTentativasRestauracao;
+            ProximaTentativaRestauracao = 0f;
+            TentarRestaurarConfiguracao();
+            ProximaTentativaRestauracao = agora + IntervaloRestauracao;
             return;
         }
 
@@ -85,27 +132,31 @@ internal sealed class EventoVisaoReduzida : EventoVotacao
         }
     }
 
-    private static void Restaurar()
+    private static void TentarRestaurarConfiguracao()
     {
+        if (!VisaoTripulanteOriginal.HasValue || !VisaoImpostorOriginal.HasValue)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[Visão] Não há valores originais salvos para restaurar.");
+            return;
+        }
+
         try
         {
-            if (VisaoTripulanteOriginal.HasValue && VisaoImpostorOriginal.HasValue)
-            {
-                AplicarConfiguracaoLocal(VisaoTripulanteOriginal.Value, VisaoImpostorOriginal.Value);
-                EnviarConfiguracaoParaClientes(VisaoTripulanteOriginal.Value, VisaoImpostorOriginal.Value);
-            }
+            float tripulante = VisaoTripulanteOriginal.Value;
+            float impostor = VisaoImpostorOriginal.Value;
+
+            AplicarConfiguracaoLocal(tripulante, impostor);
+            EnviarConfiguracaoParaClientes(tripulante, impostor);
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                $"[Visão] Reenvio de restauração: Crew={tripulante:0.####}, " +
+                $"Impostor={impostor:0.####}.");
         }
         catch (Exception ex)
         {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogError("[Visão] Falha ao restaurar: " + ex);
-        }
-        finally
-        {
-            ExpiraEm = 0f;
-            ProximoReenvio = 0f;
-            VisaoTripulanteOriginal = null;
-            VisaoImpostorOriginal = null;
-            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo("[Visão] Configurações originais restauradas.");
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "[Visão] Falha ao restaurar configuração original: " + ex);
         }
     }
 
