@@ -17,7 +17,8 @@ namespace YouTubeVoteBridge
         {
             try
             {
-                if (__instance == null || __instance.Children == null)
+                if (__instance == null || __instance.Children == null ||
+                    __instance != YouTubeVoteSettingsTabCreatePatch.MenuMod)
                     return;
 
                 menuAtual = __instance;
@@ -50,15 +51,18 @@ namespace YouTubeVoteBridge
                 if (!YouTubeVoteBridgePlugin.EhHost())
                     return;
 
+                // Usa um controle original do jogo como modelo, mas cria a cópia
+                // dentro do contentor da nova aba do mod.
                 StringOption modelo = null;
-                foreach (OptionBehaviour item in __instance.Children)
+                GameOptionsMenu abaOriginal = GameSettingMenu.Instance != null
+                    ? GameSettingMenu.Instance.GameSettingsTab
+                    : null;
+
+                if (abaOriginal != null)
                 {
-                    StringOption candidato = item as StringOption;
-                    if (candidato != null && candidato.gameObject != null)
-                    {
-                        modelo = candidato;
-                        break;
-                    }
+                    modelo = abaOriginal.GetComponentsInChildren<StringOption>(true)
+                        .FirstOrDefault(x => x != null && x.gameObject != null &&
+                            !EhControle(x));
                 }
 
                 if (modelo == null)
@@ -97,7 +101,7 @@ namespace YouTubeVoteBridge
             GameOptionsMenu menu, StringOption modelo, string titulo, string nome, float y)
         {
             var controle = UnityEngine.Object.Instantiate(
-                modelo, modelo.transform.parent);
+                modelo, menu.settingsContainer);
 
             controle.name = nome;
             controle.transform.localPosition = new Vector3(
