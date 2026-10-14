@@ -348,7 +348,7 @@ internal static class EventoVelocidadeJogadores
                         $"OwnerId={jogador.OwnerId}, LogicOptionsIndex={i}, " +
                         $"velocidade={(velocidade.HasValue ? velocidade.Value.ToString("0.####") : "inalterada")}, " +
                         $"visãoTripulante={(visaoTripulante.HasValue ? visaoTripulante.Value.ToString("0.####") : "inalterada")}, " +
-                        $"visãoImpostor={(visaoImpostor.HasValue ? visaoImpostor.Value.ToString("0.####") : "inalterada")}, bytesOpções={dadosOpcoes.Length}, "
+                        $"visãoImpostor={(visaoImpostor.HasValue ? visaoImpostor.Value.ToString("0.####") : "inalterada")}, bytesOpções={dadosOpcoes.Length}, " +
                         $"bytesPacote={pacote.Length}.");
 
                     AmongUsClient.Instance.SendOrDisconnect(pacote);
@@ -441,7 +441,7 @@ internal static class EventoVelocidadeJogadores
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
                 $"[Velocidade] Falha ao enviar opções individuais: " +
-                $"PlayerId={jogador.PlayerId}, OwnerId={jogador.OwnerId}, velocidade={velocidade:0.####}. " + ex);
+                $"PlayerId={jogador.PlayerId}, OwnerId={jogador.OwnerId}, velocidade={(velocidade.HasValue ? velocidade.Value.ToString("0.####") : "inalterada")}. " + ex);
             return false;
         }
 
