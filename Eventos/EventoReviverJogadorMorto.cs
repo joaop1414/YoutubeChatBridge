@@ -53,15 +53,14 @@ internal sealed class EventoReviverJogadorMorto : EventoVotacao
             // se EHR estiver instalado, para restaurar também roles/addons próprios.
             if (TentarReviverPeloEhr(alvo))
             {
-                // RpcRevive do EHR já chama RpcChangeRoleBasis(GetCustomRole()) e
-                // restaura PlayerState, addons e sincronização de função. Enviar um
-                // SetRole vanilla depois disso sobrescreve essa restauração e é a
-                // causa de o jogador voltar com a função errada.
+                // O EHR restaura primeiro seu PlayerState/custom role. Depois
+                // agendamos a RoleTypes vanilla que foi capturada enquanto vivo,
+                // para corrigir o caso em que o jogador fica com Ghost após reviver.
+                AgendarRestauracaoFuncao(alvo, funcaoOriginal);
                 FuncoesAntesDaMorte.Remove(alvo.PlayerId);
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "Ressurreição executada pelo EHR sem sobrescrever sua restauração de função. " +
-                    "Função base registrada antes da morte=" + funcaoOriginal +
-                    " (PlayerId=" + alvo.PlayerId + ").");
+                    "RpcRevive do EHR executado; restauração da função base agendada para " +
+                    funcaoOriginal + " (PlayerId=" + alvo.PlayerId + ").");
                 return;
             }
 
@@ -94,6 +93,50 @@ internal sealed class EventoReviverJogadorMorto : EventoVotacao
         }
     }
 
+
+    private sealed class FuncaoPendente
+    {
+        public PlayerControl Jogador;
+        public RoleTypes Funcao;
+        public float ExecutarEm;
+    }
+
+    private static readonly List<FuncaoPendente> RestauracoesPendentes = new();
+
+    private static void AgendarRestauracaoFuncao(PlayerControl jogador, RoleTypes funcao)
+    {
+        RestauracoesPendentes.RemoveAll(x => x.Jogador == jogador);
+        RestauracoesPendentes.Add(new FuncaoPendente
+        {
+            Jogador = jogador,
+            Funcao = funcao,
+            ExecutarEm = UnityEngine.Time.realtimeSinceStartup + 0.75f
+        });
+    }
+
+    public static void AtualizarRestauracoesPendentes()
+    {
+        if (!YouTubeVoteBridgePlugin.EhHost() || RestauracoesPendentes.Count == 0)
+            return;
+
+        float agora = UnityEngine.Time.realtimeSinceStartup;
+        for (int i = RestauracoesPendentes.Count - 1; i >= 0; i--)
+        {
+            FuncaoPendente pendente = RestauracoesPendentes[i];
+            if (agora < pendente.ExecutarEm)
+                continue;
+
+            RestauracoesPendentes.RemoveAt(i);
+            if (pendente.Jogador == null || pendente.Jogador.Data == null ||
+                pendente.Jogador.Data.Disconnected)
+                continue;
+
+            EnviarFuncaoOriginalBruta(pendente.Jogador, pendente.Funcao);
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[Reviver] Função base reaplicada após o RpcRevive: PlayerId=" +
+                pendente.Jogador.PlayerId + ", RoleTypes=" + pendente.Funcao + ".");
+        }
+    }
 
     private static void SincronizarEstadoComClientes(PlayerControl alvo)
     {
