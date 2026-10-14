@@ -230,33 +230,40 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
         int clientId = destinatario.OwnerId;
         string nomeOriginal = host.Data.PlayerName;
+        bool nomeAlterado = false;
 
         try
         {
+            // Envia o título e o texto em uma única mensagem de chat.
+            // O método antigo fazia duas mensagens e seis RPCs separados,
+            // aumentando o tráfego durante a entrada de um cliente vanilla.
             EnviarRpcNome(host, clientId, TITULO_SISTEMA);
-            EnviarRpcChat(host, clientId, "\n");
-            EnviarRpcNome(host, clientId, nomeOriginal);
+            nomeAlterado = true;
 
-            EnviarRpcNome(host, clientId, TITULO_SISTEMA);
-            EnviarRpcChat(host, clientId, mensagem);
-
-            EnviarRpcNome(host, clientId, nomeOriginal);
+            EnviarRpcChat(host, clientId, "\n" + mensagem);
         }
         catch (Exception ex)
         {
-            Instance.Log.LogError(
-                "Erro ao enviar mensagem individual: " + ex
+            Instance?.Log.LogError(
+                "Erro ao enviar aviso privado ao cliente " + clientId + ": " + ex
             );
-
-            try
+        }
+        finally
+        {
+            // Sempre tenta restaurar o nome mesmo se o envio do chat falhar.
+            if (nomeAlterado)
             {
-                EnviarRpcNome(host, clientId, nomeOriginal);
-            }
-            catch (Exception erroRestauracao)
-            {
-                Instance.Log.LogError(
-                    "Erro ao restaurar o nome: " + erroRestauracao
-                );
+                try
+                {
+                    EnviarRpcNome(host, clientId, nomeOriginal);
+                }
+                catch (Exception erroRestauracao)
+                {
+                    Instance?.Log.LogError(
+                        "Erro ao restaurar o nome do host após mensagem privada: " +
+                        erroRestauracao
+                    );
+                }
             }
         }
     }
