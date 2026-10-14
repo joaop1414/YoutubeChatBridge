@@ -19,7 +19,16 @@ internal static class CustomNetObject
     /// O objeto deve ter sido instanciado, configurado com PlayerId/isNew/notRealPlayer
     /// e posicionado pelo chamador antes desta chamada.
     /// </summary>
-    public static void EnviarSpawn(PlayerControl objeto)
+    public static void EnviarSpawn(PlayerControl objeto) =>
+        EnviarSpawn(objeto, ocultarVisual: true, removerDaLista: true);
+
+    /// <summary>
+    /// Variante experimental: permite manter o corpo visível e o PlayerControl
+    /// em AllPlayerControls para testar um spawn com aparência de jogador normal.
+    /// Isso não cria um cliente/proprietário de rede real.
+    /// </summary>
+    public static void EnviarSpawn(
+        PlayerControl objeto, bool ocultarVisual, bool removerDaLista)
     {
         if (objeto == null || AmongUsClient.Instance == null ||
             PlayerControl.LocalPlayer == null || !AmongUsClient.Instance.AmHost)
@@ -74,33 +83,36 @@ internal static class CustomNetObject
             writer?.Recycle();
         }
 
-        if (PlayerControl.AllPlayerControls.Contains(objeto))
+        if (removerDaLista && PlayerControl.AllPlayerControls.Contains(objeto))
             PlayerControl.AllPlayerControls.Remove(objeto);
 
-        // Mesma proteção visual do EHR: o PlayerControl falso é apenas um
-        // portador de nome/sprite; o corpo e o texto de daltônico não aparecem.
-        try
+        if (ocultarVisual)
         {
-            var corpo = objeto.cosmetics?.currentBodySprite?.BodySprite;
-            if (corpo != null)
-                corpo.color = UnityEngine.Color.clear;
-        }
-        catch (Exception ex)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "CustomNetObject: não foi possível ocultar o corpo do objeto: " + ex.Message);
-        }
+            // Comportamento padrão para os objetos artificiais atuais:
+            // corpo e texto de daltônico ficam invisíveis.
+            try
+            {
+                var corpo = objeto.cosmetics?.currentBodySprite?.BodySprite;
+                if (corpo != null)
+                    corpo.color = UnityEngine.Color.clear;
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "CustomNetObject: não foi possível ocultar o corpo do objeto: " + ex.Message);
+            }
 
-        try
-        {
-            var texto = objeto.cosmetics?.colorBlindText;
-            if (texto != null)
-                texto.color = UnityEngine.Color.clear;
-        }
-        catch (Exception ex)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "CustomNetObject: não foi possível ocultar o texto de cor: " + ex.Message);
+            try
+            {
+                var texto = objeto.cosmetics?.colorBlindText;
+                if (texto != null)
+                    texto.color = UnityEngine.Color.clear;
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "CustomNetObject: não foi possível ocultar o texto de cor: " + ex.Message);
+            }
         }
     }
 
