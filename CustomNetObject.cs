@@ -225,11 +225,11 @@ internal static class CustomNetObject
             return 0;
 
         var destinatarios = new List<PlayerControl>();
+        var proprietariosIncluidos = new HashSet<int>();
         foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
         {
-            if (jogador == null || jogador == PlayerControl.LocalPlayer ||
-                jogador.Data == null || jogador.Data.Disconnected ||
-                jogador.OwnerId < 0)
+            if (!CompatibilidadeClientes.ClienteRemotoElegivel(
+                    jogador, objeto, proprietariosIncluidos))
                 continue;
 
             destinatarios.Add(jogador);
@@ -300,7 +300,8 @@ internal static class CustomNetObject
 
             objeto.CachedPlayerData = PlayerControl.LocalPlayer.Data;
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                $"CustomNetObject: associação no formato EHR enviada para {enviados} clientes.");
+                $"Compatibilidade: associação do fake NetId={objeto.NetId}, PlayerId={objeto.PlayerId}, " +
+                $"enviada individualmente para {enviados} cliente(s) remoto(s) elegível(is).");
             return enviados;
         }
         catch (Exception ex)
