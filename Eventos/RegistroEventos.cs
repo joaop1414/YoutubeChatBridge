@@ -23,6 +23,7 @@ internal static class RegistroEventos
         new EventoTarefaSuicidio(),
         new EventoTrocarCores(),
         new EventoTrocarIdentidades(),
+        new EventoEscondeEsconde(),
         new EventoEscudoTemporario(),
         new EventoCriarCorpoFalso(),
         new EventoTsunami(),
