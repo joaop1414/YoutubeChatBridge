@@ -45,8 +45,14 @@ namespace YouTubeVoteBridge
                     BotaoMod.transform.localPosition = new Vector3(-2.4f, -0.95f, 0f);
                     BotaoMod.transform.localScale = new Vector3(0.45f, 0.35f, 1f);
 
-                    // O clique é tratado por Harmony para evitar incompatibilidade
-                    // entre UnityEvent e os delegates gerados pelo IL2CPP.
+                    // Usa o evento OnClick que já vem no prefab original do jogo.
+                    // Não substitua o evento: no IL2CPP ele tem um tipo próprio.
+                    BotaoMod.OnClick.AddListener(() =>
+                    {
+                        if (GameSettingMenu.Instance != null)
+                            GameSettingMenu.Instance.ChangeTab(3, false);
+                    });
+
                     __instance.ControllerSelectable.Add(BotaoMod);
                 }
 
@@ -57,30 +63,6 @@ namespace YouTubeVoteBridge
                 YouTubeVoteBridgePlugin.Instance?.Log.LogError(
                     "Falha ao criar a aba de configurações do mod: " + ex);
             }
-        }
-    }
-
-    // Os nomes dos métodos de clique variam entre versões das assemblies IL2CPP.
-    // Resolve em runtime para manter a compilação independente do nome exato.
-    [HarmonyPatch]
-    internal static class YouTubeVoteSettingsTabButtonClickPatch
-    {
-        private static System.Reflection.MethodBase TargetMethod()
-        {
-            return AccessTools.Method(typeof(PassiveButton), "OnMouseUpAsButton")
-                ?? AccessTools.Method(typeof(PassiveButton), "OnPointerClick")
-                ?? AccessTools.Method(typeof(PassiveButton), "OnMouseUp")
-                ?? AccessTools.Method(typeof(PassiveButton), "ReceiveClick");
-        }
-
-        [HarmonyPostfix]
-        private static void Postfix(PassiveButton __instance)
-        {
-            if (__instance == null || __instance != YouTubeVoteSettingsTabCreatePatch.BotaoMod)
-                return;
-
-            if (GameSettingMenu.Instance != null)
-                GameSettingMenu.Instance.ChangeTab(3, false);
         }
     }
 
