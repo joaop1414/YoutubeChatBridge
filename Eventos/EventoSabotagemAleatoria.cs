@@ -87,6 +87,15 @@ internal sealed class EventoSabotagemAleatoria : EventoVotacao
                 "; cooldown anterior=" + cooldownAnterior + "s.");
 
             navio.RpcUpdateSystem(SystemTypes.Sabotage, (byte)escolhida);
+
+            // O overlay próprio é desenhado por cima do flash nativo do reator.
+            // Comunicação usa ciano; reator/laboratório/heli usam vermelho.
+            if (escolhida == SystemTypes.Comms)
+                FlashOverlay.MostrarCiano();
+            else if (escolhida == SystemTypes.Reactor ||
+                     escolhida == SystemTypes.Laboratory ||
+                     escolhida == SystemTypes.HeliSabotage)
+                FlashOverlay.MostrarVermelho();
         }
         catch (Exception ex)
         {
