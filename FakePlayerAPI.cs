@@ -132,6 +132,10 @@ public static class FakePlayerAPI
                 CustomNetObject.EnviarAparencia(falso, pendente.Nome, pendente.CorId);
                 LogDiagnostico("DEPOIS DE ENVIAR APARENCIA", falso, pendente.Nome, pendente.CorId);
 
+                // Sincroniza o rótulo visual separadamente da identidade de rede.
+                // Cada cliente com o mod aplica o texto somente na própria tela.
+                NomeNpcRpc.Publicar(falso, pendente.Nome);
+
                 if (!Mover(falso, pendente.Posicao))
                     LogAviso("O personagem foi criado, mas a posição não pôde ser sincronizada.");
 
