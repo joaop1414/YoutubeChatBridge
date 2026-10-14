@@ -1361,6 +1361,9 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 case "Um jogador aleatório comete suicídio":
                     new EventoSuicidioAleatorio().Executar();
                     break;
+                case "Trocar identidades de dois jogadores por 20 segundos":
+                    new EventoTrocarIdentidades().Executar();
+                    break;
                 case "Visão reduzida para todos por 20 segundos":
                     new EventoVisaoReduzida().Executar();
                     break;
@@ -1904,6 +1907,7 @@ public static class YouTubeVoteUpdatePatch
         EventoVelocidadeJogadores.Atualizar();
         EventoTsunami.Atualizar();
         EventoVisaoReduzida.Atualizar();
+        EventoTrocarIdentidades.Atualizar();
     }
 }
 
