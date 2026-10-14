@@ -17,6 +17,8 @@ internal sealed class EventoVisaoReduzida : EventoVotacao
     private static float? VisaoTripulanteOriginal;
     private static float? VisaoImpostorOriginal;
     private static float ExpiraEm;
+    private static float ProximoReenvio;
+    private const float IntervaloReenvio = 0.75f;
 
     public override string Nome => "Visão reduzida para todos por 20 segundos";
 
@@ -50,6 +52,7 @@ internal sealed class EventoVisaoReduzida : EventoVotacao
             SincronizarConfiguracoes();
 
             ExpiraEm = Time.realtimeSinceStartup + DuracaoSegundos;
+            ProximoReenvio = Time.realtimeSinceStartup + IntervaloReenvio;
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 "Visão reduzida ativada para tripulantes e impostores por " +
                 DuracaoSegundos + " segundos.");
@@ -63,11 +66,23 @@ internal sealed class EventoVisaoReduzida : EventoVotacao
 
     public static void Atualizar()
     {
-        if (!YouTubeVoteBridgePlugin.EhHost() || ExpiraEm <= 0f ||
-            Time.realtimeSinceStartup < ExpiraEm)
+        if (!YouTubeVoteBridgePlugin.EhHost() || ExpiraEm <= 0f)
             return;
 
-        Restaurar();
+        float agora = Time.realtimeSinceStartup;
+        if (agora >= ExpiraEm)
+        {
+            Restaurar();
+            return;
+        }
+
+        // Reenvia periodicamente: o jogo/EHR pode recalcular opções individuais
+        // após a primeira mensagem. Isso mantém a visão aplicada nos clientes.
+        if (agora >= ProximoReenvio)
+        {
+            ProximoReenvio = agora + IntervaloReenvio;
+            SincronizarConfiguracoes();
+        }
     }
 
     private static void Restaurar()
@@ -92,6 +107,7 @@ internal sealed class EventoVisaoReduzida : EventoVotacao
         finally
         {
             ExpiraEm = 0f;
+            ProximoReenvio = 0f;
             VisaoTripulanteOriginal = null;
             VisaoImpostorOriginal = null;
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
