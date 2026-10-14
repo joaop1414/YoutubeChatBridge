@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using Hazel;
 using InnerNet;
@@ -45,15 +46,12 @@ public static class FakePlayerAPI
             LogInfo($"Associação concluída. NetId={falso.NetId}; clientes associados={associados}.");
             LogDiagnostico("DEPOIS DA ASSOCIACAO", falso, nome, corId);
 
-            // Corrige a causa mais provável de Fortegreen/???:
-            // a API antiga não enviava nome nem cor aos clientes vanilla.
-            CustomNetObject.EnviarAparencia(falso, nome, corId);
-            LogDiagnostico("DEPOIS DE ENVIAR APARENCIA", falso, nome, corId);
+            // O EHR espera a rede processar o spawn e a associação antes do
+            // Shapeshift. Fazer isso no mesmo frame causa NullReferenceException
+            // em PlayerControl.HandleRpc em clientes da versão atual.
+            AmongUsClient.Instance.StartCoroutine(
+                FinalizarCriacaoAposSpawn(falso, posicaoInicial, nome, corId));
 
-            if (!Mover(falso, posicaoInicial))
-                LogAviso("O personagem foi criado, mas a posição não pôde ser sincronizada.");
-
-            LogDiagnostico("FINAL DA CRIACAO", falso, nome, corId);
             return falso;
         }
         catch (Exception ex)
@@ -62,6 +60,34 @@ public static class FakePlayerAPI
             if (falso != null)
                 DestruirInterno(falso, enviarRemocao: false);
             return null;
+        }
+    }
+
+    private static IEnumerator FinalizarCriacaoAposSpawn(
+        PlayerControl falso, Vector2 posicaoInicial, string nome, byte corId)
+    {
+        // O EHR aguarda 0,1 s antes da associação e mais 0,15 s antes de
+        // enviar a aparência. Como a associação já foi enviada, aguardamos
+        // uma margem ligeiramente maior antes do RPC de Shapeshift.
+        yield return new UnityEngine.WaitForSecondsRealtime(0.25f);
+
+        if (falso == null || !ObjetosCriados.Contains(falso) ||
+            AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost)
+            yield break;
+
+        try
+        {
+            CustomNetObject.EnviarAparencia(falso, nome, corId);
+            LogDiagnostico("DEPOIS DE ENVIAR APARENCIA", falso, nome, corId);
+
+            if (!Mover(falso, posicaoInicial))
+                LogAviso("O personagem foi criado, mas a posição não pôde ser sincronizada.");
+
+            LogDiagnostico("FINAL DA CRIACAO", falso, nome, corId);
+        }
+        catch (Exception ex)
+        {
+            LogErro("Falha ao finalizar a aparência/posição do personagem falso: " + ex);
         }
     }
 
