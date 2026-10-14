@@ -1908,6 +1908,7 @@ public static class YouTubeVoteUpdatePatch
         EventoVelocidadeJogadores.Atualizar();
         EventoTsunami.Atualizar();
         EventoVisaoReduzida.Atualizar();
+        EventoReviverJogadorMorto.AtualizarRestauracoesPendentes();
     }
 }
 
