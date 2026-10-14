@@ -197,11 +197,10 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             AmongUsClient.Instance == null)
             return;
 
-        PlayerControl host = ObterRemetenteMensagens();
-        if (host == null || host.Data == null)
-            return;
+        PlayerControl host = PlayerControl.LocalPlayer;
 
-        if (!EhHost())
+        // A resposta local não precisa de rede.
+        if (!EhHost() || destinatario.AmOwner)
         {
             if (destinatario.AmOwner &&
                 HudManager.InstanceExists &&
@@ -215,80 +214,27 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             return;
         }
 
-        if (destinatario.AmOwner)
-        {
-            if (HudManager.InstanceExists &&
-                HudManager.Instance.Chat != null)
-            {
-                HudManager.Instance.Chat.AddChat(
-                    host, TITULO_SISTEMA + "\n" + mensagem, false
-                );
-            }
-
-            return;
-        }
-
-        int clientId = destinatario.OwnerId;
-        string nomeOriginal = host.Data.PlayerName;
-
+        // IMPORTANTE: em salas vanilla/não registradas como modificadas,
+        // o servidor oficial pode expulsar o host por qualquer GameDataTo.
+        // Por isso, não enviamos SetName/SendChat direcionados a um cliente.
+        // O aviso vai como um SendChat público normal, compatível com vanilla.
         try
         {
-            // Segue o padrão do EHR: os três RPCs ficam dentro de um único
-            // pacote GameDataTo direcionado exclusivamente ao cliente vanilla.
-            EnviarAvisoAgrupado(host, clientId, nomeOriginal, mensagem);
+            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
+                host.NetId,
+                (byte)RpcCalls.SendChat,
+                SendOption.Reliable,
+                -1
+            );
+
+            writer.Write(TITULO_SISTEMA + "\n" + mensagem);
+            AmongUsClient.Instance.FinishRpcImmediately(writer);
         }
         catch (Exception ex)
         {
             Instance?.Log.LogError(
-                "Erro ao enviar aviso privado agrupado ao cliente " + clientId + ": " + ex
+                "Erro ao enviar aviso público compatível com vanilla: " + ex
             );
-        }
-    }
-
-    private static void EnviarAvisoAgrupado(
-        PlayerControl remetente,
-        int destinatarioClientId,
-        string nomeOriginal,
-        string mensagem)
-    {
-        MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
-
-        try
-        {
-            // Message type 6 = GameDataTo, equivalente ao usado pelo CustomRpcSender do EHR.
-            writer.StartMessage(6);
-            writer.Write(AmongUsClient.Instance.GameId);
-            writer.WritePacked(destinatarioClientId);
-
-            // RPC 1: altera o nome somente na visão do cliente destinatário.
-            writer.StartMessage(2);
-            writer.WritePacked(remetente.NetId);
-            writer.Write((byte)RpcCalls.SetName);
-            writer.Write(remetente.Data.NetId);
-            writer.Write(TITULO_SISTEMA);
-            writer.EndMessage();
-
-            // RPC 2: envia o texto do aviso.
-            writer.StartMessage(2);
-            writer.WritePacked(remetente.NetId);
-            writer.Write((byte)RpcCalls.SendChat);
-            writer.Write("\n" + mensagem);
-            writer.EndMessage();
-
-            // RPC 3: restaura o nome original antes de encerrar o pacote.
-            writer.StartMessage(2);
-            writer.WritePacked(remetente.NetId);
-            writer.Write((byte)RpcCalls.SetName);
-            writer.Write(remetente.Data.NetId);
-            writer.Write(nomeOriginal);
-            writer.EndMessage();
-
-            writer.EndMessage();
-            AmongUsClient.Instance.SendOrDisconnect(writer);
-        }
-        finally
-        {
-            writer.Recycle();
         }
     }
 
