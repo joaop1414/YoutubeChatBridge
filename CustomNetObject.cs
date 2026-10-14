@@ -35,14 +35,11 @@ internal static class CustomNetObject
                 "CustomNetObject: falha ao posicionar o objeto fora da tela antes do spawn: " + ex.Message);
         }
 
-        // O teste com +4 ainda produziu IDs auxiliares 31, 30 e 29,
-        // que colidiram com NetObjects já registrados pelo PlayerPrefab nesta
-        // versão do jogo. O log indica que o contador está três IDs atrás dos
-        // componentes criados pelo Instantiate; reservar sete posições coloca
-        // os três LobbyBehaviour acima do último ID do prefab.
-        // Mantemos o spawn auxiliar do EHR, mas com faixa de IDs não sobreposta.
+        // Reprodução do EHR: o contador avança exatamente uma posição.
+        // O Instantiate já registra os NetObjects do prefab; reservar +7 faz os
+        // três spawns auxiliares usarem IDs incorretos e gera colisões.
         uint contadorAntes = AmongUsClient.Instance.NetIdCnt;
-        AmongUsClient.Instance.NetIdCnt += 7U;
+        AmongUsClient.Instance.NetIdCnt += 1U;
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             $"CustomNetObject: preparando spawn falso; NetId do PlayerControl={objeto.NetId}, " +
@@ -123,49 +120,86 @@ internal static class CustomNetObject
     public static void EnviarAparencia(PlayerControl objeto, string nome, byte corId)
     {
         if (objeto == null || objeto.Data == null ||
-            AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost)
+            AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost ||
+            PlayerControl.LocalPlayer?.Data == null)
             throw new InvalidOperationException("Não é possível sincronizar a aparência do PlayerControl falso.");
 
-        nome ??= "Bot";
+        // O EHR não chama SetName/SetColor diretamente no PlayerInfo falso.
+        // Em vez disso, replica temporariamente o outfit do host, força um
+        // Shapeshift no PlayerControl falso e restaura o outfit do host.
+        // Isso evita CoSetName/CoSetColor ficarem esperando um NetworkedPlayerInfo
+        // que clientes vanilla ainda não associaram ao fake.
+        var hostData = PlayerControl.LocalPlayer.Data;
+        var outfit = hostData.Outfits[PlayerOutfitType.Default];
 
-        // O host não processa automaticamente os RPCs que ele mesmo envia.
-        // Atualiza também os dados locais para não deixar o objeto como ???.
-        objeto.Data.PlayerName = nome;
+        string nomeOriginal = outfit.PlayerName;
+        int corOriginal = outfit.ColorId;
+        string chapeuOriginal = outfit.HatId;
+        string skinOriginal = outfit.SkinId;
+        string petOriginal = outfit.PetId;
+        string visorOriginal = outfit.VisorId;
 
-        MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
         try
         {
-            writer.StartMessage(5);
-            writer.Write(AmongUsClient.Instance.GameId);
+            objeto.Data.PlayerName = nome;
+            outfit.PlayerName = nome;
+            outfit.ColorId = corId;
+            outfit.HatId = "";
+            outfit.SkinId = "";
+            outfit.PetId = "";
+            outfit.VisorId = "";
 
-            // SetName moderno inclui PlayerInfo.NetId, nome e a flag de exibição.
-            writer.StartMessage(2);
-            writer.WritePacked(objeto.NetId);
-            writer.Write((byte)RpcCalls.SetName);
-            writer.Write(objeto.Data.NetId);
-            writer.Write(nome);
-            writer.Write(false);
-            writer.EndMessage();
+            MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
+            try
+            {
+                writer.StartMessage(5);
+                writer.Write(AmongUsClient.Instance.GameId);
 
-            // SetColor usa o NetId do PlayerInfo no formato não packed nesta versão.
-            writer.StartMessage(2);
-            writer.WritePacked(objeto.NetId);
-            writer.Write((byte)RpcCalls.SetColor);
-            writer.Write(objeto.Data.NetId);
-            writer.Write(corId);
-            writer.EndMessage();
+                writer.StartMessage(1);
+                writer.WritePacked(hostData.NetId);
+                hostData.Serialize(writer, false);
+                writer.EndMessage();
 
-            writer.EndMessage();
-            AmongUsClient.Instance.SendOrDisconnect(writer);
-            writer = null;
+                objeto.Shapeshift(PlayerControl.LocalPlayer, false);
+
+                writer.StartMessage(2);
+                writer.WritePacked(objeto.NetId);
+                writer.Write((byte)RpcCalls.Shapeshift);
+                writer.WriteNetObject(PlayerControl.LocalPlayer);
+                writer.Write(false);
+                writer.EndMessage();
+
+                outfit.PlayerName = nomeOriginal;
+                outfit.ColorId = corOriginal;
+                outfit.HatId = chapeuOriginal;
+                outfit.SkinId = skinOriginal;
+                outfit.PetId = petOriginal;
+                outfit.VisorId = visorOriginal;
+
+                writer.StartMessage(1);
+                writer.WritePacked(hostData.NetId);
+                hostData.Serialize(writer, false);
+                writer.EndMessage();
+
+                writer.EndMessage();
+                AmongUsClient.Instance.SendOrDisconnect(writer);
+                writer = null;
+            }
+            finally { writer?.Recycle(); }
         }
         finally
         {
-            writer?.Recycle();
+            // Garante a restauração local mesmo se a escrita de rede falhar.
+            outfit.PlayerName = nomeOriginal;
+            outfit.ColorId = corOriginal;
+            outfit.HatId = chapeuOriginal;
+            outfit.SkinId = skinOriginal;
+            outfit.PetId = petOriginal;
+            outfit.VisorId = visorOriginal;
         }
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"CustomNetObject: aparência enviada para PlayerId={objeto.PlayerId}, nome='{nome}', cor={corId}.");
+            $"CustomNetObject: aparência enviada pelo método EHR para PlayerId={objeto.PlayerId}, nome='{nome}', cor={corId}.");
     }
 
     /// <summary>
