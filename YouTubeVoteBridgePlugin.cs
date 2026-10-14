@@ -1336,9 +1336,6 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 case "Criar corpo falso":
                     new EventoCriarCorpoFalso().Executar();
                     break;
-                case "Criar NPC seguidor":
-                    new EventoNpcSeguidor().Executar();
-                    break;
                 case "Tsunami":
                     new EventoTsunami().Executar();
                     break;
@@ -1898,7 +1895,6 @@ public static class YouTubeVoteUpdatePatch
         YouTubeVoteBridgePlugin.EnviarSinalModAoHost();
         YouTubeVoteBridgePlugin.AtualizarAvisos();
         FakePlayerAPI.Atualizar();
-        EventoNpcSeguidor.Atualizar();
         NomeNpcRpc.Atualizar();
         YouTubeVoteBridgePlugin.AtualizarVotacao();
         EventoEscudoTemporario.Atualizar();
