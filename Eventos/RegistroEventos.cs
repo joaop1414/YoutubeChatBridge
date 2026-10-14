@@ -31,7 +31,8 @@ internal static class RegistroEventos
         new EventoInverterMovimentoTodos(),
         new EventoTeleporteAleatorio(),
         new EventoSuicidioAleatorio(),
-        new EventoReviverJogadorMorto()
+        new EventoReviverJogadorMorto(),
+        new EventoVisaoReduzida()
     };
 
     public static IReadOnlyList<EventoVotacao> ObterTodos() => Eventos;
