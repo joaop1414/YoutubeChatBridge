@@ -25,6 +25,16 @@ internal static class CustomNetObject
             PlayerControl.LocalPlayer == null || !AmongUsClient.Instance.AmHost)
             throw new InvalidOperationException("Não é possível criar o PlayerControl falso fora do host.");
 
+        // O EHR não nasce o objeto na posição visível. Ele o cria fora da área
+        // jogável e só o move depois que os clientes vanilla o associaram.
+        // Isso evita o frame em que o prefab aparece como um crewmate normal.
+        try { objeto.NetTransform.SnapTo(new UnityEngine.Vector2(50f, 50f)); }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "CustomNetObject: falha ao posicionar o objeto fora da tela antes do spawn: " + ex.Message);
+        }
+
         AmongUsClient.Instance.NetIdCnt += 1U;
         MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
 
@@ -65,6 +75,32 @@ internal static class CustomNetObject
 
         if (PlayerControl.AllPlayerControls.Contains(objeto))
             PlayerControl.AllPlayerControls.Remove(objeto);
+
+        // Mesma proteção visual do EHR: o PlayerControl falso é apenas um
+        // portador de nome/sprite; o corpo e o texto de daltônico não aparecem.
+        try
+        {
+            var corpo = objeto.cosmetics?.currentBodySprite?.BodySprite;
+            if (corpo != null)
+                corpo.color = UnityEngine.Color.clear;
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "CustomNetObject: não foi possível ocultar o corpo do objeto: " + ex.Message);
+        }
+
+        try
+        {
+            var texto = objeto.cosmetics?.colorBlindText;
+            if (texto != null)
+                texto.color = UnityEngine.Color.clear;
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "CustomNetObject: não foi possível ocultar o texto de cor: " + ex.Message);
+        }
     }
 
     /// <summary>
