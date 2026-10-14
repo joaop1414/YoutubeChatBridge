@@ -127,27 +127,53 @@ public static class FakePlayerAPI
                 continue;
             }
 
-            try
+            if (pendente.Etapa == 1)
             {
-                CustomNetObject.EnviarAparencia(falso, pendente.Nome, pendente.CorId);
-                LogDiagnostico("DEPOIS DE ENVIAR APARENCIA", falso, pendente.Nome, pendente.CorId);
+                try
+                {
+                    CustomNetObject.EnviarAparencia(falso, pendente.Nome, pendente.CorId);
+                    LogDiagnostico("DEPOIS DE ENVIAR APARENCIA", falso, pendente.Nome, pendente.CorId);
 
-                // Sincroniza o rótulo visual separadamente da identidade de rede.
-                // Cada cliente com o mod aplica o texto somente na própria tela.
-                NomeNpcRpc.Publicar(falso, pendente.Nome);
+                    // Sincroniza o rótulo visual separadamente da identidade de rede.
+                    // Cada cliente com o mod aplica o texto somente na própria tela.
+                    NomeNpcRpc.Publicar(falso, pendente.Nome);
 
-                if (!Mover(falso, pendente.Posicao))
-                    LogAviso("O personagem foi criado, mas a posição não pôde ser sincronizada.");
+                    if (!Mover(falso, pendente.Posicao))
+                        LogAviso("O personagem foi criado, mas a posição não pôde ser sincronizada.");
 
-                LogDiagnostico("FINAL DA CRIACAO", falso, pendente.Nome, pendente.CorId);
+                    // O EHR reativa o texto do próprio host cerca de 0,7 s após
+                    // o spawn. A aparência é enviada em ~0,6 s; esta etapa roda
+                    // mais 0,1 s depois para reproduzir esse ajuste.
+                    pendente.Etapa = 2;
+                    pendente.ExecutarEm = agora + 0.1f;
+                }
+                catch (Exception ex)
+                {
+                    LogErro("Falha ao finalizar a aparência/posição do personagem falso: " + ex);
+                    CriacoesPendentes.RemoveAt(i);
+                }
+
+                continue;
             }
-            catch (Exception ex)
+
+            if (pendente.Etapa == 2)
             {
-                LogErro("Falha ao finalizar a aparência/posição do personagem falso: " + ex);
-            }
-            finally
-            {
-                CriacoesPendentes.RemoveAt(i);
+                try
+                {
+                    var texto = falso.transform.FindChild("Names")?.FindChild("NameText_TMP");
+                    if (texto != null)
+                        texto.gameObject.SetActive(true);
+
+                    LogDiagnostico("FINAL DA CRIACAO", falso, pendente.Nome, pendente.CorId);
+                }
+                catch (Exception ex)
+                {
+                    LogAviso("Não foi possível reativar o texto local do NPC no host: " + ex.Message);
+                }
+                finally
+                {
+                    CriacoesPendentes.RemoveAt(i);
+                }
             }
         }
     }
