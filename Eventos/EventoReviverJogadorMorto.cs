@@ -54,6 +54,9 @@ internal sealed class EventoReviverJogadorMorto : EventoVotacao
             bool reviveExecutado = InvocarMetodoSemParametros(alvo, "RpcRevive");
             if (!reviveExecutado)
                 reviveExecutado = InvocarMetodoSemParametros(alvo, "Revive");
+            if (!reviveExecutado)
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "Não encontrei método de ressurreição nativo; aplicando o estado vivo e sincronizando PlayerData diretamente.");
 
             alvo.Data.IsDead = false;
             alvo.moveable = true;
