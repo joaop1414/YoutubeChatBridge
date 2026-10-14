@@ -60,20 +60,10 @@ internal static class CustomNetObject
             spawn.SerializeValues(writer);
             writer.EndMessage();
 
-            // O EHR envia três mensagens auxiliares de spawn para manter a
-            // sequência de NetId esperada por clientes vanilla.
-            for (uint i = 1; i <= 3; i++)
-            {
-                writer.StartMessage(4);
-                writer.WritePacked(2U);
-                writer.WritePacked(-2);
-                writer.Write((byte)SpawnFlags.None);
-                writer.WritePacked(1);
-                writer.WritePacked(AmongUsClient.Instance.NetIdCnt - i);
-                writer.StartMessage(1);
-                writer.EndMessage();
-                writer.EndMessage();
-            }
+            // Não enviar os três LobbyBehaviour auxiliares do EHR nesta build:
+            // no Among Us 19.0.0 eles colidem com NetIds já registrados pelo
+            // PlayerPrefab (28/27/26 nos logs). O EHR condiciona esse workaround
+            // ao tipo de servidor; sem a mesma detecção, enviar sempre é incorreto.
 
             writer.EndMessage();
             AmongUsClient.Instance.SendOrDisconnect(writer);
