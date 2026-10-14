@@ -25,6 +25,8 @@ internal static class RegistroEventos
         new EventoTsunami(),
         new EventoReportarCorpo(),
         new EventoInverterControles(),
+        new EventoInverterMovimentoTodos(),
+        new EventoInverterMovimentoAleatorio(),
         new EventoTeleporteAleatorio(),
         new EventoSuicidioAleatorio(),
         new EventoReviverJogadorMorto(),
