@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using AmongUs.GameOptions;
+using Hazel;
 using UnityEngine;
 
 namespace YouTubeVoteBridge;
@@ -112,42 +113,86 @@ internal sealed class EventoVisaoReduzida : EventoVotacao
         GameOptionsManager.Instance.CurrentGameOptions = opcoes;
     }
 
-    // Usa o sincronizador do EHR se ele estiver carregado. Em vanilla, tenta
-    // encontrar o mecanismo equivalente pelo nome para evitar dependência fixa.
+    // Replica o envelope de LogicOptions usado pelo próprio jogo/EHR e
+    // envia as opções modificadas individualmente a todos os donos dos jogadores.
     private static void SincronizarConfiguracoes()
     {
-        foreach (Assembly assembly in AppDomain.CurrentDomain.GetAssemblies())
+        if (AmongUsClient.Instance == null || GameManager.Instance == null ||
+            !YouTubeVoteBridgePlugin.EhHost())
+            return;
+
+        var opcoes = GameOptionsManager.Instance?.CurrentGameOptions;
+        if (opcoes == null)
+            return;
+
+        NormalGameOptionsV12 normais;
+        try
         {
-            Type tipoUtils = assembly.GetType("EHR.Utils", false);
-            MethodInfo syncEhr = tipoUtils?.GetMethod(
-                "SyncAllSettings",
-                BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic,
-                null, Type.EmptyTypes, null);
-
-            if (syncEhr != null)
-            {
-                syncEhr.Invoke(null, null);
-                return;
-            }
-
-            Type tipoSender = assembly.GetType("PlayerGameOptionsSender", false)
-                ?? assembly.GetType("GameOptions.PlayerGameOptionsSender", false);
-            if (tipoSender == null)
-                continue;
-
-            MethodInfo dirty = tipoSender.GetMethod("SetDirtyToAll",
-                BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
-            MethodInfo enviar = tipoSender.GetMethod("SendAllImmediately",
-                BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
-
-            dirty?.Invoke(null, null);
-            enviar?.Invoke(null, null);
-            if (dirty != null || enviar != null)
-                return;
+            normais = opcoes.TryCast<NormalGameOptionsV12>();
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "Não foi possível converter opções para sincronizar a visão: " + ex.Message);
+            return;
         }
 
-        YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-            "Visão alterada nas opções locais, mas não foi encontrado um sincronizador " +
-            "global de opções. Verifique a visão nos clientes remotos.");
+        if (normais == null)
+            return;
+
+        byte[] dados;
+        MessageWriter serializador = MessageWriter.Get();
+        try
+        {
+            serializador.Write(normais.Version);
+            serializador.StartMessage(0);
+            serializador.Write((byte)normais.GameMode);
+            NormalGameOptionsV12.Serialize(serializador, normais);
+            serializador.EndMessage();
+            dados = serializador.ToByteArray(false);
+        }
+        finally
+        {
+            serializador.Recycle();
+        }
+
+        bool enviou = false;
+        for (int p = 0; p < PlayerControl.AllPlayerControls.Count; p++)
+        {
+            PlayerControl jogador = PlayerControl.AllPlayerControls[p];
+            if (jogador == null || jogador.Data == null || jogador.Data.Disconnected)
+                continue;
+
+            for (int i = 0; i < GameManager.Instance.LogicComponents.Count; i++)
+            {
+                if (GameManager.Instance.LogicComponents[i] is not LogicOptions)
+                    continue;
+
+                MessageWriter pacote = MessageWriter.Get(SendOption.Reliable);
+                try
+                {
+                    pacote.StartMessage(6);
+                    pacote.Write(AmongUsClient.Instance.GameId);
+                    pacote.WritePacked(jogador.OwnerId);
+                    pacote.StartMessage(1);
+                    pacote.WritePacked(GameManager.Instance.NetId);
+                    pacote.StartMessage((byte)i);
+                    pacote.WriteBytesAndSize(dados);
+                    pacote.EndMessage();
+                    pacote.EndMessage();
+                    pacote.EndMessage();
+                    AmongUsClient.Instance.SendOrDisconnect(pacote);
+                    enviou = true;
+                }
+                finally
+                {
+                    pacote.Recycle();
+                }
+            }
+        }
+
+        if (!enviou)
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "Nenhum pacote de opções foi enviado para a visão reduzida.");
     }
 }
