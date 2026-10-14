@@ -1,5 +1,7 @@
 using System;
 using HarmonyLib;
+using Il2CppInterop.Runtime;
+using UnityEngine.Events;
 using TMPro;
 using UnityEngine;
 
@@ -47,11 +49,13 @@ namespace YouTubeVoteBridge
 
                     // Usa o evento OnClick que já vem no prefab original do jogo.
                     // Não substitua o evento: no IL2CPP ele tem um tipo próprio.
-                    BotaoMod.OnClick.AddListener(() =>
+                    Action aoClicar = () =>
                     {
                         if (GameSettingMenu.Instance != null)
                             GameSettingMenu.Instance.ChangeTab(3, false);
-                    });
+                    };
+                    BotaoMod.OnClick.AddListener(
+                        DelegateSupport.ConvertDelegate<UnityAction>(aoClicar));
 
                     __instance.ControllerSelectable.Add(BotaoMod);
                 }
