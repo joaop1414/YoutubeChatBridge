@@ -31,7 +31,6 @@ internal static class RegistroEventos
         new EventoInverterMovimentoTodos(),
         new EventoTeleporteAleatorio(),
         new EventoSuicidioAleatorio(),
-        new EventoReviverJogadorMorto(),
         new EventoVisaoReduzida()
     };
 
