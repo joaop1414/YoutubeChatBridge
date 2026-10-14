@@ -9,7 +9,7 @@ namespace YouTubeVoteBridge;
 internal sealed class EventoTeleporteAleatorio : EventoVotacao
 {
     private static readonly System.Random Sorteador = new();
-    public override string Nome => "Teleporte aleatório para uma sala";
+    public override string Nome => "Teleporte aleatório";
 
     public void Executar()
     {
