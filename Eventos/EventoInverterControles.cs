@@ -1,18 +1,48 @@
+using System;
+using System.Collections.Generic;
+
 namespace YouTubeVoteBridge;
 
 internal sealed class EventoInverterControles : EventoVotacao
 {
     private const float DuracaoSegundos = 15f;
-    public override string Nome => "Inverter os controles por 15 segundos";
+    private static readonly Random Sorteador = new();
+
+    public override string Nome =>
+        "Inverter os controles de um jogador aleatório por 15 segundos";
 
     public void Executar()
     {
-        if (!YouTubeVoteBridgePlugin.EhHost() || PlayerControl.LocalPlayer == null)
+        if (!YouTubeVoteBridgePlugin.EhHost())
             return;
 
-        // Reutiliza o sistema temporário de velocidade: multiplicador -1
-        // faz Speed virar Speed * (-1) e o helper restaura o valor original.
+        List<PlayerControl> candidatos = new();
+
+        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+        {
+            if (jogador?.Data == null ||
+                jogador.Data.IsDead ||
+                jogador.Data.Disconnected)
+                continue;
+
+            candidatos.Add(jogador);
+        }
+
+        if (candidatos.Count == 0)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "Inversão de controles cancelada: nenhum jogador vivo disponível.");
+            return;
+        }
+
+        PlayerControl alvo = candidatos[Sorteador.Next(candidatos.Count)];
+
         EventoVelocidadeJogadores.AplicarMultiplicador(
-            PlayerControl.LocalPlayer.PlayerId, -1f, DuracaoSegundos);
+            alvo.PlayerId, -1f, DuracaoSegundos);
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            "Controles invertidos para " + alvo.Data.PlayerName +
+            " (PlayerId=" + alvo.PlayerId + ", OwnerId=" + alvo.OwnerId +
+            ") por " + DuracaoSegundos + " segundos.");
     }
 }
