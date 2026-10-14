@@ -105,7 +105,7 @@ internal sealed class EventoMatarJogadorAleatorio : EventoVotacao
         PlayerControl alvo = candidatos[Sorteador.Next(candidatos.Count)];
         try
         {
-            PlayerControl.LocalPlayer.RpcMurderPlayer(alvo, MurderResultFlags.Succeeded);
+            PlayerControl.LocalPlayer.RpcMurderPlayer(alvo, true);
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo("Pedido de morte aleatória enviado para " + alvo.Data.PlayerName + " (PlayerId=" + alvo.PlayerId + ").");
         }
         catch (Exception ex) { YouTubeVoteBridgePlugin.Instance?.Log.LogError("Falha ao matar jogador aleatório: " + ex); }
