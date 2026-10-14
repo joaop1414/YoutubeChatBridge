@@ -14,6 +14,9 @@ internal static class EventoVelocidadeJogadores
     private sealed class Efeito
     {
         public float VelocidadeOriginal;
+        public float VelocidadeFisicaOriginal;
+        public float VelocidadeFantasmaFisicaOriginal;
+        public bool TemVelocidadeFisicaOriginal;
         public float Multiplicador;
         public float ExpiraEm;
         public float ProximoEnvio;
@@ -47,11 +50,20 @@ internal static class EventoVelocidadeJogadores
             Efeitos[playerId] = efeito;
         }
 
+        if (jogador.AmOwner && jogador.MyPhysics != null && !efeito.TemVelocidadeFisicaOriginal)
+        {
+            efeito.VelocidadeFisicaOriginal = jogador.MyPhysics.Speed;
+            efeito.VelocidadeFantasmaFisicaOriginal = jogador.MyPhysics.GhostSpeed;
+            efeito.TemVelocidadeFisicaOriginal = true;
+        }
+
         efeito.Multiplicador = multiplicador;
         efeito.ExpiraEm = Time.realtimeSinceStartup + duracao;
         efeito.ProximoEnvio = 0f;
 
-        float velocidadeSolicitada = Mathf.Clamp(original * multiplicador, 0.0001f, 3f);
+        float velocidadeSolicitada = multiplicador < 0f
+            ? original * multiplicador
+            : Mathf.Clamp(original * multiplicador, 0.0001f, 3f);
         bool aplicadoOuEnfileirado = AplicarAoJogador(jogador, efeito);
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
@@ -71,7 +83,14 @@ internal static class EventoVelocidadeJogadores
         PlayerControl jogador = EncontrarJogador(playerId);
         if (jogador != null && jogador.Data != null && YouTubeVoteBridgePlugin.EhHost())
         {
-            if (jogador.AmOwner)
+            if (jogador.AmOwner && jogador.MyPhysics != null && efeito.TemVelocidadeFisicaOriginal)
+            {
+                // Não altere CurrentGameOptions para congelar/acelerar o host:
+                // essas opções são globais e podem afetar os demais jogadores.
+                jogador.MyPhysics.Speed = efeito.VelocidadeFisicaOriginal;
+                jogador.MyPhysics.GhostSpeed = efeito.VelocidadeFantasmaFisicaOriginal;
+            }
+            else if (jogador.AmOwner)
             {
                 DefinirVelocidadeLocal(efeito.VelocidadeOriginal);
             }
@@ -132,19 +151,34 @@ internal static class EventoVelocidadeJogadores
 
     private static bool AplicarAoJogador(PlayerControl jogador, Efeito efeito)
     {
+        if (jogador.AmOwner)
+        {
+            // O caminho local altera apenas a física deste jogador. Modificar
+            // CurrentGameOptions aqui afeta a partida inteira, não só o host.
+            if (jogador.MyPhysics == null || !efeito.TemVelocidadeFisicaOriginal)
+                return false;
+
+            jogador.MyPhysics.Speed =
+                efeito.VelocidadeFisicaOriginal * efeito.Multiplicador;
+            jogador.MyPhysics.GhostSpeed =
+                efeito.VelocidadeFantasmaFisicaOriginal * efeito.Multiplicador;
+            return true;
+        }
+
+        // Opções negativas não são válidas em PlayerSpeedMod. A inversão usa
+        // a física local do host; efeitos positivos remotos continuam por LogicOptions.
+        if (efeito.Multiplicador < 0f)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "Não é possível inverter a física de um cliente remoto apenas com PlayerSpeedMod.");
+            return false;
+        }
+
         float velocidade = Mathf.Clamp(
             efeito.VelocidadeOriginal * efeito.Multiplicador,
             0.0001f,
             3f);
 
-        if (jogador.AmOwner)
-        {
-            // Equivalente ao caminho local do EHR: aplicar opções no cliente dono.
-            DefinirVelocidadeLocal(velocidade);
-            return true;
-        }
-
-        // O cliente remoto recebe opções serializadas só para seu OwnerId.
         return EnviarOpcoesBrutas(jogador, velocidade);
     }
 
