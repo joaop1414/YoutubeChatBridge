@@ -1,7 +1,9 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
 using AmongUs.GameOptions;
+using Hazel;
 
 namespace YouTubeVoteBridge;
 
@@ -46,22 +48,20 @@ internal sealed class EventoReviverJogadorMorto : EventoVotacao
         RoleTypes funcaoOriginal = ObterFuncaoOriginal(alvo);
         try
         {
-            // Prioriza o método RPC para que a ressurreição também chegue aos
-            // clientes vanilla; usa Revive local como alternativa da versão.
+            // Algumas versões expõem RpcRevive; noutras, Revive é local.
+            // Em ambos os casos forçamos o estado vivo e enviamos PlayerData
+            // atualizado a cada cliente, inclusive vanilla.
             bool reviveExecutado = InvocarMetodoSemParametros(alvo, "RpcRevive");
             if (!reviveExecutado)
                 reviveExecutado = InvocarMetodoSemParametros(alvo, "Revive");
 
-            if (!reviveExecutado)
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "Não encontrei RpcRevive() nem Revive() sem parâmetros nesta versão; ressurreição cancelada.");
-                return;
-            }
+            alvo.Data.IsDead = false;
+            alvo.moveable = true;
+            try { alvo.Visible = true; } catch { }
 
-            // Repõe a função anterior à morte em vez de deixar CrewmateGhost/
-            // ImpostorGhost. RpcSetRole é replicado pelo jogo para clientes vanilla.
+            // Repõe a função que o jogador tinha antes da morte (não a função Ghost).
             alvo.RpcSetRole(funcaoOriginal, true);
+            SincronizarEstadoComClientes(alvo);
             FuncoesAntesDaMorte.Remove(alvo.PlayerId);
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
@@ -72,6 +72,63 @@ internal sealed class EventoReviverJogadorMorto : EventoVotacao
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
                 "Falha ao reviver jogador morto: " + (ex.InnerException ?? ex));
+        }
+    }
+
+
+    private static void SincronizarEstadoComClientes(PlayerControl alvo)
+    {
+        if (AmongUsClient.Instance == null || alvo?.Data == null || !YouTubeVoteBridgePlugin.EhHost())
+            return;
+
+        try
+        {
+            Type tipoCliente = AmongUsClient.Instance.GetType();
+            object colecao =
+                tipoCliente.GetProperty("allClients", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?.GetValue(AmongUsClient.Instance) ??
+                tipoCliente.GetField("allClients", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?.GetValue(AmongUsClient.Instance);
+
+            if (!(colecao is IEnumerable clientes))
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "Não foi possível enumerar clientes para sincronizar a ressurreição vanilla.");
+                return;
+            }
+
+            foreach (object cliente in clientes)
+            {
+                if (cliente == null) continue;
+                Type tipo = cliente.GetType();
+                object idObjeto =
+                    tipo.GetProperty("Id", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?.GetValue(cliente) ??
+                    tipo.GetField("Id", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?.GetValue(cliente);
+                if (idObjeto == null || !int.TryParse(idObjeto.ToString(), out int clientId) ||
+                    clientId == AmongUsClient.Instance.ClientId)
+                    continue;
+
+                MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
+                try
+                {
+                    writer.StartMessage(6);
+                    writer.Write(AmongUsClient.Instance.GameId);
+                    writer.WritePacked(clientId);
+                    writer.StartMessage(1);
+                    writer.WritePacked(alvo.Data.NetId);
+                    alvo.Data.Serialize(writer, true);
+                    writer.EndMessage();
+                    writer.EndMessage();
+                    AmongUsClient.Instance.SendOrDisconnect(writer);
+                }
+                finally
+                {
+                    writer.Recycle();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "Falha ao sincronizar ressurreição com clientes vanilla: " + ex);
         }
     }
 
