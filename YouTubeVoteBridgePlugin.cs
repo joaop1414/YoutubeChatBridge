@@ -1348,8 +1348,8 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 case "Teleporte aleatório":
                     new EventoTeleporteAleatorio().Executar();
                     break;
-                case "Matar um jogador aleatório":
-                    new EventoMatarJogadorAleatorio().Executar();
+                case "Um jogador aleatório comete suicídio":
+                    new EventoSuicidioAleatorio().Executar();
                     break;
                 case "Reviver um jogador morto":
                     new EventoReviverJogadorMorto().Executar();
