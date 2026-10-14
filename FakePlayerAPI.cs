@@ -11,7 +11,7 @@ namespace YouTubeVoteBridge;
 /// </summary>
 public static class FakePlayerAPI
 {
-    public const byte PlayerIdFalso = 254;
+    public const byte PlayerIdFalso = 253;
     private static readonly HashSet<PlayerControl> ObjetosCriados = new();
 
     /// <summary>
