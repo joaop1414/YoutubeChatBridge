@@ -104,6 +104,50 @@ internal static class CustomNetObject
     }
 
     /// <summary>
+    /// Envia nome e cor para clientes vanilla depois da associação do PlayerControl.
+    /// </summary>
+    public static void EnviarAparencia(PlayerControl objeto, string nome, byte corId)
+    {
+        if (objeto == null || objeto.Data == null ||
+            AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost)
+            throw new InvalidOperationException("Não é possível sincronizar a aparência do PlayerControl falso.");
+
+        MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
+        try
+        {
+            writer.StartMessage(5);
+            writer.Write(AmongUsClient.Instance.GameId);
+
+            // SetName: associa o nome ao PlayerInfo pertencente ao objeto.
+            writer.StartMessage(2);
+            writer.WritePacked(objeto.NetId);
+            writer.Write((byte)RpcCalls.SetName);
+            writer.WritePacked(objeto.Data.NetId);
+            writer.Write(nome ?? "Bot");
+            writer.EndMessage();
+
+            // SetColor: a sequência usada pelo evento de corpo falso do próprio projeto.
+            writer.StartMessage(2);
+            writer.WritePacked(objeto.NetId);
+            writer.Write((byte)RpcCalls.SetColor);
+            writer.WritePacked(objeto.Data.NetId);
+            writer.Write(corId);
+            writer.EndMessage();
+
+            writer.EndMessage();
+            AmongUsClient.Instance.SendOrDisconnect(writer);
+            writer = null;
+        }
+        finally
+        {
+            writer?.Recycle();
+        }
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"CustomNetObject: aparência enviada para PlayerId={objeto.PlayerId}, nome='{nome}', cor={corId}.");
+    }
+
+    /// <summary>
     /// Replica a atualização de posição no padrão usado pelo CustomNetObject do EHR.
     /// </summary>
     public static void EnviarPosicao(PlayerControl objeto, UnityEngine.Vector2 posicao)
