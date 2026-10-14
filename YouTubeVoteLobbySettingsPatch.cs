@@ -209,14 +209,15 @@ namespace YouTubeVoteBridge
     [HarmonyPatch(typeof(StringOption), nameof(StringOption.Decrease))]
     public static class YouTubeVoteLobbySettingsDecreasePatch
     {
-        // Deixa o jogo executar a diminuição visual normalmente e aplica o valor
-        // persistente depois. Isso evita que o controle clonado bloqueie o clique.
-        public static void Postfix(StringOption __instance)
+        // Trata a diminuição diretamente, igual ao aumento, para que o valor interno
+        // do StringOption clonado não bloqueie ou sobrescreva a configuração persistente.
+        public static bool Prefix(StringOption __instance)
         {
             if (!YouTubeVoteLobbySettingsPatch.EhControle(__instance))
-                return;
+                return true;
 
             YouTubeVoteLobbySettingsPatch.Alterar(__instance, -1);
+            return false;
         }
     }
 }
