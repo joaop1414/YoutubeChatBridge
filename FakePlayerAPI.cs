@@ -36,19 +36,24 @@ public static class FakePlayerAPI
             falso.notRealPlayer = true;
             falso.NetTransform.SnapTo(new Vector2(50f, 50f));
 
+            LogDiagnostico("ANTES DO SPAWN", falso, nome, corId);
             CustomNetObject.EnviarSpawn(falso);
             ObjetosCriados.Add(falso);
+            LogDiagnostico("DEPOIS DO SPAWN", falso, nome, corId);
 
             int associados = CustomNetObject.AssociarClientes(falso, PlayerIdFalso);
-            LogInfo($"Spawn enviado. NetId={falso.NetId}; clientes associados={associados}.");
+            LogInfo($"Associação concluída. NetId={falso.NetId}; clientes associados={associados}.");
+            LogDiagnostico("DEPOIS DA ASSOCIACAO", falso, nome, corId);
 
             // Corrige a causa mais provável de Fortegreen/???:
             // a API antiga não enviava nome nem cor aos clientes vanilla.
             CustomNetObject.EnviarAparencia(falso, nome, corId);
+            LogDiagnostico("DEPOIS DE ENVIAR APARENCIA", falso, nome, corId);
 
             if (!Mover(falso, posicaoInicial))
                 LogAviso("O personagem foi criado, mas a posição não pôde ser sincronizada.");
 
+            LogDiagnostico("FINAL DA CRIACAO", falso, nome, corId);
             return falso;
         }
         catch (Exception ex)
@@ -164,6 +169,51 @@ public static class FakePlayerAPI
         ObjetosCriados.Remove(falso);
         LogInfo($"Personagem artificial removido. NetId={netId}.");
         return sucesso;
+    }
+
+    private static void LogDiagnostico(string etapa, PlayerControl falso, string nomeSolicitado, byte corSolicitada)
+    {
+        try
+        {
+            string nomeReal = falso?.Data?.PlayerName ?? "<Data/PlayerName null>";
+            string nomeCache = falso?.CachedPlayerData?.PlayerName ?? "<CachedPlayerData null>";
+            string corReal = falso?.Data != null
+                ? falso.Data.DefaultOutfit.ColorId.ToString()
+                : "<Data null>";
+            bool naLista = falso != null && PlayerControl.AllPlayerControls.Contains(falso);
+            bool netObjectPresente = falso != null &&
+                AmongUsClient.Instance != null &&
+                AmongUsClient.Instance.allObjects != null &&
+                AmongUsClient.Instance.allObjects.ContainsKey(falso.NetId);
+
+            LogInfo(
+                $"[DIAG:{etapa}] " +
+                $"AmHost={AmongUsClient.Instance?.AmHost}; " +
+                $"LocalPlayerId={PlayerControl.LocalPlayer?.PlayerId}; " +
+                $"FakePlayerId={falso?.PlayerId}; NetId={falso?.NetId}; " +
+                $"DataNetId={falso?.Data?.NetId}; " +
+                $"NomeSolicitado='{nomeSolicitado}'; NomeData='{nomeReal}'; " +
+                $"NomeCache='{nomeCache}'; CorSolicitada={corSolicitada}; CorData={corReal}; " +
+                $"NaAllPlayerControls={naLista}; NetObjectRegistrado={netObjectPresente}; " +
+                $"OwnerId={falso?.OwnerId}; CachedPlayerDataIgualLocal=" +
+                $"{(falso?.CachedPlayerData != null && falso.CachedPlayerData == PlayerControl.LocalPlayer?.Data)}."
+            );
+
+            if (AmongUsClient.Instance != null)
+            {
+                foreach (ClientData cliente in AmongUsClient.Instance.allClients)
+                {
+                    if (cliente != null)
+                        LogInfo($"[DIAG:CLIENTE] ClientId={cliente.Id}; Nome='{cliente.PlayerName}'; " +
+                            $"CharacterPlayerId={cliente.Character?.PlayerId}; " +
+                            $"CharacterNetId={cliente.Character?.NetId}.");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            LogAviso($"Diagnóstico falhou na etapa '{etapa}': {ex.Message}");
+        }
     }
 
     private static void LogInfo(string mensagem) =>
