@@ -273,9 +273,12 @@ internal static class EventoVelocidadeJogadores
         try
         {
             float velocidadeAnterior = opcoesNormais.GetFloat(FloatOptionNames.PlayerSpeedMod);
+            float velocidadeSerializada = velocidade < 0f
+                ? -Mathf.Clamp(Mathf.Abs(velocidade), 0.0001f, 3f)
+                : Mathf.Clamp(velocidade, 0.0001f, 3f);
             opcoesNormais.SetFloat(
                 FloatOptionNames.PlayerSpeedMod,
-                Mathf.Clamp(velocidade, 0.0001f, 3f));
+                velocidadeSerializada);
 
             MessageWriter serializador = MessageWriter.Get();
             try
