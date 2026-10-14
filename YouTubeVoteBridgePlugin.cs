@@ -1345,6 +1345,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 case "Reportar um corpo":
                     new EventoReportarCorpo().Executar();
                     break;
+                case "Inverter os controles de um jogador aleatório por 15 segundos":
                 case "Inverter os controles por 15 segundos":
                     new EventoInverterControles().Executar();
                     break;
