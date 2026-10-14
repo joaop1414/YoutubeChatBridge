@@ -59,7 +59,7 @@ namespace YouTubeVoteBridge
                     __instance.ControllerSelectable.Add(BotaoMod);
                 }
 
-                BotaoMod.gameObject.SetActive(true);
+                BotaoMod.gameObject.SetActive(YouTubeVoteBridgePlugin.EhHost());
             }
             catch (Exception ex)
             {
