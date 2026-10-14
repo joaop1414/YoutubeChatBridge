@@ -51,6 +51,8 @@ internal sealed class EventoTsunami : EventoVotacao
     private static bool reuniaoFoiAberta;
     private static readonly Dictionary<byte, float> protegidos = new();
     private static readonly Dictionary<byte, int> dutosProtegidos = new();
+    // X do jogador quando se abrigou; o prazo de saída só começa após a onda passar.
+    private static readonly Dictionary<byte, float> posicaoXProtegida = new();
 
     private const string NomeOnda =
         "<color=#0099d1><size=25><line-height=97%><cspace=0.16em><mark=#0099d1>W\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\n</mark></cspace></line-height></size></color>";
@@ -340,33 +342,56 @@ internal sealed class EventoTsunami : EventoVotacao
                 jogador.Data.Disconnected || jogador.Data.IsDead)
                 continue;
 
+            Vector2 p = jogador.GetTruePosition();
+
+            // Quem já está abrigado permanece no duto até a onda passar da
+            // posição em que entrou; só então começa a contar 1 segundo para sair.
             if (protegidos.TryGetValue(jogador.PlayerId, out float protecaoAte))
             {
+                if (protecaoAte == float.MaxValue &&
+                    posicaoXProtegida.TryGetValue(jogador.PlayerId, out float xAbrigo) &&
+                    posicao.x > xAbrigo + Alcance)
+                {
+                    protegidos[jogador.PlayerId] = agora + ProtecaoDuto;
+                    protecaoAte = agora + ProtecaoDuto;
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                        "Tsunami passou pelo jogador " + jogador.Data.PlayerName +
+                        "; saída do duto em 1 segundo.");
+                }
+
                 if (agora < protecaoAte) continue;
+
+                // Reenvia a saída por alguns frames caso o estado inVent demore
+                // a atualizar nos clientes, sem reiniciar a proteção indefinidamente.
+                if (jogador.inVent && jogador.MyPhysics != null &&
+                    dutosProtegidos.TryGetValue(jogador.PlayerId, out int dutoSaida))
+                {
+                    try { jogador.MyPhysics.RpcExitVent(dutoSaida); }
+                    catch (Exception ex)
+                    {
+                        YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                            "Tsunami: falha ao retirar jogador do duto: " + ex.Message);
+                    }
+                    protegidos[jogador.PlayerId] = agora + 0.25f;
+                    continue;
+                }
+
                 protegidos.Remove(jogador.PlayerId);
-                try
-                {
-                    if (jogador.inVent && jogador.MyPhysics != null &&
-                        dutosProtegidos.TryGetValue(jogador.PlayerId, out int idDuto))
-                        jogador.MyPhysics.RpcExitVent(idDuto);
-                    dutosProtegidos.Remove(jogador.PlayerId);
-                }
-                catch (Exception ex)
-                {
-                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                        "Tsunami: falha ao retirar jogador do duto: " + ex.Message);
-                }
+                dutosProtegidos.Remove(jogador.PlayerId);
+                posicaoXProtegida.Remove(jogador.PlayerId);
             }
 
             if (jogador.inVent)
             {
                 if (!protegidos.ContainsKey(jogador.PlayerId))
                 {
-                    protegidos[jogador.PlayerId] = agora + ProtecaoDuto;
+                    // Se já estava no duto, espera a onda passar por essa posição.
+                    protegidos[jogador.PlayerId] = float.MaxValue;
+                    posicaoXProtegida[jogador.PlayerId] = p.x;
                     try
                     {
                         foreach (Vent duto in ShipStatus.Instance.AllVents)
-                            if (duto != null && Vector2.Distance(jogador.GetTruePosition(), (Vector2)duto.transform.position) < AlcanceIdentificarDutoTsunami)
+                            if (duto != null && Vector2.Distance(p, (Vector2)duto.transform.position) < AlcanceIdentificarDutoTsunami)
                             { dutosProtegidos[jogador.PlayerId] = duto.Id; break; }
                     }
                     catch { }
@@ -375,16 +400,9 @@ internal sealed class EventoTsunami : EventoVotacao
             }
 
             if (atingidos.Contains(jogador.PlayerId)) continue;
-            Vector2 p = jogador.GetTruePosition();
 
-            // A entrada no duto é antecipada sem antecipar o dano:
-            // jogadores à frente da onda ganham uma janela extra para se esconder,
-            // mas só são atingidos quando a onda chega ao alcance normal.
-            float distanciaX = p.x - posicao.x;
-            const float AlcanceAntecipadoDuto = 1.35f;
-            if (distanciaX < -Alcance || distanciaX > AlcanceAntecipadoDuto)
-                continue;
-
+            // Entrar no duto depende apenas de tocar/chegar perto dele, não da
+            // distância do tsunami. Assim o jogador pode se esconder com antecedência.
             bool entrouNoDuto = false;
             try
             {
@@ -393,9 +411,13 @@ internal sealed class EventoTsunami : EventoVotacao
                     if (duto == null || Vector2.Distance(p, (Vector2)duto.transform.position) > AlcanceDutoTsunami) continue;
                     if (jogador.MyPhysics == null) break;
                     jogador.MyPhysics.RpcEnterVent(duto.Id);
-                    protegidos[jogador.PlayerId] = agora + ProtecaoDuto;
+                    protegidos[jogador.PlayerId] = float.MaxValue;
+                    posicaoXProtegida[jogador.PlayerId] = p.x;
                     dutosProtegidos[jogador.PlayerId] = duto.Id;
                     entrouNoDuto = true;
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                        "Tsunami: " + jogador.Data.PlayerName +
+                        " entrou no duto; aguardando a onda passar para iniciar a saída.");
                     break;
                 }
             }
@@ -405,7 +427,8 @@ internal sealed class EventoTsunami : EventoVotacao
             }
             if (entrouNoDuto) continue;
 
-            if (Mathf.Abs(distanciaX) > Alcance)
+            float distanciaX = p.x - posicao.x;
+            if (distanciaX < -Alcance || distanciaX > Alcance)
                 continue;
 
             try
@@ -856,6 +879,7 @@ internal sealed class EventoTsunami : EventoVotacao
         RestaurarAvisoNomes();
         protegidos.Clear();
         dutosProtegidos.Clear();
+        posicaoXProtegida.Clear();
         // Ao terminar normalmente, preserve os atrasos já iniciados.
         // Em interrupções/reuniões, restaure o movimento e cancele pendências.
         if (!preservarMortesPendentes)
