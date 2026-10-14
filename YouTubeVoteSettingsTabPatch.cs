@@ -60,9 +60,19 @@ namespace YouTubeVoteBridge
         }
     }
 
-    [HarmonyPatch(typeof(PassiveButton), nameof(PassiveButton.ReceiveClick))]
+    // Os nomes dos métodos de clique variam entre versões das assemblies IL2CPP.
+    // Resolve em runtime para manter a compilação independente do nome exato.
+    [HarmonyPatch]
     internal static class YouTubeVoteSettingsTabButtonClickPatch
     {
+        private static System.Reflection.MethodBase TargetMethod()
+        {
+            return AccessTools.Method(typeof(PassiveButton), "OnMouseUpAsButton")
+                ?? AccessTools.Method(typeof(PassiveButton), "OnPointerClick")
+                ?? AccessTools.Method(typeof(PassiveButton), "OnMouseUp")
+                ?? AccessTools.Method(typeof(PassiveButton), "ReceiveClick");
+        }
+
         [HarmonyPostfix]
         private static void Postfix(PassiveButton __instance)
         {
