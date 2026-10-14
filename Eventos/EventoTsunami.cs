@@ -394,6 +394,9 @@ internal sealed class EventoTsunami : EventoVotacao
                 prazoSaidaDuto.Remove(idJogadorDuto);
             }
 
+            if (bloqueadosReentradaDuto.Contains(jogador.PlayerId))
+                continue;
+
             if (jogador.inVent)
             {
                 if (!protegidos.ContainsKey(jogador.PlayerId))
