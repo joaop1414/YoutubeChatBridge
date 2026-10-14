@@ -74,13 +74,21 @@ public static class FakePlayerAPI
             int associados = CustomNetObject.AssociarClientes(falso, PlayerIdFalso);
             LogInfo($"Associação concluída. NetId={falso.NetId}; clientes associados={associados}.");
             LogDiagnostico("DEPOIS DA ASSOCIACAO", falso, nome, corId);
+        }
+        catch (Exception ex)
+        {
+            LogErro("Falha ao associar o personagem falso aos clientes: " + ex);
+            yield break;
+        }
 
-            yield return new UnityEngine.WaitForSecondsRealtime(0.15f);
+        yield return new UnityEngine.WaitForSecondsRealtime(0.15f);
 
-            if (falso == null || !ObjetosCriados.Contains(falso) ||
-                AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost)
-                yield break;
+        if (falso == null || !ObjetosCriados.Contains(falso) ||
+            AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost)
+            yield break;
 
+        try
+        {
             CustomNetObject.EnviarAparencia(falso, nome, corId);
             LogDiagnostico("DEPOIS DE ENVIAR APARENCIA", falso, nome, corId);
 
