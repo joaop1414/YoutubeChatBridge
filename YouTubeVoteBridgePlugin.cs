@@ -1364,6 +1364,9 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 case "Reviver um jogador morto":
                     new EventoReviverJogadorMorto().Executar();
                     break;
+                case "Visão reduzida para todos por 20 segundos":
+                    new EventoVisaoReduzida().Executar();
+                    break;
                 case "Sabotagem aleatória":
                     new EventoSabotagemAleatoria().Executar();
                     break;
@@ -1904,6 +1907,7 @@ public static class YouTubeVoteUpdatePatch
         EventoCongelarJogador.Atualizar();
         EventoVelocidadeJogadores.Atualizar();
         EventoTsunami.Atualizar();
+        EventoVisaoReduzida.Atualizar();
     }
 }
 
