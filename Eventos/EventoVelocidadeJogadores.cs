@@ -346,7 +346,9 @@ internal static class EventoVelocidadeJogadores
                     YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                         $"[Velocidade] Enviando opções: PlayerId={jogador.PlayerId}, " +
                         $"OwnerId={jogador.OwnerId}, LogicOptionsIndex={i}, " +
-                        $"velocidade={velocidade:0.####}, bytesOpções={dadosOpcoes.Length}, " +
+                        $"velocidade={(velocidade.HasValue ? velocidade.Value.ToString("0.####") : "inalterada")}, " +
+                        $"visãoTripulante={(visaoTripulante.HasValue ? visaoTripulante.Value.ToString("0.####") : "inalterada")}, " +
+                        $"visãoImpostor={(visaoImpostor.HasValue ? visaoImpostor.Value.ToString("0.####") : "inalterada")}, bytesOpções={dadosOpcoes.Length}, "
                         $"bytesPacote={pacote.Length}.");
 
                     AmongUsClient.Instance.SendOrDisconnect(pacote);
