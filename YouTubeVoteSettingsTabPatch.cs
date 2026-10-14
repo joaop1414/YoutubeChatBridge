@@ -42,8 +42,7 @@ namespace YouTubeVoteBridge
                     TextMeshPro label = BotaoMod.GetComponentInChildren<TextMeshPro>(true);
                     if (label != null)
                     {
-                        label.DestroyTranslator();
-                        label.SetText("YouTubeVoteBridge");
+                        label.text = "YouTubeVoteBridge";
                     }
 
                     BotaoMod.transform.localPosition = new Vector3(-2.4f, -0.95f, 0f);
@@ -134,8 +133,7 @@ namespace YouTubeVoteBridge
                 __instance.RoleSettingsButton.SelectButton(false);
 
                 tab.gameObject.SetActive(true);
-                __instance.MenuDescriptionText.DestroyTranslator();
-                __instance.MenuDescriptionText.SetText("Configurações do YouTubeVoteBridge");
+                __instance.MenuDescriptionText.text = "Configurações do YouTubeVoteBridge";
 
                 button.SelectButton(true);
                 __instance.ToggleLeftSideDarkener(true);
