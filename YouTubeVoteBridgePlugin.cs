@@ -1888,6 +1888,7 @@ public static class YouTubeVoteUpdatePatch
     public static void Postfix()
     {
         DiagnosticoPlayerReal.Atualizar();
+        JogadorRealExperimental.Atualizar();
         EventoTesteMenu.VerificarTecla();
         EventoReviverJogadorMorto.RegistrarFuncoesVivas();
         EventoTesteMenu.ProcessarFilaExecucao();
