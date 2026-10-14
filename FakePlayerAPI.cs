@@ -31,7 +31,7 @@ public static class FakePlayerAPI
     /// <summary>
     /// Cria personagem artificial. Nome e cor são enviados por RPC após a associação.
     /// </summary>
-    public static PlayerControl Criar(Vector2 posicaoInicial, string nome = "Bot", byte corId = 0)
+    public static PlayerControl Criar(Vector2 posicaoInicial, string nome = "NPC", byte corId = 0)
     {
         if (!PodeCriar(out string motivo))
         {
