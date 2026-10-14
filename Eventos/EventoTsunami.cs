@@ -960,7 +960,7 @@ internal static class EventoTsunamiFlashReatorPatch
         if (!EventoTsunami.AvisoAtivo)
             return true;
 
-        if (EventoTsunami.FlashReatorCianoAtivo && __instance.ReactorFlash == null)
+        if (__instance.ReactorFlash == null)
             __instance.ReactorFlash = __instance.StartCoroutine(FlashCiano().WrapToIl2Cpp());
         return false;
     }
@@ -971,11 +971,13 @@ internal static class EventoTsunamiFlashReatorPatch
             yield break;
 
         HudManager hud = HudManager.Instance;
+        const float DuracaoFlashReator = 0.5f;
+        float terminarEm = Time.realtimeSinceStartup + DuracaoFlashReator;
         WaitForSeconds espera = new WaitForSeconds(0.25f);
         bool mostrar = true;
-        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo("Tsunami: flash ciano sincronizado com a sabotagem do reator.");
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo("Tsunami: flash ciano limitado à duração do pulso do reator.");
 
-        while (EventoTsunami.FlashReatorCianoAtivo)
+        while (Time.realtimeSinceStartup < terminarEm)
         {
             if (hud == null) break;
             FlashOverlay.DefinirFlashTsunami(mostrar);
@@ -1006,21 +1008,7 @@ internal static class EventoTsunamiFlashReatorCorPatch
             return;
         }
 
-        if (!EventoTsunami.FlashReatorCianoAtivo)
-        {
-            FlashOverlay.DefinirFlashTsunami(false);
-            return;
-        }
-
-        try
-        {
-            if (__instance.ReactorFlash == null)
-                __instance.StartReactorFlash();
-        }
-        catch (Exception ex)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogDebug(
-                "Tsunami: não foi possível iniciar o flash ciano: " + ex.Message);
-        }
+        // Não reinicia o flash a cada frame: o jogo inicia um pulso por sabotagem.
+        // Reiniciar aqui mantinha o overlay ciano ativo por toda a duração do tsunami.
     }
 }
