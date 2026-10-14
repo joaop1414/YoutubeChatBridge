@@ -48,28 +48,38 @@ internal sealed class EventoReviverJogadorMorto : EventoVotacao
         RoleTypes funcaoOriginal = ObterFuncaoOriginal(alvo);
         try
         {
-            // Algumas versões expõem RpcRevive; noutras, Revive é local.
-            // Em ambos os casos forçamos o estado vivo e enviamos PlayerData
-            // atualizado a cada cliente, inclusive vanilla.
+            // EHR guarda funções customizadas e estado interno em PlayerState.
+            // Seu /revive chama exatamente este método: reutilize-o por reflexão
+            // se EHR estiver instalado, para restaurar também roles/addons próprios.
+            if (TentarReviverPeloEhr(alvo))
+            {
+                FuncoesAntesDaMorte.Remove(alvo.PlayerId);
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "Ressurreição executada pelo método nativo do EHR para " +
+                    (alvo.Data?.PlayerName ?? "jogador") + " (PlayerId=" + alvo.PlayerId + ").");
+                return;
+            }
+
+            // Fallback sem EHR: reviver pelo jogo base e restaurar a RoleTypes
+            // que foi registrada antes da morte.
             bool reviveExecutado = InvocarMetodoSemParametros(alvo, "RpcRevive");
             if (!reviveExecutado)
                 reviveExecutado = InvocarMetodoSemParametros(alvo, "Revive");
+
             if (!reviveExecutado)
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "Não encontrei método de ressurreição nativo; aplicando o estado vivo e sincronizando PlayerData diretamente.");
+                    "Método de revive do jogo base não encontrado; tentando fallback de estado vivo.");
 
             alvo.Data.IsDead = false;
             alvo.moveable = true;
             try { alvo.Visible = true; } catch { }
-
-            // Repõe a função que o jogador tinha antes da morte (não a função Ghost).
             alvo.RpcSetRole(funcaoOriginal, true);
             SincronizarEstadoComClientes(alvo);
             FuncoesAntesDaMorte.Remove(alvo.PlayerId);
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 "Ressurreição solicitada para " + (alvo.Data?.PlayerName ?? "jogador") +
-                "; função restaurada para " + funcaoOriginal + " (PlayerId=" + alvo.PlayerId + ").");
+                "; função base restaurada para " + funcaoOriginal + " (PlayerId=" + alvo.PlayerId + ").");
         }
         catch (Exception ex)
         {
@@ -151,6 +161,38 @@ internal sealed class EventoReviverJogadorMorto : EventoVotacao
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
                 "Falha ao sincronizar ressurreição com clientes vanilla: " + ex);
         }
+    }
+
+
+    private static bool TentarReviverPeloEhr(PlayerControl alvo)
+    {
+        try
+        {
+            foreach (Assembly assembly in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                Type tipo = assembly.GetType("EHR.ExtendedPlayerControl", false);
+                if (tipo == null) continue;
+
+                foreach (MethodInfo metodo in tipo.GetMethods(
+                    BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic))
+                {
+                    if (metodo.Name != "RpcRevive") continue;
+                    ParameterInfo[] parametros = metodo.GetParameters();
+                    if (parametros.Length != 1 ||
+                        !parametros[0].ParameterType.IsAssignableFrom(alvo.GetType()))
+                        continue;
+
+                    metodo.Invoke(null, new object[] { alvo });
+                    return true;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "Não foi possível invocar o RpcRevive do EHR: " + (ex.InnerException ?? ex));
+        }
+        return false;
     }
 
     private static RoleTypes ObterFuncaoOriginal(PlayerControl jogador)
