@@ -1,5 +1,3 @@
-using YouTubeVoteBridge;
-
 namespace YouTubeVoteBridge;
 
 internal sealed class EventoInverterControles : EventoVotacao
