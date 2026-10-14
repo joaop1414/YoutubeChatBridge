@@ -240,7 +240,10 @@ internal static class EventoVelocidadeJogadores
         return null;
     }
 
-    private static bool EnviarOpcoesBrutas(PlayerControl jogador, float velocidade)
+    internal static bool EnviarVisaoBruta(PlayerControl jogador, float visaoTripulante, float visaoImpostor) =>
+        EnviarOpcoesBrutas(jogador, null, visaoTripulante, visaoImpostor);
+
+    private static bool EnviarOpcoesBrutas(PlayerControl jogador, float? velocidade, float? visaoTripulante = null, float? visaoImpostor = null)
     {
         if (jogador == null || AmongUsClient.Instance == null ||
             GameManager.Instance == null || !YouTubeVoteBridgePlugin.EhHost())
@@ -265,7 +268,7 @@ internal static class EventoVelocidadeJogadores
         if (opcoesNormais == null)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "Envio de velocidade cancelado: opções atuais não são NormalGameOptionsV12.");
+                "Envio de configuração cancelado: opções atuais não são NormalGameOptionsV12.");
             return false;
         }
 
@@ -273,12 +276,20 @@ internal static class EventoVelocidadeJogadores
         try
         {
             float velocidadeAnterior = opcoesNormais.GetFloat(FloatOptionNames.PlayerSpeedMod);
-            float velocidadeSerializada = velocidade < 0f
-                ? -Mathf.Clamp(Mathf.Abs(velocidade), 0.0001f, 3f)
-                : Mathf.Clamp(velocidade, 0.0001f, 3f);
-            opcoesNormais.SetFloat(
-                FloatOptionNames.PlayerSpeedMod,
-                velocidadeSerializada);
+            float tripulanteAnterior = opcoesNormais.GetFloat(FloatOptionNames.CrewLightMod);
+            float impostorAnterior = opcoesNormais.GetFloat(FloatOptionNames.ImpostorLightMod);
+
+            if (velocidade.HasValue)
+            {
+                float valor = velocidade.Value < 0f
+                    ? -Mathf.Clamp(Mathf.Abs(velocidade.Value), 0.0001f, 3f)
+                    : Mathf.Clamp(velocidade.Value, 0.0001f, 3f);
+                opcoesNormais.SetFloat(FloatOptionNames.PlayerSpeedMod, valor);
+            }
+            if (visaoTripulante.HasValue)
+                opcoesNormais.SetFloat(FloatOptionNames.CrewLightMod, Mathf.Clamp(visaoTripulante.Value, 0.05f, 5f));
+            if (visaoImpostor.HasValue)
+                opcoesNormais.SetFloat(FloatOptionNames.ImpostorLightMod, Mathf.Clamp(visaoImpostor.Value, 0.05f, 5f));
 
             MessageWriter serializador = MessageWriter.Get();
             try
@@ -294,6 +305,8 @@ internal static class EventoVelocidadeJogadores
             {
                 serializador.Recycle();
                 opcoesNormais.SetFloat(FloatOptionNames.PlayerSpeedMod, velocidadeAnterior);
+                opcoesNormais.SetFloat(FloatOptionNames.CrewLightMod, tripulanteAnterior);
+                opcoesNormais.SetFloat(FloatOptionNames.ImpostorLightMod, impostorAnterior);
             }
         }
         catch (Exception ex)
