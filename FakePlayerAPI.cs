@@ -42,13 +42,8 @@ public static class FakePlayerAPI
             ObjetosCriados.Add(falso);
             LogDiagnostico("DEPOIS DO SPAWN", falso, nome, corId);
 
-            int associados = CustomNetObject.AssociarClientes(falso, PlayerIdFalso);
-            LogInfo($"Associação concluída. NetId={falso.NetId}; clientes associados={associados}.");
-            LogDiagnostico("DEPOIS DA ASSOCIACAO", falso, nome, corId);
-
-            // O EHR espera a rede processar o spawn e a associação antes do
-            // Shapeshift. Fazer isso no mesmo frame causa NullReferenceException
-            // em PlayerControl.HandleRpc em clientes da versão atual.
+            // O EHR espera 0,1 s após o spawn antes de associar os clientes.
+            // Não fazer spawn + associação no mesmo frame.
             AmongUsClient.Instance.StartCoroutine(
                 FinalizarCriacaoAposSpawn(falso, posicaoInicial, nome, corId));
 
@@ -66,10 +61,9 @@ public static class FakePlayerAPI
     private static IEnumerator FinalizarCriacaoAposSpawn(
         PlayerControl falso, Vector2 posicaoInicial, string nome, byte corId)
     {
-        // O EHR aguarda 0,1 s antes da associação e mais 0,15 s antes de
-        // enviar a aparência. Como a associação já foi enviada, aguardamos
-        // uma margem ligeiramente maior antes do RPC de Shapeshift.
-        yield return new UnityEngine.WaitForSecondsRealtime(0.25f);
+        // Mesmos intervalos do EHR: 0,1 s para o spawn ser processado,
+        // associação individual por cliente e mais 0,15 s antes do Shapeshift.
+        yield return new UnityEngine.WaitForSecondsRealtime(0.1f);
 
         if (falso == null || !ObjetosCriados.Contains(falso) ||
             AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost)
@@ -77,6 +71,16 @@ public static class FakePlayerAPI
 
         try
         {
+            int associados = CustomNetObject.AssociarClientes(falso, PlayerIdFalso);
+            LogInfo($"Associação concluída. NetId={falso.NetId}; clientes associados={associados}.");
+            LogDiagnostico("DEPOIS DA ASSOCIACAO", falso, nome, corId);
+
+            yield return new UnityEngine.WaitForSecondsRealtime(0.15f);
+
+            if (falso == null || !ObjetosCriados.Contains(falso) ||
+                AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost)
+                yield break;
+
             CustomNetObject.EnviarAparencia(falso, nome, corId);
             LogDiagnostico("DEPOIS DE ENVIAR APARENCIA", falso, nome, corId);
 
