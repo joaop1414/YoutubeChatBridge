@@ -181,11 +181,6 @@ public static class FakePlayerAPI
                 ? falso.Data.DefaultOutfit.ColorId.ToString()
                 : "<Data null>";
             bool naLista = falso != null && PlayerControl.AllPlayerControls.Contains(falso);
-            bool netObjectPresente = falso != null &&
-                AmongUsClient.Instance != null &&
-                AmongUsClient.Instance.allObjects != null &&
-                AmongUsClient.Instance.allObjects.ContainsKey(falso.NetId);
-
             LogInfo(
                 $"[DIAG:{etapa}] " +
                 $"AmHost={AmongUsClient.Instance?.AmHost}; " +
@@ -194,7 +189,7 @@ public static class FakePlayerAPI
                 $"DataNetId={falso?.Data?.NetId}; " +
                 $"NomeSolicitado='{nomeSolicitado}'; NomeData='{nomeReal}'; " +
                 $"NomeCache='{nomeCache}'; CorSolicitada={corSolicitada}; CorData={corReal}; " +
-                $"NaAllPlayerControls={naLista}; NetObjectRegistrado={netObjectPresente}; " +
+                $"NaAllPlayerControls={naLista}; " +
                 $"OwnerId={falso?.OwnerId}; CachedPlayerDataIgualLocal=" +
                 $"{(falso?.CachedPlayerData != null && falso.CachedPlayerData == PlayerControl.LocalPlayer?.Data)}."
             );
