@@ -122,7 +122,7 @@ internal static class CustomNetObject
             writer.StartMessage(2);
             writer.WritePacked(objeto.NetId);
             writer.Write((byte)RpcCalls.SetName);
-            writer.WritePacked(objeto.Data.NetId);
+            writer.Write(objeto.Data.NetId);
             writer.Write(nome ?? "Bot");
             writer.EndMessage();
 
