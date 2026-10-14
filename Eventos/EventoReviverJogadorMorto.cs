@@ -53,10 +53,14 @@ internal sealed class EventoReviverJogadorMorto : EventoVotacao
             // se EHR estiver instalado, para restaurar também roles/addons próprios.
             if (TentarReviverPeloEhr(alvo))
             {
+                // O EHR restaura seu estado interno; envia também o Role RPC bruto
+                // usando a função registrada enquanto o jogador ainda estava vivo.
+                EnviarFuncaoOriginalBruta(alvo, funcaoOriginal);
                 FuncoesAntesDaMorte.Remove(alvo.PlayerId);
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "Ressurreição executada pelo método nativo do EHR para " +
-                    (alvo.Data?.PlayerName ?? "jogador") + " (PlayerId=" + alvo.PlayerId + ").");
+                    "Ressurreição executada pelo EHR e Role RPC bruto enviado para " +
+                    (alvo.Data?.PlayerName ?? "jogador") + " com função " + funcaoOriginal +
+                    " (PlayerId=" + alvo.PlayerId + ").");
                 return;
             }
 
@@ -73,8 +77,9 @@ internal sealed class EventoReviverJogadorMorto : EventoVotacao
             alvo.Data.IsDead = false;
             alvo.moveable = true;
             try { alvo.Visible = true; } catch { }
-            alvo.RpcSetRole(funcaoOriginal, true);
+            // Sincroniza primeiro o estado vivo; o Role RPC bruto vai por último.
             SincronizarEstadoComClientes(alvo);
+            EnviarFuncaoOriginalBruta(alvo, funcaoOriginal);
             FuncoesAntesDaMorte.Remove(alvo.PlayerId);
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
@@ -193,6 +198,36 @@ internal sealed class EventoReviverJogadorMorto : EventoVotacao
                 "Não foi possível invocar o RpcRevive do EHR: " + (ex.InnerException ?? ex));
         }
         return false;
+    }
+
+
+    private static void EnviarFuncaoOriginalBruta(PlayerControl alvo, RoleTypes funcaoOriginal)
+    {
+        if (alvo == null || alvo.Data == null || AmongUsClient.Instance == null ||
+            !YouTubeVoteBridgePlugin.EhHost())
+            return;
+
+        try
+        {
+            // Mesmo formato usado pelo EHR em RpcSetRoleGlobal: ushort + bool.
+            // Evita RpcSetRole, que pode bloquear novas chamadas SetRole na partida.
+            try { alvo.SetRole(funcaoOriginal); } catch { }
+
+            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
+                alvo.NetId, (byte)RpcCalls.SetRole, SendOption.Reliable);
+            writer.Write((ushort)funcaoOriginal);
+            writer.Write(true);
+            AmongUsClient.Instance.FinishRpcImmediately(writer);
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "Role RPC bruto enviado: PlayerId=" + alvo.PlayerId +
+                ", função=" + funcaoOriginal + ".");
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "Falha ao enviar Role RPC bruto para PlayerId=" + alvo.PlayerId + ": " + ex);
+        }
     }
 
     private static RoleTypes ObterFuncaoOriginal(PlayerControl jogador)
