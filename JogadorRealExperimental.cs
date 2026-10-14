@@ -16,6 +16,8 @@ internal static class JogadorRealExperimental
     private static int etapa;
     private static float executarEm;
     private static Vector2 posicaoAlvo;
+    private static int contadorNome;
+    private const float INTERVALO_TROCA_NOME = 2f;
 
     public static void Atualizar()
     {
@@ -27,7 +29,7 @@ internal static class JogadorRealExperimental
             if (Input.GetKeyDown(KeyCode.F10))
                 Remover();
 
-            if (jogadorTeste == null || etapa == 0 ||
+            if (jogadorTeste == null ||
                 Time.realtimeSinceStartup < executarEm)
                 return;
 
@@ -54,20 +56,41 @@ internal static class JogadorRealExperimental
 
             if (etapa == 2)
             {
+                contadorNome = 0;
                 CustomNetObject.EnviarAparencia(
-                    jogadorTeste, "Teste Real", ObterCorDisponivel());
+                    jogadorTeste, "Teste Real 0", ObterCorDisponivel());
 
                 CustomNetObject.EnviarPosicao(jogadorTeste, posicaoAlvo);
 
                 LogInfo(
-                    $"[REAL-EXPERIMENTAL] Teste enviado. NetId={jogadorTeste.NetId}; " +
+                    $"[REAL-EXPERIMENTAL] Primeiro nome enviado. NetId={jogadorTeste.NetId}; " +
                     $"DataNetId={jogadorTeste.Data?.NetId}; PlayerId={jogadorTeste.PlayerId}; " +
                     $"OwnerId={jogadorTeste.OwnerId}; isNew={jogadorTeste.isNew}; " +
                     $"notRealPlayer={jogadorTeste.notRealPlayer}; " +
                     $"DataName='{jogadorTeste.Data?.PlayerName}'. " +
-                    "Verifique host e cliente vanilla; F10 remove o objeto.");
+                    "A partir de agora o nome será alterado a cada 2 segundos. F10 remove o objeto.");
 
-                etapa = 0;
+                etapa = 3;
+                executarEm = Time.realtimeSinceStartup + INTERVALO_TROCA_NOME;
+                return;
+            }
+
+            if (etapa == 3)
+            {
+                contadorNome++;
+                string novoNome = "Teste Real " + contadorNome;
+
+                CustomNetObject.EnviarAparencia(
+                    jogadorTeste, novoNome, ObterCorDisponivel());
+
+                LogInfo(
+                    $"[REAL-EXPERIMENTAL] Atualização de nome #{contadorNome} enviada: " +
+                    $"'{novoNome}'. NetId={jogadorTeste.NetId}; " +
+                    $"PlayerId={jogadorTeste.PlayerId}; OwnerId={jogadorTeste.OwnerId}; " +
+                    $"DataName='{jogadorTeste.Data?.PlayerName}'. " +
+                    "Confira se o nome mudou no cliente vanilla.");
+
+                executarEm = Time.realtimeSinceStartup + INTERVALO_TROCA_NOME;
             }
         }
         catch (Exception ex)
@@ -183,6 +206,7 @@ internal static class JogadorRealExperimental
         PlayerControl alvo = jogadorTeste;
         jogadorTeste = null;
         etapa = 0;
+        contadorNome = 0;
 
         bool sucesso = LimparObjeto(alvo, enviarRemocao: true);
         LogInfo(
