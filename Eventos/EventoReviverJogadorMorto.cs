@@ -53,13 +53,14 @@ internal sealed class EventoReviverJogadorMorto : EventoVotacao
             // se EHR estiver instalado, para restaurar também roles/addons próprios.
             if (TentarReviverPeloEhr(alvo))
             {
-                // O EHR restaura seu estado interno; envia também o Role RPC bruto
-                // usando a função registrada enquanto o jogador ainda estava vivo.
-                EnviarFuncaoOriginalBruta(alvo, funcaoOriginal);
+                // RpcRevive do EHR já chama RpcChangeRoleBasis(GetCustomRole()) e
+                // restaura PlayerState, addons e sincronização de função. Enviar um
+                // SetRole vanilla depois disso sobrescreve essa restauração e é a
+                // causa de o jogador voltar com a função errada.
                 FuncoesAntesDaMorte.Remove(alvo.PlayerId);
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "Ressurreição executada pelo EHR e Role RPC bruto enviado para " +
-                    (alvo.Data?.PlayerName ?? "jogador") + " com função " + funcaoOriginal +
+                    "Ressurreição executada pelo EHR sem sobrescrever sua restauração de função. " +
+                    "Função base registrada antes da morte=" + funcaoOriginal +
                     " (PlayerId=" + alvo.PlayerId + ").");
                 return;
             }
