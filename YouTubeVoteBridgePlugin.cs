@@ -1882,6 +1882,7 @@ public static class YouTubeVoteUpdatePatch
     public static void Postfix()
     {
         EventoTesteMenu.VerificarTecla();
+        EventoReviverJogadorMorto.RegistrarFuncoesVivas();
         EventoTesteMenu.ProcessarFilaExecucao();
         YouTubeVoteBridgePlugin.EnviarSinalModAoHost();
         YouTubeVoteBridgePlugin.AtualizarAvisos();
@@ -1891,7 +1892,6 @@ public static class YouTubeVoteUpdatePatch
         EventoCongelarJogador.Atualizar();
         EventoVelocidadeJogadores.Atualizar();
         EventoTsunami.Atualizar();
-        EventoInverterControles.Atualizar();
     }
 }
 
