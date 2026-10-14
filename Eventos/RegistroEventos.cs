@@ -23,7 +23,12 @@ internal static class RegistroEventos
         new EventoEscudoTemporario(),
         new EventoCriarCorpoFalso(),
         new EventoTsunami(),
-        new EventoReportarCorpo()
+        new EventoReportarCorpo(),
+        new EventoInverterControles(),
+        new EventoTeleporteAleatorio(),
+        new EventoMatarJogadorAleatorio(),
+        new EventoReviverJogadorMorto(),
+        new EventoPersonalizado()
     };
 
     public static IReadOnlyList<EventoVotacao> ObterTodos() => Eventos;
