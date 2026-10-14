@@ -131,7 +131,6 @@ internal static class CustomNetObject
 
         try
         {
-            objeto.Data.PlayerName = nome;
             outfit.PlayerName = nome;
             outfit.ColorId = corId;
             outfit.HatId = "";
