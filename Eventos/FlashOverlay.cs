@@ -28,7 +28,6 @@ internal static class FlashOverlay
         SpriteRenderer renderizador = overlay.GetComponent<SpriteRenderer>();
         if (renderizador == null) return;
         overlay.SetActive(true);
-#if IL2CPP
         hud.StartCoroutine(Effects.Lerp(duracao, (Il2CppSystem.Action<float>)(t =>
         {
             if (overlay == null || renderizador == null) return;
@@ -36,14 +35,5 @@ internal static class FlashOverlay
             renderizador.color = new Color(cor.r, cor.g, cor.b, intensidade);
             overlay.SetActive(Math.Abs(t - 1f) > 0.1f);
         })));
-#else
-        hud.StartCoroutine(Effects.Lerp(duracao, t =>
-        {
-            if (overlay == null || renderizador == null) return;
-            float intensidade = Mathf.Clamp01((-2f * Mathf.Abs(t - 0.5f) + 1f) * cor.a / 2f);
-            renderizador.color = new Color(cor.r, cor.g, cor.b, intensidade);
-            overlay.SetActive(Math.Abs(t - 1f) > 0.1f);
-        }));
-#endif
     }
 }
