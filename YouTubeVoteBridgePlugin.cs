@@ -1360,9 +1360,6 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 case "Reviver um jogador morto":
                     new EventoReviverJogadorMorto().Executar();
                     break;
-                case "Evento personalizado: teleporte + controles invertidos":
-                    new EventoPersonalizado().Executar();
-                    break;
                 case "Sabotagem aleatória":
                     new EventoSabotagemAleatoria().Executar();
                     break;
