@@ -266,7 +266,6 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             writer.Write((byte)RpcCalls.SetName);
             writer.Write(remetente.Data.NetId);
             writer.Write(TITULO_SISTEMA);
-            writer.Write(false);
             writer.EndMessage();
 
             // RPC 2: envia o texto do aviso.
@@ -282,7 +281,6 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             writer.Write((byte)RpcCalls.SetName);
             writer.Write(remetente.Data.NetId);
             writer.Write(nomeOriginal);
-            writer.Write(false);
             writer.EndMessage();
 
             writer.EndMessage();
