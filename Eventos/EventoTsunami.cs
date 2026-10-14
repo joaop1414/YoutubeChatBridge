@@ -16,7 +16,6 @@ internal sealed class EventoTsunami : EventoVotacao
     public override string Nome => "Tsunami";
     public static bool Ativo => ativo;
     public static bool AvisoAtivo => ativo || avisoLocalAtivo;
-    public static bool FlashReatorCianoAtivo => ativo && flashReatorCianoAtivo;
     private const byte PlayerIdIndicador = CompatibilidadeClientes.PlayerIdIndicadorTsunami;
     private const float Velocidade = 3.0f;
     private const float Intervalo = 0.08f;
@@ -39,7 +38,6 @@ internal sealed class EventoTsunami : EventoVotacao
     private static float proximaSabotagem;
     private static float repararReatorAte;
     private static bool reparoPendente;
-    private static bool flashReatorCianoAtivo;
     private static readonly Dictionary<byte, string> nomesOriginais = new();
     private static readonly HashSet<byte> nomesAlteradosRede = new();
     private static readonly HashSet<byte> atingidos = new();
@@ -100,7 +98,6 @@ internal sealed class EventoTsunami : EventoVotacao
             proximaAtualizacaoAvisoRede = 0f;
             proximaSabotagem = Time.realtimeSinceStartup + AtrasoInicialReator;
             reparoPendente = false;
-            flashReatorCianoAtivo = false;
             proximaAtualizacao = Time.realtimeSinceStartup;
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 "Tsunami iniciado. Indicador visual separado dos jogadores reais.");
@@ -709,7 +706,6 @@ internal sealed class EventoTsunami : EventoVotacao
 
                 navio.RpcUpdateSystem(SystemTypes.Reactor, 16);
                 navio.RpcUpdateSystem(SystemTypes.Reactor, 17);
-                flashReatorCianoAtivo = false;
                 FlashOverlay.DefinirFlashTsunami(false);
                 reparoPendente = false;
                 proximaSabotagem = agora + IntervaloCicloReator;
@@ -728,7 +724,6 @@ internal sealed class EventoTsunami : EventoVotacao
             sistema.Timer = 0f;
             sistema.IsDirty = true;
             navio.RpcUpdateSystem(SystemTypes.Sabotage, (byte)SystemTypes.Reactor);
-            flashReatorCianoAtivo = true;
             reparoPendente = true;
             repararReatorAte = agora + 0.5f;
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
@@ -857,7 +852,6 @@ internal sealed class EventoTsunami : EventoVotacao
         ativo = false;
         avisoLocalAtivo = false;
         reparoPendente = false;
-        flashReatorCianoAtivo = false;
         FlashOverlay.DefinirFlashTsunami(false);
         RestaurarAvisoNomes();
         protegidos.Clear();
@@ -977,7 +971,7 @@ internal static class EventoTsunamiFlashReatorPatch
         bool mostrar = true;
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo("Tsunami: flash ciano limitado à duração do pulso do reator.");
 
-        while (Time.realtimeSinceStartup < terminarEm)
+        while (EventoTsunami.AvisoAtivo && Time.realtimeSinceStartup < terminarEm)
         {
             if (hud == null) break;
             FlashOverlay.DefinirFlashTsunami(mostrar);
