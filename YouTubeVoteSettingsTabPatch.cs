@@ -3,6 +3,7 @@ using System.Linq;
 using HarmonyLib;
 using TMPro;
 using UnityEngine;
+using UnityEngine.Events;
 
 namespace YouTubeVoteBridge
 {
@@ -41,20 +42,18 @@ namespace YouTubeVoteBridge
 
                     TextMeshPro label = BotaoMod.GetComponentInChildren<TextMeshPro>(true);
                     if (label != null)
-                    {
                         label.text = "YouTubeVoteBridge";
-                    }
 
                     BotaoMod.transform.localPosition = new Vector3(-2.4f, -0.95f, 0f);
                     BotaoMod.transform.localScale = new Vector3(0.45f, 0.35f, 1f);
 
                     PassiveButton click = BotaoMod.GetComponent<PassiveButton>();
-                    click.OnClick = new();
-                    click.OnClick.AddListener(() =>
+                    click.OnClick = new UnityEvent();
+                    click.OnClick.AddListener(new UnityAction(() =>
                     {
                         if (GameSettingMenu.Instance != null)
                             GameSettingMenu.Instance.ChangeTab(3, false);
-                    });
+                    }));
 
                     __instance.ControllerSelectable.Add(BotaoMod);
                 }
