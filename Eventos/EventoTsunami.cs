@@ -53,6 +53,9 @@ internal sealed class EventoTsunami : EventoVotacao
     private static readonly Dictionary<byte, int> dutosProtegidos = new();
     // X do jogador quando se abrigou; o prazo de saída só começa após a onda passar.
     private static readonly Dictionary<byte, float> posicaoXProtegida = new();
+    // Evita que o jogador seja enviado novamente ao mesmo duto após a saída.
+    private static readonly HashSet<byte> bloqueadosReentradaDuto = new();
+    private static readonly Dictionary<byte, float> prazoSaidaDuto = new();
 
     private const string NomeOnda =
         "<color=#0099d1><size=25><line-height=97%><cspace=0.16em><mark=#0099d1>W\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\n</mark></cspace></line-height></size></color>";
@@ -361,24 +364,34 @@ internal sealed class EventoTsunami : EventoVotacao
 
                 if (agora < protecaoAte) continue;
 
-                // Reenvia a saída por alguns frames caso o estado inVent demore
-                // a atualizar nos clientes, sem reiniciar a proteção indefinidamente.
+                // Solicita a saída uma vez e mantém a reentrada bloqueada até
+                // o jogador afastar-se do duto. Isso evita o ciclo entrar/sair.
+                byte idJogadorDuto = jogador.PlayerId;
                 if (jogador.inVent && jogador.MyPhysics != null &&
-                    dutosProtegidos.TryGetValue(jogador.PlayerId, out int dutoSaida))
+                    dutosProtegidos.TryGetValue(idJogadorDuto, out int dutoSaida))
                 {
-                    try { jogador.MyPhysics.RpcExitVent(dutoSaida); }
-                    catch (Exception ex)
+                    if (!prazoSaidaDuto.ContainsKey(idJogadorDuto))
                     {
-                        YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                            "Tsunami: falha ao retirar jogador do duto: " + ex.Message);
+                        try { jogador.MyPhysics.RpcExitVent(dutoSaida); }
+                        catch (Exception ex)
+                        {
+                            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                                "Tsunami: falha ao retirar jogador do duto: " + ex.Message);
+                        }
+                        prazoSaidaDuto[idJogadorDuto] = agora + 1.0f;
                     }
-                    protegidos[jogador.PlayerId] = agora + 0.25f;
-                    continue;
+
+                    // Não repita o RPC para sempre. Mesmo que o jogo demore a
+                    // atualizar inVent, libera a proteção e impede reentrada.
+                    if (agora < prazoSaidaDuto[idJogadorDuto])
+                        continue;
                 }
 
-                protegidos.Remove(jogador.PlayerId);
-                dutosProtegidos.Remove(jogador.PlayerId);
-                posicaoXProtegida.Remove(jogador.PlayerId);
+                bloqueadosReentradaDuto.Add(idJogadorDuto);
+                protegidos.Remove(idJogadorDuto);
+                dutosProtegidos.Remove(idJogadorDuto);
+                posicaoXProtegida.Remove(idJogadorDuto);
+                prazoSaidaDuto.Remove(idJogadorDuto);
             }
 
             if (jogador.inVent)
@@ -400,6 +413,23 @@ internal sealed class EventoTsunami : EventoVotacao
             }
 
             if (atingidos.Contains(jogador.PlayerId)) continue;
+
+            // Libera a reentrada somente depois que o jogador se afastar do duto.
+            if (bloqueadosReentradaDuto.Contains(jogador.PlayerId))
+            {
+                bool pertoDeAlgumDuto = false;
+                foreach (Vent duto in ShipStatus.Instance.AllVents)
+                {
+                    if (duto != null &&
+                        Vector2.Distance(p, (Vector2)duto.transform.position) <= AlcanceDutoTsunami + 0.5f)
+                    {
+                        pertoDeAlgumDuto = true;
+                        break;
+                    }
+                }
+                if (pertoDeAlgumDuto) continue;
+                bloqueadosReentradaDuto.Remove(jogador.PlayerId);
+            }
 
             // Entrar no duto depende apenas de tocar/chegar perto dele, não da
             // distância do tsunami. Assim o jogador pode se esconder com antecedência.
@@ -880,6 +910,8 @@ internal sealed class EventoTsunami : EventoVotacao
         protegidos.Clear();
         dutosProtegidos.Clear();
         posicaoXProtegida.Clear();
+        bloqueadosReentradaDuto.Clear();
+        prazoSaidaDuto.Clear();
         // Ao terminar normalmente, preserve os atrasos já iniciados.
         // Em interrupções/reuniões, restaure o movimento e cancele pendências.
         if (!preservarMortesPendentes)
@@ -949,6 +981,37 @@ internal sealed class EventoTsunami : EventoVotacao
         }
     }
 
+    public static void LimparEstadoPartida(string motivo)
+    {
+        // Interrompe o evento e restaura qualquer jogador ainda preso pelo efeito.
+        Limpar();
+        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+        {
+            if (jogador == null) continue;
+            if (movimentoOriginal.TryGetValue(jogador.PlayerId, out bool moveable))
+            {
+                try { jogador.moveable = moveable; } catch { }
+            }
+        }
+
+        atingidos.Clear();
+        mortosPeloTsunami.Clear();
+        mortesPendentes.Clear();
+        alturaAoAtingir.Clear();
+        movimentoOriginal.Clear();
+        proximoSnapJogador.Clear();
+        protegidos.Clear();
+        dutosProtegidos.Clear();
+        posicaoXProtegida.Clear();
+        bloqueadosReentradaDuto.Clear();
+        prazoSaidaDuto.Clear();
+        reuniaoAguardandoFim = false;
+        reuniaoFoiAberta = false;
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            "Tsunami: registros de jogadores mortos/atingidos limpos porque " + motivo + ".");
+    }
+
     private static void LimparLocal()
     {
         if (indicador != null)
@@ -965,6 +1028,43 @@ internal sealed class EventoTsunami : EventoVotacao
         indicador = null;
         etapaInicializacaoIndicador = 0;
         proximaEtapaInicializacaoIndicador = 0f;
+    }
+}
+
+// Limpa os registros de jogadores convertidos em Ghost pelo tsunami ao iniciar
+// uma nova partida ou quando a partida atual termina.
+internal static class EventoTsunamiLimpezaPartida
+{
+    public static void LimparRegistros(string motivo)
+    {
+        if (!YouTubeVoteBridgePlugin.EhHost()) return;
+        try
+        {
+            EventoTsunami.LimparEstadoPartida(motivo);
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "Tsunami: falha ao limpar registros da partida: " + ex.Message);
+        }
+    }
+}
+
+[HarmonyPatch(typeof(GameStartManager), nameof(GameStartManager.BeginGame))]
+internal static class EventoTsunamiLimparAoIniciarPatch
+{
+    public static void Prefix()
+    {
+        EventoTsunamiLimpezaPartida.LimparRegistros("host iniciou a partida");
+    }
+}
+
+[HarmonyPatch(typeof(GameManager), nameof(GameManager.RpcEndGame))]
+internal static class EventoTsunamiLimparAoTerminarPatch
+{
+    public static void Prefix()
+    {
+        EventoTsunamiLimpezaPartida.LimparRegistros("partida terminou");
     }
 }
 
