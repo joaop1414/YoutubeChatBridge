@@ -127,3 +127,9 @@ internal sealed class EventoDutoAleatorioTodos : EventoVotacao
     public override string Nome => "Expulsar todos por um duto aleatório";
     public void Executar() => EventoDutos.Executar(true, true);
 }
+
+internal sealed class EventoDutoAleatorioAleatorio : EventoVotacao
+{
+    public override string Nome => "Expulsar um jogador aleatório para um duto aleatório";
+    public void Executar() => EventoDutos.Executar(false, true);
+}
