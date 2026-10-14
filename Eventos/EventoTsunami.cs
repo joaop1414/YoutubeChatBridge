@@ -52,7 +52,8 @@ internal sealed class EventoTsunami : EventoVotacao
     private static readonly Dictionary<byte, float> protegidos = new();
     private static readonly Dictionary<byte, int> dutosProtegidos = new();
 
-    private const string NomeOnda = "<size=170%><line-height=97%><cspace=0.16em><mark=#0073ff>W</mark><mark=#0095ff>W</mark><mark=#00ccff>W</mark><mark=#9ce8ff>WWWWW</mark>\n<mark=#0073ff>W</mark><mark=#0095ff>W</mark><mark=#00ccff>W</mark><mark=#9ce8ff>WWWWW</mark>\n<mark=#0073ff>W</mark><mark=#0095ff>W</mark><mark=#00ccff>W</mark><mark=#9ce8ff>WWWWW</mark>\n<mark=#0073ff>W</mark><mark=#0095ff>W</mark><mark=#00ccff>W</mark><mark=#9ce8ff>WWWWW</mark>\n<mark=#0073ff>W</mark><mark=#0095ff>W</mark><mark=#00ccff>W</mark><mark=#9ce8ff>WWWWW</mark>\n<mark=#0073ff>W</mark><mark=#0095ff>W</mark><mark=#00ccff>W</mark><mark=#9ce8ff>WWWWW</mark>\n<mark=#0073ff>W</mark><mark=#0095ff>W</mark><mark=#00ccff>W</mark><mark=#9ce8ff>WWWWW</mark>\n<mark=#0073ff>W</mark><mark=#0095ff>W</mark><mark=#00ccff>W</mark><mark=#9ce8ff>WWWWW</mark></cspace></line-height></size>";
+    private const string NomeOnda =
+        "<color=#0099d1><size=25><line-height=97%><cspace=0.16em><mark=#0099d1>W\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW\nW</mark></cspace></line-height></size></color>";
 
     public void Executar()
     {
