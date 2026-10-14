@@ -33,7 +33,15 @@ namespace YouTubeVoteBridge
                 {
                     foreach (var existente in existentes)
                     {
-                        bool encontrado = __instance.Children.Any(filho => filho == existente);
+                        bool encontrado = false;
+                        foreach (OptionBehaviour filho in __instance.Children)
+                        {
+                            if (filho == existente)
+                            {
+                                encontrado = true;
+                                break;
+                            }
+                        }
                         if (!encontrado)
                             __instance.Children.Add(existente);
                     }
