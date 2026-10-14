@@ -1342,6 +1342,21 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 case "Reportar um corpo":
                     new EventoReportarCorpo().Executar();
                     break;
+                case "Inverter os controles por 15 segundos":
+                    new EventoInverterControles().Executar();
+                    break;
+                case "Teleporte aleatório":
+                    new EventoTeleporteAleatorio().Executar();
+                    break;
+                case "Matar um jogador aleatório":
+                    new EventoMatarJogadorAleatorio().Executar();
+                    break;
+                case "Reviver um jogador morto":
+                    new EventoReviverJogadorMorto().Executar();
+                    break;
+                case "Evento personalizado: teleporte + controles invertidos":
+                    new EventoPersonalizado().Executar();
+                    break;
                 case "Sabotagem aleatória":
                     new EventoSabotagemAleatoria().Executar();
                     break;
@@ -1876,6 +1891,7 @@ public static class YouTubeVoteUpdatePatch
         EventoCongelarJogador.Atualizar();
         EventoVelocidadeJogadores.Atualizar();
         EventoTsunami.Atualizar();
+        EventoInverterControles.Atualizar();
     }
 }
 
