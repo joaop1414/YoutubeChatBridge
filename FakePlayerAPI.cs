@@ -113,7 +113,9 @@ public static class FakePlayerAPI
                     LogDiagnostico("DEPOIS DA ASSOCIACAO", falso, pendente.Nome, pendente.CorId);
 
                     pendente.Etapa = 1;
-                    pendente.ExecutarEm = agora + 0.15f;
+                    // Dar mais tempo para os clientes processarem os RPCs de associação
+                    // antes de receberem o pacote separado de aparência.
+                    pendente.ExecutarEm = agora + 0.5f;
                 }
                 catch (Exception ex)
                 {
