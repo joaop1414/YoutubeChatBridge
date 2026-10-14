@@ -22,6 +22,7 @@ internal static class RegistroEventos
         new EventoTarefaMataJogador(),
         new EventoTarefaSuicidio(),
         new EventoTrocarCores(),
+        new EventoTrocarIdentidades(),
         new EventoEscudoTemporario(),
         new EventoCriarCorpoFalso(),
         new EventoNpcSeguidor(),
