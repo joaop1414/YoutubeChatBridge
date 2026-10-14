@@ -1345,6 +1345,12 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 case "Inverter os controles por 15 segundos":
                     new EventoInverterControles().Executar();
                     break;
+                case "Todos ficam com movimento invertido por 15 segundos":
+                    new EventoInverterMovimentoTodos().Executar();
+                    break;
+                case "Um jogador aleatório fica com movimento invertido por 15 segundos":
+                    new EventoInverterMovimentoAleatorio().Executar();
+                    break;
                 case "Teleporte aleatório":
                     new EventoTeleporteAleatorio().Executar();
                     break;
