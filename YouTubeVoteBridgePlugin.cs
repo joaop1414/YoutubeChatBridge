@@ -163,13 +163,13 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
         try
         {
-            // Troca o nome somente durante a criação da mensagem local.
+            // Mesmo padrão usado pelo EHR em Utils.SendMessage:
+            // o título vira o nome do remetente somente enquanto o chat cria a entrada.
             remetente.SetName(TITULO_SISTEMA);
             chat.AddChat(remetente, mensagem, false);
         }
         finally
         {
-            // Restaura o nome real imediatamente após adicionar a mensagem.
             remetente.SetName(nomeOriginal);
         }
     }
@@ -232,7 +232,9 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         if (remetente == null || remetente.Data == null)
             return;
 
-        // Para o próprio host, troca o nome apenas enquanto o chat cria a entrada.
+        // O EHR faz a troca do nome somente no cliente destinatário:
+        // SetName(TITULO) -> SendChat(texto) -> SetName(nome original),
+        // tudo no mesmo pacote GameDataTo direcionado ao cliente.
         if (destinatario.AmOwner)
         {
             if (HudManager.InstanceExists && HudManager.Instance.Chat != null)
@@ -241,26 +243,36 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         }
 
         MessageWriter writer = null;
-        string nomeOriginalRemetente = remetente.Data != null
-            ? remetente.Data.PlayerName
-            : remetente.name;
+        string nomeOriginalRemetente = remetente.Data.PlayerName;
 
         try
         {
-            // O nome precisa estar atualizado no cliente que receberá o SendChat
-            // para que o título apareça como remetente, e não dentro do texto.
-            // É temporário: restauramos o nome real logo depois de enviar o chat.
-            remetente.RpcSetName(TITULO_SISTEMA);
-
             writer = MessageWriter.Get(SendOption.Reliable);
-            writer.StartMessage(6); // GameDataTo: somente o ClientId abaixo
+            writer.StartMessage(6); // GameDataTo: apenas o cliente destinatário
             writer.Write(AmongUsClient.Instance.GameId);
             writer.WritePacked(targetClientId);
 
-            writer.StartMessage(2); // Rpc SendChat: texto, só no destinatário
+            // 1. Define o título como nome apenas na tela do destinatário.
+            writer.StartMessage(2);
+            writer.WritePacked(remetente.NetId);
+            writer.Write((byte)RpcCalls.SetName);
+            writer.Write(remetente.Data.NetId);
+            writer.Write(TITULO_SISTEMA);
+            writer.EndMessage();
+
+            // 2. Envia o texto da resposta com o título já exibido como remetente.
+            writer.StartMessage(2);
             writer.WritePacked(remetente.NetId);
             writer.Write((byte)RpcCalls.SendChat);
             writer.Write(mensagem);
+            writer.EndMessage();
+
+            // 3. Restaura o nome original antes de terminar o mesmo pacote.
+            writer.StartMessage(2);
+            writer.WritePacked(remetente.NetId);
+            writer.Write((byte)RpcCalls.SetName);
+            writer.Write(remetente.Data.NetId);
+            writer.Write(nomeOriginalRemetente);
             writer.EndMessage();
 
             writer.EndMessage();
@@ -269,7 +281,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             writer = null;
 
             Instance?.Log.LogInfo(
-                $"Mensagem individual enviada para PlayerId={destinatario.PlayerId}, ClientId={targetClientId} (GameDataTo).");
+                $"Mensagem individual enviada para PlayerId={destinatario.PlayerId}, ClientId={targetClientId} usando SetName/SendChat/SetName direcionado.");
         }
         catch (Exception ex)
         {
@@ -281,18 +293,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             {
                 try { writer.Recycle(); } catch { }
             }
-
-            try
-            {
-                if (remetente != null && remetente.Data != null)
-                    remetente.RpcSetName(nomeOriginalRemetente);
-            }
-            catch (Exception ex)
-            {
-                Instance?.Log.LogError("Não foi possível restaurar o nome do remetente: " + ex);
-            }
-        }
-    }
+        }    }
 
     // Clientes com o mod enviam um sinal ao host. Os clientes que não
     // responderem são tratados como vanilla e recebem a alteração local do nick.
