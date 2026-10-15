@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
@@ -37,6 +38,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     public static ConfigEntry<int> TempoVotacao;
     public static ConfigEntry<int> IntervaloRodadas;
     public static ConfigEntry<int> PreparacaoChat;
+    public static ConfigEntry<bool> SemFimDeJogo;
 
     private static bool LeitorConectado;
     private static bool PreparacaoIniciada;
@@ -130,6 +132,11 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         PreparacaoChat = Config.Bind(
             "Configurações do Mod", "PreparacaoChat", 10,
             "Tempo de preparação do chat ao conectar. Votos antigos recebidos durante esse período são descartados."
+        );
+
+        SemFimDeJogo = Config.Bind(
+            "Configurações do Mod", "<color=red>Sem fim de jogo", false,
+            "Impede os encerramentos automáticos originais do Among Us. Os encerramentos solicitados pelo próprio mod continuam permitidos."
         );
 
         LobbyTagManager.Initialize();
@@ -2258,5 +2265,47 @@ public static class YouTubeVoteTaggedChatPatch
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
                 "Não foi possível formatar mensagem de jogador com tag: " + ex.Message);
         }
+    }
+}
+
+
+// ============================================================
+// CONTROLE DO FIM DE JOGO
+// ============================================================
+// Quando a opção está ativa, bloqueia chamadas normais do jogo para
+// GameManager.RpcEndGame. O mod pode autorizar explicitamente um fim
+// de jogo próprio usando ControleFimDeJogo.PermitirFimDoMod.
+internal static class ControleFimDeJogo
+{
+    internal static bool PermitirFimDoMod;
+}
+
+[HarmonyPatch]
+internal static class YouTubeVoteBridgeBloquearFimDeJogoOriginalPatch
+{
+    private static IEnumerable<MethodBase> TargetMethods()
+    {
+        return typeof(GameManager).GetMethods(
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+            .Where(m => m.Name == "RpcEndGame")
+            .Where(m =>
+            {
+                ParameterInfo[] p = m.GetParameters();
+                return p.Length == 2 &&
+                    p[0].ParameterType.IsEnum &&
+                    p[1].ParameterType == typeof(bool);
+            });
+    }
+
+    private static bool Prefix(MethodBase __originalMethod)
+    {
+        if (YouTubeVoteBridgePlugin.SemFimDeJogo?.Value != true ||
+            ControleFimDeJogo.PermitirFimDoMod)
+            return true;
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            "[Fim de jogo] Encerramento original bloqueado pela configuração 'Sem fim de jogo' (" +
+            __originalMethod.Name + ").");
+        return false;
     }
 }
