@@ -1661,27 +1661,73 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         if (!EhHost())
             return;
 
+        // Reinicia o estado do cliente e aguarda o PlayerControl ser criado.
         AvisosPendentes.Remove(clientId);
         AvisosEnviados.Remove(clientId);
+        AvisosPendentes[clientId] = Time.realtimeSinceStartup + 2f;
         Instance?.Log.LogInfo(
-            $"Cliente {clientId} entrou. MODO DE DIAGNÓSTICO: aviso automático desativado para testar expulsões.");
+            $"Cliente {clientId} entrou; aviso de sala modificada agendado para daqui a 2 segundos.");
     }
 
     public static void RegistrarEntrada(int clientId)
     {
-        if (!EhHost())
+        if (!EhHost() || AvisosEnviados.Contains(clientId) ||
+            AvisosPendentes.ContainsKey(clientId))
             return;
 
-        // Diagnóstico: não agendar nem enviar mensagens de rede quando alguém entra.
-        // Isso isola o pacote GameData SetName/SendChat da investigação de expulsões.
+        AvisosPendentes[clientId] = Time.realtimeSinceStartup + 2f;
         Instance?.Log.LogInfo(
-            $"RPC SetLevel recebido do cliente {clientId}; aviso automático ignorado (modo de diagnóstico).");
+            $"Entrada do cliente {clientId} registrada; aviso de sala modificada agendado.");
     }
 
     public static void AtualizarAvisos()
     {
-        // Intencionalmente vazio durante o diagnóstico: nenhum aviso automático
-        // de entrada deve enviar pacotes de chat ou alterar nomes temporariamente.
+        if (!EhHost() || AmongUsClient.Instance == null ||
+            AvisosPendentes.Count == 0)
+            return;
+
+        float agora = Time.realtimeSinceStartup;
+        foreach (var aviso in AvisosPendentes.ToArray())
+        {
+            if (agora < aviso.Value)
+                continue;
+
+            int clientId = aviso.Key;
+            AvisosPendentes.Remove(clientId);
+
+            if (AvisosEnviados.Contains(clientId))
+                continue;
+
+            PlayerControl jogadorAlvo = null;
+            foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+            {
+                if (jogador != null && jogador.OwnerId == clientId &&
+                    jogador.Data != null)
+                {
+                    jogadorAlvo = jogador;
+                    break;
+                }
+            }
+
+            if (jogadorAlvo == null)
+            {
+                // Aguarda a criação do jogador se o objeto ainda não estiver disponível.
+                AvisosPendentes[clientId] = agora + 1f;
+                Instance?.Log.LogWarning(
+                    $"Jogador do cliente {clientId} ainda não está disponível; tentando novamente em 1 segundo.");
+                continue;
+            }
+
+            string nomeJogador = jogadorAlvo.Data.PlayerName;
+            string mensagem =
+                $"Olá {nomeJogador}, esta é uma sala modificada pelo YouTubeVoteBridge. " +
+                "A live do YouTube terá votações, e o chat poderá interagir com a partida por meio de eventos.";
+
+            EnviarMensagemIndividual(jogadorAlvo, mensagem);
+            AvisosEnviados.Add(clientId);
+            Instance?.Log.LogInfo(
+                $"Aviso de sala modificada enviado após a entrada do cliente {clientId} (jogador '{nomeJogador}').");
+        }
     }
 }
 
