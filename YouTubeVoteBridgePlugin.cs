@@ -1427,9 +1427,24 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     // COMANDOS
     // ========================================================
 
+    private static void ResponderComando(
+        ChatController chat,
+        PlayerControl destinatario,
+        string mensagem)
+    {
+        if (destinatario != null && !destinatario.AmOwner)
+        {
+            EnviarMensagemIndividual(destinatario, mensagem);
+            return;
+        }
+
+        Responder(chat, mensagem);
+    }
+
     public static void ProcessarComando(
         ChatController chat,
-        string comando)
+        string comando,
+        PlayerControl destinatario = null)
     {
         if (chat == null)
             return;
@@ -1441,7 +1456,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             argumentosAntesDaPermissao.Equals("configuracoes", StringComparison.OrdinalIgnoreCase) ||
             argumentosAntesDaPermissao.Equals("configurações", StringComparison.OrdinalIgnoreCase))
         {
-            Responder(chat, PainelVotacaoRpc.ObterTextoConfiguracoes());
+            ResponderComando(chat, destinatario, PainelVotacaoRpc.ObterTextoConfiguracoes());
             return;
         }
 
@@ -1479,7 +1494,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             case "config":
             case "configuracoes":
             case "configurações":
-                Responder(chat,
+                ResponderComando(chat, destinatario,
                     "Configurações: tempo=" + TempoVotacao.Value + "s | intervalo=" +
                     IntervaloRodadas.Value + "s | preparação=" + PreparacaoChat.Value +
                     "s. Use /youtube tempo 40, /youtube intervalo 15 ou /youtube preparacao 10.");
@@ -1489,12 +1504,12 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 if (partes.Length < 2 || !int.TryParse(partes[1], out int intervalo) ||
                     intervalo < 0 || intervalo > 600)
                 {
-                    Responder(chat, "Use: /youtube intervalo 15 (0 a 600 segundos).");
+                    ResponderComando(chat, destinatario, "Use: /youtube intervalo 15 (0 a 600 segundos).");
                     return;
                 }
                 IntervaloRodadas.Value = intervalo;
                 Instance.Config.Save();
-                Responder(chat, "Intervalo entre votações definido para " + intervalo + " segundo(s).");
+                ResponderComando(chat, destinatario, "Intervalo entre votações definido para " + intervalo + " segundo(s).");
                 return;
 
             case "preparacao":
@@ -1502,17 +1517,17 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 if (partes.Length < 2 || !int.TryParse(partes[1], out int preparacao) ||
                     preparacao < 0 || preparacao > 120)
                 {
-                    Responder(chat, "Use: /youtube preparacao 10 (0 a 120 segundos).");
+                    ResponderComando(chat, destinatario, "Use: /youtube preparacao 10 (0 a 120 segundos).");
                     return;
                 }
                 PreparacaoChat.Value = preparacao;
                 Instance.Config.Save();
-                Responder(chat, "Preparação do chat definida para " + preparacao + " segundo(s).");
+                ResponderComando(chat, destinatario, "Preparação do chat definida para " + preparacao + " segundo(s).");
                 return;
 
             case "status":
             case "info":
-                MostrarStatus(chat);
+                MostrarStatus(chat, destinatario);
                 return;
 
             case "parar":
@@ -1522,7 +1537,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 EncerrarRodada();
                 PararLeituraChat();
                 Instance.Config.Save();
-                Responder(chat, "Leitura do YouTube e votações desativadas.");
+                ResponderComando(chat, destinatario, "Leitura do YouTube e votações desativadas.");
                 return;
 
             case "live":
@@ -1533,7 +1548,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
                 if (!Regex.IsMatch(liveId, @"^[A-Za-z0-9_-]{11}$"))
                 {
-                    Responder(chat, "Copie o ID ou a URL da live e use /youtube live. Também pode usar /youtube colar.");
+                    ResponderComando(chat, destinatario, "Copie o ID ou a URL da live e use /youtube live. Também pode usar /youtube colar.");
                     return;
                 }
 
@@ -1544,7 +1559,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 Instance.Config.Save();
 
                 IniciarLeituraChat();
-                Responder(chat, "ID definido pela área de transferência: " + liveId + ". Preparando o chat...");
+                ResponderComando(chat, destinatario, "ID definido pela área de transferência: " + liveId + ". Preparando o chat...");
                 return;
 
             case "iniciar":
@@ -1562,20 +1577,20 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 VotacaoAtiva.Value = true;
                 Instance.Config.Save();
                 IniciarLeituraChat();
-                Responder(chat, "Leitura solicitada. A votação começará quando o chat conectar.");
+                ResponderComando(chat, destinatario, "Leitura solicitada. A votação começará quando o chat conectar.");
                 return;
 
             case "tempo":
                 if (partes.Length < 2 ||
                     !int.TryParse(partes[1], out int segundos))
                 {
-                    Responder(chat, "Use: /youtube tempo 40");
+                    ResponderComando(chat, destinatario, "Use: /youtube tempo 40");
                     return;
                 }
 
                 if (segundos < 5 || segundos > 600)
                 {
-                    Responder(chat, "O tempo deve estar entre 5 e 600 segundos.");
+                    ResponderComando(chat, destinatario, "O tempo deve estar entre 5 e 600 segundos.");
                     return;
                 }
 
@@ -1608,7 +1623,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 LiveConectada.Value = false;
                 Instance.Config.Save();
 
-                Responder(chat, "ID da live definido: " + idColado);
+                ResponderComando(chat, destinatario, "ID da live definido: " + idColado);
                 return;
         }
 
@@ -1629,10 +1644,12 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             return;
         }
 
-        Responder(chat, "Comando desconhecido. Use /youtube ajuda.");
+        ResponderComando(chat, destinatario, "Comando desconhecido. Use /youtube ajuda.");
     }
 
-    public static void MostrarStatus(ChatController chat)
+    public static void MostrarStatus(
+        ChatController chat,
+        PlayerControl destinatario = null)
     {
         if (chat == null)
             return;
@@ -1641,13 +1658,82 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             ? "não definido"
             : LiveId.Value;
 
-        Responder(
+        ResponderComando(chat, destinatario,
             chat,
             "ID da live: " + id +
             " | Leitor funcionando: " + (ChatEmLeitura ? "sim" : "não") +
             " | Votação ativa: " + (VotacaoAtiva.Value ? "sim" : "não") +
             " | Tempo: " + TempoVotacao.Value + " segundos."
         );
+    }
+ 
+    // ========================================================
+    // COMANDO /color (ID OU NOME)
+    // ========================================================
+
+    public static void ProcessarComandoCor(
+        ChatController chat,
+        PlayerControl jogador,
+        string comando)
+    {
+        if (chat == null || jogador == null || Palette.ColorNames == null)
+            return;
+
+        string argumento = comando.Length > "/color".Length
+            ? comando.Substring("/color".Length).Trim()
+            : "";
+
+        if (argumento.Length == 0)
+        {
+            ResponderComando(chat, jogador,
+                "Use: /color (id/nome). Exemplo: /color 0 ou /color Red.");
+            return;
+        }
+
+        int idCor = -1;
+        if (int.TryParse(argumento, out int id))
+        {
+            if (id >= 0 && id < Palette.ColorNames.Length)
+                idCor = id;
+        }
+        else
+        {
+            for (int i = 0; i < Palette.ColorNames.Length; i++)
+            {
+                string nomeCor = Palette.ColorNames[i];
+                if (!string.IsNullOrWhiteSpace(nomeCor) &&
+                    string.Equals(nomeCor.Trim(), argumento, StringComparison.OrdinalIgnoreCase))
+                {
+                    idCor = i;
+                    break;
+                }
+            }
+        }
+
+        if (idCor < 0)
+        {
+            string lista = string.Join(", ",
+                Enumerable.Range(0, Palette.ColorNames.Length)
+                    .Select(i => i + "=" + Palette.ColorNames[i]));
+            ResponderComando(chat, jogador,
+                "Cor inválida. Use um ID de 0 a " + (Palette.ColorNames.Length - 1) +
+                " ou um nome exato. Cores: " + lista);
+            return;
+        }
+
+        try
+        {
+            jogador.RpcSetColor((byte)idCor);
+            ResponderComando(chat, jogador,
+                "Sua cor foi alterada para " + Palette.ColorNames[idCor] + " (ID " + idCor + ").");
+            Instance?.Log.LogInfo(
+                $"/color executado por PlayerId={jogador.PlayerId}, cor={idCor} ({Palette.ColorNames[idCor]}).");
+        }
+        catch (Exception ex)
+        {
+            Instance?.Log.LogError("Erro ao executar /color: " + ex);
+            ResponderComando(chat, jogador, "Não foi possível alterar a cor: " + ex.Message);
+        }
     }
 
     // ========================================================
@@ -1743,14 +1829,24 @@ public static class YouTubeVoteChatPatch
         string chatText,
         bool censor)
     {
-        if (sourcePlayer == null ||
-            string.IsNullOrWhiteSpace(chatText))
+        if (sourcePlayer == null || string.IsNullOrWhiteSpace(chatText))
             return true;
 
         string mensagem = chatText.Trim();
+        bool ehLocal = sourcePlayer == PlayerControl.LocalPlayer;
+        bool host = YouTubeVoteBridgePlugin.EhHost();
 
-        // Clientes com o mod respondem localmente. Jogadores sem o mod não
-        // interceptam o comando, então o host responde aqui quando recebe a mensagem.
+        if (mensagem.Equals("/color", StringComparison.OrdinalIgnoreCase) ||
+            mensagem.StartsWith("/color ", StringComparison.OrdinalIgnoreCase))
+        {
+            if (host)
+            {
+                YouTubeVoteBridgePlugin.ProcessarComandoCor(__instance, sourcePlayer, mensagem);
+                return false;
+            }
+            return true;
+        }
+
         if (mensagem.Equals("/ytconfig", StringComparison.OrdinalIgnoreCase) ||
             mensagem.Equals("/ytconfiguracoes", StringComparison.OrdinalIgnoreCase) ||
             mensagem.Equals("/ytconfigurações", StringComparison.OrdinalIgnoreCase) ||
@@ -1758,109 +1854,67 @@ public static class YouTubeVoteChatPatch
             mensagem.Equals("/youtube configuracoes", StringComparison.OrdinalIgnoreCase) ||
             mensagem.Equals("/youtube configurações", StringComparison.OrdinalIgnoreCase))
         {
-            if (sourcePlayer == PlayerControl.LocalPlayer)
-            {
-                YouTubeVoteBridgePlugin.Responder(__instance,
-                    PainelVotacaoRpc.ObterTextoConfiguracoes());
-            }
-            else if (YouTubeVoteBridgePlugin.EhHost())
-            {
-                YouTubeVoteBridgePlugin.EnviarMensagemIndividual(
-                    sourcePlayer,
-                    PainelVotacaoRpc.ObterTextoConfiguracoes());
-            }
-
+            if (ehLocal)
+                YouTubeVoteBridgePlugin.Responder(__instance, PainelVotacaoRpc.ObterTextoConfiguracoes());
+            else if (host)
+                YouTubeVoteBridgePlugin.EnviarMensagemIndividual(sourcePlayer, PainelVotacaoRpc.ObterTextoConfiguracoes());
             return false;
         }
 
-        // Ajuda geral do mod.
         if (mensagem.Equals("/help", StringComparison.OrdinalIgnoreCase) ||
             mensagem.Equals("/ajuda", StringComparison.OrdinalIgnoreCase))
         {
-            YouTubeVoteBridgePlugin.Responder(
-                __instance,
-                "Comandos: /help | /youtube ajuda | /tag update (somente host: recarrega tags.json do GitHub)."
-            );
+            const string ajuda = "Comandos: /color (id/nome) | /help | /youtube ajuda | /youtube config | /tag update.";
+            if (ehLocal)
+                YouTubeVoteBridgePlugin.Responder(__instance, ajuda);
+            else if (host)
+                YouTubeVoteBridgePlugin.EnviarMensagemIndividual(sourcePlayer, ajuda);
             return false;
         }
 
-        // Atualiza manualmente as tags remotas e reaplica-as no lobby.
         if (mensagem.Equals("/tag update", StringComparison.OrdinalIgnoreCase))
         {
-            if (sourcePlayer == PlayerControl.LocalPlayer)
-            {
-                if (!YouTubeVoteBridgePlugin.EhHost())
-                {
-                    YouTubeVoteBridgePlugin.Responder(
-                        __instance,
-                        "<color=red>Apenas o host pode usar /tag update.</color>"
-                    );
-                    return false;
-                }
+            if (!host)
+                return true;
 
-                LobbyTagManager.AtualizarTagsRemotas();
-                YouTubeVoteBridgePlugin.Responder(
-                    __instance,
-                    "Atualização das tags solicitada. Aguarde o download do GitHub."
-                );
-                return false;
-            }
-
-            if (YouTubeVoteBridgePlugin.EhHost())
-            {
-                LobbyTagManager.AtualizarTagsRemotas();
-                YouTubeVoteBridgePlugin.Responder(
-                    __instance,
-                    "Atualização das tags solicitada por um jogador. Aguarde o download do GitHub."
-                );
-                return false;
-            }
-
-            return true;
+            LobbyTagManager.AtualizarTagsRemotas();
+            if (ehLocal)
+                YouTubeVoteBridgePlugin.Responder(__instance, "Atualização das tags solicitada. Aguarde o download do GitHub.");
+            else
+                YouTubeVoteBridgePlugin.EnviarMensagemIndividual(sourcePlayer, "Atualização das tags solicitada. Aguarde o download do GitHub.");
+            return false;
         }
 
         if (!mensagem.StartsWith("/youtube", StringComparison.OrdinalIgnoreCase))
             return true;
 
-        if (sourcePlayer == PlayerControl.LocalPlayer)
+        if (!host)
         {
-            if (!YouTubeVoteBridgePlugin.EhHost())
-            {
-                string argumentos = mensagem.Length > "/youtube".Length
-                    ? mensagem.Substring("/youtube".Length).Trim()
-                    : "";
-                bool consultaConfig = argumentos.Equals("config", StringComparison.OrdinalIgnoreCase) ||
-                    argumentos.Equals("configuracoes", StringComparison.OrdinalIgnoreCase) ||
-                    argumentos.Equals("configurações", StringComparison.OrdinalIgnoreCase);
+            string argumentosLocal = mensagem.Length > "/youtube".Length
+                ? mensagem.Substring("/youtube".Length).Trim()
+                : "";
+            bool consultaLocal = argumentosLocal.Equals("config", StringComparison.OrdinalIgnoreCase) ||
+                argumentosLocal.Equals("configuracoes", StringComparison.OrdinalIgnoreCase) ||
+                argumentosLocal.Equals("configurações", StringComparison.OrdinalIgnoreCase) ||
+                argumentosLocal.Equals("ajuda", StringComparison.OrdinalIgnoreCase) ||
+                argumentosLocal.Equals("status", StringComparison.OrdinalIgnoreCase) ||
+                argumentosLocal.Equals("info", StringComparison.OrdinalIgnoreCase);
 
-                if (consultaConfig)
-                    YouTubeVoteBridgePlugin.ProcessarComando(__instance, mensagem);
-                else
-                    YouTubeVoteBridgePlugin.EnviarMensagemIndividual(
-                        sourcePlayer,
-                        "<color=red>Você não tem permissão para usar esse comando</color>"
-                    );
+            if (ehLocal && consultaLocal)
+            {
+                YouTubeVoteBridgePlugin.ProcessarComando(__instance, mensagem);
                 return false;
             }
 
-            YouTubeVoteBridgePlugin.ProcessarComando(__instance, mensagem);
-            return false;
+            // Cliente modificado não-host encaminha comandos ao host para execução.
+            return true;
         }
 
-        if (YouTubeVoteBridgePlugin.EhHost())
-        {
-            YouTubeVoteBridgePlugin.EnviarMensagemIndividual(
-                sourcePlayer,
-                "<color=red>Você não tem permissão para usar esse comando</color>"
-            );
-            return false;
-        }
-
-        return true;
+        // No host, comandos enviados por clientes vanilla são tratados aqui.
+        YouTubeVoteBridgePlugin.ProcessarComando(__instance, mensagem, ehLocal ? null : sourcePlayer);
+        return false;
     }
 }
-
-
 // ============================================================
 // AVISO PRIVADO QUANDO UM JOGADOR ENTRA
 // ============================================================
