@@ -24,6 +24,10 @@ internal sealed class EventoEscondeEsconde : EventoVotacao
     private static string nomeOriginalFugitivo;
     private static float terminaEm;
     private static bool ativo;
+    private static bool aplicandoPapel;
+
+    // O Vanilla pode ignorar novas atribuições de papel sem canOverride.
+    // Mantemos a flag ativa apenas durante cada operação do evento.
 
     public override string Nome => "Esconde-esconde: um caçador contra um fugitivo por 60 segundos";
 
@@ -206,6 +210,21 @@ internal sealed class EventoEscondeEsconde : EventoVotacao
     // RpcSetRoleDesync, que não existe como método de instância neste projeto.
     private static bool DefinirPapelParaCliente(PlayerControl jogador, string nomePapel, int clientId)
     {
+        aplicandoPapel = true;
+        try
+        {
+            return DefinirPapelParaClienteInterno(jogador, nomePapel, clientId);
+        }
+        finally
+        {
+            aplicandoPapel = false;
+        }
+    }
+
+    internal static bool DeveForcarOverridePapel => ativo || aplicandoPapel;
+
+    private static bool DefinirPapelParaClienteInterno(PlayerControl jogador, string nomePapel, int clientId)
+    {
         if (jogador == null || string.IsNullOrWhiteSpace(nomePapel) ||
             clientId < 0 || AmongUsClient.Instance == null ||
             !Enum.TryParse(typeof(RoleTypes), nomePapel, true, out object valorPapel))
@@ -256,14 +275,14 @@ internal sealed class EventoEscondeEsconde : EventoVotacao
     {
         try
         {
-            // O EHR não altera o papel chamando SetRole diretamente: ele inicia
-            // a coroutine nativa CoSetRole(role, canOverride). Como SetRole do
-            // EHR é um método de extensão, ele não aparece na reflexão do jogador.
-            MethodInfo coSetRole = null;
+            // O SecretTraitor usa RpcSetRole(role, true) para pedir a aplicação
+            // com canOverride habilitado. Aqui só é chamado para o personagem
+            // cujo OwnerId é o cliente local; jogadores remotos continuam usando
+            // o RPC direcionado em DefinirPapelParaClienteInterno.
             foreach (MethodInfo metodo in jogador.GetType().GetMethods(
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
             {
-                if (metodo.Name != "CoSetRole")
+                if (metodo.Name != "RpcSetRole")
                     continue;
 
                 ParameterInfo[] parametros = metodo.GetParameters();
@@ -271,71 +290,21 @@ internal sealed class EventoEscondeEsconde : EventoVotacao
                     parametros[0].ParameterType == typeof(RoleTypes) &&
                     parametros[1].ParameterType == typeof(bool))
                 {
-                    coSetRole = metodo;
-                    break;
-                }
-
-                if (parametros.Length == 1 &&
-                    parametros[0].ParameterType == typeof(RoleTypes))
-                {
-                    coSetRole = metodo;
-                }
-            }
-
-            if (coSetRole == null)
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "[Esconde-esconde] Não encontrei CoSetRole para aplicar o papel local.");
-                return false;
-            }
-
-            object rotina = coSetRole.GetParameters().Length == 2
-                ? coSetRole.Invoke(jogador, new object[] { papel, true })
-                : coSetRole.Invoke(jogador, new object[] { papel });
-
-            if (rotina != null)
-            {
-                // As DLLs IL2CPP podem usar Il2CppSystem.Collections.IEnumerator,
-                // que não é o IEnumerator do .NET. Localizamos o overload correto
-                // de StartCoroutine pelo tipo real retornado por CoSetRole.
-                MethodInfo iniciarRotina = null;
-                foreach (MethodInfo metodo in jogador.GetType().GetMethods(
-                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
-                {
-                    if (metodo.Name != "StartCoroutine")
-                        continue;
-
-                    ParameterInfo[] parametros = metodo.GetParameters();
-                    if (parametros.Length == 1 &&
-                        parametros[0].ParameterType.IsInstanceOfType(rotina))
-                    {
-                        iniciarRotina = metodo;
-                        break;
-                    }
-                }
-
-                if (iniciarRotina != null)
-                {
-                    iniciarRotina.Invoke(jogador, new[] { rotina });
+                    metodo.Invoke(jogador, new object[] { papel, true });
                     YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                        $"[Esconde-esconde] CoSetRole iniciado localmente: jogador={jogador.PlayerId}, papel={papel}.");
+                        $"[Esconde-esconde] RpcSetRole local chamado com canOverride=true: " +
+                        $"jogador={jogador.PlayerId}, papel={papel}.");
                     return true;
                 }
+            }
 
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "[Esconde-esconde] Não encontrei StartCoroutine compatível com o tipo " +
-                    rotina.GetType().FullName + ".");
-            }
-            else
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "[Esconde-esconde] CoSetRole retornou null em vez de uma coroutine.");
-            }
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[Esconde-esconde] Não encontrei RpcSetRole(RoleTypes, bool) para aplicar o papel local.");
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[Esconde-esconde] Falha ao iniciar CoSetRole local: " +
+                "[Esconde-esconde] Falha em RpcSetRole local: " +
                 (ex.InnerException ?? ex));
         }
 
@@ -494,5 +463,22 @@ internal static class EventoEscondeEscondeDutoPatch
         }
 
         return true;
+    }
+}
+
+// Durante a atribuição/restauração do evento, garante que a chamada nativa
+// RpcSetRole não perca o canOverride. Não altera atribuições de outros sistemas
+// fora do evento.
+[HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.RpcSetRole))]
+internal static class EventoEscondeEscondeRpcSetRolePatch
+{
+    public static void Prefix(ref bool canOverrideRole)
+    {
+        if (!EventoEscondeEsconde.DeveForcarOverridePapel)
+            return;
+
+        canOverrideRole = true;
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            "[Esconde-esconde] RpcSetRole interceptado: canOverrideRole=true.");
     }
 }
