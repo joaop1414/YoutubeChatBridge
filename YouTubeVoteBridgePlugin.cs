@@ -1943,10 +1943,10 @@ public static class YouTubeVoteTaggedChatPatch
                 return;
 
             // Evita duplicar a quebra de linha.
-            if (!chatText.StartsWith("\\n", StringComparison.Ordinal) &&
-                !chatText.StartsWith("\\r\\n", StringComparison.Ordinal))
+            if (!chatText.StartsWith("\n", StringComparison.Ordinal) &&
+                !chatText.StartsWith("\r\n", StringComparison.Ordinal))
             {
-                chatText = "\\n" + chatText;
+                chatText = "\n" + chatText;
             }
         }
         catch (Exception ex)
