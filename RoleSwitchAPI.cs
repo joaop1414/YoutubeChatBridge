@@ -5,8 +5,9 @@ using AmongUs.GameOptions;
 namespace YouTubeVoteBridge;
 
 /// <summary>
-/// API central para trocar funções usando o próprio RPC do PlayerControl.
-/// O jogo fica responsável por distribuir a mudança, sempre com canOverrideRole=true.
+/// API central para trocar a função de um jogador pelo RPC nativo.
+/// Não aplica funções intermediárias: isso poderia colocar temporariamente
+/// um jogador vivo no estado de fantasma e causar problemas na tela/intro.
 /// </summary>
 internal static class RoleSwitchAPI
 {
@@ -35,30 +36,13 @@ internal static class RoleSwitchAPI
             return false;
         }
 
-        if (!Enum.TryParse(typeof(RoleTypes), "CrewmateGhost", true, out object valorFantasma))
-        {
-            LogErro("RoleTypes não contém CrewmateGhost.");
-            return false;
-        }
-
-        RoleTypes fantasmaTripulante = (RoleTypes)valorFantasma;
-
         try
         {
-            LogInfo($"Iniciando troca: jogador={jogador.PlayerId}, atual={LerFuncao(jogador)}, intermediária={fantasmaTripulante}, destino={funcao}.");
-
-            // Usa RpcSetRole do próprio PlayerControl em vez de construir manualmente
-            // um RPC direcionado apenas ao dono. Isso permite que o jogo trate a
-            // distribuição da função e preserva canOverrideRole=true.
-            if (!Aplicar(jogador, fantasmaTripulante))
-            {
-                LogErro($"Não foi possível aplicar {fantasmaTripulante} ao jogador={jogador.PlayerId}.");
-                return false;
-            }
+            LogInfo($"Iniciando troca direta: jogador={jogador.PlayerId}, atual={LerFuncao(jogador)}, destino={funcao}.");
 
             if (!Aplicar(jogador, funcao))
             {
-                LogErro($"A etapa intermediária funcionou, mas a função final {funcao} falhou para jogador={jogador.PlayerId}.");
+                LogErro($"Não foi possível aplicar {funcao} ao jogador={jogador.PlayerId}.");
                 return false;
             }
 
