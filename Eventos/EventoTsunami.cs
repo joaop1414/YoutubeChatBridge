@@ -51,6 +51,8 @@ internal sealed class EventoTsunami : EventoVotacao
     private static bool reuniaoFoiAberta;
     private static readonly Dictionary<byte, float> protegidos = new();
     private static readonly Dictionary<byte, int> dutosProtegidos = new();
+    // Adia o RPC de entrada para o SnapTo chegar primeiro aos clientes vanilla.
+    private static readonly Dictionary<byte, float> entradasDutoPendentes = new();
     // X do jogador quando se abrigou; o prazo de saída só começa após a onda passar.
     private static readonly Dictionary<byte, float> posicaoXProtegida = new();
     // Evita que o jogador seja enviado novamente ao mesmo duto após a saída.
@@ -272,6 +274,64 @@ internal sealed class EventoTsunami : EventoVotacao
 
             Vector2 p = jogador.GetTruePosition();
 
+            // Primeiro envia a posição e, numa atualização posterior, solicita
+            // a entrada. SnapTo e EnterVent no mesmo frame podem chegar fora de
+            // ordem visual nos clientes vanilla, deixando o host em pé no chão.
+            if (entradasDutoPendentes.TryGetValue(jogador.PlayerId, out float entrarEm))
+            {
+                if (agora < entrarEm)
+                    continue;
+
+                if (dutosProtegidos.TryGetValue(jogador.PlayerId, out int ventPendente) &&
+                    jogador.MyPhysics != null && jogador.NetTransform != null)
+                {
+                    try
+                    {
+                        Vent dutoPendente = null;
+                        foreach (Vent candidato in ShipStatus.Instance.AllVents)
+                        {
+                            if (candidato != null && candidato.Id == ventPendente)
+                            {
+                                dutoPendente = candidato;
+                                break;
+                            }
+                        }
+
+                        if (dutoPendente != null)
+                        {
+                            Vector2 centroDuto = (Vector2)dutoPendente.transform.position;
+                            // Reafirma a posição antes do RPC de entrada.
+                            jogador.NetTransform.RpcSnapTo(centroDuto);
+                            jogador.MyPhysics.RpcEnterVent(ventPendente);
+
+                            protegidos[jogador.PlayerId] = float.MaxValue;
+                            posicaoXProtegida[jogador.PlayerId] = p.x;
+                            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                                "Tsunami: entrada no duto enviada após SnapTo; PlayerId=" +
+                                jogador.PlayerId + ", ventId=" + ventPendente +
+                                ", host=" + jogador.AmOwner + ", inVentLocal=" + jogador.inVent + ".");
+                        }
+                        else
+                        {
+                            dutosProtegidos.Remove(jogador.PlayerId);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                            "Tsunami: falha na entrada atrasada do duto para PlayerId=" +
+                            jogador.PlayerId + ": " + ex.Message);
+                        dutosProtegidos.Remove(jogador.PlayerId);
+                    }
+                }
+
+                entradasDutoPendentes.Remove(jogador.PlayerId);
+                if (!protegidos.ContainsKey(jogador.PlayerId) &&
+                    dutosProtegidos.ContainsKey(jogador.PlayerId))
+                    protegidos[jogador.PlayerId] = float.MaxValue;
+                continue;
+            }
+
             // Quem já está abrigado permanece no duto até a onda passar da
             // posição em que entrou; só então começa a contar 1 segundo para sair.
             if (protegidos.TryGetValue(jogador.PlayerId, out float protecaoAte))
@@ -372,20 +432,17 @@ internal sealed class EventoTsunami : EventoVotacao
                     if (duto == null || Vector2.Distance(p, (Vector2)duto.transform.position) > AlcanceDutoTsunami) continue;
                     if (jogador.MyPhysics == null || jogador.NetTransform == null) break;
 
-                    // Recupera a sequência antiga do evento de dutos:
-                    // primeiro sincroniza o jogador na entrada do duto e só depois
-                    // solicita a entrada. Isso ajuda clientes vanilla, que podem
-                    // ignorar RpcEnterVent quando o personagem está fora do ponto exato.
+                    // Primeiro publica a posição exata. O RPC de entrada é
+                    // agendado para outra atualização (0,16 s depois), dando tempo
+                    // aos clientes vanilla para processarem o SnapTo.
                     Vector2 posicaoDuto = (Vector2)duto.transform.position;
                     jogador.NetTransform.RpcSnapTo(posicaoDuto);
-                    jogador.MyPhysics.RpcEnterVent(duto.Id);
-                    protegidos[jogador.PlayerId] = float.MaxValue;
-                    posicaoXProtegida[jogador.PlayerId] = p.x;
                     dutosProtegidos[jogador.PlayerId] = duto.Id;
+                    entradasDutoPendentes[jogador.PlayerId] = agora + 0.16f;
                     entrouNoDuto = true;
                     YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                        "Tsunami: " + jogador.Data.PlayerName +
-                        " entrou no duto; aguardando a onda passar para iniciar a saída.");
+                        "Tsunami: SnapTo enviado; entrada no duto agendada para " +
+                        jogador.Data.PlayerName + ", ventId=" + duto.Id + ".");
                     break;
                 }
             }
@@ -913,6 +970,7 @@ internal sealed class EventoTsunami : EventoVotacao
         RestaurarAvisoNomes();
         protegidos.Clear();
         dutosProtegidos.Clear();
+        entradasDutoPendentes.Clear();
         posicaoXProtegida.Clear();
         bloqueadosReentradaDuto.Clear();
         prazoSaidaDuto.Clear();
