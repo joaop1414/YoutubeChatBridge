@@ -159,7 +159,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         // Resposta do mod em uma mensagem de sistema separada: não renomeia
         // o host e não se agrupa com as mensagens normais enviadas por ele.
         chat.AddChat(null,
-            "<color=blue>YouTubeChatBridge</color>\n" + mensagem,
+            "<color=blue>YouTubeChatBridge</color>" + mensagem,
             false);
     }
 
@@ -229,7 +229,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             {
                 HudManager.Instance.Chat.AddChat(
                     null,
-                    "<color=blue>YouTubeChatBridge</color>\n" + mensagem,
+                    "<color=blue>YouTubeChatBridge</color>" + mensagem,
                     false);
             }
             return;
