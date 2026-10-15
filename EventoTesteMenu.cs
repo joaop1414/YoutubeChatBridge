@@ -708,7 +708,17 @@ internal sealed class EventoTesteMenu : MonoBehaviour
                     motivo = Enum.ToObject(tipoMotivo, 0);
             }
 
-            metodo.Invoke(gerenciador, new[] { motivo, (object)false });
+            // O Harmony bloqueia o fim original quando Sem fim de jogo está ativo.
+            // Este sinalizador permite somente esta chamada solicitada pelo próprio mod.
+            ControleFimDeJogo.PermitirFimDoMod = true;
+            try
+            {
+                metodo.Invoke(gerenciador, new[] { motivo, (object)false });
+            }
+            finally
+            {
+                ControleFimDeJogo.PermitirFimDoMod = false;
+            }
             MostrarMensagem("Comando de encerramento enviado.");
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 " [Menu de teste] GameManager.RpcEndGame invocado. Motivo=" + motivo + ".");
