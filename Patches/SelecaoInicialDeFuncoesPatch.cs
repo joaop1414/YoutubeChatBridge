@@ -124,7 +124,7 @@ internal static class SelecaoInicialDeFuncoesPatch
         int impostors = Math.Clamp(options.NumImpostors, 0, Math.Max(0, players.Count - 1));
         for (int i = players.Count - 1; i > 0; i--)
         {
-            int j = Random.Shared.Next(i + 1);
+            int j = System.Random.Shared.Next(i + 1);
             (players[i], players[j]) = (players[j], players[i]);
         }
 
