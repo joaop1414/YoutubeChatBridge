@@ -227,24 +227,13 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             writer.Write(AmongUsClient.Instance.GameId);
             writer.WritePacked(targetClientId);
 
-            writer.StartMessage(2); // Rpc SetName: título temporário, só no destinatário
-            writer.WritePacked(remetente.NetId);
-            writer.Write((byte)RpcCalls.SetName);
-            writer.Write(remetente.Data.NetId);
-            writer.Write(TITULO_SISTEMA);
-            writer.EndMessage();
-
+            // Envia somente o RPC de chat ao cliente-alvo. Não troca temporariamente
+            // o nome do host por um título de sistema: isso podia sobrescrever o nome
+            // visual do host no cliente e interferir com mensagens normais.
             writer.StartMessage(2); // Rpc SendChat: texto, só no destinatário
             writer.WritePacked(remetente.NetId);
             writer.Write((byte)RpcCalls.SendChat);
             writer.Write(mensagem);
-            writer.EndMessage();
-
-            writer.StartMessage(2); // Rpc SetName: restaura o nome, só no destinatário
-            writer.WritePacked(remetente.NetId);
-            writer.Write((byte)RpcCalls.SetName);
-            writer.Write(remetente.Data.NetId);
-            writer.Write(nomeOriginal);
             writer.EndMessage();
 
             writer.EndMessage();
@@ -2050,10 +2039,11 @@ public static class YouTubeVoteUpdatePatch
 [HarmonyPatch(typeof(ShipStatus), nameof(ShipStatus.Start))]
 public static class YouTubeVoteRestoreLobbyTagsBeforeMatchPatch
 {
-    public static void Prefix()
+    public static void Postfix()
     {
-        // Restaura os nomes antes de o navio começar a partida. Isso evita
-        // que as tags multilinha do lobby sejam mantidas no jogo para clientes.
+        // O jogo pode atualizar os nomes durante ShipStatus.Start. Restaurar no
+        // Postfix faz a restauração depois dessa inicialização, evitando que os
+        // nomes voltem a aparecer como "Jogador" quando a partida começa.
         if (AmongUsClient.Instance != null && AmongUsClient.Instance.AmHost)
             LobbyTagManager.RestaurarTodos();
     }
