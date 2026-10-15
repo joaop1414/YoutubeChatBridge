@@ -265,7 +265,7 @@ public static class LobbyTagManager
             if (jogador == null || jogador.Data == null)
                 continue;
 
-            string friendCode = NormalizarFriendCode(jogador.FriendCode);
+            string friendCode = NormalizarFriendCode(jogador.Data.FriendCode);
             RegistrarJogador(jogador, friendCode);
 
             if (!Tags.TryGetValue(friendCode, out string tag) ||
