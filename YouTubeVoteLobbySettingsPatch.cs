@@ -48,6 +48,27 @@ namespace YouTubeVoteBridge
                         if (!encontrado)
                             __instance.Children.Add(existente);
                     }
+
+                    // Atualiza menus já criados em versões anteriores do mod,
+                    // adicionando o novo controle sem exigir reiniciar o jogo.
+                    if (YouTubeVoteBridgePlugin.EhHost() &&
+                        !existentes.Any(x => x.name == PREFIX + "SEMFIM"))
+                    {
+                        StringOption modeloExistente = __instance.GetComponentsInChildren<StringOption>(true)
+                            .FirstOrDefault(x => x != null && x.gameObject != null &&
+                                x.name != null && !x.name.StartsWith(PREFIX));
+                        if (modeloExistente != null)
+                        {
+                            float yExistente = existentes
+                                .Where(x => x != null && x.gameObject != null)
+                                .Select(x => x.transform.localPosition.y)
+                                .DefaultIfEmpty(-2f).Min() - 0.52f;
+                            CriarControle(__instance, modeloExistente, "Sem fim de jogo", PREFIX + "SEMFIM", yExistente);
+                            if (__instance.scrollBar != null)
+                                __instance.scrollBar.SetYBoundsMax(Math.Max(6f, -yExistente + 2f));
+                        }
+                    }
+
                     GarantirCabecalho(__instance, cabecalhoAtual);
                     AtualizarControles(__instance);
                     return;
@@ -86,6 +107,8 @@ namespace YouTubeVoteBridge
                 CriarControle(__instance, modelo, "Intervalo entre rodadas", PREFIX + "INTERVALO", y);
                 y -= 0.52f;
                 CriarControle(__instance, modelo, "Preparação do chat", PREFIX + "PREPARACAO", y);
+                y -= 0.52f;
+                CriarControle(__instance, modelo, "Sem fim de jogo", PREFIX + "SEMFIM", y);
 
                 AtualizarControles(__instance);
                 if (__instance.scrollBar != null)
@@ -154,10 +177,14 @@ namespace YouTubeVoteBridge
                 !YouTubeVoteBridgePlugin.EhHost() ||
                 YouTubeVoteBridgePlugin.TempoVotacao == null ||
                 YouTubeVoteBridgePlugin.IntervaloRodadas == null ||
-                YouTubeVoteBridgePlugin.PreparacaoChat == null)
+                YouTubeVoteBridgePlugin.PreparacaoChat == null ||
+                YouTubeVoteBridgePlugin.SemFimDeJogo == null)
                 return;
 
-            if (option.name == PREFIX + "TEMPO")
+            if (option.name == PREFIX + "SEMFIM")
+                YouTubeVoteBridgePlugin.SemFimDeJogo.Value =
+                    !YouTubeVoteBridgePlugin.SemFimDeJogo.Value;
+            else if (option.name == PREFIX + "TEMPO")
                 YouTubeVoteBridgePlugin.TempoVotacao.Value = Mathf.Clamp(
                     YouTubeVoteBridgePlugin.TempoVotacao.Value + delta * 5, 5, 600);
             else if (option.name == PREFIX + "INTERVALO")
@@ -215,15 +242,22 @@ namespace YouTubeVoteBridge
                 valor = YouTubeVoteBridgePlugin.IntervaloRodadas.Value;
                 option.TitleText.text = "Intervalo entre rodadas";
             }
-            else
+            else if (option.name == PREFIX + "PREPARACAO")
             {
                 valor = YouTubeVoteBridgePlugin.PreparacaoChat.Value;
                 option.TitleText.text = "Preparação do chat";
             }
+            else
+            {
+                valor = YouTubeVoteBridgePlugin.SemFimDeJogo.Value ? 1 : 0;
+                option.TitleText.text = "Sem fim de jogo";
+            }
 
             option.Value = valor;
             option.oldValue = valor;
-            option.ValueText.text = valor + " s";
+            option.ValueText.text = option.name == PREFIX + "SEMFIM"
+                ? (valor == 1 ? "Ativado" : "Desativado")
+                : valor + " s";
         }
     }
 
