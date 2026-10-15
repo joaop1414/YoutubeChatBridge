@@ -1,6 +1,5 @@
 {
-  "punhazy#1673": {
-    "tag": "DONO",
-    "color": "#e3c420"
-  }
+  "<color=#e3c420>DONO</color>": [
+    "punhazy#1673"
+  ]
 }
