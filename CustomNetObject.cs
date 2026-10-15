@@ -126,11 +126,13 @@ internal static class CustomNetObject
             PlayerControl.LocalPlayer?.Data == null)
             throw new InvalidOperationException("Não é possível sincronizar a aparência do PlayerControl falso.");
 
+        // Reproduz o fluxo do EHR: o nome do sprite é local no objeto falso,
+        // mas a aparência que o cliente vanilla renderiza vem do outfit temporário
+        // do host + Shapeshift, enviado num GameData global (mensagem 5).
         objeto.RawSetName(nome);
 
         var hostData = PlayerControl.LocalPlayer.Data;
         var outfit = hostData.Outfits[PlayerOutfitType.Default];
-
         string nomeOriginal = outfit.PlayerName;
         int corOriginal = outfit.ColorId;
         string chapeuOriginal = outfit.HatId;
@@ -138,98 +140,54 @@ internal static class CustomNetObject
         string petOriginal = outfit.PetId;
         string visorOriginal = outfit.VisorId;
 
-        var destinatarios = new List<PlayerControl>();
-        var proprietariosIncluidos = new HashSet<int>();
-        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
-        {
-            if (!CompatibilidadeClientes.ClienteRemotoElegivel(
-                    jogador, objeto, proprietariosIncluidos))
-                continue;
-            destinatarios.Add(jogador);
-        }
-
-        if (destinatarios.Count == 0)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "CustomNetObject: nenhum cliente vanilla elegível para receber a aparência individual do tsunami.");
-            return;
-        }
-
-        int enviados = 0;
+        MessageWriter writer = null;
         try
         {
-            // O outfit temporário e o Shapeshift são empacotados separadamente
-            // para cada cliente, usando GameDataTo (mensagem 6), em vez de
-            // transmitir uma única atualização global.
-            foreach (PlayerControl destinatario in destinatarios)
-            {
-                MessageWriter writer = null;
-                try
-                {
-                    writer = MessageWriter.Get(SendOption.Reliable);
-                    writer.StartMessage(26);
-                    writer.WritePacked(AmongUsClient.Instance.GameId);
+            writer = MessageWriter.Get(SendOption.Reliable);
+            writer.StartMessage(5); // GameData, como no EHR
+            writer.Write(AmongUsClient.Instance.GameId);
 
-                    writer.StartMessage(6);
-                    writer.Write(AmongUsClient.Instance.GameId);
-                    writer.WritePacked(destinatario.OwnerId);
+            outfit.PlayerName = "<size=14><br></size>" + nome;
+            outfit.ColorId = 255;
+            outfit.HatId = "";
+            outfit.SkinId = "";
+            outfit.PetId = "";
+            outfit.VisorId = "";
 
-                    outfit.PlayerName = "<size=14><br></size>" + nome;
-                    outfit.ColorId = 255;
-                    outfit.HatId = "";
-                    outfit.SkinId = "";
-                    outfit.PetId = "";
-                    outfit.VisorId = "";
+            writer.StartMessage(1);
+            writer.WritePacked(hostData.NetId);
+            hostData.Serialize(writer, false);
+            writer.EndMessage();
 
-                    writer.StartMessage(1);
-                    writer.WritePacked(hostData.NetId);
-                    hostData.Serialize(writer, false);
-                    writer.EndMessage();
+            writer.StartMessage(2);
+            writer.WritePacked(objeto.NetId);
+            writer.Write((byte)RpcCalls.Shapeshift);
+            writer.WriteNetObject(PlayerControl.LocalPlayer);
+            writer.Write(false);
+            writer.EndMessage();
 
-                    writer.StartMessage(2);
-                    writer.WritePacked(objeto.NetId);
-                    writer.Write((byte)RpcCalls.Shapeshift);
-                    writer.WriteNetObject(PlayerControl.LocalPlayer);
-                    writer.Write(false);
-                    writer.EndMessage();
+            // Fundamental: o EHR serializa o outfit original novamente no mesmo
+            // lote, depois do Shapeshift, para todos os clientes receberem a
+            // alteração temporária e a restauração na ordem correta.
+            outfit.PlayerName = nomeOriginal;
+            outfit.ColorId = corOriginal;
+            outfit.HatId = chapeuOriginal;
+            outfit.SkinId = skinOriginal;
+            outfit.PetId = petOriginal;
+            outfit.VisorId = visorOriginal;
 
-                    outfit.PlayerName = nomeOriginal;
-                    outfit.ColorId = corOriginal;
-                    outfit.HatId = chapeuOriginal;
-                    outfit.SkinId = skinOriginal;
-                    outfit.PetId = petOriginal;
-                    outfit.VisorId = visorOriginal;
+            writer.StartMessage(1);
+            writer.WritePacked(hostData.NetId);
+            hostData.Serialize(writer, false);
+            writer.EndMessage();
 
-                    // O EHR serializa novamente o GameData depois de restaurar
-                    // o outfit do host. Sem esta segunda atualização, o cliente
-                    // pode ficar com o outfit temporário associado ao Shapeshift
-                    // e o PlayerControl falso permanece como "fortegreen ???".
-                    writer.StartMessage(1);
-                    writer.WritePacked(hostData.NetId);
-                    hostData.Serialize(writer, false);
-                    writer.EndMessage();
-
-                    writer.EndMessage(); // GameDataTo (destinatário)
-                    writer.EndMessage(); // GameData
-                    AmongUsClient.Instance.SendOrDisconnect(writer);
-                    writer = null;
-                    enviados++;
-                }
-                finally
-                {
-                    writer?.Recycle();
-                    // Restaura antes de preparar o próximo cliente, mesmo se houver erro.
-                    outfit.PlayerName = nomeOriginal;
-                    outfit.ColorId = corOriginal;
-                    outfit.HatId = chapeuOriginal;
-                    outfit.SkinId = skinOriginal;
-                    outfit.PetId = petOriginal;
-                    outfit.VisorId = visorOriginal;
-                }
-            }
+            writer.EndMessage();
+            AmongUsClient.Instance.SendOrDisconnect(writer);
+            writer = null;
         }
         finally
         {
+            writer?.Recycle();
             outfit.PlayerName = nomeOriginal;
             outfit.ColorId = corOriginal;
             outfit.HatId = chapeuOriginal;
@@ -239,8 +197,8 @@ internal static class CustomNetObject
         }
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"CustomNetObject: aparência individual enviada para {enviados}/{destinatarios.Count} clientes; " +
-            $"PlayerId={objeto.PlayerId}, nome='{nome}', cor solicitada={corId}.");
+            $"CustomNetObject: aparência enviada pelo fluxo global do EHR; " +
+            $"NetId={objeto.NetId}, PlayerId={objeto.PlayerId}, nome='{nome}', cor solicitada={corId}.");
     }
 
     /// <summary>
