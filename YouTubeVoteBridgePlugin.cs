@@ -1867,7 +1867,7 @@ public static class YouTubeVoteUpdatePatch
         JogadorRealExperimental.Atualizar();
         EventoTesteMenu.VerificarTecla();
         EventoTesteMenu.ProcessarFilaExecucao();
-        YouTubeVoteBridgePlugin.EnviarSinalModAoHost();
+        // Não enviar RPC customizado 248 para hosts vanilla: eles não conhecem esse RPC.
         YouTubeVoteBridgePlugin.AtualizarAvisos();
         FakePlayerAPI.Atualizar();
         NomeNpcRpc.Atualizar();
