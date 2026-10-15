@@ -1138,10 +1138,36 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 return;
             }
 
-            // Não enviar SetName via GameDataTo para clientes remotos.
-            // Em salas vanilla/não registradas, o servidor oficial pode expulsar
-            // o host por esse tipo de pacote. O placar por nick fica desativado
-            // para jogadores remotos; o painel normal do mod continua disponível.
+            // Atualiza apenas o nome visto pelo cliente dono do jogador.
+            // Este é o mesmo fluxo GameDataTo + SetName usado no aviso do tsunami:
+            // não altera o nome global nem os outros clientes.
+            MessageWriter writer = null;
+            try
+            {
+                writer = MessageWriter.Get(SendOption.Reliable);
+                writer.StartMessage(6);
+                writer.Write(AmongUsClient.Instance.GameId);
+                writer.WritePacked(jogador.OwnerId);
+
+                writer.StartMessage(2);
+                writer.WritePacked(jogador.NetId);
+                writer.Write((byte)RpcCalls.SetName);
+                writer.Write(jogador.Data.NetId);
+                writer.Write(nome);
+                writer.EndMessage();
+
+                writer.EndMessage();
+                AmongUsClient.Instance.SendOrDisconnect(writer);
+                writer.Recycle();
+                writer = null;
+            }
+            finally
+            {
+                if (writer != null)
+                {
+                    try { writer.Recycle(); } catch { }
+                }
+            }
             return;
         }
         catch (Exception ex)
