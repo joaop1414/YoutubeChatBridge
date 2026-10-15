@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Reflection;
 using AmongUs.GameOptions;
 using HarmonyLib;
+using Hazel;
 using UnityEngine;
 
 namespace YouTubeVoteBridge;
@@ -19,6 +20,8 @@ internal sealed class EventoEscondeEsconde : EventoVotacao
     private static PlayerControl fugitivo;
     private static object papelOriginalCacador;
     private static object papelOriginalFugitivo;
+    private static string nomeOriginalCacador;
+    private static string nomeOriginalFugitivo;
     private static float terminaEm;
     private static bool ativo;
 
@@ -73,28 +76,35 @@ internal sealed class EventoEscondeEsconde : EventoVotacao
             return;
         }
 
-        if (!DefinirPapel(cacador, "Impostor") ||
-            !DefinirPapel(fugitivo, "Engineer"))
+        nomeOriginalCacador = cacador.Data.PlayerName;
+        nomeOriginalFugitivo = fugitivo.Data.PlayerName;
+
+        // Atribui as funções apenas na perspectiva do próprio participante.
+        // O RPC vanilla SetRole é enviado diretamente ao cliente dono do jogador.
+        bool papelCacadorDefinido = DefinirPapelParaCliente(cacador, "Impostor", cacador.OwnerId);
+        bool papelFugitivoDefinido = DefinirPapelParaCliente(fugitivo, "Engineer", fugitivo.OwnerId);
+        if (!papelCacadorDefinido || !papelFugitivoDefinido)
         {
             RestaurarPapeis();
+            RestaurarNicks();
             LimparEstado();
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "[Esconde-esconde] Não consegui atribuir os papéis necessários. Consulte o log.");
+                "[Esconde-esconde] Não consegui atribuir os papéis localmente. Consulte o log.");
             return;
         }
 
         ativo = true;
         terminaEm = Time.realtimeSinceStartup + DuracaoSegundos;
+        YouTubeVoteBridgePlugin.DefinirNomeLocal(
+            cacador, nomeOriginalCacador + "\n<color=#FF5555><size=70%>VOCÊ É O CAÇADOR</size></color>");
+        YouTubeVoteBridgePlugin.DefinirNomeLocal(
+            fugitivo, nomeOriginalFugitivo + "\n<color=#55FF55><size=70%>VOCÊ É O FUGITIVO</size></color>");
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             $"[Esconde-esconde] Iniciado por {DuracaoSegundos:0}s. " +
-            $"Caçador={cacador.Data.PlayerName} (PlayerId={cacador.PlayerId}); " +
-            $"fugitivo={fugitivo.Data.PlayerName} (PlayerId={fugitivo.PlayerId}). " +
-            "O caçador só pode matar o fugitivo.");
-        YouTubeVoteBridgePlugin.EnviarMensagemIndividual(
-            cacador, "Você é o CAÇADOR! Encontre o fugitivo em até 60 segundos. Não pode usar dutos nem matar outros jogadores.");
-        YouTubeVoteBridgePlugin.EnviarMensagemIndividual(
-            fugitivo, "Você é o FUGITIVO! Sobreviva por 60 segundos. Seu papel temporário é Engenheiro.");
+            $"Caçador={nomeOriginalCacador} (PlayerId={cacador.PlayerId}); " +
+            $"fugitivo={nomeOriginalFugitivo} (PlayerId={fugitivo.PlayerId}). " +
+            "Papéis e avisos de nick enviados localmente; mortes bloqueadas.");
     }
 
     public static void Atualizar()
@@ -109,25 +119,14 @@ internal sealed class EventoEscondeEsconde : EventoVotacao
             return;
         }
 
-        if (fugitivo.Data.IsDead)
+        if (fugitivo.Data.IsDead || cacador.Data.IsDead)
         {
-            Encerrar("o fugitivo foi pego; vitória do caçador");
-            return;
-        }
-
-        if (cacador.Data.IsDead)
-        {
-            Encerrar("rodada cancelada porque o caçador morreu");
+            Encerrar("rodada cancelada porque um participante morreu");
             return;
         }
 
         if (Time.realtimeSinceStartup >= terminaEm)
-        {
-            if (!fugitivo.Data.IsDead)
-                CompletarUmaTarefa(fugitivo);
-
-            Encerrar("o fugitivo sobreviveu por 60 segundos; uma tarefa foi concluída se havia uma disponível");
-        }
+            Encerrar("o tempo de 60 segundos terminou");
     }
 
     internal static bool BloquearMorte(PlayerControl atacante, PlayerControl alvo)
@@ -136,12 +135,8 @@ internal sealed class EventoEscondeEsconde : EventoVotacao
             atacante == null || alvo == null)
             return false;
 
-        // O fugitivo não pode matar. O caçador só pode matar o fugitivo.
-        if (atacante.PlayerId == FugitivoId ||
-            (atacante.PlayerId == CacadorId && alvo.PlayerId != FugitivoId))
-            return true;
-
-        return false;
+        // Este evento é apenas uma distração: nenhuma morte é permitida durante a rodada.
+        return true;
     }
 
     internal static bool BloquearEntradaDuto(PlayerControl jogador)
@@ -165,11 +160,13 @@ internal sealed class EventoEscondeEsconde : EventoVotacao
     {
         if (cacador != null && cacador.Data != null && !cacador.Data.Disconnected &&
             papelOriginalCacador != null)
-            DefinirPapel(cacador, papelOriginalCacador.ToString());
+            DefinirPapelParaCliente(cacador, papelOriginalCacador.ToString(), cacador.OwnerId);
 
         if (fugitivo != null && fugitivo.Data != null && !fugitivo.Data.Disconnected &&
             papelOriginalFugitivo != null)
-            DefinirPapel(fugitivo, papelOriginalFugitivo.ToString());
+            DefinirPapelParaCliente(fugitivo, papelOriginalFugitivo.ToString(), fugitivo.OwnerId);
+
+        RestaurarNicks();
     }
 
     private static void LimparEstado()
@@ -179,6 +176,8 @@ internal sealed class EventoEscondeEsconde : EventoVotacao
         fugitivo = null;
         papelOriginalCacador = null;
         papelOriginalFugitivo = null;
+        nomeOriginalCacador = null;
+        nomeOriginalFugitivo = null;
         terminaEm = 0f;
     }
 
@@ -203,53 +202,50 @@ internal sealed class EventoEscondeEsconde : EventoVotacao
         }
     }
 
-    // Atribui uma função somente na perspectiva de um cliente específico.
-    // Inspirado no fluxo do EHR: RpcSetRoleDesync(RoleTypes, clientId).
-    // Não substitui DefinirPapel: esta variante é para futuras funções locais de espectador.
+    // Replica o comportamento essencial do EHR sem depender do método de extensão
+    // RpcSetRoleDesync, que não existe como método de instância neste projeto.
     private static bool DefinirPapelParaCliente(PlayerControl jogador, string nomePapel, int clientId)
     {
-        if (jogador == null || string.IsNullOrWhiteSpace(nomePapel) || clientId < 0)
+        if (jogador == null || string.IsNullOrWhiteSpace(nomePapel) ||
+            clientId < 0 || AmongUsClient.Instance == null ||
+            !Enum.TryParse(typeof(RoleTypes), nomePapel, true, out object valorPapel))
             return false;
 
         try
         {
-            if (!Enum.TryParse(typeof(RoleTypes), nomePapel, true, out object valorPapel))
+            RoleTypes papel = (RoleTypes)valorPapel;
+            if (clientId == AmongUsClient.Instance.ClientId)
             {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "[Esconde-esconde] RoleTypes não contém o papel " + nomePapel + ".");
-                return false;
+                jogador.SetRole(papel);
+            }
+            else
+            {
+                MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
+                    jogador.NetId, (byte)RpcCalls.SetRole, SendOption.Reliable, clientId);
+                writer.Write((ushort)papel);
+                writer.Write(true);
+                AmongUsClient.Instance.FinishRpcImmediately(writer);
             }
 
-            foreach (MethodInfo metodo in jogador.GetType().GetMethods(
-                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
-            {
-                if (metodo.Name != "RpcSetRoleDesync")
-                    continue;
-
-                ParameterInfo[] parametros = metodo.GetParameters();
-                if (parametros.Length == 2 &&
-                    parametros[0].ParameterType == typeof(RoleTypes) &&
-                    parametros[1].ParameterType == typeof(int))
-                {
-                    metodo.Invoke(jogador, new[] { valorPapel, (object)clientId });
-                    YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                        $"[Esconde-esconde] RpcSetRoleDesync enviado: jogador={jogador.PlayerId}, " +
-                        $"papel={nomePapel}, clientId={clientId}.");
-                    return true;
-                }
-            }
-
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "[Esconde-esconde] Não encontrei RpcSetRoleDesync(RoleTypes, int).");
-            return false;
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                $"[Esconde-esconde] Papel local enviado: jogador={jogador.PlayerId}, " +
+                $"papel={papel}, clientId={clientId}.");
+            return true;
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[Esconde-esconde] Falha em RpcSetRoleDesync para " + nomePapel + ": " +
-                (ex.InnerException ?? ex));
+                "[Esconde-esconde] Falha ao definir papel local " + nomePapel + ": " + ex);
             return false;
         }
+    }
+
+    private static void RestaurarNicks()
+    {
+        if (cacador != null && !string.IsNullOrEmpty(nomeOriginalCacador))
+            YouTubeVoteBridgePlugin.DefinirNomeLocal(cacador, nomeOriginalCacador);
+        if (fugitivo != null && !string.IsNullOrEmpty(nomeOriginalFugitivo))
+            YouTubeVoteBridgePlugin.DefinirNomeLocal(fugitivo, nomeOriginalFugitivo);
     }
 
     private static bool DefinirPapel(PlayerControl jogador, string nomePapel)
