@@ -112,6 +112,19 @@ internal sealed class EventoTesteMenu : MonoBehaviour
             "[Menu de teste] F6 detectado; alternando a janela nativa.");
     }
 
+    // Descarta qualquer ação/temporizador que tenha ficado pendente ao trocar
+    // de partida. Evita que o teste de encerramento afete a próxima partida.
+    public static void ResetarEstadoPartida(string motivo)
+    {
+        encerrarPartidaEm = -1f;
+        int descartadas = 0;
+        while (filaExecucao.TryDequeue(out _))
+            descartadas++;
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"[Menu de teste] Estado pendente limpo ({motivo}); ações descartadas={descartadas}.");
+    }
+
     // Chamado pelo Harmony no ciclo de atualização do jogo, garantindo
     // que os eventos sejam executados na thread principal do Unity.
     public static void ProcessarFilaExecucao()
