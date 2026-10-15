@@ -2118,6 +2118,33 @@ public static class YouTubeVotePastePatch
 }
 
 
+// O EHR limpa o estado dos modos/eventos no ciclo de vida da partida,
+// tanto ao começar uma nova partida (CoStartGame) quanto ao terminar (OnGameEnd).
+// Estes eventos duram até a reunião, mas não podem depender dela para serem limpos.
+[HarmonyPatch(typeof(AmongUsClient), nameof(AmongUsClient.CoStartGame))]
+public static class YouTubeVoteResetTaskEventsOnStartPatch
+{
+    public static void Postfix()
+    {
+        EventoTarefaMataJogador.Desativar();
+        EventoTarefaSuicidio.Desativar();
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            "Eventos de tarefa resetados no início da partida.");
+    }
+}
+
+[HarmonyPatch(typeof(AmongUsClient), nameof(AmongUsClient.OnGameEnd))]
+public static class YouTubeVoteResetTaskEventsOnEndPatch
+{
+    public static void Postfix()
+    {
+        EventoTarefaMataJogador.Desativar();
+        EventoTarefaSuicidio.Desativar();
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            "Eventos de tarefa desativados ao terminar a partida, mesmo sem reunião.");
+    }
+}
+
 [HarmonyPatch(typeof(PlayerControl), "CompleteTask")]
 public static class YouTubeVoteTaskKillPatch
 {
