@@ -462,7 +462,7 @@ public static class LobbyTagManager
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 $"[Tags][GITHUB][SUCESSO] URL='{UrlTagsRemotas}', bytes/caracteres={json.Length}.");
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[Tags][GITHUB][JSON INÍCIO]\\n" + json + "\\n[Tags][GITHUB][JSON FIM]");
+                "[Tags][GITHUB][JSON INÍCIO]\n" + json + "\n[Tags][GITHUB][JSON FIM]");
 
             var remotas = LerTagsJson(json);
             if (remotas.Count == 0)
@@ -472,15 +472,14 @@ public static class LobbyTagManager
             foreach (var item in remotas)
                 Tags[item.Key] = item.Value;
 
-            if (ReaplicarTagsQuandoDownloadConcluir)
-            {
-                // Preserva os nomes originais, mas permite que a tag atualizada seja reaplicada.
-                TagsAplicadas.Clear();
-                JogadoresDiagnosticados.Clear();
-                ReaplicarTagsQuandoDownloadConcluir = false;
-                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "[Tags] Tags atualizadas; reaplicação solicitada para os jogadores do lobby.");
-            }
+            // O download remoto pode terminar depois que uma tag local já foi aplicada.
+            // Limpa o estado de aplicação para que a configuração recém-baixada substitua
+            // a tag antiga no nome do jogador, preservando NomesOriginais.
+            TagsAplicadas.Clear();
+            JogadoresDiagnosticados.Clear();
+            ReaplicarTagsQuandoDownloadConcluir = false;
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[Tags] Configuração remota aplicada; as tags serão reaplicadas aos jogadores do lobby.");
 
             AvisouFalhaTagsRemotas = false;
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
