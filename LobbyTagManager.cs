@@ -450,7 +450,7 @@ public static class LobbyTagManager
                 NomesOriginais[jogador.PlayerId] = nomeOriginal;
 
             // Preserve exatamente o Rich Text definido no JSON; não use <size> externo.
-            string nomeComTag = configuracao.Tag + "\\n" + NomesOriginais[jogador.PlayerId];
+            string nomeComTag = configuracao.Tag + "\n" + NomesOriginais[jogador.PlayerId];
 
             if (EnviarSetName(jogador, nomeComTag))
             {
