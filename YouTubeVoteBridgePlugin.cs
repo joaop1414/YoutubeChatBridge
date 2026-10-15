@@ -1110,8 +1110,19 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         {
             if (jogador.AmOwner)
             {
-                Instance.Log.LogInfo($"SetName local direto");
+                // SetName atualiza os dados do jogador, mas a UI pode manter
+                // o texto anterior durante atualizações de nome em tempo real.
                 jogador.SetName(nome);
+                try
+                {
+                    if (jogador.cosmetics != null && jogador.cosmetics.nameText != null)
+                        jogador.cosmetics.nameText.text = nome;
+                }
+                catch (Exception ex)
+                {
+                    Instance?.Log.LogWarning(
+                        $"Não foi possível atualizar o texto visual do próprio nome: {ex.Message}");
+                }
                 return;
             }
 
