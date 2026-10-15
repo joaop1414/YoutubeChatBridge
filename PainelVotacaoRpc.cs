@@ -146,11 +146,23 @@ internal static class PainelVotacaoRpc
 
     public static string ObterTextoConfiguracoes()
     {
-        if (!configuracaoRecebida)
-            return "Ainda não recebi as configurações do host. Aguarde alguns segundos e tente /youtube config novamente.";
+        // A consulta deve ler a configuração ativa do host diretamente.
+        // Antes, dependia de configuracaoRecebida, que só era marcada após
+        // Publicar/uma sincronização do painel; fora de uma votação, podia
+        // responder que ainda não recebeu as configurações mesmo no próprio host.
+        if (YouTubeVoteBridgePlugin.EhHost())
+        {
+            tempoConfig = YouTubeVoteBridgePlugin.TempoVotacao?.Value ?? 40;
+            intervaloConfig = YouTubeVoteBridgePlugin.IntervaloRodadas?.Value ?? 15;
+            preparacaoConfig = YouTubeVoteBridgePlugin.PreparacaoChat?.Value ?? 10;
+            configuracaoRecebida = true;
+        }
 
-        return "Configurações atuais: tempo=" + tempoConfig + "s | intervalo=" +
-            intervaloConfig + "s | preparação=" + preparacaoConfig + "s.";
+        if (!configuracaoRecebida)
+            return "Não consegui obter as configurações do host. Peça ao host para usar /ytconfig.";
+
+        return "Configurações do host: tempo de votação=" + tempoConfig + "s | intervalo entre rodadas=" +
+            intervaloConfig + "s | preparação do chat=" + preparacaoConfig + "s.";
     }
 
     public static void Receber(string payload)
