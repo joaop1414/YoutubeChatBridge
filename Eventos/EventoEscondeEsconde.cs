@@ -214,11 +214,16 @@ internal sealed class EventoEscondeEsconde : EventoVotacao
         try
         {
             RoleTypes papel = (RoleTypes)valorPapel;
+            // SetRole não é um método de PlayerControl nesta versão das DLLs.
+            // Algumas versões/mods expõem uma implementação local por reflexão;
+            // se não existir, enviamos o RPC vanilla diretamente ao cliente dono.
+            bool aplicadoLocalmente = false;
             if (clientId == AmongUsClient.Instance.ClientId)
             {
-                jogador.SetRole(papel);
+                aplicadoLocalmente = TentarAplicarPapelLocal(jogador, papel);
             }
-            else
+
+            if (!aplicadoLocalmente)
             {
                 MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
                     jogador.NetId, (byte)RpcCalls.SetRole, SendOption.Reliable, clientId);
@@ -238,6 +243,49 @@ internal sealed class EventoEscondeEsconde : EventoVotacao
                 "[Esconde-esconde] Falha ao definir papel local " + nomePapel + ": " + ex);
             return false;
         }
+    }
+
+    private static bool TentarAplicarPapelLocal(PlayerControl jogador, RoleTypes papel)
+    {
+        try
+        {
+            // Procura um método de instância compatível sem depender de APIs
+            // que não existem em todas as versões de Among Us.
+            foreach (object alvo in new object[] { jogador, jogador?.Data?.Role })
+            {
+                if (alvo == null)
+                    continue;
+
+                foreach (MethodInfo metodo in alvo.GetType().GetMethods(
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+                {
+                    if (metodo.Name != "SetRole" && metodo.Name != "RpcSetRole")
+                        continue;
+
+                    ParameterInfo[] parametros = metodo.GetParameters();
+                    if (parametros.Length == 1 && parametros[0].ParameterType == typeof(RoleTypes))
+                    {
+                        metodo.Invoke(alvo, new object[] { papel });
+                        return true;
+                    }
+
+                    if (parametros.Length == 2 && parametros[0].ParameterType == typeof(RoleTypes) &&
+                        parametros[1].ParameterType == typeof(bool))
+                    {
+                        metodo.Invoke(alvo, new object[] { papel, true });
+                        return true;
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[Esconde-esconde] Aplicação local por reflexão falhou: " +
+                (ex.InnerException ?? ex));
+        }
+
+        return false;
     }
 
     private static void RestaurarNicks()
