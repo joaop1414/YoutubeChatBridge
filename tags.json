@@ -1,5 +1,8 @@
 {
-  "<color=#e3c420>DONO</color>": [
-    "punhazy#1673"
-  ]
+  "DONO": {
+    "cor": "#e3c420",
+    "jogadores": [
+      "punhazy#1673"
+    ]
+  }
 }
