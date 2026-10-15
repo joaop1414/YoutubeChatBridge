@@ -28,8 +28,10 @@ public static class LobbyTagManager
         new(StringComparer.OrdinalIgnoreCase);
     private static bool AvisouEstadoDesconhecido;
 
-    private sealed class JogadorRegistrado
+    public sealed class JogadorRegistrado
     {
+        public JogadorRegistrado() { }
+
         public string FriendCode { get; set; } = string.Empty;
         public string Nome { get; set; } = string.Empty;
         public string PrimeiroRegistroUtc { get; set; } = string.Empty;
