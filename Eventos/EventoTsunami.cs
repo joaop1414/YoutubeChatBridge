@@ -442,7 +442,14 @@ internal sealed class EventoTsunami : EventoVotacao
                 foreach (Vent duto in ShipStatus.Instance.AllVents)
                 {
                     if (duto == null || Vector2.Distance(p, (Vector2)duto.transform.position) > AlcanceDutoTsunami) continue;
-                    if (jogador.MyPhysics == null) break;
+                    if (jogador.MyPhysics == null || jogador.NetTransform == null) break;
+
+                    // Recupera a sequência antiga do evento de dutos:
+                    // primeiro sincroniza o jogador na entrada do duto e só depois
+                    // solicita a entrada. Isso ajuda clientes vanilla, que podem
+                    // ignorar RpcEnterVent quando o personagem está fora do ponto exato.
+                    Vector2 posicaoDuto = (Vector2)duto.transform.position;
+                    jogador.NetTransform.RpcSnapTo(posicaoDuto);
                     jogador.MyPhysics.RpcEnterVent(duto.Id);
                     protegidos[jogador.PlayerId] = float.MaxValue;
                     posicaoXProtegida[jogador.PlayerId] = p.x;
