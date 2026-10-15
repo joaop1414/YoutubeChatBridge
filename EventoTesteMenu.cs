@@ -1,5 +1,6 @@
 using System;
 using AmongUs.GameOptions;
+using Hazel;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Reflection;
