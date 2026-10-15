@@ -1,14 +1,12 @@
 using System;
 using System.Reflection;
 using AmongUs.GameOptions;
-using Hazel;
-using UnityEngine;
 
 namespace YouTubeVoteBridge;
 
 /// <summary>
-/// API central para trocar a função de um jogador durante a partida.
-/// Primeiro força CrewmateGhost com canOverrideRole=true e depois envia a função desejada.
+/// API central para trocar funções usando o próprio RPC do PlayerControl.
+/// O jogo fica responsável por distribuir a mudança, sempre com canOverrideRole=true.
 /// </summary>
 internal static class RoleSwitchAPI
 {
@@ -31,45 +29,40 @@ internal static class RoleSwitchAPI
 
     internal static bool TrocarFuncao(PlayerControl jogador, RoleTypes funcao)
     {
-        if (jogador == null || jogador.Data == null || jogador.Data.Disconnected ||
-            AmongUsClient.Instance == null)
+        if (jogador == null || jogador.Data == null || jogador.Data.Disconnected)
         {
-            LogAviso("Troca cancelada: jogador ou AmongUsClient indisponível.");
+            LogAviso("Troca cancelada: jogador inválido ou desconectado.");
             return false;
         }
 
         if (!Enum.TryParse(typeof(RoleTypes), "CrewmateGhost", true, out object valorFantasma))
         {
-            LogErro("RoleTypes não contém CrewmateGhost; não foi possível executar a troca segura.");
+            LogErro("RoleTypes não contém CrewmateGhost.");
             return false;
         }
 
         RoleTypes fantasmaTripulante = (RoleTypes)valorFantasma;
-        int dono = jogador.OwnerId;
-        bool local = dono == AmongUsClient.Instance.ClientId;
 
         try
         {
-            LogInfo($"Iniciando troca: jogador={jogador.PlayerId}, atual={LerFuncao(jogador)}, " +
-                    $"intermediária={fantasmaTripulante}, destino={funcao}, local={local}.");
+            LogInfo($"Iniciando troca: jogador={jogador.PlayerId}, atual={LerFuncao(jogador)}, intermediária={fantasmaTripulante}, destino={funcao}.");
 
-            // Etapa 1: aplicar fantasma tripulante. Para clientes remotos, o bool
-            // true é o argumento canOverrideRole do RPC SetRole.
-            if (!Aplicar(jogador, fantasmaTripulante, dono, local))
+            // Usa RpcSetRole do próprio PlayerControl em vez de construir manualmente
+            // um RPC direcionado apenas ao dono. Isso permite que o jogo trate a
+            // distribuição da função e preserva canOverrideRole=true.
+            if (!Aplicar(jogador, fantasmaTripulante))
             {
-                LogErro($"Falha ao aplicar {fantasmaTripulante} ao jogador={jogador.PlayerId}.");
+                LogErro($"Não foi possível aplicar {fantasmaTripulante} ao jogador={jogador.PlayerId}.");
                 return false;
             }
 
-            // Etapa 2: atribuir a função final, também permitindo sobrescrita.
-            if (!Aplicar(jogador, funcao, dono, local))
+            if (!Aplicar(jogador, funcao))
             {
-                LogErro($"Fantasma aplicado, mas a função final {funcao} falhou para jogador={jogador.PlayerId}.");
+                LogErro($"A etapa intermediária funcionou, mas a função final {funcao} falhou para jogador={jogador.PlayerId}.");
                 return false;
             }
 
-            LogInfo($"Troca concluída: jogador={jogador.PlayerId}, função solicitada={funcao}, " +
-                    $"função observada={LerFuncao(jogador)}.");
+            LogInfo($"Troca solicitada: jogador={jogador.PlayerId}, função destino={funcao}, função observada={LerFuncao(jogador)}.");
             return true;
         }
         catch (Exception ex)
@@ -79,30 +72,35 @@ internal static class RoleSwitchAPI
         }
     }
 
-    private static bool Aplicar(PlayerControl jogador, RoleTypes funcao, int dono, bool local)
+    private static bool Aplicar(PlayerControl jogador, RoleTypes funcao)
     {
-        if (local)
+        MethodInfo metodoCompatível = null;
+
+        foreach (MethodInfo metodo in jogador.GetType().GetMethods(
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
         {
-            if (RoleManager.Instance == null)
-                return false;
+            if (metodo.Name != "RpcSetRole")
+                continue;
 
-            RoleManager.Instance.SetRole(jogador, funcao);
-
-            if (jogador == PlayerControl.LocalPlayer && HudManager.Instance != null)
-                HudManager.Instance.ReportButton.gameObject.SetActive(!RoleManager.IsGhostRole(funcao));
-
-            LogInfo($"SetRole local: jogador={jogador.PlayerId}, função={funcao}.");
-            return true;
+            ParameterInfo[] parametros = metodo.GetParameters();
+            if (parametros.Length == 2 &&
+                parametros[0].ParameterType == typeof(RoleTypes) &&
+                parametros[1].ParameterType == typeof(bool))
+            {
+                metodoCompatível = metodo;
+                break;
+            }
         }
 
-        MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
-            jogador.NetId, (byte)RpcCalls.SetRole, SendOption.Reliable, dono);
-        writer.Write((ushort)funcao);
-        writer.Write(true); // canOverrideRole = true
-        AmongUsClient.Instance.FinishRpcImmediately(writer);
+        if (metodoCompatível == null)
+        {
+            LogErro("Não encontrei RpcSetRole(RoleTypes, bool). Não vou usar uma alternativa que ignore canOverrideRole.");
+            return false;
+        }
 
-        LogInfo($"RPC SetRole enviado: jogador={jogador.PlayerId}, função={funcao}, " +
-                $"destino={dono}, canOverrideRole=true.");
+        metodoCompatível.Invoke(jogador, new object[] { funcao, true });
+
+        LogInfo($"RpcSetRole chamado: jogador={jogador.PlayerId}, função={funcao}, canOverrideRole=true.");
         return true;
     }
 
