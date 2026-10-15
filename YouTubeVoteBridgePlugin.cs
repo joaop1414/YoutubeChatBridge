@@ -1891,12 +1891,11 @@ public static class YouTubeVoteChatPatch
             return ehLocal;
         }
 
+        // /ytconfig é somente consulta e pode ser usado por qualquer jogador,
+        // inclusive clientes vanilla. Os subcomandos /youtube ficam reservados ao host.
         if (mensagem.Equals("/ytconfig", StringComparison.OrdinalIgnoreCase) ||
             mensagem.Equals("/ytconfiguracoes", StringComparison.OrdinalIgnoreCase) ||
-            mensagem.Equals("/ytconfigurações", StringComparison.OrdinalIgnoreCase) ||
-            mensagem.Equals("/youtube config", StringComparison.OrdinalIgnoreCase) ||
-            mensagem.Equals("/youtube configuracoes", StringComparison.OrdinalIgnoreCase) ||
-            mensagem.Equals("/youtube configurações", StringComparison.OrdinalIgnoreCase))
+            mensagem.Equals("/ytconfigurações", StringComparison.OrdinalIgnoreCase))
         {
             if (ehLocal)
                 YouTubeVoteBridgePlugin.Responder(__instance, PainelVotacaoRpc.ObterTextoConfiguracoes());
@@ -1908,7 +1907,7 @@ public static class YouTubeVoteChatPatch
         if (mensagem.Equals("/help", StringComparison.OrdinalIgnoreCase) ||
             mensagem.Equals("/ajuda", StringComparison.OrdinalIgnoreCase))
         {
-            const string ajuda = "Comandos: /color (id/nome/rainbow) | /help | /youtube ajuda | /youtube config | /tag update.";
+            const string ajuda = "Comandos: /color (id/nome/rainbow) | /help | /ytconfig (ver configurações) | /youtube (...) e /tag update (somente host).";
             if (ehLocal)
                 YouTubeVoteBridgePlugin.Responder(__instance, ajuda);
             else if (host)
@@ -1918,45 +1917,36 @@ public static class YouTubeVoteChatPatch
 
         if (mensagem.Equals("/tag update", StringComparison.OrdinalIgnoreCase))
         {
-            if (!host)
-                return true;
+            if (!host || !ehLocal)
+            {
+                if (ehLocal)
+                    YouTubeVoteBridgePlugin.Responder(__instance, "Somente o host pode usar /tag update.");
+                else if (host)
+                    YouTubeVoteBridgePlugin.EnviarMensagemIndividual(sourcePlayer, "Somente o host pode usar /tag update.");
+                return false;
+            }
 
             LobbyTagManager.AtualizarTagsRemotas();
-            if (ehLocal)
-                YouTubeVoteBridgePlugin.Responder(__instance, "Atualização das tags solicitada. Aguarde o download do GitHub.");
-            else
-                YouTubeVoteBridgePlugin.EnviarMensagemIndividual(sourcePlayer, "Atualização das tags solicitada. Aguarde o download do GitHub.");
+            YouTubeVoteBridgePlugin.Responder(__instance, "Atualização das tags solicitada. Aguarde o download do GitHub.");
             return false;
         }
 
         if (!mensagem.StartsWith("/youtube", StringComparison.OrdinalIgnoreCase))
             return true;
 
-        if (!host)
+        // Todo /youtube (...) é exclusivo do host. Não encaminhar comandos de
+        // clientes ao host e nunca executar subcomandos recebidos de terceiros.
+        if (!host || !ehLocal)
         {
-            string argumentosLocal = mensagem.Length > "/youtube".Length
-                ? mensagem.Substring("/youtube".Length).Trim()
-                : "";
-            bool consultaLocal = argumentosLocal.Equals("config", StringComparison.OrdinalIgnoreCase) ||
-                argumentosLocal.Equals("configuracoes", StringComparison.OrdinalIgnoreCase) ||
-                argumentosLocal.Equals("configurações", StringComparison.OrdinalIgnoreCase) ||
-                argumentosLocal.Equals("ajuda", StringComparison.OrdinalIgnoreCase) ||
-                argumentosLocal.Equals("status", StringComparison.OrdinalIgnoreCase) ||
-                argumentosLocal.Equals("info", StringComparison.OrdinalIgnoreCase);
-
-            if (ehLocal && consultaLocal)
-            {
-                YouTubeVoteBridgePlugin.ProcessarComando(__instance, mensagem);
-                return false;
-            }
-
-            // O comando digitado localmente segue ao host; comandos recebidos de
-            // outros jogadores ficam ocultos no chat dos clientes com o mod.
-            return ehLocal;
+            const string avisoPermissao = "Somente o host pode usar comandos /youtube. Use /ytconfig para consultar as configurações.";
+            if (ehLocal)
+                YouTubeVoteBridgePlugin.Responder(__instance, avisoPermissao);
+            else if (host)
+                YouTubeVoteBridgePlugin.EnviarMensagemIndividual(sourcePlayer, avisoPermissao);
+            return false;
         }
 
-        // No host, comandos enviados por clientes vanilla são tratados aqui.
-        YouTubeVoteBridgePlugin.ProcessarComando(__instance, mensagem, ehLocal ? null : sourcePlayer);
+        YouTubeVoteBridgePlugin.ProcessarComando(__instance, mensagem);
         return false;
     }
 }
