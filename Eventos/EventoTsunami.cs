@@ -394,8 +394,28 @@ internal sealed class EventoTsunami : EventoVotacao
                 prazoSaidaDuto.Remove(idJogadorDuto);
             }
 
+            // O bloqueio só termina quando o jogador realmente se afasta
+            // de todos os dutos. Esta verificação precisa ocorrer ANTES de
+            // ignorar jogadores bloqueados; caso contrário, o código de liberação
+            // abaixo nunca é alcançado.
             if (bloqueadosReentradaDuto.Contains(jogador.PlayerId))
-                continue;
+            {
+                bool pertoDeAlgumDuto = false;
+                foreach (Vent duto in ShipStatus.Instance.AllVents)
+                {
+                    if (duto != null &&
+                        Vector2.Distance(p, (Vector2)duto.transform.position) <= AlcanceDutoTsunami + 0.5f)
+                    {
+                        pertoDeAlgumDuto = true;
+                        break;
+                    }
+                }
+
+                if (pertoDeAlgumDuto)
+                    continue;
+
+                bloqueadosReentradaDuto.Remove(jogador.PlayerId);
+            }
 
             if (jogador.inVent)
             {
@@ -416,23 +436,6 @@ internal sealed class EventoTsunami : EventoVotacao
             }
 
             if (atingidos.Contains(jogador.PlayerId)) continue;
-
-            // Libera a reentrada somente depois que o jogador se afastar do duto.
-            if (bloqueadosReentradaDuto.Contains(jogador.PlayerId))
-            {
-                bool pertoDeAlgumDuto = false;
-                foreach (Vent duto in ShipStatus.Instance.AllVents)
-                {
-                    if (duto != null &&
-                        Vector2.Distance(p, (Vector2)duto.transform.position) <= AlcanceDutoTsunami + 0.5f)
-                    {
-                        pertoDeAlgumDuto = true;
-                        break;
-                    }
-                }
-                if (pertoDeAlgumDuto) continue;
-                bloqueadosReentradaDuto.Remove(jogador.PlayerId);
-            }
 
             // Entrar no duto depende apenas de tocar/chegar perto dele, não da
             // distância do tsunami. Assim o jogador pode se esconder com antecedência.
@@ -1009,8 +1012,9 @@ internal sealed class EventoTsunami : EventoVotacao
 
     public static void LimparEstadoPartida(string motivo)
     {
-        // Interrompe o evento e restaura qualquer jogador ainda preso pelo efeito.
-        Limpar();
+        // Restaura explicitamente o movimento antes de Limpar() apagar os registros.
+        // Limpar() também faz essa restauração para mortes pendentes; esta passagem
+        // protege qualquer jogador que ainda esteja registrado durante a transição.
         foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
         {
             if (jogador == null) continue;
@@ -1019,6 +1023,8 @@ internal sealed class EventoTsunami : EventoVotacao
                 try { jogador.moveable = moveable; } catch { }
             }
         }
+
+        Limpar();
 
         atingidos.Clear();
         mortosPeloTsunami.Clear();
