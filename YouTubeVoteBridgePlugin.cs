@@ -1964,10 +1964,20 @@ public static class YouTubeVoteChatPatch
             mensagem.Equals("/ytconfiguracoes", StringComparison.OrdinalIgnoreCase) ||
             mensagem.Equals("/ytconfigurações", StringComparison.OrdinalIgnoreCase))
         {
-            if (ehLocal)
-                YouTubeVoteBridgePlugin.Responder(__instance, PainelVotacaoRpc.ObterTextoConfiguracoes());
+            if (host && ehLocal)
+            {
+                YouTubeVoteBridgePlugin.Responder(
+                    __instance, PainelVotacaoRpc.ObterTextoConfiguracoes());
+            }
             else if (host)
-                YouTubeVoteBridgePlugin.EnviarMensagemIndividual(sourcePlayer, PainelVotacaoRpc.ObterTextoConfiguracoes());
+            {
+                // O host responde ao jogador que enviou o comando, com os
+                // valores reais do host, inclusive quando o cliente é vanilla.
+                YouTubeVoteBridgePlugin.EnviarMensagemIndividual(
+                    sourcePlayer, PainelVotacaoRpc.ObterTextoConfiguracoes());
+            }
+            // Em clientes que não são host, não exibir a configuração local:
+            // o host também recebe a mensagem e envia a resposta correta.
             return false;
         }
 
