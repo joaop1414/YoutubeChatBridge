@@ -38,6 +38,12 @@ internal sealed class EventoTesteMenu : MonoBehaviour
     private const int SW_SHOW = 5;
     private const int SW_RESTORE = 9;
     private const int ID_BOTAO_BASE = 1000;
+    private const int ID_BOTAO_ENCERRAR = 9000;
+    private const int ID_BOTAO_TRIPULANTE_FANTASMA = 9001;
+    private const int ID_BOTAO_IMPOSTOR_FANTASMA = 9002;
+    private const int ACAO_ENCERRAR = -1;
+    private const int ACAO_TRIPULANTE_FANTASMA = -2;
+    private const int ACAO_IMPOSTOR_FANTASMA = -3;
     private const int ALTURA_LINHA = 38;
     private const int LARGURA_JANELA = 620;
     private const int ALTURA_JANELA = 620;
@@ -51,6 +57,7 @@ internal sealed class EventoTesteMenu : MonoBehaviour
     private static string mensagem = "Pressione F6 para abrir/fechar a janela.";
     private static IReadOnlyList<EventoVotacao> eventos = Array.Empty<EventoVotacao>();
     private static readonly ConcurrentQueue<int> filaExecucao = new();
+    private static float encerrarPartidaEm = -1f;
     private static readonly WndProcDelegate procedimentoJanela = ProcedimentoJanela;
     private static Thread threadJanela;
 
@@ -107,13 +114,41 @@ internal sealed class EventoTesteMenu : MonoBehaviour
     // que os eventos sejam executados na thread principal do Unity.
     public static void ProcessarFilaExecucao()
     {
+        if (encerrarPartidaEm >= 0f && Time.realtimeSinceStartup >= encerrarPartidaEm)
+        {
+            encerrarPartidaEm = -1f;
+            EncerrarPartida();
+        }
+
         while (filaExecucao.TryDequeue(out int indice))
         {
-            if (indice < 0 || indice >= eventos.Count)
-                continue;
-
             try
             {
+                if (indice == ACAO_ENCERRAR)
+                {
+                    if (!ValidarHostEPartida())
+                        continue;
+
+                    MostrarMensagem("Encerrando a partida...");
+                    EncerrarPartida();
+                    continue;
+                }
+
+                if (indice == ACAO_TRIPULANTE_FANTASMA)
+                {
+                    TestarFantasmaEEncerrar("CrewmateGhost", "Tripulante fantasma");
+                    continue;
+                }
+
+                if (indice == ACAO_IMPOSTOR_FANTASMA)
+                {
+                    TestarFantasmaEEncerrar("ImpostorGhost", "Impostor fantasma");
+                    continue;
+                }
+
+                if (indice < 0 || indice >= eventos.Count)
+                    continue;
+
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                     "[Menu de teste] Processando clique do evento: " + eventos[indice].Nome);
                 ExecutarEvento(eventos[indice]);
@@ -231,15 +266,30 @@ internal sealed class EventoTesteMenu : MonoBehaviour
 
                 case WM_COMMAND:
                     int id = wParam.ToInt32() & 0xFFFF;
-                    int indice = id - ID_BOTAO_BASE;
-                    if (indice >= 0 && indice < eventos.Count)
+                    if (id == ID_BOTAO_ENCERRAR ||
+                        id == ID_BOTAO_TRIPULANTE_FANTASMA ||
+                        id == ID_BOTAO_IMPOSTOR_FANTASMA)
                     {
-                        filaExecucao.Enqueue(indice);
-                        mensagem = "Solicitação recebida: " + eventos[indice].Nome + "...";
-                        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                            "[Menu de teste] Clique recebido para: " + eventos[indice].Nome);
+                        int acao = id == ID_BOTAO_ENCERRAR ? ACAO_ENCERRAR :
+                            id == ID_BOTAO_TRIPULANTE_FANTASMA ? ACAO_TRIPULANTE_FANTASMA :
+                            ACAO_IMPOSTOR_FANTASMA;
+                        filaExecucao.Enqueue(acao);
+                        mensagem = "Solicitação de teste recebida...";
                         if (textoStatus != IntPtr.Zero)
                             SetWindowTextW(textoStatus, "STATUS: " + mensagem);
+                    }
+                    else
+                    {
+                        int indice = id - ID_BOTAO_BASE;
+                        if (indice >= 0 && indice < eventos.Count)
+                        {
+                            filaExecucao.Enqueue(indice);
+                            mensagem = "Solicitação recebida: " + eventos[indice].Nome + "...";
+                            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                                "[Menu de teste] Clique recebido para: " + eventos[indice].Nome);
+                            if (textoStatus != IntPtr.Zero)
+                                SetWindowTextW(textoStatus, "STATUS: " + mensagem);
+                        }
                     }
                     return IntPtr.Zero;
 
@@ -313,7 +363,33 @@ internal sealed class EventoTesteMenu : MonoBehaviour
             }
         }
 
-        int statusY = 96 + eventos.Count * ALTURA_LINHA;
+        int acoesY = 96 + eventos.Count * ALTURA_LINHA + 8;
+        CriarControle("STATIC", "",
+            WS_CHILD | WS_VISIBLE | SS_ETCHEDHORZ,
+            18, acoesY, 545, 2, hwnd, IntPtr.Zero, instancia);
+
+        IntPtr labelAcoes = CriarControle("STATIC",
+            "TESTES DE PARTIDA (somente host)",
+            WS_CHILD | WS_VISIBLE | SS_LEFT,
+            22, acoesY + 8, 520, 24, hwnd, IntPtr.Zero, instancia);
+        AplicarFonte(labelAcoes, fonteNormal);
+
+        CriarControle("BUTTON", "Encerrar partida",
+            WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+            22, acoesY + 34, 520, 30, hwnd,
+            new IntPtr(ID_BOTAO_ENCERRAR), instancia);
+
+        CriarControle("BUTTON", "Tripulante fantasma + encerrar",
+            WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+            22, acoesY + 70, 520, 30, hwnd,
+            new IntPtr(ID_BOTAO_TRIPULANTE_FANTASMA), instancia);
+
+        CriarControle("BUTTON", "Impostor fantasma + encerrar",
+            WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+            22, acoesY + 106, 520, 30, hwnd,
+            new IntPtr(ID_BOTAO_IMPOSTOR_FANTASMA), instancia);
+
+        int statusY = acoesY + 146;
         CriarControle("STATIC", "",
             WS_CHILD | WS_VISIBLE | SS_ETCHEDHORZ,
             18, statusY, 545, 2, hwnd, IntPtr.Zero, instancia);
@@ -327,7 +403,7 @@ internal sealed class EventoTesteMenu : MonoBehaviour
 
     private static void ConfigurarRolagem(IntPtr hwnd)
     {
-        int alturaConteudo = 150 + eventos.Count * ALTURA_LINHA + 90;
+        int alturaConteudo = 340 + eventos.Count * ALTURA_LINHA + 90;
         SCROLLINFO info = new()
         {
             cbSize = (uint)Marshal.SizeOf<SCROLLINFO>(),
@@ -468,6 +544,148 @@ internal sealed class EventoTesteMenu : MonoBehaviour
             MostrarMensagem("Erro no evento: " + ex.Message);
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
                 "[Menu de teste] Falha em " + evento.Nome + ": " + ex);
+        }
+    }
+
+    private static bool ValidarHostEPartida()
+    {
+        if (AmongUsClient.Instance == null || PlayerControl.LocalPlayer == null)
+        {
+            MostrarMensagem("Entre em uma partida antes de usar este teste.");
+            return false;
+        }
+
+        if (!YouTubeVoteBridgePlugin.EhHost())
+        {
+            MostrarMensagem("Este teste só pode ser executado pelo host.");
+            return false;
+        }
+
+        return true;
+    }
+
+    private static void TestarFantasmaEEncerrar(string nomePapel, string descricao)
+    {
+        if (!ValidarHostEPartida())
+            return;
+
+        if (!Enum.TryParse(typeof(RoleTypes), nomePapel, true, out object valorPapel))
+        {
+            MostrarMensagem("O jogo não reconheceu o papel " + nomePapel + ".");
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "[Menu de teste] RoleTypes não contém " + nomePapel + ".");
+            return;
+        }
+
+        RoleTypes papel = (RoleTypes)valorPapel;
+        int total = 0;
+        int falhas = 0;
+
+        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+        {
+            if (jogador == null || jogador.Data == null || jogador.Data.Disconnected)
+                continue;
+
+            total++;
+            try
+            {
+                if (jogador.OwnerId == AmongUsClient.Instance.ClientId)
+                {
+                    if (RoleManager.Instance == null)
+                    {
+                        falhas++;
+                        continue;
+                    }
+
+                    RoleManager.Instance.SetRole(jogador, papel);
+                }
+                else
+                {
+                    MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
+                        jogador.NetId, (byte)RpcCalls.SetRole, SendOption.Reliable, jogador.OwnerId);
+                    writer.Write((ushort)papel);
+                    writer.Write(true); // canOverrideRole
+                    AmongUsClient.Instance.FinishRpcImmediately(writer);
+                }
+            }
+            catch (Exception ex)
+            {
+                falhas++;
+                YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                    $"[Menu de teste] Falha ao atribuir {nomePapel} a PlayerId={jogador.PlayerId}: {ex}");
+            }
+        }
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"[Menu de teste] Teste {descricao}: atribuídos={total - falhas}/{total}, falhas={falhas}.");
+
+        if (total == 0 || falhas > 0)
+        {
+            MostrarMensagem($"Falhou: {total - falhas}/{total} receberam o papel. Partida não encerrada.");
+            return;
+        }
+
+        MostrarMensagem($"{descricao} aplicado a todos ({total}). Encerrando em 1,5 s...");
+        encerrarPartidaEm = Time.realtimeSinceStartup + 1.5f;
+    }
+
+    private static void EncerrarPartida()
+    {
+        if (!ValidarHostEPartida())
+            return;
+
+        try
+        {
+            object ship = ShipStatus.Instance;
+            if (ship == null)
+            {
+                MostrarMensagem("ShipStatus ainda não está disponível.");
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[Menu de teste] Não foi possível encerrar: ShipStatus.Instance é nulo.");
+                return;
+            }
+
+            Type tipo = ship.GetType();
+            MethodInfo metodo = null;
+            foreach (MethodInfo candidato in tipo.GetMethods(
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (candidato.Name != "RpcEndGame")
+                    continue;
+
+                ParameterInfo[] parametros = candidato.GetParameters();
+                if (parametros.Length == 2 &&
+                    parametros[0].ParameterType.IsEnum &&
+                    parametros[1].ParameterType == typeof(bool))
+                {
+                    metodo = candidato;
+                    break;
+                }
+            }
+
+            if (metodo == null)
+            {
+                MostrarMensagem("Não encontrei RpcEndGame compatível.");
+                YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                    "[Menu de teste] ShipStatus.RpcEndGame não encontrado.");
+                return;
+            }
+
+            Type tipoMotivo = metodo.GetParameters()[0].ParameterType;
+            object motivo;
+            if (!Enum.TryParse(tipoMotivo, "HumansByVote", true, out motivo))
+                motivo = Enum.ToObject(tipoMotivo, 0);
+
+            metodo.Invoke(ship, new[] { motivo, (object)false });
+            MostrarMensagem("Comando de encerramento enviado.");
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[Menu de teste] RpcEndGame invocado. Motivo=" + motivo + ".");
+        }
+        catch (Exception ex)
+        {
+            MostrarMensagem("Erro ao encerrar: " + (ex.InnerException ?? ex).Message);
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "[Menu de teste] Falha ao encerrar partida: " + ex);
         }
     }
 
