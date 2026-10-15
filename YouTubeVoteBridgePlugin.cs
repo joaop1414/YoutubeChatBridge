@@ -1942,12 +1942,11 @@ public static class YouTubeVoteTaggedChatPatch
                 !LobbyTagManager.TemTag(__instance))
                 return;
 
-            // Evita duplicar a quebra de linha.
-            if (!chatText.StartsWith("\n", StringComparison.Ordinal) &&
-                !chatText.StartsWith("\r\n", StringComparison.Ordinal))
-            {
-                chatText = "\n" + chatText;
-            }
+            // Coloca a quebra de linha em tamanho pequeno antes da mensagem.
+            // Exemplo: <size=50%>\n</size>Mensagem
+            const string prefixo = "<size=50%>\n</size>";
+            if (!chatText.StartsWith(prefixo, StringComparison.Ordinal))
+                chatText = prefixo + chatText;
         }
         catch (Exception ex)
         {
