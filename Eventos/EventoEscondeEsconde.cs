@@ -272,40 +272,29 @@ internal sealed class EventoEscondeEsconde : EventoVotacao
     {
         try
         {
-            // O SecretTraitor usa RpcSetRole(role, true) para pedir a aplicação
-            // com canOverride habilitado. Aqui só é chamado para o personagem
-            // cujo OwnerId é o cliente local; jogadores remotos continuam usando
-            // o RPC direcionado em DefinirPapelParaClienteInterno.
-            foreach (MethodInfo metodo in jogador.GetType().GetMethods(
-                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
-            {
-                if (metodo.Name != "RpcSetRole")
-                    continue;
+            // Padrão do Hydra para mudar o papel local: atualizar o RoleManager
+            // diretamente, em vez de iniciar CoSetRole/RpcSetRole durante a partida.
+            if (RoleManager.Instance == null)
+                return false;
 
-                ParameterInfo[] parametros = metodo.GetParameters();
-                if (parametros.Length == 2 &&
-                    parametros[0].ParameterType == typeof(RoleTypes) &&
-                    parametros[1].ParameterType == typeof(bool))
-                {
-                    metodo.Invoke(jogador, new object[] { papel, true });
-                    YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                        $"[Esconde-esconde] RpcSetRole local chamado com canOverride=true: " +
-                        $"jogador={jogador.PlayerId}, papel={papel}.");
-                    return true;
-                }
-            }
+            RoleManager.Instance.SetRole(jogador, papel);
 
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "[Esconde-esconde] Não encontrei RpcSetRole(RoleTypes, bool) para aplicar o papel local.");
+            // RoleManager.SetRole não atualiza automaticamente o botão de reportar.
+            // Só corrigimos a UI se o personagem alterado for o jogador local.
+            if (jogador == PlayerControl.LocalPlayer && HudManager.Instance != null)
+                HudManager.Instance.ReportButton.gameObject.SetActive(!RoleManager.IsGhostRole(papel));
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                $"[Esconde-esconde] RoleManager.SetRole local: jogador={jogador.PlayerId}, papel={papel}.");
+            return true;
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[Esconde-esconde] Falha em RpcSetRole local: " +
+                "[Esconde-esconde] Falha em RoleManager.SetRole local: " +
                 (ex.InnerException ?? ex));
+            return false;
         }
-
-        return false;
     }
 
     private static void RestaurarNicks()
