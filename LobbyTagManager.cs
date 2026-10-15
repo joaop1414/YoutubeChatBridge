@@ -520,6 +520,12 @@ public static class LobbyTagManager
 
         if (!EstaNoLobby())
         {
+            // Ao entrar no estado Started, preserva os nomes originais até
+            // ShipStatus.Start terminar. O jogo pode sobrescrever os nomes durante
+            // a inicialização do navio; o Postfix restaura depois disso.
+            if (PartidaIniciada())
+                return;
+
             // Também limpa ao voltar ao menu/fechar uma sala, não apenas ao iniciar a partida.
             // Isso evita que TagsAplicadas da sala anterior bloqueie a próxima sala.
             RestaurarTodos();
