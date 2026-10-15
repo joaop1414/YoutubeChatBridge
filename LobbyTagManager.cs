@@ -456,6 +456,14 @@ public static class LobbyTagManager
                 throw concluida.Exception ?? new Exception("Download remoto cancelado.");
 
             string json = concluida.Result;
+
+            // Diagnóstico temporário: imprime o conteúdo bruto recebido do GitHub
+            // no log do BepInEx para confirmar exatamente qual tags.json foi baixado.
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                $"[Tags][GITHUB][SUCESSO] URL='{UrlTagsRemotas}', bytes/caracteres={json.Length}.");
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[Tags][GITHUB][JSON INÍCIO]\\n" + json + "\\n[Tags][GITHUB][JSON FIM]");
+
             var remotas = LerTagsJson(json);
             if (remotas.Count == 0)
                 throw new InvalidDataException("O JSON remoto não contém tags válidas.");
