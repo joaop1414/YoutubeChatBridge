@@ -98,6 +98,27 @@ internal static class PainelVotacaoRpc
             PlayerControl.LocalPlayer == null)
             return;
 
+        // RPC 250 é personalizado e não deve ser transmitido em salas vanilla.
+        // Só sincroniza o painel quando existe pelo menos um cliente remoto e
+        // todos os jogadores remotos já sinalizaram que possuem o YouTubeVoteBridge.
+        bool encontrouClienteRemoto = false;
+        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+        {
+            if (jogador == null || jogador.Data == null ||
+                jogador.OwnerId < 0 ||
+                jogador.OwnerId == AmongUsClient.Instance.ClientId)
+                continue;
+
+            encontrouClienteRemoto = true;
+            if (!YouTubeVoteBridgePlugin.ClienteTemMod(jogador.OwnerId))
+                return;
+        }
+
+        // Não envia RPC personalizado para o servidor quando a sala está vazia
+        // de clientes remotos ou enquanto algum cliente ainda não foi identificado.
+        if (!encontrouClienteRemoto)
+            return;
+
         try
         {
             string listaEventos = string.Join(",", eventos.Select(x =>
