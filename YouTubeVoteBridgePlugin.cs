@@ -153,14 +153,25 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
     public static void Responder(ChatController chat, string mensagem)
     {
-        if (chat == null || PlayerControl.LocalPlayer == null)
+        PlayerControl remetente = PlayerControl.LocalPlayer;
+        if (chat == null || remetente == null || string.IsNullOrWhiteSpace(mensagem))
             return;
 
-        // Resposta do mod em uma mensagem de sistema separada: não renomeia
-        // o host e não se agrupa com as mensagens normais enviadas por ele.
-        chat.AddChat(null,
-            "<color=blue>YouTubeChatBridge</color>" + mensagem,
-            false);
+        string nomeOriginal = remetente.Data != null
+            ? remetente.Data.PlayerName
+            : remetente.name;
+
+        try
+        {
+            // Troca o nome somente durante a criação da mensagem local.
+            remetente.SetName(TITULO_SISTEMA);
+            chat.AddChat(remetente, mensagem, false);
+        }
+        finally
+        {
+            // Restaura o nome real imediatamente após adicionar a mensagem.
+            remetente.SetName(nomeOriginal);
+        }
     }
 
     // Escolhe um remetente que ainda esteja vivo. Se o host morreu,
@@ -221,32 +232,31 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         if (remetente == null || remetente.Data == null)
             return;
 
-        // Respostas destinadas ao próprio host são apenas locais: uma mensagem
-        // de sistema independente, sem RPC que possa duplicar ou agrupar a resposta.
+        // Para o próprio host, troca o nome apenas enquanto o chat cria a entrada.
         if (destinatario.AmOwner)
         {
             if (HudManager.InstanceExists && HudManager.Instance.Chat != null)
-            {
-                HudManager.Instance.Chat.AddChat(
-                    null,
-                    "<color=blue>YouTubeChatBridge</color>" + mensagem,
-                    false);
-            }
+                Responder(HudManager.Instance.Chat, mensagem);
             return;
         }
 
         MessageWriter writer = null;
+        string nomeOriginalRemetente = remetente.Data != null
+            ? remetente.Data.PlayerName
+            : remetente.name;
 
         try
         {
+            // O nome precisa estar atualizado no cliente que receberá o SendChat
+            // para que o título apareça como remetente, e não dentro do texto.
+            // É temporário: restauramos o nome real logo depois de enviar o chat.
+            remetente.RpcSetName(TITULO_SISTEMA);
+
             writer = MessageWriter.Get(SendOption.Reliable);
             writer.StartMessage(6); // GameDataTo: somente o ClientId abaixo
             writer.Write(AmongUsClient.Instance.GameId);
             writer.WritePacked(targetClientId);
 
-            // Envia somente o RPC de chat ao cliente-alvo. Não troca temporariamente
-            // o nome do host por um título de sistema: isso podia sobrescrever o nome
-            // visual do host no cliente e interferir com mensagens normais.
             writer.StartMessage(2); // Rpc SendChat: texto, só no destinatário
             writer.WritePacked(remetente.NetId);
             writer.Write((byte)RpcCalls.SendChat);
@@ -263,12 +273,24 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         }
         catch (Exception ex)
         {
+            Instance?.Log.LogError("Erro ao enviar mensagem individual via GameDataTo: " + ex);
+        }
+        finally
+        {
             if (writer != null)
             {
                 try { writer.Recycle(); } catch { }
             }
 
-            Instance?.Log.LogError("Erro ao enviar mensagem individual via GameDataTo: " + ex);
+            try
+            {
+                if (remetente != null && remetente.Data != null)
+                    remetente.RpcSetName(nomeOriginalRemetente);
+            }
+            catch (Exception ex)
+            {
+                Instance?.Log.LogError("Não foi possível restaurar o nome do remetente: " + ex);
+            }
         }
     }
 
