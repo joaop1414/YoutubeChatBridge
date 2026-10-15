@@ -2,9 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using AmongUs.GameOptions;
-#if IL2CPP
 using BepInEx.Unity.IL2CPP.Utils.Collections;
-#endif
 using HarmonyLib;
 using Hazel;
 using InnerNet;
@@ -15,7 +13,6 @@ namespace YouTubeVoteBridge;
 [HarmonyPatch(typeof(AmongUsClient), nameof(AmongUsClient.CoStartGameHost))]
 internal static class SelecaoInicialDeFuncoesPatch
 {
-#if IL2CPP
     [HarmonyPrefix]
     private static bool Prefix(AmongUsClient __instance, ref Il2CppSystem.Collections.IEnumerator __result)
     {
@@ -23,15 +20,6 @@ internal static class SelecaoInicialDeFuncoesPatch
         __result = Iniciar(__instance).WrapToIl2Cpp();
         return false;
     }
-#else
-    [HarmonyPrefix]
-    private static bool Prefix(AmongUsClient __instance, ref IEnumerator __result)
-    {
-        if (!__instance.AmHost) return true;
-        __result = Iniciar(__instance);
-        return false;
-    }
-#endif
 
     private static IEnumerator Iniciar(AmongUsClient client)
     {
