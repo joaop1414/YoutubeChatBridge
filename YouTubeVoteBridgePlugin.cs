@@ -1832,7 +1832,10 @@ public static class YouTubeVoteChatPatch
                 YouTubeVoteBridgePlugin.ProcessarComandoCor(__instance, sourcePlayer, mensagem);
                 return false;
             }
-            return true;
+
+            // Clientes com o mod ocultam comandos recebidos de outros jogadores,
+            // mas deixam o próprio comando seguir para o host.
+            return ehLocal;
         }
 
         if (mensagem.Equals("/ytconfig", StringComparison.OrdinalIgnoreCase) ||
@@ -1894,8 +1897,9 @@ public static class YouTubeVoteChatPatch
                 return false;
             }
 
-            // Cliente modificado não-host encaminha comandos ao host para execução.
-            return true;
+            // O comando digitado localmente segue ao host; comandos recebidos de
+            // outros jogadores ficam ocultos no chat dos clientes com o mod.
+            return ehLocal;
         }
 
         // No host, comandos enviados por clientes vanilla são tratados aqui.
