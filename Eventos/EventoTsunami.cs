@@ -683,8 +683,20 @@ internal sealed class EventoTsunami : EventoVotacao
             nomeOriginal = jogador.Data?.PlayerName ?? "";
 
         string cor = ((int)(agora * 2f) % 2 == 0) ? "red" : "yellow";
-        jogador.cosmetics.nameText.text =
-            nomeOriginal + "\n<color=" + cor + ">Um tsunami está vindo\nVá para o duto mais próximo</color>";
+        string nomeAviso = nomeOriginal +
+            "\n<color=" + cor + ">Um tsunami está vindo\nVá para o duto mais próximo</color>";
+
+        // Para o próprio jogador, usa o mesmo caminho SetName local dos comandos.
+        // Isso atualiza o nome pelo PlayerControl, em vez de alterar só o texto
+        // visual, que o jogo pode sobrescrever durante a partida.
+        if (jogador.AmOwner)
+        {
+            YouTubeVoteBridgePlugin.DefinirNomeLocal(jogador, nomeAviso);
+            return;
+        }
+
+        // Os outros jogadores são alterados apenas na interface deste cliente.
+        jogador.cosmetics.nameText.text = nomeAviso;
     }
 
     private static void AtualizarAvisoNomesVanilla(float agora)
@@ -725,6 +737,9 @@ internal sealed class EventoTsunami : EventoVotacao
             {
                 try
                 {
+                    if (jogador.AmOwner)
+                        YouTubeVoteBridgePlugin.DefinirNomeLocal(jogador, nomeOriginal);
+
                     if (jogador.cosmetics != null && jogador.cosmetics.nameText != null)
                         jogador.cosmetics.nameText.text = nomeOriginal;
                 }
