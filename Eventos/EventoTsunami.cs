@@ -120,12 +120,10 @@ internal sealed class EventoTsunami : EventoVotacao
         if (host == null || host.Data == null || indicador == null ||
             AmongUsClient.Instance == null) return;
 
-        indicador.CachedPlayerData = host.Data;
-
+        // Mantém os renderers físicos invisíveis: o indicador é desenhado
+        // pelo texto do nome, não por um boneco colorido.
         try
         {
-            // O corpo físico do prefab é ocultado de propósito: o tsunami é
-            // desenhado pelo texto do nome, como nos CustomNetObject do EHR.
             var body = indicador.cosmetics?.currentBodySprite?.BodySprite;
             if (body != null)
             {
@@ -144,96 +142,23 @@ internal sealed class EventoTsunami : EventoVotacao
                 "Tsunami: preparação do renderer falhou: " + ex.Message);
         }
 
-        var outfit = host.Data.Outfits[PlayerOutfitType.Default];
-        string nomeOriginal = outfit.PlayerName;
-        int corOriginal = outfit.ColorId;
-        string chapeuOriginal = outfit.HatId;
-        string roupaOriginal = outfit.SkinId;
-        string mascoteOriginal = outfit.PetId;
-        string visorOriginal = outfit.VisorId;
-        string nomeSprite = "<size=14><br></size>" + NomeOnda;
-
-        // IMPORTANTE: os três subpacotes precisam estar no MESMO GameData,
-        // exatamente como EHR CustomNetObject.RpcChangeSprite. Se a restauração
-        // chegar antes do Shapeshift, o indicador copia as roupas do host e os
-        // clientes vanilla continuam vendo Fortegreen/???.
-        MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
         try
         {
-            writer.StartMessage(5);
-            writer.Write(AmongUsClient.Instance.GameId);
-
-            // 1) Publica temporariamente o nome que contém o sprite.
-            outfit.PlayerName = nomeSprite;
-            outfit.ColorId = 0;
-            outfit.HatId = "";
-            outfit.SkinId = "";
-            outfit.PetId = "";
-            outfit.VisorId = "";
-
-            writer.StartMessage(1);
-            writer.WritePacked(host.Data.NetId);
-            host.Data.Serialize(writer, false);
-            writer.EndMessage();
-
-            // O Shapeshift local precisa acontecer ENQUANTO o outfit temporário
-            // ainda está ativo; fazê-lo depois de restaurar copia as roupas.
-            try
-            {
-                indicador.Shapeshift(host, false);
-            }
-            catch (Exception ex)
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "Tsunami: Shapeshift local falhou: " + ex.Message);
-            }
-
-            // 2) Shapeshift do objeto falso para os dados temporários do host.
-            writer.StartMessage(2);
-            writer.WritePacked(indicador.NetId);
-            writer.Write((byte)RpcCalls.Shapeshift);
-            writer.WriteNetObject(host);
-            writer.Write(false);
-            writer.EndMessage();
-
-            // 3) Restaura o jogador real dentro do MESMO pacote, depois do RPC.
-            outfit.PlayerName = nomeOriginal;
-            outfit.ColorId = corOriginal;
-            outfit.HatId = chapeuOriginal;
-            outfit.SkinId = roupaOriginal;
-            outfit.PetId = mascoteOriginal;
-            outfit.VisorId = visorOriginal;
-
-            writer.StartMessage(1);
-            writer.WritePacked(host.Data.NetId);
-            host.Data.Serialize(writer, false);
-            writer.EndMessage();
-
-            writer.EndMessage();
-            AmongUsClient.Instance.SendOrDisconnect(writer);
-            writer = null;
-
+            // Usa o helper centralizado, que replica o fluxo do EHR:
+            // nome do sprite no outfit temporário + Shapeshift + restauração,
+            // tudo no mesmo pacote GameData. Não executar Shapeshift local aqui,
+            // pois isso pode fazer o vanilla receber o indicador como ???.
+            CustomNetObject.EnviarAparencia(indicador, NomeOnda, 255);
             CustomNetObject.EnviarPosicao(indicador, posicao);
+
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                $"Tsunami: aparência enviada no pacote único do EHR; NetId={indicador.NetId}, " +
-                $"PlayerId={indicador.PlayerId}, nomeSprite={nomeSprite.Length} caracteres.");
+                $"Tsunami: aparência compatível enviada pelo CustomNetObject; NetId={indicador.NetId}, " +
+                $"PlayerId={indicador.PlayerId}, nomeSprite={NomeOnda.Length} caracteres.");
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
                 "Tsunami: falha ao publicar a aparência do indicador: " + ex);
-        }
-        finally
-        {
-            // Garante que o outfit do host nunca fique modificado, mesmo se
-            // ocorrer uma exceção durante a montagem do pacote.
-            outfit.PlayerName = nomeOriginal;
-            outfit.ColorId = corOriginal;
-            outfit.HatId = chapeuOriginal;
-            outfit.SkinId = roupaOriginal;
-            outfit.PetId = mascoteOriginal;
-            outfit.VisorId = visorOriginal;
-            writer?.Recycle();
         }
     }
 
