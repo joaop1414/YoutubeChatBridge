@@ -48,11 +48,26 @@ internal sealed class EventoReportarCorpo : EventoVotacao
             // Não exige que exista um corpo no mapa nem que o sorteado esteja vivo.
             escolhido.ReportDeadBody(escolhido.Data);
 
+            // Informa cada cliente usando o mesmo caminho das respostas de
+            // comando: título temporário YouTubeChatBridge via GameDataTo.
+            // Assim a mensagem não depende de o cliente ter este mod instalado.
+            const string avisoMod = "O reporte deste corpo foi acionado pelo mod.";
+
+            foreach (PlayerControl destinatario in PlayerControl.AllPlayerControls)
+            {
+                if (destinatario == null || destinatario.Data == null ||
+                    destinatario.Data.Disconnected || destinatario.notRealPlayer)
+                    continue;
+
+                YouTubeVoteBridgePlugin.EnviarMensagemIndividual(
+                    destinatario, avisoMod);
+            }
+
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "Evento de autorreporte solicitado. Jogador=" +
+                "Evento de autorreporte solicitado pelo mod. Jogador=" +
                 escolhido.Data.PlayerName + ", PlayerId=" +
                 escolhido.PlayerId + ", morto=" +
-                escolhido.Data.IsDead + ".");
+                escolhido.Data.IsDead + ". Aviso enviado aos clientes.");
         }
         catch (Exception ex)
         {
