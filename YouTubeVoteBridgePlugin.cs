@@ -194,26 +194,24 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         PlayerControl destinatario,
         string mensagem)
     {
-        // O modo vanilla não recebe RPCs direcionados do mod. Mantemos o
-        // comportamento público, mas usamos o mesmo padrão de mensagem do EHR:
-        // SetName(título) + SendChat(texto) + SetName(nome original), agrupados
-        // em um único pacote GameData público.
         if (destinatario == null ||
-            PlayerControl.LocalPlayer == null ||
-            AmongUsClient.Instance == null ||
-            !EhHost())
-            return;
-
-        EnviarMensagemPublicaEhr(TITULO_SISTEMA, mensagem);
-    }
-
-    private static void EnviarMensagemPublicaEhr(string titulo, string mensagem)
-    {
-        if (!EhHost() ||
+            destinatario.Data == null ||
             AmongUsClient.Instance == null ||
             PlayerControl.LocalPlayer == null ||
+            !EhHost() ||
             string.IsNullOrWhiteSpace(mensagem))
             return;
+
+        // Mensagem privada no padrão do EHR:
+        // GameDataTo (tipo 6) + OwnerId do destinatário.
+        // Diferente do tipo 5 (GameData), este pacote não é transmitido a todos.
+        int targetClientId = destinatario.OwnerId;
+        if (targetClientId < 0)
+        {
+            Instance?.Log.LogWarning(
+                $"Mensagem individual cancelada: OwnerId inválido para PlayerId={destinatario.PlayerId}.");
+            return;
+        }
 
         PlayerControl remetente = ObterRemetenteMensagens();
         if (remetente == null || remetente.Data == null)
@@ -224,47 +222,49 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
         try
         {
-            // Reproduz o fluxo público usado por EHR/Utils.SendMessage:
-            // três RPCs no mesmo GameData, em vez de três envios independentes.
             writer = MessageWriter.Get(SendOption.Reliable);
-            writer.StartMessage(5); // GameData para todos
+            writer.StartMessage(6); // GameDataTo: somente o ClientId abaixo
             writer.Write(AmongUsClient.Instance.GameId);
+            writer.WritePacked(targetClientId);
 
-            writer.StartMessage(2); // RPC: SetName temporário
+            writer.StartMessage(2); // Rpc SetName: título temporário, só no destinatário
             writer.WritePacked(remetente.NetId);
             writer.Write((byte)RpcCalls.SetName);
             writer.Write(remetente.Data.NetId);
-            writer.Write(titulo);
+            writer.Write(TITULO_SISTEMA);
             writer.EndMessage();
 
-            writer.StartMessage(2); // RPC: SendChat
+            writer.StartMessage(2); // Rpc SendChat: texto, só no destinatário
             writer.WritePacked(remetente.NetId);
             writer.Write((byte)RpcCalls.SendChat);
             writer.Write(mensagem);
             writer.EndMessage();
 
-            writer.StartMessage(2); // RPC: restaura o nome
+            writer.StartMessage(2); // Rpc SetName: restaura o nome, só no destinatário
             writer.WritePacked(remetente.NetId);
             writer.Write((byte)RpcCalls.SetName);
             writer.Write(remetente.Data.NetId);
             writer.Write(nomeOriginal);
             writer.EndMessage();
 
-            writer.EndMessage(); // fecha GameData
+            writer.EndMessage();
             AmongUsClient.Instance.SendOrDisconnect(writer);
             writer.Recycle();
             writer = null;
 
-            // Replica a mensagem na interface local do host sem deixar o nome
-            // temporário aplicado localmente.
-            if (HudManager.InstanceExists && HudManager.Instance.Chat != null)
+            // Um envio direcionado ao próprio host pode não retornar pela rede.
+            // Nesse caso, desenha a mensagem apenas na interface local.
+            if (destinatario.AmOwner &&
+                HudManager.InstanceExists &&
+                HudManager.Instance.Chat != null)
             {
-                remetente.SetName(titulo);
+                remetente.SetName(TITULO_SISTEMA);
                 HudManager.Instance.Chat.AddChat(remetente, mensagem, false);
                 remetente.SetName(nomeOriginal);
             }
 
-            Instance?.Log.LogInfo("Mensagem pública enviada no padrão EHR (SetName/SendChat/restauração).");
+            Instance?.Log.LogInfo(
+                $"Mensagem individual enviada para PlayerId={destinatario.PlayerId}, ClientId={targetClientId} (GameDataTo).");
         }
         catch (Exception ex)
         {
@@ -273,9 +273,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 try { writer.Recycle(); } catch { }
             }
 
-            try { remetente.SetName(nomeOriginal); } catch { }
-
-            Instance?.Log.LogError("Erro ao enviar mensagem pública no padrão EHR: " + ex);
+            Instance?.Log.LogError("Erro ao enviar mensagem individual via GameDataTo: " + ex);
         }
     }
 
