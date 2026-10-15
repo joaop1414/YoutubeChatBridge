@@ -1908,7 +1908,7 @@ public static class YouTubeVoteChatPatch
         if (mensagem.Equals("/help", StringComparison.OrdinalIgnoreCase) ||
             mensagem.Equals("/ajuda", StringComparison.OrdinalIgnoreCase))
         {
-            const string ajuda = "Comandos: /color (id/nome) | /help | /youtube ajuda | /youtube config | /tag update.";
+            const string ajuda = "Comandos: /color (id/nome/rainbow) | /help | /youtube ajuda | /youtube config | /tag update.";
             if (ehLocal)
                 YouTubeVoteBridgePlugin.Responder(__instance, ajuda);
             else if (host)
