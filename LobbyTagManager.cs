@@ -25,6 +25,7 @@ public static class LobbyTagManager
     private static Task<string> DownloadTagsPendente;
     private static DateTime ProximaBuscaTagsUtc = DateTime.MinValue;
     private static bool AvisouFalhaTagsRemotas;
+    private static bool ReaplicarTagsQuandoDownloadConcluir;
 
     private static readonly Dictionary<string, TagConfig> Tags =
         new(StringComparer.OrdinalIgnoreCase);
@@ -400,6 +401,18 @@ public static class LobbyTagManager
         return false;
     }
 
+    // Chamado pelo comando /tag update para buscar novamente o tags.json do GitHub.
+    public static void AtualizarTagsRemotas()
+    {
+        ReaplicarTagsQuandoDownloadConcluir = true;
+        AvisouFalhaTagsRemotas = false;
+        ProximaBuscaTagsUtc = DateTime.MinValue;
+        DownloadTagsPendente = null;
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            "[Tags] Atualização manual solicitada pelo comando /tag update.");
+        IniciarDownloadTagsRemotas();
+    }
+
     private static void IniciarDownloadTagsRemotas()
     {
         if (DownloadTagsPendente != null || DateTime.UtcNow < ProximaBuscaTagsUtc)
@@ -451,6 +464,16 @@ public static class LobbyTagManager
             foreach (var item in remotas)
                 Tags[item.Key] = item.Value;
 
+            if (ReaplicarTagsQuandoDownloadConcluir)
+            {
+                // Preserva os nomes originais, mas permite que a tag atualizada seja reaplicada.
+                TagsAplicadas.Clear();
+                JogadoresDiagnosticados.Clear();
+                ReaplicarTagsQuandoDownloadConcluir = false;
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[Tags] Tags atualizadas; reaplicação solicitada para os jogadores do lobby.");
+            }
+
             AvisouFalhaTagsRemotas = false;
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 $"Tags remotas carregadas do GitHub: {Tags.Count} registro(s).");
@@ -458,6 +481,7 @@ public static class LobbyTagManager
         }
         catch (Exception ex)
         {
+            ReaplicarTagsQuandoDownloadConcluir = false;
             if (!AvisouFalhaTagsRemotas)
             {
                 AvisouFalhaTagsRemotas = true;
