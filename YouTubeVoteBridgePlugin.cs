@@ -2117,6 +2117,11 @@ public static class YouTubeVoteTaggedChatPatch
     {
         try
         {
+            // A formatação de quebra de linha é exclusiva do lobby:
+            // durante a partida os nomes não usam as tags de lobby.
+            if (LobbyTagManager.PartidaIniciada())
+                return;
+
             if (__instance == null ||
                 string.IsNullOrEmpty(chatText) ||
                 !LobbyTagManager.TemTag(__instance))
