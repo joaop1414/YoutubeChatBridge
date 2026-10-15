@@ -156,7 +156,11 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         if (chat == null || PlayerControl.LocalPlayer == null)
             return;
 
-        chat.AddChat(PlayerControl.LocalPlayer, PREFIXO + mensagem, false);
+        // Resposta do mod em uma mensagem de sistema separada: não renomeia
+        // o host e não se agrupa com as mensagens normais enviadas por ele.
+        chat.AddChat(null,
+            "<color=blue>YouTubeChatBridge</color>\\n" + mensagem,
+            false);
     }
 
     // Escolhe um remetente que ainda esteja vivo. Se o host morreu,
@@ -240,14 +244,16 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             writer.Recycle();
             writer = null;
 
-            // Um envio direcionado ao próprio host pode não retornar pela rede.
-            // Desenha a resposta local sem trocar o nome do host nem interferir
-            // com as mensagens normais dele.
+            // Para o próprio host, desenha a resposta como mensagem de sistema
+            // separada, mantendo o nome do host intacto e a identidade do mod visível.
             if (destinatario.AmOwner &&
                 HudManager.InstanceExists &&
                 HudManager.Instance.Chat != null)
             {
-                HudManager.Instance.Chat.AddChat(remetente, mensagem, false);
+                HudManager.Instance.Chat.AddChat(
+                    null,
+                    "<color=blue>YouTubeChatBridge</color>\\n" + mensagem,
+                    false);
             }
 
             Instance?.Log.LogInfo(
