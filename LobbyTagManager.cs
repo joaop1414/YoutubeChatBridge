@@ -144,10 +144,24 @@ public static class LobbyTagManager
             JogadoresRegistrados[chave] = registro;
             precisaSalvar = true;
         }
-        else if (!string.Equals(registro.Nome, nome, StringComparison.Ordinal))
+        else
         {
-            registro.Nome = nome;
+            // O registro é atualizado em cada entrada, mas o nome salvo não deve
+            // ser substituído por um nick que já contenha a tag do lobby.
+            registro.FriendCode = friendCode.Replace(':', '#');
             registro.UltimoRegistroUtc = agora;
+
+            bool nomePareceTagueado = Tags.TryGetValue(chave, out TagConfig tagAtual) &&
+                !string.IsNullOrWhiteSpace(tagAtual.Tag) &&
+                nome.Contains("\\n", StringComparison.Ordinal) &&
+                nome.Contains(Regex.Replace(tagAtual.Tag, "<.*?>", string.Empty),
+                    StringComparison.OrdinalIgnoreCase);
+
+            if (!string.IsNullOrWhiteSpace(nome) &&
+                !nomePareceTagueado &&
+                !string.Equals(registro.Nome, nome, StringComparison.Ordinal))
+                registro.Nome = nome;
+
             precisaSalvar = true;
         }
 
@@ -541,7 +555,8 @@ public static class LobbyTagManager
                 continue;
 
             string friendCode = NormalizarFriendCode(jogador.Data.FriendCode);
-            if (!TagsAplicadas.Contains(jogador.PlayerId))
+            if (!string.IsNullOrWhiteSpace(friendCode) &&
+                !string.IsNullOrWhiteSpace(jogador.Data.PlayerName))
                 RegistrarJogador(jogador, friendCode);
 
             if (JogadoresDiagnosticados.Add(jogador.PlayerId))
@@ -558,8 +573,23 @@ public static class LobbyTagManager
                 TagsAplicadas.Contains(jogador.PlayerId))
                 continue;
 
-            string nomeOriginal = jogador.Data.PlayerName ?? string.Empty;
-            // Evita aplicar a mesma tag em cima dela se o jogo já refletiu o RPC.
+            string friendCodeRegistro = NormalizarFriendCode(jogador.Data.FriendCode);
+            string nomeAtual = jogador.Data.PlayerName ?? string.Empty;
+
+            // Só aplicar a tag depois que o jogo entregou um Friend Code e um nome
+            // utilizável. O nome-base vem do registro persistido por Friend Code,
+            // não de um nick que possa já ter sido alterado por outro SetName.
+            if (string.IsNullOrWhiteSpace(friendCodeRegistro) ||
+                string.IsNullOrWhiteSpace(nomeAtual))
+                continue;
+
+            RegistrarJogador(jogador, friendCodeRegistro);
+            string nomeOriginal = JogadoresRegistrados.TryGetValue(
+                friendCodeRegistro, out JogadorRegistrado jogadorSalvo) &&
+                !string.IsNullOrWhiteSpace(jogadorSalvo.Nome)
+                    ? jogadorSalvo.Nome
+                    : nomeAtual;
+
             if (!NomesOriginais.ContainsKey(jogador.PlayerId))
                 NomesOriginais[jogador.PlayerId] = nomeOriginal;
 
