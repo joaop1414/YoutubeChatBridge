@@ -284,95 +284,21 @@ internal sealed class EventoEscondeEsconde : EventoVotacao
         }
     }
 
-    // Replica o comportamento essencial do EHR sem depender do método de extensão
-    // RpcSetRoleDesync, que não existe como método de instância neste projeto.
+    // Toda troca passa pela API central: CrewmateGhost (canOverrideRole=true)
+    // e, em seguida, a função solicitada.
     private static bool DefinirPapelParaCliente(PlayerControl jogador, string nomePapel, int clientId)
     {
-        aplicandoPapel = true;
-        try
-        {
-            return DefinirPapelParaClienteInterno(jogador, nomePapel, clientId);
-        }
-        finally
-        {
-            aplicandoPapel = false;
-        }
-    }
-    private static bool DefinirPapelParaClienteInterno(PlayerControl jogador, string nomePapel, int clientId)
-    {
-        if (jogador == null || string.IsNullOrWhiteSpace(nomePapel) ||
-            clientId < 0 || AmongUsClient.Instance == null ||
-            !Enum.TryParse(typeof(RoleTypes), nomePapel, true, out object valorPapel))
+        if (jogador == null || string.IsNullOrWhiteSpace(nomePapel))
             return false;
 
-        try
+        // A API usa o dono real do jogador para direcionar o RPC corretamente.
+        if (clientId != jogador.OwnerId)
         {
-            RoleTypes papel = (RoleTypes)valorPapel;
-            bool aplicadoLocalmente = false;
-
-            // Igual ao RpcSetRoleDesync do EHR:
-            // o papel só é aplicado diretamente se o dono do personagem for o host
-            // local. Para qualquer outro jogador, o RPC precisa ser direcionado
-            // exclusivamente ao clientId proprietário.
-            if (clientId == AmongUsClient.Instance.ClientId)
-            {
-                aplicadoLocalmente = TentarAplicarPapelLocal(jogador, papel);
-                if (!aplicadoLocalmente)
-                {
-                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                        $"[Esconde-esconde] Não foi possível iniciar CoSetRole local para jogador={jogador.PlayerId}, papel={papel}.");
-                    return false;
-                }
-            }
-            else
-            {
-                MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
-                    jogador.NetId, (byte)RpcCalls.SetRole, SendOption.Reliable, clientId);
-                writer.Write((ushort)papel);
-                writer.Write(true);
-                AmongUsClient.Instance.FinishRpcImmediately(writer);
-            }
-
-            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                $"[Esconde-esconde] SetRole direcionado: jogador={jogador.PlayerId}, papel={papel}, " +
-                $"destino={clientId}, aplicadoLocalmente={aplicadoLocalmente}.");
-            return true;
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                $"[Esconde-esconde] Destino informado ({clientId}) difere do dono ({jogador.OwnerId}); usando o dono do jogador.");
         }
-        catch (Exception ex)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[Esconde-esconde] Falha ao definir papel " + nomePapel + ": " + ex);
-            return false;
-        }
-    }
 
-    private static bool TentarAplicarPapelLocal(PlayerControl jogador, RoleTypes papel)
-    {
-        try
-        {
-            // Padrão do Hydra para mudar o papel local: atualizar o RoleManager
-            // diretamente, em vez de iniciar CoSetRole/RpcSetRole durante a partida.
-            if (RoleManager.Instance == null)
-                return false;
-
-            RoleManager.Instance.SetRole(jogador, papel);
-
-            // RoleManager.SetRole não atualiza automaticamente o botão de reportar.
-            // Só corrigimos a UI se o personagem alterado for o jogador local.
-            if (jogador == PlayerControl.LocalPlayer && HudManager.Instance != null)
-                HudManager.Instance.ReportButton.gameObject.SetActive(!RoleManager.IsGhostRole(papel));
-
-            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                $"[Esconde-esconde] RoleManager.SetRole local: jogador={jogador.PlayerId}, papel={papel}.");
-            return true;
-        }
-        catch (Exception ex)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[Esconde-esconde] Falha em RoleManager.SetRole local: " +
-                (ex.InnerException ?? ex));
-            return false;
-        }
+        return RoleSwitchAPI.TrocarFuncao(jogador, nomePapel);
     }
 
     private static void RestaurarNicks()
