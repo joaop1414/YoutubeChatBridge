@@ -275,6 +275,16 @@ public static class LobbyTagManager
         return resultado;
     }
 
+    // Retorna true apenas para Friend Codes presentes no tags.json remoto/local.
+    public static bool TemTag(PlayerControl jogador)
+    {
+        if (jogador == null || jogador.Data == null)
+            return false;
+
+        string friendCode = NormalizarFriendCode(jogador.Data.FriendCode);
+        return !string.IsNullOrWhiteSpace(friendCode) && Tags.ContainsKey(friendCode);
+    }
+
     public static bool PartidaIniciada()
     {
         try
@@ -439,10 +449,8 @@ public static class LobbyTagManager
             if (!NomesOriginais.ContainsKey(jogador.PlayerId))
                 NomesOriginais[jogador.PlayerId] = nomeOriginal;
 
-            // A tag já vem formatada do JSON. Use uma quebra de linha real (\\n em C#),
-            // não os caracteres literais barra+n.
-            string tagFormatada = $"<size=50%>{configuracao.Tag}</size>";
-            string nomeComTag = $"{tagFormatada}\n{NomesOriginais[jogador.PlayerId]}";
+            // Preserve exatamente o Rich Text definido no JSON; não use <size> externo.
+            string nomeComTag = configuracao.Tag + "\\n" + NomesOriginais[jogador.PlayerId];
 
             if (EnviarSetName(jogador, nomeComTag))
             {
