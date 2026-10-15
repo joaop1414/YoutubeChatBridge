@@ -83,21 +83,8 @@ internal sealed class EventoEscondeEsconde : EventoVotacao
         nomeOriginalCacador = cacador.Data.PlayerName;
         nomeOriginalFugitivo = fugitivo.Data.PlayerName;
 
-        // Antes dos papéis do evento, percorre a sequência usada como tentativa
-        // de forçar a atualização de papel em clientes vanilla. Cada RPC remoto
-        // é direcionado somente ao dono do personagem e inclui canOverrideRole=true.
-        bool cicloCacador = ExecutarCicloPapel(cacador, papelOriginalCacador);
-        bool cicloFugitivo = ExecutarCicloPapel(fugitivo, papelOriginalFugitivo);
-        if (!cicloCacador || !cicloFugitivo)
-        {
-            RestaurarPapeis();
-            LimparEstado();
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "[Esconde-esconde] Ciclo de atualização de papel falhou; evento cancelado.");
-            return;
-        }
-
-        // Só depois do ciclo aplica os papéis do evento.
+        // As funções normais devem ser atribuídas durante o início da partida.
+        // Só trocamos os dois participantes quando este evento é realmente ativado.
         bool papelCacadorDefinido = DefinirPapelParaCliente(cacador, "Impostor", cacador.OwnerId);
         bool papelFugitivoDefinido = DefinirPapelParaCliente(fugitivo, "Engineer", fugitivo.OwnerId);
         if (!papelCacadorDefinido || !papelFugitivoDefinido)
@@ -173,31 +160,6 @@ internal sealed class EventoEscondeEsconde : EventoVotacao
         LimparEstado();
     }
 
-    // Executa: Crewmate -> papel original -> Impostor -> papel original.
-    // O papel desejado pelo evento é aplicado separadamente pelo chamador.
-    private static bool ExecutarCicloPapel(PlayerControl jogador, object papelOriginal)
-    {
-        if (jogador == null || papelOriginal == null || jogador.Data == null ||
-            jogador.Data.Disconnected)
-            return false;
-
-        string original = papelOriginal.ToString();
-        string[] sequencia = { "Crewmate", original, "Impostor", original };
-        foreach (string papel in sequencia)
-        {
-            if (!DefinirPapelParaCliente(jogador, papel, jogador.OwnerId))
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    $"[Esconde-esconde] Ciclo interrompido: jogador={jogador.PlayerId}, papel={papel}.");
-                return false;
-            }
-        }
-
-        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"[Esconde-esconde] Ciclo completo: jogador={jogador.PlayerId}, papel original={original}.");
-        return true;
-    }
-
     // Chamado quando a tela de reunião é destruída (reunião encerrada).
     // Não escolhe novos participantes: reaplica o ciclo nos mesmos dois jogadores.
     internal static void ReaplicarAposReuniao()
@@ -217,11 +179,9 @@ internal sealed class EventoEscondeEsconde : EventoVotacao
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             "[Esconde-esconde] Reaplicando papéis após reunião.");
 
-        bool cicloCacador = ExecutarCicloPapel(cacador, papelOriginalCacador);
-        bool cicloFugitivo = ExecutarCicloPapel(fugitivo, papelOriginalFugitivo);
-        bool papelCacadorDefinido = cicloCacador &&
+        bool papelCacadorDefinido =
             DefinirPapelParaCliente(cacador, "Impostor", cacador.OwnerId);
-        bool papelFugitivoDefinido = cicloFugitivo &&
+        bool papelFugitivoDefinido =
             DefinirPapelParaCliente(fugitivo, "Engineer", fugitivo.OwnerId);
 
         if (!papelCacadorDefinido || !papelFugitivoDefinido)
