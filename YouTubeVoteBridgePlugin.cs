@@ -2193,6 +2193,7 @@ public static class YouTubeVoteResetTaskEventsOnStartPatch
 {
     public static void Postfix()
     {
+        EventoTesteMenu.ResetarEstadoPartida("início de partida");
         EventoTarefaMataJogador.Desativar();
         EventoTarefaSuicidio.Desativar();
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
@@ -2205,6 +2206,7 @@ public static class YouTubeVoteResetTaskEventsOnEndPatch
 {
     public static void Postfix()
     {
+        EventoTesteMenu.ResetarEstadoPartida("fim de partida");
         EventoTarefaMataJogador.Desativar();
         EventoTarefaSuicidio.Desativar();
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
