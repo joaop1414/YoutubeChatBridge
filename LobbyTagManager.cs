@@ -17,7 +17,6 @@ public static class LobbyTagManager
 {
     private const string UrlTagsRemotas =
         "https://raw.githubusercontent.com/joaop1414/YoutubeChatBridge/refs/heads/main/tags.json";
-    private const string CorTagDono = "gold";
     private static readonly HttpClient ClienteHttp = new HttpClient
     {
         Timeout = TimeSpan.FromSeconds(10)
@@ -27,8 +26,14 @@ public static class LobbyTagManager
     private static DateTime ProximaBuscaTagsUtc = DateTime.MinValue;
     private static bool AvisouFalhaTagsRemotas;
 
-    private static readonly Dictionary<string, string> Tags =
+    private static readonly Dictionary<string, TagConfig> Tags =
         new(StringComparer.OrdinalIgnoreCase);
+
+    private sealed class TagConfig
+    {
+        public string Tag { get; set; } = string.Empty;
+        public string Color { get; set; } = string.Empty;
+    }
     private static readonly Dictionary<byte, string> NomesOriginais =
         new();
     private static readonly HashSet<byte> TagsAplicadas = new();
@@ -80,13 +85,7 @@ public static class LobbyTagManager
             {
                 try
                 {
-                    var salvas = JsonSerializer.Deserialize<Dictionary<string, string>>(
-                        File.ReadAllText(CaminhoTags));
-                    if (salvas != null)
-                    {
-                        foreach (var item in salvas)
-                            Tags[NormalizarFriendCode(item.Key)] = item.Value;
-                    }
+                    CarregarTagsJson(File.ReadAllText(CaminhoTags));
                 }
                 catch (Exception ex)
                 {
@@ -179,12 +178,8 @@ public static class LobbyTagManager
             if (string.IsNullOrEmpty(CaminhoTags))
                 return;
 
-            var exportar = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var item in Tags)
-                exportar[item.Key] = item.Value;
-
             File.WriteAllText(CaminhoTags,
-                JsonSerializer.Serialize(exportar, new JsonSerializerOptions
+                JsonSerializer.Serialize(Tags, new JsonSerializerOptions
                 {
                     WriteIndented = true
                 }));
@@ -194,6 +189,55 @@ public static class LobbyTagManager
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
                 "Não foi possível salvar tags.json: " + ex.Message);
         }
+    }
+
+    private static void CarregarTagsJson(string json)
+    {
+        foreach (var item in LerTagsJson(json))
+            Tags[item.Key] = item.Value;
+    }
+
+    private static Dictionary<string, TagConfig> LerTagsJson(string json)
+    {
+        var resultado = new Dictionary<string, TagConfig>(StringComparer.OrdinalIgnoreCase);
+        using JsonDocument documento = JsonDocument.Parse(json);
+
+        if (documento.RootElement.ValueKind != JsonValueKind.Object)
+            throw new InvalidDataException("O JSON de tags precisa ser um objeto.");
+
+        foreach (JsonProperty item in documento.RootElement.EnumerateObject())
+        {
+            string friendCode = NormalizarFriendCode(item.Name);
+            string textoTag = string.Empty;
+            string corTag = string.Empty;
+
+            if (item.Value.ValueKind == JsonValueKind.String)
+            {
+                textoTag = item.Value.GetString()?.Trim() ?? string.Empty;
+            }
+            else if (item.Value.ValueKind == JsonValueKind.Object)
+            {
+                if (item.Value.TryGetProperty("tag", out JsonElement tagElement) &&
+                    tagElement.ValueKind == JsonValueKind.String)
+                    textoTag = tagElement.GetString()?.Trim() ?? string.Empty;
+
+                if (item.Value.TryGetProperty("color", out JsonElement corElement) &&
+                    corElement.ValueKind == JsonValueKind.String)
+                    corTag = corElement.GetString()?.Trim() ?? string.Empty;
+            }
+
+            bool corValida = Regex.IsMatch(corTag, @"^(#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?|[a-zA-Z]+)$");
+            if (!string.IsNullOrWhiteSpace(friendCode) && !string.IsNullOrWhiteSpace(textoTag))
+            {
+                resultado[friendCode] = new TagConfig
+                {
+                    Tag = textoTag,
+                    Color = corValida ? corTag : string.Empty
+                };
+            }
+        }
+
+        return resultado;
     }
 
     public static bool PartidaIniciada()
@@ -304,18 +348,13 @@ public static class LobbyTagManager
                 throw concluida.Exception ?? new Exception("Download remoto cancelado.");
 
             string json = concluida.Result;
-            var remotas = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
-            if (remotas == null)
-                throw new InvalidDataException("O JSON remoto não contém um objeto de tags válido.");
+            var remotas = LerTagsJson(json);
+            if (remotas.Count == 0)
+                throw new InvalidDataException("O JSON remoto não contém tags válidas.");
 
             Tags.Clear();
             foreach (var item in remotas)
-            {
-                string friendCode = NormalizarFriendCode(item.Key);
-                string tag = item.Value?.Trim() ?? string.Empty;
-                if (!string.IsNullOrWhiteSpace(friendCode) && !string.IsNullOrWhiteSpace(tag))
-                    Tags[friendCode] = tag;
-            }
+                Tags[item.Key] = item.Value;
 
             AvisouFalhaTagsRemotas = false;
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
@@ -355,8 +394,8 @@ public static class LobbyTagManager
             if (!TagsAplicadas.Contains(jogador.PlayerId))
                 RegistrarJogador(jogador, friendCode);
 
-            if (!Tags.TryGetValue(friendCode, out string tag) ||
-                string.IsNullOrWhiteSpace(tag) ||
+            if (!Tags.TryGetValue(friendCode, out TagConfig configuracao) ||
+                string.IsNullOrWhiteSpace(configuracao.Tag) ||
                 TagsAplicadas.Contains(jogador.PlayerId))
                 continue;
 
@@ -365,14 +404,16 @@ public static class LobbyTagManager
             if (!NomesOriginais.ContainsKey(jogador.PlayerId))
                 NomesOriginais[jogador.PlayerId] = nomeOriginal;
 
-            string nomeComTag =
-                $"<size=50%><color={CorTagDono}>{tag}</color></size>\n{NomesOriginais[jogador.PlayerId]}";
+            string tagFormatada = string.IsNullOrWhiteSpace(configuracao.Color)
+                ? $"<size=50%>{configuracao.Tag}</size>"
+                : $"<size=50%><color={configuracao.Color}>{configuracao.Tag}</color></size>";
+            string nomeComTag = $"{tagFormatada}\\n{NomesOriginais[jogador.PlayerId]}";
 
             if (EnviarSetName(jogador, nomeComTag))
             {
                 TagsAplicadas.Add(jogador.PlayerId);
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    $"Tag '{tag}' aplicada no lobby ao Friend Code {friendCode}.");
+                    $"Tag '{configuracao.Tag}' aplicada no lobby ao Friend Code {friendCode}.");
             }
         }
     }
