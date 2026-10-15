@@ -1,5 +1,4 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
 using AmongUs.GameOptions;
@@ -287,16 +286,44 @@ internal sealed class EventoEscondeEsconde : EventoVotacao
                 ? coSetRole.Invoke(jogador, new object[] { papel, true })
                 : coSetRole.Invoke(jogador, new object[] { papel });
 
-            if (rotina is IEnumerator enumerator)
+            if (rotina != null)
             {
-                jogador.StartCoroutine(enumerator);
-                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    $"[Esconde-esconde] CoSetRole iniciado localmente: jogador={jogador.PlayerId}, papel={papel}.");
-                return true;
-            }
+                // As DLLs IL2CPP podem usar Il2CppSystem.Collections.IEnumerator,
+                // que não é o IEnumerator do .NET. Localizamos o overload correto
+                // de StartCoroutine pelo tipo real retornado por CoSetRole.
+                MethodInfo iniciarRotina = null;
+                foreach (MethodInfo metodo in jogador.GetType().GetMethods(
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+                {
+                    if (metodo.Name != "StartCoroutine")
+                        continue;
 
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "[Esconde-esconde] CoSetRole não retornou uma coroutine compatível.");
+                    ParameterInfo[] parametros = metodo.GetParameters();
+                    if (parametros.Length == 1 &&
+                        parametros[0].ParameterType.IsInstanceOfType(rotina))
+                    {
+                        iniciarRotina = metodo;
+                        break;
+                    }
+                }
+
+                if (iniciarRotina != null)
+                {
+                    iniciarRotina.Invoke(jogador, new[] { rotina });
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                        $"[Esconde-esconde] CoSetRole iniciado localmente: jogador={jogador.PlayerId}, papel={papel}.");
+                    return true;
+                }
+
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[Esconde-esconde] Não encontrei StartCoroutine compatível com o tipo " +
+                    rotina.GetType().FullName + ".");
+            }
+            else
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[Esconde-esconde] CoSetRole retornou null em vez de uma coroutine.");
+            }
         }
         catch (Exception ex)
         {
