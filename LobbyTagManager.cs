@@ -154,7 +154,7 @@ public static class LobbyTagManager
 
             bool nomePareceTagueado = Tags.TryGetValue(chave, out TagConfig tagAtual) &&
                 !string.IsNullOrWhiteSpace(tagAtual.Tag) &&
-                nome.Contains("\\n", StringComparison.Ordinal) &&
+                nome.Contains("\n", StringComparison.Ordinal) &&
                 nome.Contains(Regex.Replace(tagAtual.Tag, "<.*?>", string.Empty),
                     StringComparison.OrdinalIgnoreCase);
 
