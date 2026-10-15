@@ -203,6 +203,55 @@ internal sealed class EventoEscondeEsconde : EventoVotacao
         }
     }
 
+    // Atribui uma função somente na perspectiva de um cliente específico.
+    // Inspirado no fluxo do EHR: RpcSetRoleDesync(RoleTypes, clientId).
+    // Não substitui DefinirPapel: esta variante é para futuras funções locais de espectador.
+    private static bool DefinirPapelParaCliente(PlayerControl jogador, string nomePapel, int clientId)
+    {
+        if (jogador == null || string.IsNullOrWhiteSpace(nomePapel) || clientId < 0)
+            return false;
+
+        try
+        {
+            if (!Enum.TryParse(typeof(RoleTypes), nomePapel, true, out object valorPapel))
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[Esconde-esconde] RoleTypes não contém o papel " + nomePapel + ".");
+                return false;
+            }
+
+            foreach (MethodInfo metodo in jogador.GetType().GetMethods(
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (metodo.Name != "RpcSetRoleDesync")
+                    continue;
+
+                ParameterInfo[] parametros = metodo.GetParameters();
+                if (parametros.Length == 2 &&
+                    parametros[0].ParameterType == typeof(RoleTypes) &&
+                    parametros[1].ParameterType == typeof(int))
+                {
+                    metodo.Invoke(jogador, new[] { valorPapel, (object)clientId });
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                        $"[Esconde-esconde] RpcSetRoleDesync enviado: jogador={jogador.PlayerId}, " +
+                        $"papel={nomePapel}, clientId={clientId}.");
+                    return true;
+                }
+            }
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[Esconde-esconde] Não encontrei RpcSetRoleDesync(RoleTypes, int).");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "[Esconde-esconde] Falha em RpcSetRoleDesync para " + nomePapel + ": " +
+                (ex.InnerException ?? ex));
+            return false;
+        }
+    }
+
     private static bool DefinirPapel(PlayerControl jogador, string nomePapel)
     {
         if (jogador == null || string.IsNullOrEmpty(nomePapel))
