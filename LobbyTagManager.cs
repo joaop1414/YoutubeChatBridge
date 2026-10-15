@@ -40,6 +40,7 @@ public static class LobbyTagManager
         new();
     private static readonly HashSet<byte> TagsAplicadas = new();
     private static readonly HashSet<byte> JogadoresDiagnosticados = new();
+    private static readonly HashSet<byte> EntradasRegistradas = new();
     private static string UltimoGameId = string.Empty;
     private static string CaminhoTags;
     private static string CaminhoJogadores;
@@ -528,6 +529,7 @@ public static class LobbyTagManager
             RestaurarTodos();
             TagsAplicadas.Clear();
             JogadoresDiagnosticados.Clear();
+            EntradasRegistradas.Clear();
             NomesOriginais.Clear();
             UltimoGameId = gameIdAtual;
         }
@@ -545,6 +547,7 @@ public static class LobbyTagManager
             RestaurarTodos();
             TagsAplicadas.Clear();
             JogadoresDiagnosticados.Clear();
+            EntradasRegistradas.Clear();
             NomesOriginais.Clear();
             return;
         }
@@ -555,9 +558,13 @@ public static class LobbyTagManager
                 continue;
 
             string friendCode = NormalizarFriendCode(jogador.Data.FriendCode);
-            if (!string.IsNullOrWhiteSpace(friendCode) &&
+            if (!EntradasRegistradas.Contains(jogador.PlayerId) &&
+                !string.IsNullOrWhiteSpace(friendCode) &&
                 !string.IsNullOrWhiteSpace(jogador.Data.PlayerName))
+            {
                 RegistrarJogador(jogador, friendCode);
+                EntradasRegistradas.Add(jogador.PlayerId);
+            }
 
             if (JogadoresDiagnosticados.Add(jogador.PlayerId))
             {
@@ -583,7 +590,6 @@ public static class LobbyTagManager
                 string.IsNullOrWhiteSpace(nomeAtual))
                 continue;
 
-            RegistrarJogador(jogador, friendCodeRegistro);
             string nomeOriginal = JogadoresRegistrados.TryGetValue(
                 friendCodeRegistro, out JogadorRegistrado jogadorSalvo) &&
                 !string.IsNullOrWhiteSpace(jogadorSalvo.Nome)
