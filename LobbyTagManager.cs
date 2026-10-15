@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Net.Http;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 using BepInEx;
 using Hazel;
 using InnerNet;
@@ -13,9 +15,17 @@ namespace YouTubeVoteBridge;
 
 public static class LobbyTagManager
 {
-    private const string FriendCodeDono = "punhazy#1673";
-    private const string NomeTagDono = "DONO";
+    private const string UrlTagsRemotas =
+        "https://raw.githubusercontent.com/joaop1414/YoutubeChatBridge/refs/heads/main/tags.json";
     private const string CorTagDono = "gold";
+    private static readonly HttpClient ClienteHttp = new HttpClient
+    {
+        Timeout = TimeSpan.FromSeconds(10)
+    };
+
+    private static Task<string> DownloadTagsPendente;
+    private static DateTime ProximaBuscaTagsUtc = DateTime.MinValue;
+    private static bool AvisouFalhaTagsRemotas;
 
     private static readonly Dictionary<string, string> Tags =
         new(StringComparer.OrdinalIgnoreCase);
@@ -85,12 +95,12 @@ public static class LobbyTagManager
                 }
             }
 
-            // A tag DONO padrão é associada ao Friend Code, não ao nome exibido.
-            Tags[NormalizarFriendCode(FriendCodeDono)] = NomeTagDono;
-            SalvarTags();
+            // O arquivo remoto é a fonte principal. O arquivo local serve como fallback
+            // se não houver conexão com o GitHub.
+            IniciarDownloadTagsRemotas();
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "Tags do lobby carregadas. A tag DONO está configurada para " + FriendCodeDono + ".");
+                "Tags locais carregadas; buscando tags remotas no GitHub.");
         }
         catch (Exception ex)
         {
@@ -251,8 +261,84 @@ public static class LobbyTagManager
         return false;
     }
 
+    private static void IniciarDownloadTagsRemotas()
+    {
+        if (DownloadTagsPendente != null || DateTime.UtcNow < ProximaBuscaTagsUtc)
+            return;
+
+        ProximaBuscaTagsUtc = DateTime.UtcNow.AddSeconds(60);
+        try
+        {
+            DownloadTagsPendente = Task.Run(async () =>
+                await ClienteHttp.GetStringAsync(UrlTagsRemotas).ConfigureAwait(false));
+        }
+        catch (Exception ex)
+        {
+            DownloadTagsPendente = null;
+            if (!AvisouFalhaTagsRemotas)
+            {
+                AvisouFalhaTagsRemotas = true;
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "Não foi possível iniciar o download de tags.json: " + ex.Message);
+            }
+        }
+    }
+
+    private static void ProcessarDownloadTagsRemotas()
+    {
+        if (DownloadTagsPendente == null)
+        {
+            IniciarDownloadTagsRemotas();
+            return;
+        }
+
+        if (!DownloadTagsPendente.IsCompleted)
+            return;
+
+        Task<string> concluida = DownloadTagsPendente;
+        DownloadTagsPendente = null;
+
+        try
+        {
+            if (concluida.IsFaulted || concluida.IsCanceled)
+                throw concluida.Exception ?? new Exception("Download remoto cancelado.");
+
+            string json = concluida.Result;
+            var remotas = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+            if (remotas == null)
+                throw new InvalidDataException("O JSON remoto não contém um objeto de tags válido.");
+
+            Tags.Clear();
+            foreach (var item in remotas)
+            {
+                string friendCode = NormalizarFriendCode(item.Key);
+                string tag = item.Value?.Trim() ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(friendCode) && !string.IsNullOrWhiteSpace(tag))
+                    Tags[friendCode] = tag;
+            }
+
+            AvisouFalhaTagsRemotas = false;
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                $"Tags remotas carregadas do GitHub: {Tags.Count} registro(s).");
+            SalvarTags();
+        }
+        catch (Exception ex)
+        {
+            if (!AvisouFalhaTagsRemotas)
+            {
+                AvisouFalhaTagsRemotas = true;
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "Falha ao carregar tags remotas; mantendo tags locais: " + ex.Message);
+            }
+        }
+
+        IniciarDownloadTagsRemotas();
+    }
+
     public static void Update()
     {
+        ProcessarDownloadTagsRemotas();
+
         if (!EstaNoLobby())
         {
             if (PartidaIniciada())
