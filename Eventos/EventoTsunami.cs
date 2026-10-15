@@ -709,6 +709,53 @@ internal sealed class EventoTsunami : EventoVotacao
         jogador.cosmetics.nameText.text = nomeAviso;
     }
 
+    // Altera o nome apenas na tela do cliente dono do jogador.
+    // Usa o mesmo GameDataTo + SetName direcionado do envio de mensagens do mod,
+    // sem publicar a mudança de nome para todos os clientes.
+    private static bool DefinirNomeLocalParaCliente(PlayerControl jogador, string nome)
+    {
+        if (!YouTubeVoteBridgePlugin.EhHost() || AmongUsClient.Instance == null ||
+            jogador == null || jogador.Data == null || jogador.OwnerId < 0 ||
+            jogador.OwnerId == AmongUsClient.Instance.ClientId)
+            return false;
+
+        MessageWriter writer = null;
+        try
+        {
+            writer = MessageWriter.Get(SendOption.Reliable);
+            writer.StartMessage(6); // GameDataTo: somente o cliente proprietário
+            writer.Write(AmongUsClient.Instance.GameId);
+            writer.WritePacked(jogador.OwnerId);
+
+            writer.StartMessage(2);
+            writer.WritePacked(jogador.NetId);
+            writer.Write((byte)RpcCalls.SetName);
+            writer.Write(jogador.Data.NetId);
+            writer.Write(nome);
+            writer.EndMessage();
+
+            writer.EndMessage();
+            AmongUsClient.Instance.SendOrDisconnect(writer);
+            writer.Recycle();
+            writer = null;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "Tsunami: falha ao definir nome local para PlayerId=" +
+                jogador.PlayerId + ": " + ex.Message);
+            return false;
+        }
+        finally
+        {
+            if (writer != null)
+            {
+                try { writer.Recycle(); } catch { }
+            }
+        }
+    }
+
     private static void AtualizarAvisoNomesVanilla(float agora)
     {
         if (!YouTubeVoteBridgePlugin.EhHost() || AmongUsClient.Instance == null ||
@@ -730,9 +777,12 @@ internal sealed class EventoTsunami : EventoVotacao
                 nomesOriginais[jogador.PlayerId] = nomeOriginal;
             }
 
-            YouTubeVoteBridgePlugin.DefinirNomeLocal(
-                jogador, nomeOriginal + "\n<color=" + cor + ">Um tsunami está vindo\nVá para o duto mais próximo</color>");
-            nomesAlteradosRede.Add(jogador.PlayerId);
+            string nomeAviso = nomeOriginal +
+                "\n<color=" + cor + ">Um tsunami está vindo\nVá para o duto mais próximo</color>";
+
+            // Reenvia periodicamente porque o jogo pode reaplicar o nome original.
+            if (DefinirNomeLocalParaCliente(jogador, nomeAviso))
+                nomesAlteradosRede.Add(jogador.PlayerId);
         }
     }
 
@@ -758,7 +808,7 @@ internal sealed class EventoTsunami : EventoVotacao
                 if (YouTubeVoteBridgePlugin.EhHost() && AmongUsClient.Instance != null &&
                     jogador.OwnerId >= 0 && jogador.OwnerId != AmongUsClient.Instance.ClientId &&
                     nomesAlteradosRede.Contains(jogador.PlayerId))
-                    YouTubeVoteBridgePlugin.DefinirNomeLocal(jogador, nomeOriginal);
+                    DefinirNomeLocalParaCliente(jogador, nomeOriginal);
             }
         }
         nomesOriginais.Clear();
