@@ -208,7 +208,49 @@ public static class LobbyTagManager
 
         foreach (JsonProperty item in documento.RootElement.EnumerateObject())
         {
-            // Formato novo:
+            // Formato separado:
+            // "DONO": { "cor": "#e3c420", "jogadores": ["punhazy#1673"] }
+            if (item.Value.ValueKind == JsonValueKind.Object &&
+                item.Value.TryGetProperty("jogadores", out JsonElement jogadoresElement) &&
+                jogadoresElement.ValueKind == JsonValueKind.Array)
+            {
+                string textoTagSeparado = item.Name.Trim();
+                string corSeparada = string.Empty;
+
+                if (item.Value.TryGetProperty("cor", out JsonElement corSeparadaElement) &&
+                    corSeparadaElement.ValueKind == JsonValueKind.String)
+                    corSeparada = corSeparadaElement.GetString()?.Trim() ?? string.Empty;
+
+                bool corSeparadaValida = Regex.IsMatch(
+                    corSeparada, @"^(#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?|[a-zA-Z]+)$");
+
+                if (string.IsNullOrWhiteSpace(textoTagSeparado))
+                    continue;
+
+                string tagSeparadaFormatada = corSeparadaValida
+                    ? $"<color={corSeparada}>{textoTagSeparado}</color>"
+                    : textoTagSeparado;
+
+                foreach (JsonElement pessoa in jogadoresElement.EnumerateArray())
+                {
+                    if (pessoa.ValueKind != JsonValueKind.String)
+                        continue;
+
+                    string friendCode = NormalizarFriendCode(pessoa.GetString());
+                    if (!string.IsNullOrWhiteSpace(friendCode))
+                    {
+                        resultado[friendCode] = new TagConfig
+                        {
+                            Tag = tagSeparadaFormatada
+                        };
+                    }
+                }
+
+                continue;
+            }
+
+            // Formato anterior:
+
             // "<color=#e3c420>DONO</color>": ["punhazy#1673", "outro#1234"]
             if (item.Value.ValueKind == JsonValueKind.Array)
             {
