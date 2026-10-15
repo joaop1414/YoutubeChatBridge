@@ -1656,8 +1656,40 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     }
  
     // ========================================================
-    // COMANDO /color (ID OU NOME)
+    // COMANDO /color (ID, NOME OU RAINBOW)
     // ========================================================
+
+    private static readonly HashSet<byte> JogadoresRainbow = new();
+    private static float ProximaTrocaCorRainbow;
+    private static int IndiceCorRainbow;
+
+    public static void AtualizarRainbow()
+    {
+        if (!EhHost() || JogadoresRainbow.Count == 0 || Palette.ColorNames == null)
+            return;
+
+        if (Time.realtimeSinceStartup < ProximaTrocaCorRainbow)
+            return;
+
+        ProximaTrocaCorRainbow = Time.realtimeSinceStartup + 0.5f;
+        int totalCores = Palette.ColorNames.Length;
+        if (totalCores <= 0)
+            return;
+
+        IndiceCorRainbow = (IndiceCorRainbow + 1) % totalCores;
+        foreach (byte playerId in JogadoresRainbow.ToArray())
+        {
+            PlayerControl alvo = PlayerControl.AllPlayerControls.ToArray()
+                .FirstOrDefault(p => p != null && p.PlayerId == playerId);
+            if (alvo == null || alvo.Data == null || alvo.Data.Disconnected)
+            {
+                JogadoresRainbow.Remove(playerId);
+                continue;
+            }
+
+            alvo.RpcSetColor((byte)IndiceCorRainbow);
+        }
+    }
 
     public static void ProcessarComandoCor(
         ChatController chat,
@@ -1674,7 +1706,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         if (argumento.Length == 0)
         {
             ResponderComando(chat, jogador,
-                "Use: /color (id/nome). Exemplo: /color 0 ou /color Red.");
+                "Use: /color (id/nome) ou /color rainbow. Exemplo: /color 0, /color Red ou /color rainbow.");
             return;
         }
 
@@ -1688,9 +1720,14 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         {
             for (int i = 0; i < Palette.ColorNames.Length; i++)
             {
-                string nomeCor = TranslationController.GetString(Palette.ColorNames[i]);
-                if (!string.IsNullOrWhiteSpace(nomeCor) &&
-                    string.Equals(nomeCor.Trim(), argumento, StringComparison.OrdinalIgnoreCase))
+                // ColorNames contém StringNames. ToString evita depender de uma
+                // instância de TranslationController e aceita nomes como Red/ColorRed.
+                string nomeCor = Palette.ColorNames[i].ToString();
+                if (nomeCor.StartsWith("Color", StringComparison.OrdinalIgnoreCase))
+                    nomeCor = nomeCor.Substring("Color".Length);
+
+                if (string.Equals(nomeCor, argumento, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(Palette.ColorNames[i].ToString(), argumento, StringComparison.OrdinalIgnoreCase))
                 {
                     idCor = i;
                     break;
@@ -1698,11 +1735,15 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             }
         }
 
-        if (idCor < 0)
+        bool pedidoRainbow = string.Equals(argumento, "rainbow", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(argumento, "arco-íris", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(argumento, "arcoiris", StringComparison.OrdinalIgnoreCase);
+
+        if (idCor < 0 && !pedidoRainbow)
         {
             string lista = string.Join(", ",
                 Enumerable.Range(0, Palette.ColorNames.Length)
-                    .Select(i => i + "=" + Palette.ColorNames[i]));
+                    .Select(i => i + "=" + Palette.ColorNames[i].ToString()));
             ResponderComando(chat, jogador,
                 "Cor inválida. Use um ID de 0 a " + (Palette.ColorNames.Length - 1) +
                 " ou um nome exato. Cores: " + lista);
@@ -1711,6 +1752,18 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
         try
         {
+            if (string.Equals(argumento, "rainbow", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(argumento, "arco-íris", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(argumento, "arcoiris", StringComparison.OrdinalIgnoreCase))
+            {
+                JogadoresRainbow.Add(jogador.PlayerId);
+                ProximaTrocaCorRainbow = 0f;
+                ResponderComando(chat, jogador,
+                    "Modo rainbow ativado: sua cor vai alternar entre as cores disponíveis. Use /color (id/nome) para desativar.");
+                return;
+            }
+
+            JogadoresRainbow.Remove(jogador.PlayerId);
             jogador.RpcSetColor((byte)idCor);
             ResponderComando(chat, jogador,
                 "Sua cor foi alterada para " + Palette.ColorNames[idCor] + " (ID " + idCor + ").");
@@ -1980,6 +2033,7 @@ public static class YouTubeVoteUpdatePatch
         FakePlayerAPI.Atualizar();
         NomeNpcRpc.Atualizar();
         YouTubeVoteBridgePlugin.AtualizarVotacao();
+        YouTubeVoteBridgePlugin.AtualizarRainbow();
         EventoEscudoTemporario.Atualizar();
         EventoCooldownIndividual.Atualizar();
         EventoCongelarJogador.Atualizar();
