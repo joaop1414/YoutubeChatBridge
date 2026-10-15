@@ -6,28 +6,28 @@ using HarmonyLib;
 namespace YouTubeVoteBridge;
 
 /// <summary>
-/// Substitui a seleção inicial de funções do vanilla por uma seleção controlada
-/// pelo host do mod. A quantidade de impostores vem das configurações da sala.
+/// Reatribui as funções-base logo após o seletor nativo terminar.
+/// Mantemos o fluxo de inicialização do jogo para não pular etapas que
+/// a intro/tela de carregamento esperam; a distribuição final é feita pelo mod.
 /// </summary>
 [HarmonyPatch(typeof(RoleManager), nameof(RoleManager.SelectRoles))]
 internal static class SelecaoInicialDeFuncoesPatch
 {
-    [HarmonyPrefix]
-    private static bool Prefix()
+    [HarmonyPostfix]
+    private static void Postfix()
     {
+        // Só o host pode distribuir funções para a partida inteira.
+        if (AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost)
+            return;
+
         try
         {
-            // A seleção é autoritativa no host. Clientes não devem tentar
-            // escolher suas próprias funções localmente.
-            if (AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost)
-                return false;
-
             if (GameOptionsManager.Instance == null ||
                 GameOptionsManager.Instance.CurrentGameOptions == null)
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                    "[FuncoesIniciais] Configurações da partida indisponíveis; seleção cancelada.");
-                return false;
+                    "[FuncoesIniciais] Configurações da partida indisponíveis; não alterei as funções.");
+                return;
             }
 
             List<PlayerControl> jogadores = new();
@@ -42,25 +42,23 @@ internal static class SelecaoInicialDeFuncoesPatch
             if (jogadores.Count == 0)
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "[FuncoesIniciais] Nenhum jogador válido; seleção cancelada.");
-                return false;
+                    "[FuncoesIniciais] Nenhum jogador válido; não alterei as funções.");
+                return;
             }
 
-            // O mod controla quem recebe a função de Impostor. O número é lido
-            // das configurações atuais do lobby, em vez de ser fixado no código.
             int impostoresConfigurados =
                 GameOptionsManager.Instance.CurrentGameOptions.NumImpostors;
             int quantidadeImpostores = Math.Clamp(impostoresConfigurados, 0, jogadores.Count);
 
-            // Primeiro embaralha a lista para evitar favorecer PlayerId/ordem de entrada.
+            // Sorteio feito pelo mod: não depende de PlayerId nem da ordem da lista.
             for (int i = jogadores.Count - 1; i > 0; i--)
             {
                 int j = Random.Shared.Next(i + 1);
                 (jogadores[i], jogadores[j]) = (jogadores[j], jogadores[i]);
             }
 
-            // O host atribui explicitamente a função-base a todos os jogadores.
-            // canOverrideRole=true permite que o RPC substitua a atribuição padrão.
+            // O vanilla concluiu a inicialização normal; agora o mod determina
+            // a distribuição final das funções-base e envia a alteração pelo RPC.
             for (int i = 0; i < jogadores.Count; i++)
             {
                 RoleTypes funcao = i < quantidadeImpostores
@@ -71,21 +69,15 @@ internal static class SelecaoInicialDeFuncoesPatch
             }
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                $"[FuncoesIniciais] Seleção do mod concluída: {quantidadeImpostores} impostor(es), " +
-                $"{jogadores.Count - quantidadeImpostores} tripulante(s), total={jogadores.Count}. " +
-                "A seleção original de RoleManager.SelectRoles foi bloqueada.");
-
-            // Não executa o seletor vanilla: as funções foram escolhidas pelo mod.
-            return false;
+                $"[FuncoesIniciais] Distribuição final definida pelo mod: " +
+                $"{quantidadeImpostores} impostor(es), " +
+                $"{jogadores.Count - quantidadeImpostores} tripulante(s), " +
+                $"total={jogadores.Count}. O fluxo nativo de início foi preservado.");
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[FuncoesIniciais] Erro durante a seleção inicial: " + ex);
-
-            // Não chama o seletor vanilla após uma falha parcial: isso poderia
-            // sobrescrever ou duplicar as funções que o mod já distribuiu.
-            return false;
+                "[FuncoesIniciais] Erro ao aplicar a distribuição final de funções: " + ex);
         }
     }
 }
