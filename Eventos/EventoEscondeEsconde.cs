@@ -214,33 +214,31 @@ internal sealed class EventoEscondeEsconde : EventoVotacao
         try
         {
             RoleTypes papel = (RoleTypes)valorPapel;
-            // SetRole não é um método de PlayerControl nesta versão das DLLs.
-            // Algumas versões/mods expõem uma implementação local por reflexão;
-            // se não existir, enviamos o RPC vanilla diretamente ao cliente dono.
-            bool aplicadoLocalmente = false;
-            if (clientId == AmongUsClient.Instance.ClientId)
-            {
-                aplicadoLocalmente = TentarAplicarPapelLocal(jogador, papel);
-            }
 
-            if (!aplicadoLocalmente)
-            {
-                MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
-                    jogador.NetId, (byte)RpcCalls.SetRole, SendOption.Reliable, clientId);
-                writer.Write((ushort)papel);
-                writer.Write(true);
-                AmongUsClient.Instance.FinishRpcImmediately(writer);
-            }
+            // Reproduz o mecanismo RpcSetRoleGlobal do EHR:
+            // 1) aplica a coroutine no estado local do host;
+            // 2) envia SetRole para TODOS os clientes, em vez de um RPC targeted.
+            // O RPC targeted anterior podia ser enviado sem que a role fosse
+            // aplicada ao estado local do host, e o log "enviado" não comprovava
+            // que a alteração tivesse sido executada.
+            bool aplicadoLocalmente = TentarAplicarPapelLocal(jogador, papel);
+
+            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
+                jogador.NetId, (byte)RpcCalls.SetRole, SendOption.Reliable);
+            writer.Write((ushort)papel);
+            writer.Write(true);
+            AmongUsClient.Instance.FinishRpcImmediately(writer);
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                $"[Esconde-esconde] Papel local enviado: jogador={jogador.PlayerId}, " +
-                $"papel={papel}, clientId={clientId}.");
+                $"[Esconde-esconde] SetRole global enviado: jogador={jogador.PlayerId}, " +
+                $"papel={papel}, papelLocalHost={(aplicadoLocalmente ? "iniciado" : "não aplicado")}, " +
+                $"clientIdDono={clientId}.");
             return true;
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[Esconde-esconde] Falha ao definir papel local " + nomePapel + ": " + ex);
+                "[Esconde-esconde] Falha ao definir papel " + nomePapel + ": " + ex);
             return false;
         }
     }
