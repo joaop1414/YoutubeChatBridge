@@ -1880,6 +1880,18 @@ public static class YouTubeVoteChatPatch
         if (mensagem.Equals("/color", StringComparison.OrdinalIgnoreCase) ||
             mensagem.StartsWith("/color ", StringComparison.OrdinalIgnoreCase))
         {
+            // Alterar cores é permitido somente no lobby. Bloqueia tanto o uso
+            // local quanto comandos recebidos de clientes quando a partida começou.
+            if (LobbyTagManager.PartidaIniciada())
+            {
+                const string aviso = "O comando /color só pode ser usado no lobby.";
+                if (ehLocal)
+                    YouTubeVoteBridgePlugin.Responder(__instance, aviso);
+                else if (host)
+                    YouTubeVoteBridgePlugin.EnviarMensagemIndividual(sourcePlayer, aviso);
+                return false;
+            }
+
             if (host)
             {
                 YouTubeVoteBridgePlugin.ProcessarComandoCor(__instance, sourcePlayer, mensagem);
@@ -2034,6 +2046,18 @@ public static class YouTubeVoteUpdatePatch
     }
 }
 
+
+[HarmonyPatch(typeof(ShipStatus), nameof(ShipStatus.Start))]
+public static class YouTubeVoteRestoreLobbyTagsBeforeMatchPatch
+{
+    public static void Prefix()
+    {
+        // Restaura os nomes antes de o navio começar a partida. Isso evita
+        // que as tags multilinha do lobby sejam mantidas no jogo para clientes.
+        if (AmongUsClient.Instance != null && AmongUsClient.Instance.AmHost)
+            LobbyTagManager.RestaurarTodos();
+    }
+}
 
 // ============================================================
 // SUPORTE A CTRL+V
