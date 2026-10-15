@@ -1688,7 +1688,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         {
             for (int i = 0; i < Palette.ColorNames.Length; i++)
             {
-                string nomeCor = Palette.ColorNames[i];
+                string nomeCor = TranslationController.GetString(Palette.ColorNames[i]);
                 if (!string.IsNullOrWhiteSpace(nomeCor) &&
                     string.Equals(nomeCor.Trim(), argumento, StringComparison.OrdinalIgnoreCase))
                 {
