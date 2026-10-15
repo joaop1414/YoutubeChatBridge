@@ -1,83 +1,136 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using AmongUs.GameOptions;
+#if IL2CPP
+using BepInEx.Unity.IL2CPP.Utils.Collections;
+#endif
 using HarmonyLib;
+using Hazel;
+using InnerNet;
+using UnityEngine;
 
 namespace YouTubeVoteBridge;
 
-/// <summary>
-/// Reatribui as funções-base logo após o seletor nativo terminar.
-/// Mantemos o fluxo de inicialização do jogo para não pular etapas que
-/// a intro/tela de carregamento esperam; a distribuição final é feita pelo mod.
-/// </summary>
-[HarmonyPatch(typeof(RoleManager), nameof(RoleManager.SelectRoles))]
+[HarmonyPatch(typeof(AmongUsClient), nameof(AmongUsClient.CoStartGameHost))]
 internal static class SelecaoInicialDeFuncoesPatch
 {
-    [HarmonyPostfix]
-    private static void Postfix()
+#if IL2CPP
+    [HarmonyPrefix]
+    private static bool Prefix(AmongUsClient __instance, ref Il2CppSystem.Collections.IEnumerator __result)
     {
-        // Só o host pode distribuir funções para a partida inteira.
-        if (AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost)
-            return;
+        if (!__instance.AmHost) return true;
+        __result = Iniciar(__instance).WrapToIl2Cpp();
+        return false;
+    }
+#else
+    [HarmonyPrefix]
+    private static bool Prefix(AmongUsClient __instance, ref IEnumerator __result)
+    {
+        if (!__instance.AmHost) return true;
+        __result = Iniciar(__instance);
+        return false;
+    }
+#endif
 
+    private static IEnumerator Iniciar(AmongUsClient client)
+    {
+        var loading = LoadingBarManager.Instance;
         try
         {
-            if (GameOptionsManager.Instance == null ||
-                GameOptionsManager.Instance.CurrentGameOptions == null)
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                    "[FuncoesIniciais] Configurações da partida indisponíveis; não alterei as funções.");
-                return;
-            }
-
-            List<PlayerControl> jogadores = new();
-            foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
-            {
-                if (jogador?.Data == null || jogador.Data.Disconnected)
-                    continue;
-
-                jogadores.Add(jogador);
-            }
-
-            if (jogadores.Count == 0)
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "[FuncoesIniciais] Nenhum jogador válido; não alterei as funções.");
-                return;
-            }
-
-            int impostoresConfigurados =
-                GameOptionsManager.Instance.CurrentGameOptions.NumImpostors;
-            int quantidadeImpostores = Math.Clamp(impostoresConfigurados, 0, jogadores.Count);
-
-            // Sorteio feito pelo mod: não depende de PlayerId nem da ordem da lista.
-            for (int i = jogadores.Count - 1; i > 0; i--)
-            {
-                int j = Random.Shared.Next(i + 1);
-                (jogadores[i], jogadores[j]) = (jogadores[j], jogadores[i]);
-            }
-
-            // O vanilla concluiu a inicialização normal; agora o mod determina
-            // a distribuição final das funções-base e envia a alteração pelo RPC.
-            for (int i = 0; i < jogadores.Count; i++)
-            {
-                RoleTypes funcao = i < quantidadeImpostores
-                    ? RoleTypes.Impostor
-                    : RoleTypes.Crewmate;
-
-                jogadores[i].RpcSetRole(funcao, true);
-            }
-
-            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                $"[FuncoesIniciais] Distribuição final definida pelo mod: " +
-                $"{quantidadeImpostores} impostor(es), " +
-                $"{jogadores.Count - quantidadeImpostores} tripulante(s), " +
-                $"total={jogadores.Count}. O fluxo nativo de início foi preservado.");
+            loading.ToggleLoadingBar(true);
+            loading.SetLoadingPercent(0f, StringNames.LoadingBarGameStart);
         }
-        catch (Exception ex)
+        catch (Exception ex) { YouTubeVoteBridgePlugin.Instance?.Log.LogWarning("[FuncoesIniciais] Loading UI: " + ex.Message); }
+
+        if (LobbyBehaviour.Instance == null)
         {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[FuncoesIniciais] Erro ao aplicar a distribuição final de funções: " + ex);
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError("[FuncoesIniciais] LobbyBehaviour nulo.");
+            yield break;
         }
+
+        MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
+        writer.StartMessage(5);
+        writer.Write(client.GameId);
+        writer.StartMessage(5);
+        writer.WritePacked(LobbyBehaviour.Instance.NetId);
+        writer.EndMessage();
+        writer.EndMessage();
+        client.SendOrDisconnect(writer);
+        writer.Recycle();
+        client.RemoveNetObject(LobbyBehaviour.Instance);
+        UnityEngine.Object.Destroy(LobbyBehaviour.Instance.gameObject);
+
+        if (ShipStatus.Instance == null)
+        {
+            int map = Mathf.Clamp(GameOptionsManager.Instance.CurrentGameOptions.MapId, 0, Constants.MapNames.Length - 1);
+            client.ShipLoadingAsyncHandle = client.ShipPrefabs[map].InstantiateAsync();
+            while (!client.ShipLoadingAsyncHandle.IsDone)
+            {
+                try { loading.SetLoadingPercent(Mathf.Lerp(0f, 10f, client.ShipLoadingAsyncHandle.PercentComplete), StringNames.LoadingBarGameStart); }
+                catch { }
+                yield return null;
+            }
+            ShipStatus.Instance = client.ShipLoadingAsyncHandle.Result.GetComponent<ShipStatus>();
+            client.Spawn(ShipStatus.Instance);
+        }
+
+        DateTime start = DateTime.Now;
+        while (true)
+        {
+            bool ready = true;
+            int limit = GameOptionsManager.Instance.CurrentGameOptions.MapId is 4 or 5 ? 15 : 10;
+            float elapsed = (float)(DateTime.Now - start).TotalSeconds;
+            lock (client.allClients)
+            {
+                for (int i = 0; i < client.allClients.Count; i++)
+                {
+                    ClientData data = client.allClients[i];
+                    if (data.Id != client.ClientId && !data.IsReady)
+                    {
+                        if (elapsed < limit) ready = false;
+                        else
+                        {
+                            client.SendLateRejection(data.Id, DisconnectReasons.ClientTimeout);
+                            data.IsReady = true;
+                            client.OnPlayerLeft(data, DisconnectReasons.ClientTimeout);
+                        }
+                    }
+                }
+            }
+            try { loading.SetLoadingPercent(10f + Mathf.Clamp01(elapsed / limit) * 80f, StringNames.LoadingBarGameStartWaitingPlayers); }
+            catch { }
+            if (!ready) yield return new WaitForEndOfFrame();
+            else break;
+        }
+
+        client.SendClientReady();
+        AtribuirFuncoes();
+        try { loading.SetLoadingPercent(100f, StringNames.LoadingBarGameStart); }
+        catch { }
+    }
+
+    private static void AtribuirFuncoes()
+    {
+        if (AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost) return;
+        var options = GameOptionsManager.Instance?.CurrentGameOptions;
+        if (options == null) return;
+
+        List<PlayerControl> players = new();
+        foreach (PlayerControl player in PlayerControl.AllPlayerControls)
+            if (player != null && player.Data != null && !player.Data.Disconnected) players.Add(player);
+        if (players.Count == 0) return;
+
+        int impostors = Math.Clamp(options.NumImpostors, 0, Math.Max(0, players.Count - 1));
+        for (int i = players.Count - 1; i > 0; i--)
+        {
+            int j = Random.Shared.Next(i + 1);
+            (players[i], players[j]) = (players[j], players[i]);
+        }
+
+        for (int i = 0; i < players.Count; i++)
+            RoleSwitchAPI.TrocarFuncao(players[i], i < impostors ? RoleTypes.Impostor : RoleTypes.Crewmate);
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo($"[FuncoesIniciais] Mod atribuiu {impostors} impostor(es) e {players.Count - impostors} tripulante(s).");
     }
 }
