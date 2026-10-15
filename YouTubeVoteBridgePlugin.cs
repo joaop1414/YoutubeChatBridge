@@ -1630,51 +1630,12 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
     public static void AtualizarAvisos()
     {
-        if (!EhHost() || AvisosPendentes.Count == 0)
-            return;
-
-        float agora = Time.realtimeSinceStartup;
-        List<int> prontos = new();
-
-        foreach (KeyValuePair<int, float> item in AvisosPendentes)
-        {
-            if (agora >= item.Value)
-                prontos.Add(item.Key);
-        }
-
-        foreach (int clientId in prontos)
-        {
-            AvisosPendentes.Remove(clientId);
-
-            if (AvisosEnviados.Contains(clientId))
-                continue;
-
-            PlayerControl jogador = null;
-
-            foreach (PlayerControl player in PlayerControl.AllPlayerControls)
-            {
-                if (player != null && player.OwnerId == clientId)
-                {
-                    jogador = player;
-                    break;
-                }
-            }
-
-            if (jogador == null || jogador.Data == null)
-                continue;
-
-            string nome = jogador.Data.PlayerName;
-
-            string aviso =
-                $"Olá {nome}, já vamos avisando que esta partida é modificada. " +
-                "Aqui teremos uma votação do chat de uma live no YouTube, " +
-                "e eles poderão interagir com a partida de acordo com os eventos.";
-
-            EnviarMensagemIndividual(jogador, aviso);
-            AvisosEnviados.Add(clientId);
-        }
-    }
-}
+        // Diagnóstico de compatibilidade vanilla:
+        // não emitir mensagens de rede automaticamente quando um jogador entra.
+        // O aviso público foi desativado temporariamente para verificar se o
+        // SendChat disparado após SetLevel é a causa da expulsão.
+        return;
+    }}
 
 
 // ============================================================
