@@ -31,8 +31,9 @@ public static class LobbyTagManager
 
     private sealed class TagConfig
     {
+        // A tag pode conter a própria marcação Rich Text, por exemplo:
+        // <color=#e3c420>DONO</color>
         public string Tag { get; set; } = string.Empty;
-        public string Color { get; set; } = string.Empty;
     }
     private static readonly Dictionary<byte, string> NomesOriginais =
         new();
@@ -207,7 +208,35 @@ public static class LobbyTagManager
 
         foreach (JsonProperty item in documento.RootElement.EnumerateObject())
         {
-            string friendCode = NormalizarFriendCode(item.Name);
+            // Formato novo:
+            // "<color=#e3c420>DONO</color>": ["punhazy#1673", "outro#1234"]
+            if (item.Value.ValueKind == JsonValueKind.Array)
+            {
+                string tagFormatada = item.Name.Trim();
+                if (string.IsNullOrWhiteSpace(tagFormatada))
+                    continue;
+
+                foreach (JsonElement pessoa in item.Value.EnumerateArray())
+                {
+                    if (pessoa.ValueKind != JsonValueKind.String)
+                        continue;
+
+                    string friendCode = NormalizarFriendCode(pessoa.GetString());
+                    if (!string.IsNullOrWhiteSpace(friendCode))
+                    {
+                        resultado[friendCode] = new TagConfig
+                        {
+                            Tag = tagFormatada
+                        };
+                    }
+                }
+
+                continue;
+            }
+
+            // Compatibilidade com o formato antigo:
+            // "punhazy#1673": { "tag": "DONO", "color": "#e3c420" }
+            string codigoAntigo = NormalizarFriendCode(item.Name);
             string textoTag = string.Empty;
             string corTag = string.Empty;
 
@@ -226,13 +255,19 @@ public static class LobbyTagManager
                     corTag = corElement.GetString()?.Trim() ?? string.Empty;
             }
 
-            bool corValida = Regex.IsMatch(corTag, @"^(#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?|[a-zA-Z]+)$");
-            if (!string.IsNullOrWhiteSpace(friendCode) && !string.IsNullOrWhiteSpace(textoTag))
+            bool corValida = Regex.IsMatch(
+                corTag, @"^(#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?|[a-zA-Z]+)$");
+
+            if (!string.IsNullOrWhiteSpace(codigoAntigo) &&
+                !string.IsNullOrWhiteSpace(textoTag))
             {
-                resultado[friendCode] = new TagConfig
+                string tagFormatada = corValida
+                    ? $"<color={corTag}>{textoTag}</color>"
+                    : textoTag;
+
+                resultado[codigoAntigo] = new TagConfig
                 {
-                    Tag = textoTag,
-                    Color = corValida ? corTag : string.Empty
+                    Tag = tagFormatada
                 };
             }
         }
@@ -404,10 +439,10 @@ public static class LobbyTagManager
             if (!NomesOriginais.ContainsKey(jogador.PlayerId))
                 NomesOriginais[jogador.PlayerId] = nomeOriginal;
 
-            string tagFormatada = string.IsNullOrWhiteSpace(configuracao.Color)
-                ? $"<size=50%>{configuracao.Tag}</size>"
-                : $"<size=50%><color={configuracao.Color}>{configuracao.Tag}</color></size>";
-            string nomeComTag = $"{tagFormatada}\\n{NomesOriginais[jogador.PlayerId]}";
+            // A tag já vem formatada do JSON. Use uma quebra de linha real (\\n em C#),
+            // não os caracteres literais barra+n.
+            string tagFormatada = $"<size=50%>{configuracao.Tag}</size>";
+            string nomeComTag = $"{tagFormatada}\n{NomesOriginais[jogador.PlayerId]}";
 
             if (EnviarSetName(jogador, nomeComTag))
             {
