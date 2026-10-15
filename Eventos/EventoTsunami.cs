@@ -894,7 +894,7 @@ internal sealed class EventoTsunami : EventoVotacao
             return new Vector2(-10f, 0f);
 
         Vector2 posicaoJogador = maisAtras.GetTruePosition();
-        const float DistanciaAtras = 4.4f;
+        const float DistanciaAtras = 7.0f;
         return new Vector2(posicaoJogador.x - DistanciaAtras, posicaoJogador.y);
     }
 
