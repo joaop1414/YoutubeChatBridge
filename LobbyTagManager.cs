@@ -38,6 +38,8 @@ public static class LobbyTagManager
     private static readonly Dictionary<byte, string> NomesOriginais =
         new();
     private static readonly HashSet<byte> TagsAplicadas = new();
+    private static readonly HashSet<byte> JogadoresDiagnosticados = new();
+    private static string UltimoGameId = string.Empty;
     private static string CaminhoTags;
     private static string CaminhoJogadores;
     private static readonly Dictionary<string, JogadorRegistrado> JogadoresRegistrados =
@@ -471,10 +473,28 @@ public static class LobbyTagManager
     {
         ProcessarDownloadTagsRemotas();
 
+        // GameId muda quando uma nova sala é criada/entramos em outra sala.
+        // Limpa os IDs de jogadores da sala anterior para permitir reaplicar as tags.
+        string gameIdAtual = AmongUsClient.Instance?.GameId.ToString() ?? string.Empty;
+        if (!string.Equals(gameIdAtual, UltimoGameId, StringComparison.Ordinal))
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                $"[Tags] Nova sessão detectada. GameId anterior='{UltimoGameId}', atual='{gameIdAtual}'. Limpando estado das tags.");
+            RestaurarTodos();
+            TagsAplicadas.Clear();
+            JogadoresDiagnosticados.Clear();
+            NomesOriginais.Clear();
+            UltimoGameId = gameIdAtual;
+        }
+
         if (!EstaNoLobby())
         {
-            if (PartidaIniciada())
-                RestaurarTodos();
+            // Também limpa ao voltar ao menu/fechar uma sala, não apenas ao iniciar a partida.
+            // Isso evita que TagsAplicadas da sala anterior bloqueie a próxima sala.
+            RestaurarTodos();
+            TagsAplicadas.Clear();
+            JogadoresDiagnosticados.Clear();
+            NomesOriginais.Clear();
             return;
         }
 
@@ -486,6 +506,15 @@ public static class LobbyTagManager
             string friendCode = NormalizarFriendCode(jogador.Data.FriendCode);
             if (!TagsAplicadas.Contains(jogador.PlayerId))
                 RegistrarJogador(jogador, friendCode);
+
+            if (JogadoresDiagnosticados.Add(jogador.PlayerId))
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    $"[Tags][PLAYER] Nome='{jogador.Data.PlayerName}', PlayerId={jogador.PlayerId}, FriendCode='{friendCode}', TemTag={Tags.ContainsKey(friendCode)}");
+                if (Tags.TryGetValue(friendCode, out TagConfig tagDiagnostico))
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                        $"[Tags][CONFIG] Player='{jogador.Data.PlayerName}', tag armazenada='{tagDiagnostico.Tag}'");
+            }
 
             if (!Tags.TryGetValue(friendCode, out TagConfig configuracao) ||
                 string.IsNullOrWhiteSpace(configuracao.Tag) ||
@@ -499,8 +528,25 @@ public static class LobbyTagManager
 
             // Deixa a tag menor e mantém o nome original na linha seguinte.
             // A cor configurada em tags.json fica dentro do <size>.
-            string nomeComTag = "<size=50%>" + configuracao.Tag + "</size>\n" +
+            // Deixa a cor por fora do tamanho: alguns renderizadores lidam melhor
+            // com <color><size>...</size></color> do que com tags aninhadas ao contrário.
+            string tagRenderizada = configuracao.Tag;
+            Match corMatch = Regex.Match(
+                configuracao.Tag,
+                @"^<color=([^>]+)>(.*?)</color>$",
+                RegexOptions.Singleline);
+
+            if (corMatch.Success)
+                tagRenderizada = "<color=" + corMatch.Groups[1].Value +
+                    "><size=50%>" + corMatch.Groups[2].Value + "</size></color>";
+            else
+                tagRenderizada = "<size=50%>" + configuracao.Tag + "</size>";
+
+            string nomeComTag = tagRenderizada + "\n" +
                 NomesOriginais[jogador.PlayerId];
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                $"[Tags][APLICAR] Nome original='{NomesOriginais[jogador.PlayerId]}'; nome enviado='{nomeComTag}'; cor configurada em tags.json. PlayerId={jogador.PlayerId}, FriendCode='{friendCode}'");
 
             if (EnviarSetName(jogador, nomeComTag))
             {
@@ -538,6 +584,8 @@ public static class LobbyTagManager
 
             // Mantém também o nome local atualizado imediatamente.
             jogador.SetName(nome);
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                $"[Tags][SETNAME] SetName local executado. Nome atual='{jogador.Data.PlayerName}'");
             return true;
         }
         catch (Exception ex)
