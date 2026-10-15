@@ -1729,6 +1729,52 @@ public static class YouTubeVoteChatPatch
             return false;
         }
 
+        // Ajuda geral do mod.
+        if (mensagem.Equals("/help", StringComparison.OrdinalIgnoreCase) ||
+            mensagem.Equals("/ajuda", StringComparison.OrdinalIgnoreCase))
+        {
+            YouTubeVoteBridgePlugin.Responder(
+                __instance,
+                "Comandos: /help | /youtube ajuda | /tag update (somente host: recarrega tags.json do GitHub)."
+            );
+            return false;
+        }
+
+        // Atualiza manualmente as tags remotas e reaplica-as no lobby.
+        if (mensagem.Equals("/tag update", StringComparison.OrdinalIgnoreCase))
+        {
+            if (sourcePlayer == PlayerControl.LocalPlayer)
+            {
+                if (!YouTubeVoteBridgePlugin.EhHost())
+                {
+                    YouTubeVoteBridgePlugin.Responder(
+                        __instance,
+                        "<color=red>Apenas o host pode usar /tag update.</color>"
+                    );
+                    return false;
+                }
+
+                LobbyTagManager.AtualizarTagsRemotas();
+                YouTubeVoteBridgePlugin.Responder(
+                    __instance,
+                    "Atualização das tags solicitada. Aguarde o download do GitHub."
+                );
+                return false;
+            }
+
+            if (YouTubeVoteBridgePlugin.EhHost())
+            {
+                LobbyTagManager.AtualizarTagsRemotas();
+                YouTubeVoteBridgePlugin.Responder(
+                    __instance,
+                    "Atualização das tags solicitada por um jogador. Aguarde o download do GitHub."
+                );
+                return false;
+            }
+
+            return true;
+        }
+
         if (!mensagem.StartsWith("/youtube", StringComparison.OrdinalIgnoreCase))
             return true;
 
