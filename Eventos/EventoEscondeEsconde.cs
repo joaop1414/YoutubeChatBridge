@@ -475,16 +475,15 @@ internal static class EventoEscondeEscondeRpcSetRolePatch
     public static void Prefix(PlayerControl __instance, [HarmonyArgument(0)] RoleTypes roleType,
         [HarmonyArgument(1)] ref bool canOverrideRole)
     {
-        // Segue o comportamento do EHR: força canOverrideRole em todas as chamadas
-        // nativas de RpcSetRole, não apenas nas iniciadas pelo evento.
-        canOverrideRole = true;
+        // Não interferir na atribuição normal de papéis do jogo ou de outros mods.
+        // Só habilita override enquanto o Esconde-esconde está aplicando/restaurando papéis.
+        if (!EventoEscondeEsconde.DeveForcarOverridePapel)
+            return;
 
-        if (EventoEscondeEsconde.DeveForcarOverridePapel)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                $"[Esconde-esconde][DIAG] RpcSetRole: jogador={__instance?.PlayerId}, " +
-                $"papel={roleType}, canOverrideRole=true.");
-        }
+        canOverrideRole = true;
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"[Esconde-esconde][DIAG] RpcSetRole: jogador={__instance?.PlayerId}, " +
+            $"papel={roleType}, canOverrideRole=true.");
     }
 }
 
