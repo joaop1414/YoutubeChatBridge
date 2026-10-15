@@ -1923,3 +1923,36 @@ public static class YouTubeVoteTaskKillPatch
         EventoTarefaSuicidio.AoCompletarTarefa(__instance);
     }
 }
+
+
+// ============================================================
+// MENSAGENS DE JOGADORES COM TAG
+// ============================================================
+// Modifica a mensagem antes de RpcSendChat transmiti-la pela rede.
+// Jogadores sem tag não são afetados.
+[HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.RpcSendChat))]
+public static class YouTubeVoteTaggedChatPatch
+{
+    public static void Prefix(PlayerControl __instance, ref string chatText)
+    {
+        try
+        {
+            if (__instance == null ||
+                string.IsNullOrEmpty(chatText) ||
+                !LobbyTagManager.TemTag(__instance))
+                return;
+
+            // Evita duplicar a quebra de linha.
+            if (!chatText.StartsWith("\\n", StringComparison.Ordinal) &&
+                !chatText.StartsWith("\\r\\n", StringComparison.Ordinal))
+            {
+                chatText = "\\n" + chatText;
+            }
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "Não foi possível formatar mensagem de jogador com tag: " + ex.Message);
+        }
+    }
+}
