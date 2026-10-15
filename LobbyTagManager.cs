@@ -16,7 +16,7 @@ namespace YouTubeVoteBridge;
 public static class LobbyTagManager
 {
     private const string UrlTagsRemotas =
-        "https://raw.githubusercontent.com/joaop1414/YoutubeChatBridge-tags/refs/heads/main/tags.json";
+        "https://tags-chatbridge-default-rtdb.firebaseio.com/tags.json";
     private static readonly HttpClient ClienteHttp = new HttpClient
     {
         Timeout = TimeSpan.FromSeconds(10)
