@@ -221,6 +221,20 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         if (remetente == null || remetente.Data == null)
             return;
 
+        // Respostas destinadas ao próprio host são apenas locais: uma mensagem
+        // de sistema independente, sem RPC que possa duplicar ou agrupar a resposta.
+        if (destinatario.AmOwner)
+        {
+            if (HudManager.InstanceExists && HudManager.Instance.Chat != null)
+            {
+                HudManager.Instance.Chat.AddChat(
+                    null,
+                    "<color=blue>YouTubeChatBridge</color>\\n" + mensagem,
+                    false);
+            }
+            return;
+        }
+
         MessageWriter writer = null;
 
         try
@@ -243,18 +257,6 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             AmongUsClient.Instance.SendOrDisconnect(writer);
             writer.Recycle();
             writer = null;
-
-            // Para o próprio host, desenha a resposta como mensagem de sistema
-            // separada, mantendo o nome do host intacto e a identidade do mod visível.
-            if (destinatario.AmOwner &&
-                HudManager.InstanceExists &&
-                HudManager.Instance.Chat != null)
-            {
-                HudManager.Instance.Chat.AddChat(
-                    null,
-                    "<color=blue>YouTubeChatBridge</color>\\n" + mensagem,
-                    false);
-            }
 
             Instance?.Log.LogInfo(
                 $"Mensagem individual enviada para PlayerId={destinatario.PlayerId}, ClientId={targetClientId} (GameDataTo).");
