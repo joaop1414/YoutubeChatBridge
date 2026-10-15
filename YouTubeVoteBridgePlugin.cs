@@ -1476,7 +1476,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         if (argumentos.Length == 0 ||
             argumentos.Equals("ajuda", StringComparison.OrdinalIgnoreCase))
         {
-            Responder(
+            ResponderComando(chat, destinatario,
                 chat,
                 "Comandos: /youtube live (usa ID copiado) | colar | status | iniciar | parar | tempo 40 | intervalo 15 | preparacao 10 | config"
             );
@@ -1567,7 +1567,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             case "ligar":
                 if (string.IsNullOrWhiteSpace(LiveId.Value))
                 {
-                    Responder(
+                    ResponderComando(chat, destinatario,
                         chat,
                         "Defina primeiro o ID: /youtube ID ou /youtube colar."
                     );
@@ -1597,7 +1597,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 TempoVotacao.Value = segundos;
                 Instance.Config.Save();
 
-                Responder(
+                ResponderComando(chat, destinatario,
                     chat,
                     "Duração da votação definida para " +
                     segundos + " segundos."
@@ -1612,7 +1612,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
                 if (idColado.Length == 0)
                 {
-                    Responder(
+                    ResponderComando(chat, destinatario,
                         chat,
                         "Não encontrei um ID válido de live na área de transferência."
                     );
@@ -1636,7 +1636,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             LiveConectada.Value = false;
             Instance.Config.Save();
 
-            Responder(
+            ResponderComando(chat, destinatario,
                 chat,
                 "ID da live definido: " + id +
                 ". Use /youtube iniciar para ler o chat."
