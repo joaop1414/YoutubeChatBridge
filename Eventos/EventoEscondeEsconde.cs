@@ -220,9 +220,6 @@ internal sealed class EventoEscondeEsconde : EventoVotacao
             aplicandoPapel = false;
         }
     }
-
-    internal static bool DeveForcarOverridePapel => ativo || aplicandoPapel;
-
     private static bool DefinirPapelParaClienteInterno(PlayerControl jogador, string nomePapel, int clientId)
     {
         if (jogador == null || string.IsNullOrWhiteSpace(nomePapel) ||
@@ -463,45 +460,5 @@ internal static class EventoEscondeEscondeDutoPatch
         }
 
         return true;
-    }
-}
-
-// Durante a atribuição/restauração do evento, garante que a chamada nativa
-// RpcSetRole não perca o canOverride. Não altera atribuições de outros sistemas
-// fora do evento.
-[HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.RpcSetRole))]
-internal static class EventoEscondeEscondeRpcSetRolePatch
-{
-    public static void Prefix(PlayerControl __instance, [HarmonyArgument(0)] RoleTypes roleType,
-        [HarmonyArgument(1)] ref bool canOverrideRole)
-    {
-        // Não interferir na atribuição normal de papéis do jogo ou de outros mods.
-        // Só habilita override enquanto o Esconde-esconde está aplicando/restaurando papéis.
-        if (!EventoEscondeEsconde.DeveForcarOverridePapel)
-            return;
-
-        canOverrideRole = true;
-        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"[Esconde-esconde][DIAG] RpcSetRole: jogador={__instance?.PlayerId}, " +
-            $"papel={roleType}, canOverrideRole=true.");
-    }
-}
-
-// Diagnóstico da aplicação real do papel. RpcSetRole pode ser enviado sem que
-// o papel final observado em Data.Role seja o esperado; este patch registra a
-// entrada na coroutine nativa que efetivamente processa a atribuição.
-[HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.CoSetRole))]
-internal static class EventoEscondeEscondeCoSetRoleDiagnosticoPatch
-{
-    public static void Prefix(PlayerControl __instance, [HarmonyArgument(0)] ref RoleTypes role,
-        [HarmonyArgument(1)] ref bool canOverride)
-    {
-        if (!EventoEscondeEsconde.DeveForcarOverridePapel)
-            return;
-
-        canOverride = true;
-        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"[Esconde-esconde][DIAG] CoSetRole recebido: jogador={__instance?.PlayerId}, " +
-            $"nome={__instance?.Data?.PlayerName ?? "?"}, papel={role}, canOverride=true.");
     }
 }
