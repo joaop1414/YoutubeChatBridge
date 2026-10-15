@@ -214,25 +214,34 @@ internal sealed class EventoEscondeEsconde : EventoVotacao
         try
         {
             RoleTypes papel = (RoleTypes)valorPapel;
+            bool aplicadoLocalmente = false;
 
-            // Reproduz o mecanismo RpcSetRoleGlobal do EHR:
-            // 1) aplica a coroutine no estado local do host;
-            // 2) envia SetRole para TODOS os clientes, em vez de um RPC targeted.
-            // O RPC targeted anterior podia ser enviado sem que a role fosse
-            // aplicada ao estado local do host, e o log "enviado" não comprovava
-            // que a alteração tivesse sido executada.
-            bool aplicadoLocalmente = TentarAplicarPapelLocal(jogador, papel);
-
-            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
-                jogador.NetId, (byte)RpcCalls.SetRole, SendOption.Reliable);
-            writer.Write((ushort)papel);
-            writer.Write(true);
-            AmongUsClient.Instance.FinishRpcImmediately(writer);
+            // Igual ao RpcSetRoleDesync do EHR:
+            // o papel só é aplicado diretamente se o dono do personagem for o host
+            // local. Para qualquer outro jogador, o RPC precisa ser direcionado
+            // exclusivamente ao clientId proprietário.
+            if (clientId == AmongUsClient.Instance.ClientId)
+            {
+                aplicadoLocalmente = TentarAplicarPapelLocal(jogador, papel);
+                if (!aplicadoLocalmente)
+                {
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                        $"[Esconde-esconde] Não foi possível iniciar CoSetRole local para jogador={jogador.PlayerId}, papel={papel}.");
+                    return false;
+                }
+            }
+            else
+            {
+                MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
+                    jogador.NetId, (byte)RpcCalls.SetRole, SendOption.Reliable, clientId);
+                writer.Write((ushort)papel);
+                writer.Write(true);
+                AmongUsClient.Instance.FinishRpcImmediately(writer);
+            }
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                $"[Esconde-esconde] SetRole global enviado: jogador={jogador.PlayerId}, " +
-                $"papel={papel}, papelLocalHost={(aplicadoLocalmente ? "iniciado" : "não aplicado")}, " +
-                $"clientIdDono={clientId}.");
+                $"[Esconde-esconde] SetRole direcionado: jogador={jogador.PlayerId}, papel={papel}, " +
+                $"destino={clientId}, aplicadoLocalmente={aplicadoLocalmente}.");
             return true;
         }
         catch (Exception ex)
