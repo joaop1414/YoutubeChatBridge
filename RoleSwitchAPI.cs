@@ -1,4 +1,5 @@
 using System;
+using System.Reflection;
 using AmongUs.GameOptions;
 using Hazel;
 using UnityEngine;
@@ -109,7 +110,14 @@ internal static class RoleSwitchAPI
     {
         try
         {
-            return jogador?.Data?.Role?.Role.ToString() ?? "desconhecida";
+            object roleData = jogador?.Data?.Role;
+            if (roleData == null)
+                return "desconhecida";
+
+            Type tipo = roleData.GetType();
+            object papel = tipo.GetProperty("Role", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?.GetValue(roleData);
+            papel ??= tipo.GetField("Role", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?.GetValue(roleData);
+            return papel?.ToString() ?? "desconhecida";
         }
         catch
         {
