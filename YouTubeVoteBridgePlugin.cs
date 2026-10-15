@@ -192,49 +192,88 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         PlayerControl destinatario,
         string mensagem)
     {
+        // O modo vanilla não recebe RPCs direcionados do mod. Mantemos o
+        // comportamento público, mas usamos o mesmo padrão de mensagem do EHR:
+        // SetName(título) + SendChat(texto) + SetName(nome original), agrupados
+        // em um único pacote GameData público.
         if (destinatario == null ||
             PlayerControl.LocalPlayer == null ||
-            AmongUsClient.Instance == null)
+            AmongUsClient.Instance == null ||
+            !EhHost())
             return;
 
-        PlayerControl host = PlayerControl.LocalPlayer;
+        EnviarMensagemPublicaEhr(TITULO_SISTEMA, mensagem);
+    }
 
-        // A resposta local não precisa de rede.
-        if (!EhHost() || destinatario.AmOwner)
-        {
-            if (destinatario.AmOwner &&
-                HudManager.InstanceExists &&
-                HudManager.Instance.Chat != null)
-            {
-                HudManager.Instance.Chat.AddChat(
-                    host, TITULO_SISTEMA + "\n" + mensagem, false
-                );
-            }
-
+    private static void EnviarMensagemPublicaEhr(string titulo, string mensagem)
+    {
+        if (!EhHost() ||
+            AmongUsClient.Instance == null ||
+            PlayerControl.LocalPlayer == null ||
+            string.IsNullOrWhiteSpace(mensagem))
             return;
-        }
 
-        // IMPORTANTE: em salas vanilla/não registradas como modificadas,
-        // o servidor oficial pode expulsar o host por qualquer GameDataTo.
-        // Por isso, não enviamos SetName/SendChat direcionados a um cliente.
-        // O aviso vai como um SendChat público normal, compatível com vanilla.
+        PlayerControl remetente = ObterRemetenteMensagens();
+        if (remetente == null || remetente.Data == null)
+            return;
+
+        string nomeOriginal = remetente.Data.PlayerName;
+        MessageWriter writer = null;
+
         try
         {
-            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
-                host.NetId,
-                (byte)RpcCalls.SendChat,
-                SendOption.Reliable,
-                -1
-            );
+            // Reproduz o fluxo público usado por EHR/Utils.SendMessage:
+            // três RPCs no mesmo GameData, em vez de três envios independentes.
+            writer = MessageWriter.Get(SendOption.Reliable);
+            writer.StartMessage(5); // GameData para todos
+            writer.Write(AmongUsClient.Instance.GameId);
 
-            writer.Write(TITULO_SISTEMA + "\n" + mensagem);
-            AmongUsClient.Instance.FinishRpcImmediately(writer);
+            writer.StartMessage(2); // RPC: SetName temporário
+            writer.WritePacked(remetente.NetId);
+            writer.Write((byte)RpcCalls.SetName);
+            writer.Write(remetente.Data.NetId);
+            writer.Write(titulo);
+            writer.EndMessage();
+
+            writer.StartMessage(2); // RPC: SendChat
+            writer.WritePacked(remetente.NetId);
+            writer.Write((byte)RpcCalls.SendChat);
+            writer.Write(mensagem);
+            writer.EndMessage();
+
+            writer.StartMessage(2); // RPC: restaura o nome
+            writer.WritePacked(remetente.NetId);
+            writer.Write((byte)RpcCalls.SetName);
+            writer.Write(remetente.Data.NetId);
+            writer.Write(nomeOriginal);
+            writer.EndMessage();
+
+            writer.EndMessage(); // fecha GameData
+            AmongUsClient.Instance.SendOrDisconnect(writer);
+            writer.Recycle();
+            writer = null;
+
+            // Replica a mensagem na interface local do host sem deixar o nome
+            // temporário aplicado localmente.
+            if (HudManager.InstanceExists && HudManager.Instance.Chat != null)
+            {
+                remetente.SetName(titulo);
+                HudManager.Instance.Chat.AddChat(remetente, mensagem, false);
+                remetente.SetName(nomeOriginal);
+            }
+
+            Instance?.Log.LogInfo("Mensagem pública enviada no padrão EHR (SetName/SendChat/restauração).");
         }
         catch (Exception ex)
         {
-            Instance?.Log.LogError(
-                "Erro ao enviar aviso público compatível com vanilla: " + ex
-            );
+            if (writer != null)
+            {
+                try { writer.Recycle(); } catch { }
+            }
+
+            try { remetente.SetName(nomeOriginal); } catch { }
+
+            Instance?.Log.LogError("Erro ao enviar mensagem pública no padrão EHR: " + ex);
         }
     }
 
@@ -1630,11 +1669,42 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
     public static void AtualizarAvisos()
     {
-        // Diagnóstico de compatibilidade vanilla:
-        // não emitir mensagens de rede automaticamente quando um jogador entra.
-        // O aviso público foi desativado temporariamente para verificar se o
-        // SendChat disparado após SetLevel é a causa da expulsão.
-        return;
+        if (!EhHost() || AmongUsClient.Instance == null ||
+            AvisosPendentes.Count == 0)
+            return;
+
+        float agora = Time.realtimeSinceStartup;
+        foreach (var aviso in AvisosPendentes.ToArray())
+        {
+            if (agora < aviso.Value)
+                continue;
+
+            int clientId = aviso.Key;
+            AvisosPendentes.Remove(clientId);
+
+            if (AvisosEnviados.Contains(clientId))
+                continue;
+
+            string nomeJogador = "um jogador";
+            foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+            {
+                if (jogador != null && jogador.OwnerId == clientId &&
+                    jogador.Data != null)
+                {
+                    nomeJogador = jogador.Data.PlayerName;
+                    break;
+                }
+            }
+
+            EnviarMensagemPublicaEhr(
+                TITULO_SISTEMA,
+                nomeJogador + " entrou na sala."
+            );
+
+            AvisosEnviados.Add(clientId);
+            Instance?.Log.LogInfo(
+                $"Aviso de entrada enviado para a sala após a entrada do cliente {clientId}.");
+        }
     }
 }
 
