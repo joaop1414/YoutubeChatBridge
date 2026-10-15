@@ -60,6 +60,7 @@ internal sealed class EventoTesteMenu : MonoBehaviour
     private static IReadOnlyList<EventoVotacao> eventos = Array.Empty<EventoVotacao>();
     private static readonly ConcurrentQueue<int> filaExecucao = new();
     private static float encerrarPartidaEm = -1f;
+    private static string motivoEncerramentoAgendado = "HumansByVote";
     private static readonly WndProcDelegate procedimentoJanela = ProcedimentoJanela;
     private static Thread threadJanela;
 
@@ -117,6 +118,7 @@ internal sealed class EventoTesteMenu : MonoBehaviour
     public static void ResetarEstadoPartida(string motivo)
     {
         encerrarPartidaEm = -1f;
+        motivoEncerramentoAgendado = "HumansByVote";
         int descartadas = 0;
         while (filaExecucao.TryDequeue(out _))
             descartadas++;
@@ -132,7 +134,9 @@ internal sealed class EventoTesteMenu : MonoBehaviour
         if (encerrarPartidaEm >= 0f && Time.realtimeSinceStartup >= encerrarPartidaEm)
         {
             encerrarPartidaEm = -1f;
-            EncerrarPartida();
+            string motivo = motivoEncerramentoAgendado;
+            motivoEncerramentoAgendado = "HumansByVote";
+            EncerrarPartida(motivo);
         }
 
         while (filaExecucao.TryDequeue(out int indice))
@@ -639,11 +643,18 @@ internal sealed class EventoTesteMenu : MonoBehaviour
             return;
         }
 
+        // O motivo do fim determina quem vence. HumansByVote dá a vitória
+        // aos tripulantes mesmo quando todos receberam ImpostorGhost.
+        motivoEncerramentoAgendado = string.Equals(
+            nomePapel, "ImpostorGhost", StringComparison.OrdinalIgnoreCase)
+            ? "ImpostorByKill"
+            : "HumansByVote";
+
         MostrarMensagem($"{descricao} aplicado a todos ({total}). Encerrando em 1,5 s...");
         encerrarPartidaEm = Time.realtimeSinceStartup + 1.5f;
     }
 
-    private static void EncerrarPartida()
+    private static void EncerrarPartida(string nomeMotivo = "HumansByVote")
     {
         if (!ValidarHostEPartida())
             return;
@@ -689,8 +700,13 @@ internal sealed class EventoTesteMenu : MonoBehaviour
 
             Type tipoMotivo = metodo.GetParameters()[0].ParameterType;
             object motivo;
-            if (!Enum.TryParse(tipoMotivo, "HumansByVote", true, out motivo))
-                motivo = Enum.ToObject(tipoMotivo, 0);
+            if (!Enum.TryParse(tipoMotivo, nomeMotivo, true, out motivo))
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    $"[Menu de teste] Motivo '{nomeMotivo}' não existe em {tipoMotivo.Name}; usando HumansByVote.");
+                if (!Enum.TryParse(tipoMotivo, "HumansByVote", true, out motivo))
+                    motivo = Enum.ToObject(tipoMotivo, 0);
+            }
 
             metodo.Invoke(gerenciador, new[] { motivo, (object)false });
             MostrarMensagem("Comando de encerramento enviado.");
