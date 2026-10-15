@@ -217,7 +217,6 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         if (remetente == null || remetente.Data == null)
             return;
 
-        string nomeOriginal = remetente.Data.PlayerName;
         MessageWriter writer = null;
 
         try
@@ -242,14 +241,13 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             writer = null;
 
             // Um envio direcionado ao próprio host pode não retornar pela rede.
-            // Nesse caso, desenha a mensagem apenas na interface local.
+            // Desenha a resposta local sem trocar o nome do host nem interferir
+            // com as mensagens normais dele.
             if (destinatario.AmOwner &&
                 HudManager.InstanceExists &&
                 HudManager.Instance.Chat != null)
             {
-                remetente.SetName(TITULO_SISTEMA);
                 HudManager.Instance.Chat.AddChat(remetente, mensagem, false);
-                remetente.SetName(nomeOriginal);
             }
 
             Instance?.Log.LogInfo(
