@@ -591,24 +591,23 @@ internal sealed class EventoTesteMenu : MonoBehaviour
             total++;
             try
             {
-                if (jogador.OwnerId == AmongUsClient.Instance.ClientId)
+                // Atualiza também o estado autoritativo do host para que ele veja
+                // todos os papéis, inclusive os jogadores controlados remotamente.
+                if (RoleManager.Instance == null)
                 {
-                    if (RoleManager.Instance == null)
-                    {
-                        falhas++;
-                        continue;
-                    }
+                    falhas++;
+                    continue;
+                }
 
-                    RoleManager.Instance.SetRole(jogador, papel);
-                }
-                else
-                {
-                    MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
-                        jogador.NetId, (byte)RpcCalls.SetRole, SendOption.Reliable, jogador.OwnerId);
-                    writer.Write((ushort)papel);
-                    writer.Write(true); // canOverrideRole
-                    AmongUsClient.Instance.FinishRpcImmediately(writer);
-                }
+                RoleManager.Instance.SetRole(jogador, papel);
+
+                // Importante: -1 transmite o SetRole a TODOS os clientes.
+                // Enviar para jogador.OwnerId só atualizava a tela do dono daquele jogador.
+                MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
+                    jogador.NetId, (byte)RpcCalls.SetRole, SendOption.Reliable, -1);
+                writer.Write((ushort)papel);
+                writer.Write(true); // canOverrideRole
+                AmongUsClient.Instance.FinishRpcImmediately(writer);
             }
             catch (Exception ex)
             {
@@ -638,16 +637,18 @@ internal sealed class EventoTesteMenu : MonoBehaviour
 
         try
         {
-            object ship = ShipStatus.Instance;
-            if (ship == null)
+            // Nas versões atuais de Among Us, RpcEndGame pertence ao GameManager,
+            // não ao ShipStatus.
+            object gerenciador = GameManager.Instance;
+            if (gerenciador == null)
             {
-                MostrarMensagem("ShipStatus ainda não está disponível.");
+                MostrarMensagem("GameManager ainda não está disponível.");
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "[Menu de teste] Não foi possível encerrar: ShipStatus.Instance é nulo.");
+                    "[Menu de teste] Não foi possível encerrar: GameManager.Instance é nulo.");
                 return;
             }
 
-            Type tipo = ship.GetType();
+            Type tipo = gerenciador.GetType();
             MethodInfo metodo = null;
             foreach (MethodInfo candidato in tipo.GetMethods(
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
@@ -667,9 +668,9 @@ internal sealed class EventoTesteMenu : MonoBehaviour
 
             if (metodo == null)
             {
-                MostrarMensagem("Não encontrei RpcEndGame compatível.");
+                MostrarMensagem("Não encontrei GameManager.RpcEndGame compatível.");
                 YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                    "[Menu de teste] ShipStatus.RpcEndGame não encontrado.");
+                    "[Menu de teste] GameManager.RpcEndGame não encontrado.");
                 return;
             }
 
@@ -678,10 +679,10 @@ internal sealed class EventoTesteMenu : MonoBehaviour
             if (!Enum.TryParse(tipoMotivo, "HumansByVote", true, out motivo))
                 motivo = Enum.ToObject(tipoMotivo, 0);
 
-            metodo.Invoke(ship, new[] { motivo, (object)false });
+            metodo.Invoke(gerenciador, new[] { motivo, (object)false });
             MostrarMensagem("Comando de encerramento enviado.");
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[Menu de teste] RpcEndGame invocado. Motivo=" + motivo + ".");
+                " [Menu de teste] GameManager.RpcEndGame invocado. Motivo=" + motivo + ".");
         }
         catch (Exception ex)
         {
