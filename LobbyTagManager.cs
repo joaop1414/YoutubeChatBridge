@@ -16,7 +16,7 @@ namespace YouTubeVoteBridge;
 public static class LobbyTagManager
 {
     private const string UrlTagsRemotas =
-        "https://tags-chatbridge-default-rtdb.firebaseio.com/tags.json";
+        "https://tags-chatbridge-default-rtdb.firebaseio.com/.json";
     private static readonly HttpClient ClienteHttp = new HttpClient
     {
         Timeout = TimeSpan.FromSeconds(10)
@@ -99,11 +99,11 @@ public static class LobbyTagManager
             }
 
             // O arquivo remoto é a fonte principal. O arquivo local serve como fallback
-            // se não houver conexão com o GitHub.
+            // se não houver conexão com o Firebase.
             IniciarDownloadTagsRemotas();
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "Tags locais carregadas; buscando tags remotas no GitHub.");
+                "Tags locais carregadas; buscando tags remotas no Firebase.");
         }
         catch (Exception ex)
         {
@@ -401,7 +401,7 @@ public static class LobbyTagManager
         return false;
     }
 
-    // Chamado pelo comando /tag update para buscar novamente o tags.json do GitHub.
+    // Chamado pelo comando /tag update para buscar novamente as tags do Firebase.
     public static void AtualizarTagsRemotas()
     {
         ReaplicarTagsQuandoDownloadConcluir = true;
@@ -460,7 +460,7 @@ public static class LobbyTagManager
             // Diagnóstico temporário: imprime o conteúdo bruto recebido do GitHub
             // no log do BepInEx para confirmar exatamente qual tags.json foi baixado.
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                $"[Tags][GITHUB][SUCESSO] URL='{UrlTagsRemotas}', bytes/caracteres={json.Length}.");
+                $"[Tags][FIREBASE][SUCESSO] URL='{UrlTagsRemotas}', bytes/caracteres={json.Length}.");
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 "[Tags][GITHUB][JSON INÍCIO]\n" + json + "\n[Tags][GITHUB][JSON FIM]");
 
