@@ -135,7 +135,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         );
 
         SemFimDeJogo = Config.Bind(
-            "Configurações do Mod", "<color=red>Sem fim de jogo", false,
+            "Configurações do Mod", "Sem fim de jogo", false,
             "Impede os encerramentos automáticos originais do Among Us. Os encerramentos solicitados pelo próprio mod continuam permitidos."
         );
 
