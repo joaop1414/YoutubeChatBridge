@@ -1635,7 +1635,8 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         // O aviso público foi desativado temporariamente para verificar se o
         // SendChat disparado após SetLevel é a causa da expulsão.
         return;
-    }}
+    }
+}
 
 
 // ============================================================
