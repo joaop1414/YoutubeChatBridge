@@ -1685,25 +1685,34 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             if (AvisosEnviados.Contains(clientId))
                 continue;
 
-            string nomeJogador = "um jogador";
+            PlayerControl jogadorAlvo = null;
             foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
             {
                 if (jogador != null && jogador.OwnerId == clientId &&
                     jogador.Data != null)
                 {
-                    nomeJogador = jogador.Data.PlayerName;
+                    jogadorAlvo = jogador;
                     break;
                 }
             }
 
-            EnviarMensagemPublicaEhr(
-                TITULO_SISTEMA,
-                nomeJogador + " entrou na sala."
-            );
+            if (jogadorAlvo == null)
+            {
+                Instance?.Log.LogWarning(
+                    $"Não foi possível enviar o aviso de sala modificada: jogador {clientId} não encontrado.");
+                continue;
+            }
 
+            string nomeJogador = jogadorAlvo.Data.PlayerName;
+            string mensagem =
+                $"Olá {nomeJogador}, já vamos avisando que esta partida é modificada. " +
+                "Aqui teremos uma votação do chat de uma live no YouTube, " +
+                "e eles poderão interagir com a partida de acordo com os eventos.";
+
+            EnviarMensagemIndividual(jogadorAlvo, mensagem);
             AvisosEnviados.Add(clientId);
             Instance?.Log.LogInfo(
-                $"Aviso de entrada enviado para a sala após a entrada do cliente {clientId}.");
+                $"Aviso de sala modificada enviado após a entrada do cliente {clientId}.");
         }
     }
 }
