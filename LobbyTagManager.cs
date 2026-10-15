@@ -23,7 +23,18 @@ public static class LobbyTagManager
         new();
     private static readonly HashSet<byte> TagsAplicadas = new();
     private static string CaminhoTags;
+    private static string CaminhoJogadores;
+    private static readonly Dictionary<string, JogadorRegistrado> JogadoresRegistrados =
+        new(StringComparer.OrdinalIgnoreCase);
     private static bool AvisouEstadoDesconhecido;
+
+    private sealed class JogadorRegistrado
+    {
+        public string FriendCode { get; set; } = string.Empty;
+        public string Nome { get; set; } = string.Empty;
+        public string PrimeiroRegistroUtc { get; set; } = string.Empty;
+        public string UltimoRegistroUtc { get; set; } = string.Empty;
+    }
 
     public static void Initialize()
     {
@@ -32,6 +43,26 @@ public static class LobbyTagManager
             string pasta = Path.Combine(Paths.ConfigPath, "YouTubeVoteBridge");
             Directory.CreateDirectory(pasta);
             CaminhoTags = Path.Combine(pasta, "tags.json");
+            CaminhoJogadores = Path.Combine(pasta, "players.json");
+
+            if (File.Exists(CaminhoJogadores))
+            {
+                try
+                {
+                    var salvos = JsonSerializer.Deserialize<Dictionary<string, JogadorRegistrado>>(
+                        File.ReadAllText(CaminhoJogadores));
+                    if (salvos != null)
+                    {
+                        foreach (var item in salvos)
+                            JogadoresRegistrados[NormalizarFriendCode(item.Key)] = item.Value;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                        "Não foi possível ler players.json: " + ex.Message);
+                }
+            }
 
             if (File.Exists(CaminhoTags))
             {
@@ -74,6 +105,59 @@ public static class LobbyTagManager
             .Trim()
             .Replace(':', '#')
             .ToLowerInvariant();
+    }
+
+    private static void RegistrarJogador(PlayerControl jogador, string friendCode)
+    {
+        if (jogador == null || string.IsNullOrWhiteSpace(friendCode))
+            return;
+
+        string chave = NormalizarFriendCode(friendCode);
+        string nome = jogador.Data?.PlayerName ?? string.Empty;
+        string agora = DateTime.UtcNow.ToString("O");
+        bool precisaSalvar = false;
+
+        if (!JogadoresRegistrados.TryGetValue(chave, out JogadorRegistrado registro))
+        {
+            registro = new JogadorRegistrado
+            {
+                FriendCode = friendCode.Replace(':', '#'),
+                Nome = nome,
+                PrimeiroRegistroUtc = agora,
+                UltimoRegistroUtc = agora
+            };
+            JogadoresRegistrados[chave] = registro;
+            precisaSalvar = true;
+        }
+        else if (!string.Equals(registro.Nome, nome, StringComparison.Ordinal))
+        {
+            registro.Nome = nome;
+            registro.UltimoRegistroUtc = agora;
+            precisaSalvar = true;
+        }
+
+        if (precisaSalvar)
+            SalvarJogadores();
+    }
+
+    private static void SalvarJogadores()
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(CaminhoJogadores))
+                return;
+
+            File.WriteAllText(CaminhoJogadores,
+                JsonSerializer.Serialize(JogadoresRegistrados, new JsonSerializerOptions
+                {
+                    WriteIndented = true
+                }));
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "Não foi possível salvar players.json: " + ex.Message);
+        }
     }
 
     private static void SalvarTags()
@@ -180,6 +264,8 @@ public static class LobbyTagManager
                 continue;
 
             string friendCode = NormalizarFriendCode(jogador.FriendCode);
+            RegistrarJogador(jogador, friendCode);
+
             if (!Tags.TryGetValue(friendCode, out string tag) ||
                 string.IsNullOrWhiteSpace(tag) ||
                 TagsAplicadas.Contains(jogador.PlayerId))
