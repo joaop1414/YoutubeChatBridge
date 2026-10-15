@@ -624,10 +624,11 @@ internal sealed class EventoTsunami : EventoVotacao
         {
             avisoLocalAtivo = true;
             float agora = Time.realtimeSinceStartup;
-            PlayerControl local = PlayerControl.LocalPlayer;
+            // Atualiza os nomes de todos os jogadores neste cliente, não só
+            // o nome local: o próprio nome geralmente não aparece sobre o próprio boneco.
             foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
             {
-                if (jogador == null || jogador != local ||
+                if (jogador == null ||
                     jogador.PlayerId == PlayerIdIndicador || jogador.Data == null ||
                     jogador.Data.Disconnected)
                     continue;
