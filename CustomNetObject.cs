@@ -200,6 +200,15 @@ internal static class CustomNetObject
                     outfit.PetId = petOriginal;
                     outfit.VisorId = visorOriginal;
 
+                    // O EHR serializa novamente o GameData depois de restaurar
+                    // o outfit do host. Sem esta segunda atualização, o cliente
+                    // pode ficar com o outfit temporário associado ao Shapeshift
+                    // e o PlayerControl falso permanece como "fortegreen ???".
+                    writer.StartMessage(1);
+                    writer.WritePacked(hostData.NetId);
+                    hostData.Serialize(writer, false);
+                    writer.EndMessage();
+
                     writer.EndMessage(); // GameDataTo (destinatário)
                     writer.EndMessage(); // GameData
                     AmongUsClient.Instance.SendOrDisconnect(writer);
