@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
 using AmongUs.GameOptions;
@@ -249,39 +250,58 @@ internal sealed class EventoEscondeEsconde : EventoVotacao
     {
         try
         {
-            // Procura um método de instância compatível sem depender de APIs
-            // que não existem em todas as versões de Among Us.
-            foreach (object alvo in new object[] { jogador, jogador?.Data?.Role })
+            // O EHR não altera o papel chamando SetRole diretamente: ele inicia
+            // a coroutine nativa CoSetRole(role, canOverride). Como SetRole do
+            // EHR é um método de extensão, ele não aparece na reflexão do jogador.
+            MethodInfo coSetRole = null;
+            foreach (MethodInfo metodo in jogador.GetType().GetMethods(
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
             {
-                if (alvo == null)
+                if (metodo.Name != "CoSetRole")
                     continue;
 
-                foreach (MethodInfo metodo in alvo.GetType().GetMethods(
-                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+                ParameterInfo[] parametros = metodo.GetParameters();
+                if (parametros.Length == 2 &&
+                    parametros[0].ParameterType == typeof(RoleTypes) &&
+                    parametros[1].ParameterType == typeof(bool))
                 {
-                    if (metodo.Name != "SetRole" && metodo.Name != "RpcSetRole")
-                        continue;
+                    coSetRole = metodo;
+                    break;
+                }
 
-                    ParameterInfo[] parametros = metodo.GetParameters();
-                    if (parametros.Length == 1 && parametros[0].ParameterType == typeof(RoleTypes))
-                    {
-                        metodo.Invoke(alvo, new object[] { papel });
-                        return true;
-                    }
-
-                    if (parametros.Length == 2 && parametros[0].ParameterType == typeof(RoleTypes) &&
-                        parametros[1].ParameterType == typeof(bool))
-                    {
-                        metodo.Invoke(alvo, new object[] { papel, true });
-                        return true;
-                    }
+                if (parametros.Length == 1 &&
+                    parametros[0].ParameterType == typeof(RoleTypes))
+                {
+                    coSetRole = metodo;
                 }
             }
+
+            if (coSetRole == null)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[Esconde-esconde] Não encontrei CoSetRole para aplicar o papel local.");
+                return false;
+            }
+
+            object rotina = coSetRole.GetParameters().Length == 2
+                ? coSetRole.Invoke(jogador, new object[] { papel, true })
+                : coSetRole.Invoke(jogador, new object[] { papel });
+
+            if (rotina is IEnumerator enumerator)
+            {
+                jogador.StartCoroutine(enumerator);
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    $"[Esconde-esconde] CoSetRole iniciado localmente: jogador={jogador.PlayerId}, papel={papel}.");
+                return true;
+            }
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[Esconde-esconde] CoSetRole não retornou uma coroutine compatível.");
         }
         catch (Exception ex)
         {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "[Esconde-esconde] Aplicação local por reflexão falhou: " +
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "[Esconde-esconde] Falha ao iniciar CoSetRole local: " +
                 (ex.InnerException ?? ex));
         }
 
