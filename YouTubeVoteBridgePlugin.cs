@@ -1648,72 +1648,27 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         if (!EhHost())
             return;
 
-        // Reseta apenas quando um novo cliente entra. O RPC SetLevel pode
-        // chegar mais de uma vez, então RegistrarEntrada não deve duplicar avisos.
         AvisosPendentes.Remove(clientId);
         AvisosEnviados.Remove(clientId);
         Instance?.Log.LogInfo(
-            $"Cliente {clientId} entrou; aguardando RPC SetLevel para enviar o aviso.");
+            $"Cliente {clientId} entrou. MODO DE DIAGNÓSTICO: aviso automático desativado para testar expulsões.");
     }
 
     public static void RegistrarEntrada(int clientId)
     {
-        if (!EhHost() || AvisosEnviados.Contains(clientId) ||
-            AvisosPendentes.ContainsKey(clientId))
+        if (!EhHost())
             return;
 
-        AvisosPendentes[clientId] = Time.realtimeSinceStartup + 1f;
+        // Diagnóstico: não agendar nem enviar mensagens de rede quando alguém entra.
+        // Isso isola o pacote GameData SetName/SendChat da investigação de expulsões.
         Instance?.Log.LogInfo(
-            $"RPC SetLevel recebido do cliente {clientId}; aviso agendado para daqui a 1 segundo.");
+            $"RPC SetLevel recebido do cliente {clientId}; aviso automático ignorado (modo de diagnóstico).");
     }
 
     public static void AtualizarAvisos()
     {
-        if (!EhHost() || AmongUsClient.Instance == null ||
-            AvisosPendentes.Count == 0)
-            return;
-
-        float agora = Time.realtimeSinceStartup;
-        foreach (var aviso in AvisosPendentes.ToArray())
-        {
-            if (agora < aviso.Value)
-                continue;
-
-            int clientId = aviso.Key;
-            AvisosPendentes.Remove(clientId);
-
-            if (AvisosEnviados.Contains(clientId))
-                continue;
-
-            PlayerControl jogadorAlvo = null;
-            foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
-            {
-                if (jogador != null && jogador.OwnerId == clientId &&
-                    jogador.Data != null)
-                {
-                    jogadorAlvo = jogador;
-                    break;
-                }
-            }
-
-            if (jogadorAlvo == null)
-            {
-                Instance?.Log.LogWarning(
-                    $"Não foi possível enviar o aviso de sala modificada: jogador {clientId} não encontrado.");
-                continue;
-            }
-
-            string nomeJogador = jogadorAlvo.Data.PlayerName;
-            string mensagem =
-                $"Olá {nomeJogador}, já vamos avisando que esta partida é modificada. " +
-                "Aqui teremos uma votação do chat de uma live no YouTube, " +
-                "e eles poderão interagir com a partida de acordo com os eventos.";
-
-            EnviarMensagemIndividual(jogadorAlvo, mensagem);
-            AvisosEnviados.Add(clientId);
-            Instance?.Log.LogInfo(
-                $"Aviso de sala modificada enviado após a entrada do cliente {clientId}.");
-        }
+        // Intencionalmente vazio durante o diagnóstico: nenhum aviso automático
+        // de entrada deve enviar pacotes de chat ou alterar nomes temporariamente.
     }
 }
 
