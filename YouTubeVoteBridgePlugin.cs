@@ -132,6 +132,8 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             "Tempo de preparação do chat ao conectar. Votos antigos recebidos durante esse período são descartados."
         );
 
+        LobbyTagManager.Initialize();
+
         Harmony.PatchAll();
         PainelVotacaoRpc.Inicializar();
         EventoTesteMenu.Inicializar();
@@ -1183,6 +1185,17 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         if (!EhHost())
             return;
 
+        // A votação do YouTube só pode iniciar eventos durante uma partida.
+        // Em lobby, descarta votos acumulados sem interromper os leitores da live.
+        if (!LobbyTagManager.PartidaIniciada())
+        {
+            if (RodadaAtiva)
+                EncerrarRodada();
+
+            while (FilaVotos.TryDequeue(out _)) { }
+            return;
+        }
+
         if (MeetingHud.Instance != null)
         {
             float pausa = Math.Max(0f, Time.deltaTime);
@@ -1818,10 +1831,14 @@ public static class YouTubeVoteUpdatePatch
 {
     public static void Postfix()
     {
+        LobbyTagManager.Update();
+
         DiagnosticoPlayerReal.Atualizar();
         JogadorRealExperimental.Atualizar();
         EventoTesteMenu.VerificarTecla();
-        EventoTesteMenu.ProcessarFilaExecucao();
+        // O menu pode ser aberto no lobby, mas os eventos de teste só executam em partida.
+        if (LobbyTagManager.PartidaIniciada())
+            EventoTesteMenu.ProcessarFilaExecucao();
         // Não enviar RPC customizado 248 para hosts vanilla: eles não conhecem esse RPC.
         YouTubeVoteBridgePlugin.AtualizarAvisos();
         FakePlayerAPI.Atualizar();
