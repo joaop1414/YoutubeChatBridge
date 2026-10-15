@@ -46,7 +46,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
     private const string PREFIXO = "[YouTubeVoteBridge] ";
     private const string TITULO_SISTEMA =
-        "<color=blue>YouTubeVoteBridge</color>";
+        "<color=blue>YouTubeChatBridge</color>";
 
     private static readonly Dictionary<int, float> AvisosPendentes = new();
     private static readonly HashSet<int> AvisosEnviados = new();
@@ -1863,7 +1863,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
             string nomeJogador = jogadorAlvo.Data.PlayerName;
             string mensagem =
-                $"Olá {nomeJogador}, esta é uma sala modificada pelo YouTubeVoteBridge. " +
+                $"Olá {nomeJogador}, esta é uma sala modificada pelo YouTubeChatBridge. " +
                 "A live do YouTube terá votações, e o chat poderá interagir com a partida por meio de eventos.";
 
             EnviarMensagemIndividual(jogadorAlvo, mensagem);
