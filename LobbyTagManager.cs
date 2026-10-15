@@ -227,8 +227,14 @@ public static class LobbyTagManager
                 if (string.IsNullOrWhiteSpace(textoTagSeparado))
                     continue;
 
+                // O TextMeshPro do jogo interpreta a cor com alfa explícito de forma
+                // mais consistente. Converte #RRGGBB em #RRGGBBFF sem alterar cores nomeadas.
+                string corSeparadaRichText = Regex.IsMatch(corSeparada, @"^#[0-9a-fA-F]{6}$")
+                    ? corSeparada + "FF"
+                    : corSeparada;
+
                 string tagSeparadaFormatada = corSeparadaValida
-                    ? $"<color={corSeparada}>{textoTagSeparado}</color>"
+                    ? $"<color={corSeparadaRichText}>{textoTagSeparado}</color>"
                     : textoTagSeparado;
 
                 foreach (JsonElement pessoa in jogadoresElement.EnumerateArray())
