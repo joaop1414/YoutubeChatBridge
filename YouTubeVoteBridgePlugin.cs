@@ -2042,8 +2042,21 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 NomesAntesDaEjecao[id] = nomeOriginal;
             PlayerIdNaEjecao = id;
 
-            DefinirNomeRainbowNosClientesComMod(jogador,
-                $"{nomeOriginal} era <color={cor}>{nomeFuncao}</color>");
+            string nomeEjecao = $"{nomeOriginal} era <color={cor}>{nomeFuncao}</color><size=0>";
+            DefinirNomeRainbowNosClientesComMod(jogador, nomeEjecao);
+
+            // Reforça a atualização visual local no host antes de a tela aparecer.
+            try
+            {
+                if (jogador.AmOwner)
+                    jogador.SetName(nomeEjecao);
+                if (jogador.cosmetics != null && jogador.cosmetics.nameText != null)
+                    jogador.cosmetics.nameText.text = nomeEjecao;
+            }
+            catch (Exception exLocal)
+            {
+                Instance?.Log.LogWarning("Ejeção: falha ao atualizar o nome local do host: " + exLocal.Message);
+            }
             Instance?.Log.LogInfo($"Ejeção: nome global definido ANTES da tela; PlayerId={id}, função={nomeFuncao}.");
         }
         catch (Exception ex)
@@ -2144,6 +2157,10 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 string nomeOriginal = NomesOriginaisRainbow.TryGetValue(playerId, out string salvo)
                     ? salvo
                     : (jogador.Data.PlayerName ?? string.Empty);
+
+                // O Rainbow não pode sobrescrever o nome temporário da ejeção.
+                if (PlayerIdNaEjecao.HasValue && PlayerIdNaEjecao.Value == playerId)
+                    continue;
 
                 if (LobbyTagManager.PartidaIniciada() && ShipStatus.Instance != null)
                     DefinirNomeRainbowNosClientesComMod(jogador, CriarNomeRainbow(nomeOriginal, indiceJogador));
