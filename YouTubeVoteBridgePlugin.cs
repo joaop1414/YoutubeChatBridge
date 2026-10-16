@@ -1745,6 +1745,11 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     private static int IndiceCorRainbow;
     private static readonly Dictionary<byte, int> CoresOriginaisRainbow = new();
     private static readonly Dictionary<byte, string> NomesOriginaisRainbow = new();
+    // Jogadores cujo RPC de destransformação foi interceptado durante o arco-íris.
+    // Mantém a cor original durante o restante do efeito para que ela não seja
+    // sobrescrita imediatamente pelo próximo ciclo de animação.
+    private static readonly HashSet<byte> CoresRainbowRestauradasPorDestransformacao = new();
+    private static bool EnviandoRpcDestransformacaoRainbow;
     private static readonly string[] CoresTextoRainbow =
     {
         "#FF4040", "#FF9A32", "#FFE64A", "#55E66A", "#42D9E8",
@@ -1835,8 +1840,9 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
         CoresOriginaisRainbow.Clear();
         NomesOriginaisRainbow.Clear();
+        CoresRainbowRestauradasPorDestransformacao.Clear();
 
-        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls
         {
             if (jogador == null || jogador.Data == null || jogador.Data.Disconnected)
                 continue;
@@ -1877,6 +1883,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
         CoresOriginaisRainbow.Clear();
         NomesOriginaisRainbow.Clear();
+        CoresRainbowRestauradasPorDestransformacao.Clear();
         RainbowGlobalAtivo = false;
         RainbowGlobalExpiraEm = 0f;
         Instance?.Log.LogInfo("Rainbow global encerrado; cores e nomes originais restaurados.");
@@ -1909,7 +1916,10 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
             try
             {
-                jogador.RpcSetColor((byte)IndiceCorRainbow);
+                // Após cancelar uma destransformação, a cor original do
+                // Shapeshifter deve permanecer restaurada até o fim do efeito.
+                if (!CoresRainbowRestauradasPorDestransformacao.Contains(jogador.PlayerId))
+                    jogador.RpcSetColor((byte)IndiceCorRainbow);
                 string nomeOriginal = NomesOriginaisRainbow.TryGetValue(
                     jogador.PlayerId, out string salvo)
                     ? salvo
@@ -1922,6 +1932,53 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                     jogador.PlayerId + ": " + ex.Message);
             }
         }
+    }
+
+    // Intercepta a tentativa normal de voltar à forma original enquanto o
+    // rainbow está ativo. Cancela a chamada inicial, restaura a cor do
+    // Shapeshifter e emite um novo RPC de destransformação que será replicado.
+    public static bool InterceptarDestransformacaoRainbow(
+        PlayerControl shapeshifter,
+        PlayerControl alvo,
+        bool shouldAnimate)
+    {
+        if (EnviandoRpcDestransformacaoRainbow ||
+            !RainbowGlobalAtivo ||
+            shapeshifter == null ||
+            alvo == null ||
+            shapeshifter.PlayerId != alvo.PlayerId)
+            return true;
+
+        try
+        {
+            int corOriginal = CoresOriginaisRainbow.TryGetValue(
+                shapeshifter.PlayerId, out int salva)
+                ? salva
+                : (int)shapeshifter.Data?.DefaultOutfit.ColorId;
+
+            CoresRainbowRestauradasPorDestransformacao.Add(shapeshifter.PlayerId);
+            shapeshifter.RpcSetColor((byte)Math.Clamp(corOriginal, 0, 255));
+
+            // O guard evita que o RPC reenviado seja interceptado novamente.
+            EnviandoRpcDestransformacaoRainbow = true;
+            shapeshifter.RpcShapeshift(shapeshifter, shouldAnimate);
+
+            Instance?.Log.LogInfo(
+                $"Rainbow: destransformação do Shapeshifter PlayerId={shapeshifter.PlayerId} interceptada; cor original restaurada e RPC reenviado.");
+        }
+        catch (Exception ex)
+        {
+            Instance?.Log.LogError(
+                "Rainbow: erro ao restaurar cor/reenviar destransformação: " + ex);
+            return true;
+        }
+        finally
+        {
+            EnviandoRpcDestransformacaoRainbow = false;
+        }
+
+        // Cancela o RPC original; o RPC reenviado acima é o que deve chegar a todos.
+        return false;
     }
 
     public static void ProcessarComandoCor(
@@ -2444,5 +2501,21 @@ internal static class YouTubeVoteBridgeBloquearFimDeJogoOriginalPatch
             "[Fim de jogo] Encerramento original bloqueado pela configuração 'Sem fim de jogo' (" +
             __originalMethod.Name + ").");
         return false;
+    }
+}
+
+
+// Durante o arco-íris, intercepta o RPC de destransformação (target == o próprio
+// Shapeshifter). O método central restaura a cor e reenvia o RPC uma única vez.
+[HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.RpcShapeshift))]
+public static class YouTubeVoteRainbowShapeshiftRevertPatch
+{
+    public static bool Prefix(
+        PlayerControl __instance,
+        PlayerControl target,
+        bool shouldAnimate)
+    {
+        return YouTubeVoteBridgePlugin.InterceptarDestransformacaoRainbow(
+            __instance, target, shouldAnimate);
     }
 }
