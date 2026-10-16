@@ -70,15 +70,12 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
             if (jogador?.Data == null || ShipStatus.Instance == null)
                 return 0;
 
-            // Preserva as tarefas já atribuídas. RpcSetTasks envia a lista completa,
-            // portanto não substituímos as tarefas que o jogador já possui.
+            // RpcSetTasks recebe a lista completa: mantemos as tarefas existentes.
             List<byte> ids = new();
             foreach (NetworkedPlayerInfo.TaskInfo tarefaExistente in jogador.Data.Tasks)
                 ids.Add(tarefaExistente.TypeId);
 
-            // Inspirado no TaskAssignPatch do EHR: primeiro montamos um catálogo
-            // de tarefas válidas para o mapa e evitamos tipos repetidos enquanto
-            // ainda houver tipos novos disponíveis.
+            // Como no EHR, usamos o catálogo real de tarefas do mapa atual.
             List<byte> catalogo = new();
             AdicionarTipos(ShipStatus.Instance.ShortTasks, catalogo);
             AdicionarTipos(ShipStatus.Instance.LongTasks, catalogo);
@@ -99,9 +96,9 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
             Embaralhar(novas);
 
             int adicionadas = 0;
-
-            // Fase 1: atribui cada tipo ainda não presente, sem duplicar.
             int unicas = Math.Min(quantidade, novas.Count);
+
+            // Primeiro, atribui tipos que o jogador ainda não tem.
             for (int i = 0; i < unicas; i++)
             {
                 ids.Add(novas[i]);
@@ -109,10 +106,8 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
                 adicionadas++;
             }
 
-            // Fase 2: se o jogador já recebeu todos os tipos disponíveis,
-            // permite repetir tarefas. Cada entrada extra na lista é uma
-            // atribuição separada; por exemplo, dois SwipeCard em vez de um.
-            // O jogo recebe a lista completa pelo RpcSetTasks.
+            // Se faltarem tarefas depois de esgotar os tipos inéditos,
+            // permite repetir tipos válidos do mapa.
             int faltam = quantidade - adicionadas;
             if (faltam > 0)
             {
@@ -121,8 +116,7 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
 
                 for (int i = 0; i < faltam; i++)
                 {
-                    byte tipo = repetiveis[i % repetiveis.Count];
-                    ids.Add(tipo);
+                    ids.Add(repetiveis[i % repetiveis.Count]);
                     adicionadas++;
                 }
             }
@@ -153,7 +147,7 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
     }
 
     private static void AdicionarTipos(
-        Il2CppSystem.Collections.Generic.List<NormalPlayerTask> tarefas,
+        Il2CppReferenceArray<NormalPlayerTask> tarefas,
         List<byte> destino)
     {
         if (tarefas == null) return;
