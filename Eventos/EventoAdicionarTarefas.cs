@@ -1,9 +1,11 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using HarmonyLib;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
+using UnityEngine;
 
 namespace YouTubeVoteBridge;
 
@@ -18,7 +20,22 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
     private static readonly Dictionary<byte, List<TarefaConcluidaAnterior>> ConclusoesPendentes = new();
     private static readonly Dictionary<byte, int> QuantidadeEsperada = new();
 
-    // Chamado depois que a lista de tarefas do jogador é recriada.
+    // Espera o jogo distribuir e materializar a nova lista antes de reaplicar conclusões.
+    public static void AgendarRestauracaoTarefasConcluidas(PlayerControl jogador)
+    {
+        if (jogador == null || AmongUsClient.Instance == null)
+            return;
+
+        AmongUsClient.Instance.StartCoroutine(RestaurarComAtraso(jogador));
+    }
+
+    private static IEnumerator RestaurarComAtraso(PlayerControl jogador)
+    {
+        yield return new WaitForSeconds(0.75f);
+        RestaurarTarefasConcluidas(jogador);
+    }
+
+    // Chamado depois que a lista nova de tarefas já foi aplicada.
     public static void RestaurarTarefasConcluidas(PlayerControl jogador)
     {
         if (jogador == null || !ConclusoesPendentes.TryGetValue(jogador.PlayerId, out var antigas))
@@ -290,7 +307,7 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
             }
 
             jogador.Data.RpcSetTasks(novaLista);
-            RestaurarTarefasConcluidas(jogador);
+            AgendarRestauracaoTarefasConcluidas(jogador);
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 $"Atribuição de tarefas para {jogador.Data.PlayerName}: novas únicas={unicas}, repetidas={adicionadas - unicas}, total adicionadas={adicionadas}.");
