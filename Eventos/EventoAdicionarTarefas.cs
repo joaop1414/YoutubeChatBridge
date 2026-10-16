@@ -109,24 +109,18 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
 
             try
             {
-                // GameData.CompleteTask é o ponto autoritativo que o jogo usa
-                // para registrar a conclusão. RpcCompleteTask pode ser rejeitado
-                // quando o host tenta completar uma tarefa pertencente a outro cliente.
+                // CompleteTask do GameData atualiza o contador da barra, mas não
+                // necessariamente marca a instância local de PlayerTask como concluída.
+                // Isso deixa a tarefa pendente visualmente enquanto a barra conta como feita.
+                // PlayerControl.CompleteTask é a rotina do jogo que conclui pelo taskId.
                 uint taskId = Convert.ToUInt32(id);
-                if (GameData.Instance == null)
-                {
-                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                        "Adicionar tarefas: GameData.Instance está nulo; tentarei restaurar novamente.");
-                    continue;
-                }
-
-                GameData.Instance.CompleteTask(jogador, taskId);
+                jogador.CompleteTask(taskId);
 
                 if (LerBool(tarefaAlvo, "IsComplete", "isComplete", "Complete", "complete"))
                     restauradas++;
                 else
                     YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                        $"Adicionar tarefas: CompleteTask não marcou '{antiga.Tipo}' como concluída (PlayerId={jogador.PlayerId}, TaskId={taskId}).");
+                        $"Adicionar tarefas: PlayerControl.CompleteTask ainda não marcou '{antiga.Tipo}' como concluída (PlayerId={jogador.PlayerId}, TaskId={taskId}).");
             }
             catch (Exception ex)
             {
