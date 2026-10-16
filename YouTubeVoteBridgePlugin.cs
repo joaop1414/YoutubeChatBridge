@@ -1983,6 +1983,10 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             if (jogador == null || jogador.Data == null) return;
 
             object role = LerMembro(playerInfo, "Role", "role");
+            if (role == null)
+                role = LerMembro(jogador.Data, "Role", "role");
+            if (role == null)
+                role = LerMembro(jogador, "Role", "role");
             object roleDetalhe = LerMembro(role, "Role", "role", "RoleType", "roleType");
             string nomeFuncao = roleDetalhe?.ToString();
             if (string.IsNullOrWhiteSpace(nomeFuncao))
@@ -2811,9 +2815,20 @@ public static class YouTubeVoteRainbowShapeshiftPatch
         [HarmonyArgument(0)] PlayerControl target,
         [HarmonyArgument(1)] bool shouldAnimate)
     {
-        if (__instance == null || target == null ||
-            !YouTubeVoteBridgePlugin.JogadorTemRainbowParaDestransformacao(__instance))
+        if (__instance == null || target == null)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "Rainbow diagnóstico: RpcShapeshift executou, mas instance ou target é null.");
             return;
+        }
+
+        bool rainbow = YouTubeVoteBridgePlugin.JogadorTemRainbowParaDestransformacao(__instance);
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"Rainbow diagnóstico: RpcShapeshift executou; PlayerId={__instance.PlayerId}, alvo={target.PlayerId}, shouldAnimate={shouldAnimate}, rainbowAtivo={rainbow}.");
+
+        if (!rainbow)
+            return;
+
         YouTubeVoteBridgePlugin.DefinirEstadoShapeshiftRainbow(
             __instance, __instance.PlayerId != target.PlayerId, target, shouldAnimate);
     }
@@ -2839,8 +2854,9 @@ public static class YouTubeVoteEjectionGlobalNamePatch
         {
             if (arg == null) continue;
             object id = YouTubeVoteBridgePlugin.LerMembroPublico(arg, "PlayerId", "playerId", "PlayerID");
-            object role = YouTubeVoteBridgePlugin.LerMembroPublico(arg, "Role", "role");
-            if (id != null && role != null)
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                $"Ejeção diagnóstico: argumento tipo={arg.GetType().FullName}, PlayerId={id ?? "não encontrado"}.");
+            if (id != null)
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                     $"Ejeção: jogador identificado no argumento {arg.GetType().FullName}, PlayerId={id}.");
