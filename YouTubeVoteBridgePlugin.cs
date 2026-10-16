@@ -3009,6 +3009,7 @@ public static class YouTubeVoteUpdatePatch
     public static void Postfix()
     {
         LobbyTagManager.Update();
+        EventoAdicionarTarefas.AtualizarRestauracoesAgendadas();
 
         DiagnosticoPlayerReal.Atualizar();
         JogadorRealExperimental.Atualizar();
