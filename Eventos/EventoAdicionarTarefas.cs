@@ -502,17 +502,52 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
 
     private static List<byte> CapturarTiposTarefas(PlayerControl jogador)
     {
-        List<byte> tipos = new();
-        List<object> tarefas = EnumerarColecaoIl2Cpp(LerMembro(jogador?.Data, "Tasks", "tasks"));
+        List<byte> indices = new();
+        if (jogador == null)
+            return indices;
 
-        foreach (object tarefa in tarefas)
+        // RpcSetTasks recebe os índices dos objetos NormalPlayerTask no catálogo
+        // do mapa, NÃO o enum TaskType. No host, myTasks expõe esses índices.
+        List<object> tarefasLocais = EnumerarColecaoIl2Cpp(
+            LerMembro(jogador, "myTasks", "MyTasks", "tasks", "Tasks"));
+
+        foreach (object tarefa in tarefasLocais)
         {
             if (tarefa == null) continue;
-            object tipo = LerMembro(tarefa, "TypeId", "typeId", "TaskType", "taskType");
-            if (tipo != null) tipos.Add(ConverterByte(tipo));
+            object indice = LerMembro(tarefa, "Index", "index");
+            if (indice == null) continue;
+
+            byte valor = ConverterByte(indice);
+            if (valor != byte.MaxValue)
+                indices.Add(valor);
         }
 
-        return tipos;
+        if (indices.Count > 0)
+            return indices;
+
+        // Fallback: reconstrói o índice do catálogo a partir do TaskType sincronizado.
+        // Isso é apenas reserva para quando a lista visual local ainda não foi criada.
+        List<object> tarefasDados = EnumerarColecaoIl2Cpp(
+            LerMembro(jogador.Data, "Tasks", "tasks"));
+        List<NormalPlayerTask> catalogo = new();
+        AdicionarTipos(ShipStatus.Instance?.CommonTasks, catalogo);
+        AdicionarTipos(ShipStatus.Instance?.ShortTasks, catalogo);
+        AdicionarTipos(ShipStatus.Instance?.LongTasks, catalogo);
+
+        foreach (object info in tarefasDados)
+        {
+            if (info == null) continue;
+            object tipoObj = LerMembro(info, "TypeId", "typeId", "TaskType", "taskType");
+            if (tipoObj == null) continue;
+
+            byte tipo = ConverterByte(tipoObj);
+            NormalPlayerTask encontrada = catalogo.FirstOrDefault(t =>
+                t != null && (byte)t.TaskType == tipo);
+            if (encontrada != null)
+                indices.Add((byte)encontrada.Index);
+        }
+
+        return indices;
     }
 
     private static byte ConverterByte(object valor)
@@ -664,6 +699,7 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
             return;
 
         List<byte> catalogo = new();
+        AdicionarTipos(ShipStatus.Instance.CommonTasks, catalogo);
         AdicionarTipos(ShipStatus.Instance.ShortTasks, catalogo);
         AdicionarTipos(ShipStatus.Instance.LongTasks, catalogo);
         catalogo = catalogo.Distinct().ToList();
@@ -723,6 +759,7 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
                 return 0;
 
             List<byte> catalogo = new();
+            AdicionarTipos(ShipStatus.Instance.CommonTasks, catalogo);
             AdicionarTipos(ShipStatus.Instance.ShortTasks, catalogo);
             AdicionarTipos(ShipStatus.Instance.LongTasks, catalogo);
             if (catalogo.Count == 0)
@@ -772,8 +809,24 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
         foreach (NormalPlayerTask tarefa in tarefas)
         {
             if (tarefa == null) continue;
-            destino.Add((byte)tarefa.TaskType);
+
+            // O byte enviado por RpcSetTasks é NormalPlayerTask.Index.
+            // TaskType é apenas o tipo lógico e não pode ser usado como índice.
+            int indice = tarefa.Index;
+            if (indice >= 0 && indice <= byte.MaxValue)
+                destino.Add((byte)indice);
         }
+    }
+
+    private static void AdicionarTipos(
+        Il2CppReferenceArray<NormalPlayerTask> tarefas,
+        List<NormalPlayerTask> destino)
+    {
+        if (tarefas == null) return;
+
+        foreach (NormalPlayerTask tarefa in tarefas)
+            if (tarefa != null)
+                destino.Add(tarefa);
     }
 
     private static void Embaralhar<T>(List<T> lista)
