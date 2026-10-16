@@ -153,6 +153,29 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
         return resultado;
     }
 
+    private static List<byte> CapturarTiposTarefas(PlayerControl jogador)
+    {
+        List<byte> tipos = new();
+        List<object> tarefas = EnumerarColecaoIl2Cpp(
+            LerMembro(jogador, "myTasks", "MyTasks", "tasks", "Tasks"));
+
+        foreach (object tarefa in tarefas)
+        {
+            if (tarefa == null) continue;
+            object tipo = LerMembro(tarefa, "TaskType", "taskType", "Type", "type");
+            if (tipo == null) continue;
+
+            try { tipos.Add(Convert.ToByte(tipo)); }
+            catch
+            {
+                try { tipos.Add((byte)Convert.ToInt32(tipo)); }
+                catch { }
+            }
+        }
+
+        return tipos;
+    }
+
     private static List<object> EnumerarColecaoIl2Cpp(object colecao)
     {
         List<object> itens = new();
@@ -259,6 +282,9 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
     // O EHR adiciona tarefas durante a atribuição normal, interceptando RpcSetTasks.
     // Guardamos a quantidade extra e deixamos o jogo criar a lista que será replicada aos clientes.
     private static readonly Dictionary<byte, int> AdicoesDuranteAtribuicao = new();
+    // RpcSetTasks recebe uma lista vazia no reset; guardamos os tipos anteriores
+    // para que o Prefix possa preservá-los e acrescentar somente as tarefas novas.
+    private static readonly Dictionary<byte, List<byte>> TiposOriginaisDuranteAtribuicao = new();
 
     public static void AplicarAdicoesAntesDeEnviar(
         NetworkedPlayerInfo dados,
@@ -287,7 +313,12 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
             return;
         }
 
-        List<byte> tipos = taskTypeIds.ToList();
+        List<byte> tipos;
+        if (TiposOriginaisDuranteAtribuicao.TryGetValue(jogador.PlayerId, out List<byte> tiposOriginais))
+            tipos = new List<byte>(tiposOriginais);
+        else
+            tipos = taskTypeIds.ToList();
+
         HashSet<byte> existentes = new(tipos);
         List<byte> novos = catalogo.Where(id => !existentes.Contains(id)).ToList();
         Embaralhar(novos);
@@ -315,6 +346,7 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
 
         QuantidadeEsperada[jogador.PlayerId] = tipos.Count;
         AdicoesDuranteAtribuicao.Remove(jogador.PlayerId);
+        TiposOriginaisDuranteAtribuicao.Remove(jogador.PlayerId);
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             $"EHR-style RpcSetTasks: PlayerId={jogador.PlayerId}, extras={adicionadas}, total={tipos.Count}.");
@@ -334,7 +366,9 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
                 return 0;
 
             List<TarefaConcluidaAnterior> concluidasAntes = CapturarTarefasConcluidas(jogador);
+            List<byte> tiposOriginais = CapturarTiposTarefas(jogador);
             ConclusoesPendentes[jogador.PlayerId] = concluidasAntes;
+            TiposOriginaisDuranteAtribuicao[jogador.PlayerId] = tiposOriginais;
             AdicoesDuranteAtribuicao[jogador.PlayerId] = quantidade;
             QuantidadeEsperada.Remove(jogador.PlayerId);
 
@@ -354,6 +388,7 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
         catch (Exception ex)
         {
             AdicoesDuranteAtribuicao.Remove(jogador?.PlayerId ?? byte.MaxValue);
+            TiposOriginaisDuranteAtribuicao.Remove(jogador?.PlayerId ?? byte.MaxValue);
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
                 $"Falha ao adicionar tarefas via fluxo EHR para {jogador?.Data?.PlayerName}: {ex}");
             return 0;
