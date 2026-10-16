@@ -338,36 +338,30 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
             if (tarefaAlvo != null && LerBool(tarefaAlvo, "Complete", "complete"))
                 continue;
 
-            MessageWriter writer = null;
             try
             {
-                // Atualiza o estado autoritativo do host usando o ID da nova lista.
-                if (GameData.Instance != null)
-                    GameData.Instance.CompleteTask(jogador, taskIdAlvo);
-
-                writer = AmongUsClient.Instance.StartRpcImmediately(
-                    jogador.NetId,
-                    (byte)RpcCalls.CompleteTask,
-                    SendOption.Reliable,
-                    -1);
-                writer.WritePacked(taskIdAlvo);
-                AmongUsClient.Instance.FinishRpcImmediately(writer);
-                writer = null;
+                // Reutiliza o método oficial do Among Us, que atualiza a tarefa no
+                // estado local do host e envia o RPC correto aos outros jogadores.
+                // GameData.CompleteTask + StartRpcImmediately podia deixar a lista
+                // visual myTasks do próprio host pendente.
+                jogador.RpcCompleteTask(taskIdAlvo);
                 reenviadas++;
                 if (!idsParaRepetir.Contains(taskIdAlvo))
                     idsParaRepetir.Add(taskIdAlvo);
 
+                List<object> depois = EnumerarColecaoIl2Cpp(
+                    LerMembro(jogador.Data, "Tasks", "tasks"));
+                object tarefaDepois = tarefaAlvo != null
+                    ? EncontrarTaskInfo(depois, antiga.Tipo, antiga.Ocorrencia)
+                    : null;
+
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    $"Adicionar tarefas: conclusão restaurada para PlayerId={jogador.PlayerId}, NetId={jogador.NetId}, TaskId antigo={antiga.TaskId}, TaskId atual={taskIdAlvo}.");
+                    $"Adicionar tarefas: RpcCompleteTask chamado no host; PlayerId={jogador.PlayerId}, TaskId antigo={antiga.TaskId}, TaskId atual={taskIdAlvo}, TaskInfoComplete={LerBool(tarefaDepois, "Complete", "complete")}.");
             }
             catch (Exception ex)
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    $"Adicionar tarefas: falha ao reenviar CompleteTask para PlayerId={jogador.PlayerId}, TaskId={antiga.TaskId}: {ex.GetBaseException().Message}");
-            }
-            finally
-            {
-                if (writer != null) writer.Recycle();
+                    $"Adicionar tarefas: falha ao restaurar via RpcCompleteTask para PlayerId={jogador.PlayerId}, TaskId={taskIdAlvo}: {ex.GetBaseException().Message}");
             }
         }
 
