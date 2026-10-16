@@ -3192,6 +3192,41 @@ public static class YouTubeVoteShapeshiftTaskListPatch
     }
 }
 
+// O evento de adicionar tarefas chama NetworkedPlayerInfo.RpcSetTasks.
+ // Quando essa lista é aplicada, tentamos restaurar as tarefas que já estavam concluídas.
+[HarmonyPatch]
+public static class YouTubeVoteAdicionarTarefasRestauracaoPatch
+{
+    private static IEnumerable<MethodBase> TargetMethods()
+    {
+        string[] nomes = { "RpcSetTasks", "SetTasks" };
+        foreach (string nome in nomes)
+        {
+            MethodBase metodo = AccessTools.Method(typeof(NetworkedPlayerInfo), nome);
+            if (metodo != null)
+                yield return metodo;
+        }
+    }
+
+    public static void Postfix(NetworkedPlayerInfo __instance)
+    {
+        if (__instance == null || PlayerControl.AllPlayerControls == null)
+            return;
+
+        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+        {
+            if (jogador == null || jogador.Data == null)
+                continue;
+
+            if (jogador.Data == __instance)
+            {
+                EventoAdicionarTarefas.RestaurarTarefasConcluidas(jogador);
+                return;
+            }
+        }
+    }
+}
+
 // EHR intercepta CheckShapeshift para identificar a habilidade real, antes do RPC
 // visual. Capturamos as tarefas nesse ponto para não depender somente de RpcShapeshift.
 [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.CheckShapeshift))]
