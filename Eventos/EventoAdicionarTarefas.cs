@@ -69,8 +69,8 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
         {
             // Copia a lista já atribuída para não substituir as tarefas existentes.
             List<byte> ids = new();
-            foreach (byte id in jogador.Data.Tasks)
-                ids.Add(id);
+            foreach (NetworkedPlayerInfo.TaskInfo tarefaExistente in jogador.Data.Tasks)
+                ids.Add(tarefaExistente.TypeId);
 
             HashSet<byte> existentes = new(ids);
 
