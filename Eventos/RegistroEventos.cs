@@ -37,7 +37,9 @@ internal static class RegistroEventos
         new EventoAdicionarTarefas(10, true),
         new EventoAdicionarTarefas(1, false),
         new EventoAdicionarTarefas(5, false),
-        new EventoAdicionarTarefas(10, false)
+        new EventoAdicionarTarefas(10, false),
+        new EventoCompletarTarefa(true),
+        new EventoCompletarTarefa(false)
     };
 
     public static IReadOnlyList<EventoVotacao> ObterTodos() => Eventos;
