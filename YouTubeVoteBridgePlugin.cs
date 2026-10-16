@@ -1981,8 +1981,8 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 // ExileController.Begin recebe InitProperties; os dados do jogador
                 // normalmente ficam numa propriedade interna como exiled.
                 foreach (string membro in new[] {
-                    "exiled", "Exiled", "playerInfo", "PlayerInfo",
-                    "networkedPlayerInfo", "NetworkedPlayerInfo",
+                    "exiled", "Exiled", "networkedPlayer", "NetworkedPlayer",
+                    "playerInfo", "PlayerInfo", "networkedPlayerInfo", "NetworkedPlayerInfo",
                     "player", "Player", "target", "Target"
                 })
                 {
@@ -2375,9 +2375,18 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         {
             if (pedidoRainbow)
             {
+                if (LobbyTagManager.PartidaIniciada())
+                {
+                    ResponderComando(chat, jogador,
+                        "O comando /color rainbow só pode ser usado no lobby, antes de a partida começar.");
+                    Instance?.Log.LogInfo(
+                        $"/color rainbow recusado durante a partida para PlayerId={jogador.PlayerId}.");
+                    return;
+                }
+
                 IniciarRainbowGlobal(jogador);
                 ResponderComando(chat, jogador,
-                    "Modo Arco-íris ativado para você. A cor muda durante a partida e o efeito termina quando ela acabar.");
+                    "Modo Arco-íris ativado para você. O efeito continuará durante a partida e terminará quando ela acabar.");
                 return;
             }
 
