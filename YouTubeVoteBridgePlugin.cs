@@ -2227,13 +2227,18 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 }
 
                 object idTarefa = LerMembro(tarefaAlvo, "Id", "id", "TaskId", "taskId");
+                // EHR usa RpcCompleteTask(task.Id), não CompleteTask:
+                // o RPC marca a tarefa correta como concluída também no estado de jogo.
                 MethodInfo completar = typeof(PlayerControl).GetMethods(
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                    .FirstOrDefault(m => m.Name == "RpcCompleteTask" && m.GetParameters().Length == 1)
+                    ?? typeof(PlayerControl).GetMethods(
                     BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
                     .FirstOrDefault(m => m.Name == "CompleteTask" && m.GetParameters().Length == 1);
                 if (idTarefa == null || completar == null)
                 {
                     Instance?.Log.LogWarning(
-                        $"Shapeshift/tarefas: ID ou método CompleteTask não encontrado para '{antiga.Tipo}'.");
+                        $"Shapeshift/tarefas: ID ou método RpcCompleteTask/CompleteTask não encontrado para '{antiga.Tipo}'.");
                     continue;
                 }
 
@@ -2997,34 +3002,48 @@ public static class YouTubeVoteTaskKillPatch
     }
 }
 
-// Algumas versões do Among Us não possuem PlayerControl.RpcSetTasks.
-// Selecionamos somente um método existente que realmente atualize as tarefas,
-// evitando que um TargetMethod nulo impeça o plugin inteiro de carregar.
+// Usa TargetMethods (plural): se esta versão do Among Us não expuser nenhum
+// método conhecido, a lista fica vazia sem provocar HarmonyException no carregamento.
 [HarmonyPatch]
 public static class YouTubeVoteShapeshiftTaskListPatch
 {
-    private static MethodBase TargetMethod()
+    private static IEnumerable<MethodBase> TargetMethods()
     {
-        string[] nomes = { "SetTasks", "RpcSetTasks", "AddTasks", "SetTaskList" };
+        string[] nomes = { "SetTasks", "RpcSetTasks", "AddTasks", "SetTaskList", "RpcAddTask" };
         foreach (string nome in nomes)
         {
             MethodBase metodo = AccessTools.Method(typeof(PlayerControl), nome);
-            if (metodo != null)
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    $"Shapeshift/tarefas: patch conectado a PlayerControl.{nome}.");
-                return metodo;
-            }
+            if (metodo == null)
+                continue;
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                $"Shapeshift/tarefas: patch conectado a PlayerControl.{nome}.");
+            yield return metodo;
         }
 
-        YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-            "Shapeshift/tarefas: nenhum método de atualização de tarefas conhecido foi encontrado; plugin continuará carregando, mas a restauração automática não estará conectada.");
-        return null;
+        // Também pode acontecer de a lista ser montada internamente por outra rotina.
+        // Nesse caso, o log deixa claro que a restauração ainda não tem um gancho disponível.
     }
 
     public static void Postfix(PlayerControl __instance)
     {
         YouTubeVoteBridgePlugin.RestaurarTarefasDepoisDeAtualizar(__instance);
+    }
+}
+
+// EHR intercepta CheckShapeshift para identificar a habilidade real, antes do RPC
+// visual. Capturamos as tarefas nesse ponto para não depender somente de RpcShapeshift.
+[HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.CheckShapeshift))]
+public static class YouTubeVoteShapeshiftCheckPatch
+{
+    public static void Prefix(PlayerControl __instance, [HarmonyArgument(0)] PlayerControl target)
+    {
+        if (__instance == null || target == null || __instance.PlayerId == target.PlayerId)
+            return;
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"Shapeshift detectado via CheckShapeshift (padrão EHR): PlayerId={__instance.PlayerId}, alvo={target.PlayerId}.");
+        YouTubeVoteBridgePlugin.RegistrarTarefasAntesDoShapeshift(__instance, target);
     }
 }
 
