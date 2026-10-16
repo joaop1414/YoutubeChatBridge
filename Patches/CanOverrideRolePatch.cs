@@ -1,3 +1,4 @@
+using AmongUs.GameOptions;
 using HarmonyLib;
 
 namespace YouTubeVoteBridge;
