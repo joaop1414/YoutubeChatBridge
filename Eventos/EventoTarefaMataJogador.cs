@@ -7,7 +7,7 @@ internal sealed class EventoTarefaMataJogador : EventoVotacao
 {
     private static bool ativo;
     private static readonly Random Sorteador = new();
-    public override string Nome => "Quem completar uma tarefa mata um jogador";
+    public override string Nome => "Quem completar uma tarefa mata um jogador (até a próxima reunião)";
     public void Executar() => Ativar();
     public static void Ativar()
     {
