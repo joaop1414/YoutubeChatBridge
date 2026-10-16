@@ -1,15 +1,18 @@
 using System;
 using System.Collections.Generic;
-using HarmonyLib;
 using UnityEngine;
 
 namespace YouTubeVoteBridge;
 
-// Animação puramente visual: o host continua sincronizando as cores normais
-// pela rede, enquanto cada cliente com o mod interpola o corpo entre elas.
+// Interpolação visual local. Os clientes detectam o rainbow observando as
+// mudanças regulares de cor recebidas pela rede; nenhum RPC customizado é enviado
+// a clientes vanilla ou a hosts que talvez não conheçam o mod.
 internal static class RainbowColorTransition
 {
     private const float DURACAO_TRANSICAO = 0.5f;
+    private const float INTERVALO_RAINBOW_MIN = 0.25f;
+    private const float INTERVALO_RAINBOW_MAX = 0.85f;
+    private const float TEMPO_PARA_PARAR = 1.25f;
     private const string BODY_COLOR = "_BodyColor";
 
     private sealed class Estado
@@ -20,8 +23,14 @@ internal static class RainbowColorTransition
         public Color CorDestino;
         public float Inicio;
         public bool Inicializado;
+
+        public int UltimaCorObservada = -1;
+        public float HoraUltimaMudanca;
+        public int MudancasRegulares;
+        public bool DetectadoAutomaticamente;
     }
 
+    private static readonly HashSet<byte> AtivosForcados = new();
     private static readonly HashSet<byte> Ativos = new();
     private static readonly Dictionary<byte, Estado> Estados = new();
 
@@ -29,21 +38,84 @@ internal static class RainbowColorTransition
     {
         if (ativo)
         {
+            AtivosForcados.Add(playerId);
             Ativos.Add(playerId);
-            if (!Estados.ContainsKey(playerId))
-                Estados[playerId] = new Estado();
+            ObterEstado(playerId);
         }
         else
         {
+            AtivosForcados.Remove(playerId);
             Ativos.Remove(playerId);
             Estados.Remove(playerId);
         }
     }
 
+    private static Estado ObterEstado(byte playerId)
+    {
+        if (!Estados.TryGetValue(playerId, out Estado estado))
+        {
+            estado = new Estado();
+            Estados[playerId] = estado;
+        }
+
+        return estado;
+    }
+
     internal static void Atualizar()
     {
-        if (Ativos.Count == 0 || PlayerControl.AllPlayerControls == null)
+        if (PlayerControl.AllPlayerControls == null)
             return;
+
+        float agora = Time.realtimeSinceStartup;
+
+        // Detecta o arco-íris no cliente sem depender de handshake ou RPC extra:
+        // a cor do jogador muda repetidamente em intervalos de aproximadamente 0,5 s.
+        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+        {
+            if (jogador == null || jogador.Data == null || jogador.Data.Disconnected)
+                continue;
+
+            byte playerId = jogador.PlayerId;
+            int idCor = (int)jogador.Data.DefaultOutfit.ColorId;
+            Estado estado = ObterEstado(playerId);
+
+            if (estado.UltimaCorObservada != idCor)
+            {
+                if (estado.UltimaCorObservada >= 0)
+                {
+                    float intervalo = agora - estado.HoraUltimaMudanca;
+                    if (intervalo >= INTERVALO_RAINBOW_MIN &&
+                        intervalo <= INTERVALO_RAINBOW_MAX)
+                        estado.MudancasRegulares++;
+                    else
+                        estado.MudancasRegulares = 1;
+                }
+                else
+                {
+                    estado.MudancasRegulares = 0;
+                }
+
+                estado.UltimaCorObservada = idCor;
+                estado.HoraUltimaMudanca = agora;
+
+                // Duas mudanças seguidas no intervalo do rainbow confirmam o efeito.
+                if (!AtivosForcados.Contains(playerId) &&
+                    estado.MudancasRegulares >= 2)
+                {
+                    estado.DetectadoAutomaticamente = true;
+                    Ativos.Add(playerId);
+                }
+            }
+            else if (estado.DetectadoAutomaticamente &&
+                     !AtivosForcados.Contains(playerId) &&
+                     agora - estado.HoraUltimaMudanca > TEMPO_PARA_PARAR)
+            {
+                Ativos.Remove(playerId);
+                estado.DetectadoAutomaticamente = false;
+                estado.MudancasRegulares = 0;
+                estado.Inicializado = false;
+            }
+        }
 
         foreach (byte playerId in new List<byte>(Ativos))
         {
@@ -75,7 +147,7 @@ internal static class RainbowColorTransition
                 if (idCor < 0 || idCor >= totalCores)
                     continue;
 
-                Estado estado = Estados[playerId];
+                Estado estado = ObterEstado(playerId);
                 Color corRede = Palette.PlayerColors[idCor];
 
                 if (!estado.Inicializado)
@@ -84,26 +156,22 @@ internal static class RainbowColorTransition
                     estado.CorAtual = corRede;
                     estado.CorInicial = corRede;
                     estado.CorDestino = corRede;
-                    estado.Inicio = Time.realtimeSinceStartup;
+                    estado.Inicio = agora;
                     estado.Inicializado = true;
                 }
                 else if (estado.CorAlvo != idCor)
                 {
-                    // Começa a próxima interpolação da cor que está na tela,
-                    // não da cor anterior da paleta, evitando saltos visuais.
                     estado.CorInicial = estado.CorAtual;
                     estado.CorDestino = corRede;
                     estado.CorAlvo = idCor;
-                    estado.Inicio = Time.realtimeSinceStartup;
+                    estado.Inicio = agora;
                 }
 
                 float progresso = Mathf.Clamp01(
-                    (Time.realtimeSinceStartup - estado.Inicio) / DURACAO_TRANSICAO);
+                    (agora - estado.Inicio) / DURACAO_TRANSICAO);
                 estado.CorAtual = Color.Lerp(estado.CorInicial, estado.CorDestino, progresso);
 
-                // O shader do corpo usa _BodyColor. O material é o material
-                // individual do SpriteRenderer, então a animação não altera
-                // a paleta global nem os outros jogadores.
+                // Só altera o material visual deste corpo neste cliente.
                 renderer.material.SetColor(BODY_COLOR, estado.CorAtual);
             }
             catch (Exception ex)
@@ -112,40 +180,20 @@ internal static class RainbowColorTransition
                     $"Rainbow visual: falha ao interpolar PlayerId={playerId}: {ex.Message}");
             }
         }
-    }
 
-    internal static void Limpar()
-    {
-        Ativos.Clear();
-        Estados.Clear();
-    }
-}
+        // Limpa o estado de observação de jogadores que saíram da sala.
+        var idsPresentes = new HashSet<byte>();
+        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+            if (jogador != null)
+                idsPresentes.Add(jogador.PlayerId);
 
-// RPC 249 é usado somente entre clientes que possuem este mod.
-// Os clientes vanilla nunca recebem esse RPC personalizado.
-[HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.HandleRpc))]
-internal static class RainbowColorTransitionRpcPatch
-{
-    [HarmonyPrefix]
-    private static bool Prefix(PlayerControl __instance, byte callId, Hazel.MessageReader reader)
-    {
-        if (callId != 249)
-            return true;
-
-        try
+        foreach (byte id in new List<byte>(Estados.Keys))
         {
-            byte playerId = reader.ReadByte();
-            bool ativo = reader.ReadBoolean();
-            RainbowColorTransition.DefinirAtivo(playerId, ativo);
+            if (idsPresentes.Contains(id))
+                continue;
+            Estados.Remove(id);
+            Ativos.Remove(id);
+            AtivosForcados.Remove(id);
         }
-        catch (Exception ex)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "Rainbow visual: RPC de estado inválido: " + ex.Message);
-        }
-
-        // O RPC personalizado já foi tratado; não deixe o jogo tentar
-        // interpretá-lo como uma chamada vanilla desconhecida.
-        return false;
     }
 }
