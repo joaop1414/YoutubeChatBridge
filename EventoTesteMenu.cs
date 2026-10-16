@@ -78,12 +78,7 @@ internal sealed class EventoTesteMenu : MonoBehaviour
         UnityEngine.Object.DontDestroyOnLoad(objeto);
         objeto.AddComponent<EventoTesteMenu>();
 
-        // O Esconde-Esconde fica disponível no menu de testes sem entrar no catálogo da votação.
-        var eventosTeste = new List<EventoVotacao>(RegistroEventos.ObterTodos())
-        {
-            new EventoEscondeEsconde()
-        };
-        eventos = eventosTeste;
+        eventos = new List<EventoVotacao>(RegistroEventos.ObterTodos());
         threadJanela = new Thread(CriarJanelaNativa)
         {
             IsBackground = true,
