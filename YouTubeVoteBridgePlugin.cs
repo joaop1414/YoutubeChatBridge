@@ -1903,7 +1903,13 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
     public static void AtualizarRainbow()
     {
-        if (!EhHost() || !RainbowGlobalAtivo || !LobbyTagManager.PartidaIniciada())
+        // Não basta confiar apenas no GameState: durante transições de lobby/fim
+        // de partida ele pode permanecer como Started por alguns frames. O
+        // ShipStatus só existe quando a cena da partida está realmente ativa.
+        if (!EhHost() || !RainbowGlobalAtivo)
+            return;
+
+        if (!LobbyTagManager.PartidaIniciada() || ShipStatus.Instance == null)
             return;
 
         if (Time.realtimeSinceStartup < ProximaTrocaCorRainbow)
