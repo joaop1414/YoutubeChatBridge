@@ -245,15 +245,34 @@ internal static class InspecaoSelecaoInicialFuncoesPatch
         {
             const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
             Type tipoColecao = colecao.GetType();
-            Type tipoRole = typeof(RoleTypes);
-            MethodInfo chanceMethod = tipoColecao.GetMethod("GetChancePerGame", flags, null, new[] { tipoRole }, null);
-            MethodInfo quantidadeMethod = tipoColecao.GetMethod("GetNumPerGame", flags, null, new[] { tipoRole }, null);
 
-            if (chanceMethod == null && quantidadeMethod == null)
+            // Descobre o tipo da função pela assinatura dos getters, evitando
+            // depender de um namespace específico de RoleTypes entre versões.
+            MethodInfo chanceMethod = tipoColecao.GetMethods(flags)
+                .FirstOrDefault(m => m.Name == "GetChancePerGame" &&
+                    m.GetParameters().Length == 1 &&
+                    m.GetParameters()[0].ParameterType.IsEnum);
+            MethodInfo quantidadeMethod = tipoColecao.GetMethods(flags)
+                .FirstOrDefault(m => m.Name == "GetNumPerGame" &&
+                    m.GetParameters().Length == 1 &&
+                    m.GetParameters()[0].ParameterType.IsEnum);
+
+            Type tipoRole = chanceMethod?.GetParameters()[0].ParameterType
+                ?? quantidadeMethod?.GetParameters()[0].ParameterType;
+
+            if (tipoRole == null || (!tipoRole.IsEnum))
             {
-                plugin.Log.LogInfo(Prefixo + etapa + " ROLE_OPTION_VALUES=getters não encontrados");
+                plugin.Log.LogInfo(Prefixo + etapa + " ROLE_OPTION_VALUES=getters de enum não encontrados");
                 return;
             }
+
+            if (chanceMethod != null &&
+                chanceMethod.GetParameters()[0].ParameterType != tipoRole)
+                chanceMethod = null;
+
+            if (quantidadeMethod != null &&
+                quantidadeMethod.GetParameters()[0].ParameterType != tipoRole)
+                quantidadeMethod = null;
 
             foreach (object role in Enum.GetValues(tipoRole))
             {
