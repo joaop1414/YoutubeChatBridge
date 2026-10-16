@@ -19,6 +19,7 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
     private static readonly Dictionary<byte, List<TarefaConcluidaAnterior>> ConclusoesPendentes = new();
     private static readonly Dictionary<byte, int> QuantidadeEsperada = new();
     private static readonly Dictionary<byte, float> RestauracoesAgendadas = new();
+    private static readonly HashSet<byte> ListaNovaDetectada = new();
 
     // Espera o jogo distribuir e materializar a nova lista antes de reaplicar conclusões.
     public static void AgendarRestauracaoTarefasConcluidas(PlayerControl jogador)
@@ -58,11 +59,33 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
             if (jogador == null)
                 continue;
 
+            // Espera a lista nova aparecer antes de iniciar o atraso de 1 segundo.
+            if (!ListaNovaDetectada.Contains(agendada.Key))
+            {
+                List<object> tarefasAtuais = EnumerarColecaoIl2Cpp(
+                    LerMembro(jogador.Data, "Tasks", "tasks"));
+
+                if (!QuantidadeEsperada.TryGetValue(agendada.Key, out int esperada) ||
+                    tarefasAtuais.Count < esperada)
+                {
+                    RestauracoesAgendadas[agendada.Key] = Time.time + 0.25f;
+                    continue;
+                }
+
+                ListaNovaDetectada.Add(agendada.Key);
+                RestauracoesAgendadas[agendada.Key] = Time.time + 1f;
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    $"Adicionar tarefas: lista nova aplicada para PlayerId={agendada.Key} " +
+                    $"({tarefasAtuais.Count} tarefas); RPC de conclusão em 1 segundo.");
+                continue;
+            }
+
             RestaurarTarefasConcluidas(jogador);
 
-            // Se a lista nova ainda não chegou, tenta novamente em 0,25 s.
             if (ConclusoesPendentes.ContainsKey(agendada.Key))
                 RestauracoesAgendadas[agendada.Key] = Time.time + 0.25f;
+            else
+                ListaNovaDetectada.Remove(agendada.Key);
         }
     }
 
@@ -153,6 +176,7 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
 
         ConclusoesPendentes.Remove(jogador.PlayerId);
         QuantidadeEsperada.Remove(jogador.PlayerId);
+        ListaNovaDetectada.Remove(jogador.PlayerId);
     }
 
     private static List<TarefaConcluidaAnterior> CapturarTarefasConcluidas(PlayerControl jogador)
