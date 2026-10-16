@@ -52,8 +52,9 @@ internal static class RoleSwitchAPI
             // Padrão inspirado no Hydra/EHR para o host:
             // 1) atualiza o estado local do jogador no host com RoleManager.SetRole;
             // 2) transmite SetRole para todos os clientes com canOverrideRole=true.
-            // Não usamos CoSetRole aqui: o Hydra documenta que ele pode causar
-            // problemas ao alternar entre funções normais e funções fantasma.
+            // Para a aplicação local, usamos CoSetRole(funcao, true), como no EHR.
+            // O RPC global continua sendo enviado separadamente pelo host; não
+            // chamamos RpcSetRole por método para evitar caminhos recursivos.
             if (cliente.AmHost)
             {
                 if (RoleManager.Instance == null)
