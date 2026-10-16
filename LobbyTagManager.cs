@@ -615,7 +615,7 @@ public static class LobbyTagManager
             else
                 tagRenderizada = "<size=50%>" + configuracao.Tag + "</size>";
 
-            string nomeComTag = tagRenderizada + "\n" +
+            string nomeComTag = tagRenderizada + " - "+
                 NomesOriginais[jogador.PlayerId];
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
