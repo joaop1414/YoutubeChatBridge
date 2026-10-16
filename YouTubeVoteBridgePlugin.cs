@@ -3220,7 +3220,7 @@ public static class YouTubeVoteAdicionarTarefasRestauracaoPatch
 
             if (jogador.Data == __instance)
             {
-                EventoAdicionarTarefas.RestaurarTarefasConcluidas(jogador);
+                EventoAdicionarTarefas.AgendarRestauracaoTarefasConcluidas(jogador);
                 return;
             }
         }
