@@ -5,7 +5,7 @@ namespace YouTubeVoteBridge;
 internal sealed class EventoTarefaSuicidio : EventoVotacao
 {
     private static bool ativo;
-    public override string Nome => "Quem completar uma tarefa se mata";
+    public override string Nome => "Quem completar uma tarefa se mata (até a próxima reunião)";
     public void Executar() => Ativar();
     public static void Ativar()
     {
