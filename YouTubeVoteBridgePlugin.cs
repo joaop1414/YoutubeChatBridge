@@ -1428,6 +1428,24 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 case "Quem completar uma tarefa se mata":
                     EventoTarefaSuicidio.Ativar();
                     break;
+                case "Adicionar 1 tarefa(s) a todos":
+                    new EventoAdicionarTarefas(1, true).Executar();
+                    break;
+                case "Adicionar 5 tarefa(s) a todos":
+                    new EventoAdicionarTarefas(5, true).Executar();
+                    break;
+                case "Adicionar 10 tarefa(s) a todos":
+                    new EventoAdicionarTarefas(10, true).Executar();
+                    break;
+                case "Adicionar 1 tarefa(s) a um jogador aleatório":
+                    new EventoAdicionarTarefas(1, false).Executar();
+                    break;
+                case "Adicionar 5 tarefa(s) a um jogador aleatório":
+                    new EventoAdicionarTarefas(5, false).Executar();
+                    break;
+                case "Adicionar 10 tarefa(s) a um jogador aleatório":
+                    new EventoAdicionarTarefas(10, false).Executar();
+                    break;
                 default:
                     Instance.Log.LogWarning("O evento vencedor ainda não tem efeito conectado: " + eventoVencedor.Nome);
                     break;
