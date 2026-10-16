@@ -1771,16 +1771,49 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         return nome.ToString();
     }
 
-    // Define o nome apenas na tela dos clientes que confirmaram possuir o mod.
-    // Clientes vanilla não recebem este nome decorado.
+    // Envia SetName em GameData (broadcast), para TODOS os clientes,
+    // incluindo vanilla. Assim, o nome personalizado não depende da detecção do mod.
     private static void DefinirNomeRainbowNosClientesComMod(PlayerControl jogador, string nome)
     {
         if (jogador == null || jogador.Data == null || AmongUsClient.Instance == null)
             return;
 
-        // O host também precisa ver o nome animado na própria tela.
+        if (!EhHost())
+        {
+            // O host controla as alterações globais de nome.
+            try
+            {
+                if (jogador.AmOwner)
+                    jogador.SetName(nome);
+                if (jogador.cosmetics != null && jogador.cosmetics.nameText != null)
+                    jogador.cosmetics.nameText.text = nome;
+            }
+            catch (Exception ex)
+            {
+                Instance?.Log.LogDebug("Rainbow: falha ao atualizar nome local: " + ex.Message);
+            }
+            return;
+        }
+
+        MessageWriter writer = null;
         try
         {
+            // Tipo 5 = GameData, transmitido para todos os clientes da sala.
+            writer = MessageWriter.Get(SendOption.Reliable);
+            writer.StartMessage(5);
+            writer.Write(AmongUsClient.Instance.GameId);
+            writer.StartMessage(2); // RPC
+            writer.WritePacked(jogador.NetId);
+            writer.Write((byte)RpcCalls.SetName);
+            writer.Write(jogador.Data.NetId);
+            writer.Write(nome);
+            writer.EndMessage();
+            writer.EndMessage();
+            AmongUsClient.Instance.SendOrDisconnect(writer);
+            writer.Recycle();
+            writer = null;
+
+            // Atualiza também a interface do host imediatamente.
             if (jogador.AmOwner)
                 jogador.SetName(nome);
             if (jogador.cosmetics != null && jogador.cosmetics.nameText != null)
@@ -1788,46 +1821,13 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         }
         catch (Exception ex)
         {
-            Instance?.Log.LogDebug("Rainbow: falha ao atualizar nome local do host: " + ex.Message);
+            Instance?.Log.LogWarning("Rainbow: falha ao enviar SetName para todos os clientes: " + ex);
         }
-
-        if (!EhHost())
-            return;
-
-        foreach (int clientId in ClientesComMod.ToArray())
+        finally
         {
-            if (clientId < 0 || clientId == AmongUsClient.Instance.ClientId)
-                continue;
-
-            MessageWriter writer = null;
-            try
+            if (writer != null)
             {
-                writer = MessageWriter.Get(SendOption.Reliable);
-                writer.StartMessage(6); // GameDataTo
-                writer.Write(AmongUsClient.Instance.GameId);
-                writer.WritePacked(clientId);
-                writer.StartMessage(2); // RPC
-                writer.WritePacked(jogador.NetId);
-                writer.Write((byte)RpcCalls.SetName);
-                writer.Write(jogador.Data.NetId);
-                writer.Write(nome);
-                writer.EndMessage();
-                writer.EndMessage();
-                AmongUsClient.Instance.SendOrDisconnect(writer);
-                writer.Recycle();
-                writer = null;
-            }
-            catch (Exception ex)
-            {
-                Instance?.Log.LogWarning("Rainbow: não foi possível atualizar nome no cliente " +
-                    clientId + ": " + ex.Message);
-            }
-            finally
-            {
-                if (writer != null)
-                {
-                    try { writer.Recycle(); } catch { }
-                }
+                try { writer.Recycle(); } catch { }
             }
         }
     }
