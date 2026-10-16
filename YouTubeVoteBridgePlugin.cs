@@ -3227,6 +3227,13 @@ public static class YouTubeVoteAdicionarTarefasRestauracaoPatch
         }
     }
 
+    public static void Prefix(NetworkedPlayerInfo __instance)
+    {
+        // Em clientes com mod, captura as tarefas concluídas antes de a lista antiga
+        // ser substituída. Os RPCs do host continuam sendo usados para os clientes vanilla.
+        EventoAdicionarTarefas.CapturarConclusoesLocaisAntesDaRedistribuicao(__instance);
+    }
+
     public static void Postfix(NetworkedPlayerInfo __instance)
     {
         if (__instance == null || PlayerControl.AllPlayerControls == null)
@@ -3239,6 +3246,7 @@ public static class YouTubeVoteAdicionarTarefasRestauracaoPatch
 
             if (jogador.Data == __instance)
             {
+                EventoAdicionarTarefas.RestaurarConclusoesLocaisDepoisDaRedistribuicao(__instance);
                 EventoAdicionarTarefas.AgendarRestauracaoTarefasConcluidas(jogador);
                 return;
             }
