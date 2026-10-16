@@ -96,8 +96,15 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
                 }
             }
 
-            if (tarefaAlvo == null || LerBool(tarefaAlvo, "IsComplete", "isComplete", "Complete", "complete"))
+            if (tarefaAlvo == null)
                 continue;
+
+            // Se já estiver concluída, conta como restaurada e não envia o RPC novamente.
+            if (LerBool(tarefaAlvo, "IsComplete", "isComplete", "Complete", "complete"))
+            {
+                restauradas++;
+                continue;
+            }
 
             object id = LerMembro(tarefaAlvo, "Id", "id", "TaskId", "taskId");
             if (id == null)
@@ -131,6 +138,16 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             $"Adicionar tarefas: PlayerId={jogador.PlayerId}; tarefas concluídas antigas restauradas={restauradas}/{antigas.Count}.");
+
+        // Não descarte o estado pendente se o RPC ainda não marcou todas as tarefas.
+        // O Update tentará novamente após 0,25 s; antes, o código removia os dados
+        // mesmo quando nenhuma conclusão tinha sido reaplicada.
+        if (restauradas < antigas.Count)
+        {
+            RestauracoesAgendadas[jogador.PlayerId] = Time.time + 0.25f;
+            return;
+        }
+
         ConclusoesPendentes.Remove(jogador.PlayerId);
         QuantidadeEsperada.Remove(jogador.PlayerId);
     }
