@@ -2113,7 +2113,6 @@ public static class YouTubeVoteUpdatePatch
         EventoCongelarJogador.Atualizar();
         EventoVelocidadeJogadores.Atualizar();
         EventoTsunami.Atualizar();
-        EventoEscondeEsconde.Atualizar();
         EventoVisaoReduzida.Atualizar();
         EventoTrocarIdentidades.Atualizar();
     }
