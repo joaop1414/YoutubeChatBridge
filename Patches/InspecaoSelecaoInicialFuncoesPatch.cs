@@ -49,6 +49,7 @@ internal static class InspecaoSelecaoInicialFuncoesPatch
             else
             {
                 RegistrarMembrosRelevantes(options, etapa);
+                RegistrarColecaoRoleOptions(options, etapa);
             }
 
             var players = PlayerControl.AllPlayerControls;
@@ -144,6 +145,89 @@ internal static class InspecaoSelecaoInicialFuncoesPatch
                 plugin.Log.LogInfo(
                     Prefixo + etapa + $" OPTION {tipo.Name}.{membro.Name}=<erro:{ex.GetType().Name}>");
             }
+        }
+    }
+
+
+    // RoleOptions é uma coleção; registrar apenas seu tipo, membros simples e
+    // assinaturas de métodos. Não invoca métodos da coleção nem altera opções.
+    private static void RegistrarColecaoRoleOptions(object options, string etapa)
+    {
+        var plugin = YouTubeVoteBridgePlugin.Instance;
+        if (plugin == null || options == null)
+            return;
+
+        try
+        {
+            const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            Type tipoOptions = options.GetType();
+            object colecao = null;
+
+            var prop = tipoOptions.GetProperty("RoleOptions", flags);
+            if (prop != null && prop.GetIndexParameters().Length == 0)
+                colecao = prop.GetValue(options);
+
+            if (colecao == null)
+            {
+                var campo = tipoOptions.GetField("RoleOptions", flags);
+                if (campo != null)
+                    colecao = campo.GetValue(options);
+            }
+
+            if (colecao == null)
+            {
+                plugin.Log.LogInfo(Prefixo + etapa + " ROLE_OPTIONS=(null ou não encontrado)");
+                return;
+            }
+
+            Type tipo = colecao.GetType();
+            plugin.Log.LogInfo(Prefixo + etapa + $" ROLE_OPTIONS tipo={tipo.FullName}");
+
+            foreach (MemberInfo membro in tipo.GetMembers(flags)
+                .Where(m => m.MemberType == MemberTypes.Field || m.MemberType == MemberTypes.Property)
+                .Where(m => m.Name != "EqualityContract" && !m.Name.StartsWith("<"))
+                .OrderBy(m => m.Name))
+            {
+                try
+                {
+                    object valor = membro switch
+                    {
+                        FieldInfo f => f.GetValue(colecao),
+                        PropertyInfo p when p.GetIndexParameters().Length == 0 => p.GetValue(colecao),
+                        _ => null
+                    };
+
+                    string texto;
+                    if (valor == null || valor is string || valor.GetType().IsPrimitive || valor.GetType().IsEnum ||
+                        valor is decimal)
+                        texto = Formatar(valor);
+                    else
+                        texto = $"<{valor.GetType().FullName}>";
+
+                    plugin.Log.LogInfo(Prefixo + etapa +
+                        $" ROLE_OPTION_MEMBER {tipo.Name}.{membro.Name}={texto}");
+                }
+                catch (Exception ex)
+                {
+                    plugin.Log.LogInfo(Prefixo + etapa +
+                        $" ROLE_OPTION_MEMBER {tipo.Name}.{membro.Name}=<erro:{ex.GetType().Name}>");
+                }
+            }
+
+            foreach (MethodInfo metodo in tipo.GetMethods(flags)
+                .Where(m => !m.IsSpecialName && !m.ContainsGenericParameters)
+                .OrderBy(m => m.Name))
+            {
+                string parametros = string.Join(", ", metodo.GetParameters()
+                    .Select(p => p.ParameterType.Name + " " + p.Name));
+                plugin.Log.LogInfo(Prefixo + etapa +
+                    $" ROLE_OPTION_METHOD {metodo.Name}({parametros}) -> {metodo.ReturnType.Name}");
+            }
+        }
+        catch (Exception ex)
+        {
+            plugin.Log.LogWarning(Prefixo + etapa +
+                " erro ao inspecionar RoleOptions: " + ex);
         }
     }
 
