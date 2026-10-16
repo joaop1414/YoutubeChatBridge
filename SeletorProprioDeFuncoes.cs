@@ -18,21 +18,11 @@ internal static class SeletorProprioDeFuncoesPatch
 {
     private static readonly System.Random Sorteador = new();
 
+    // Temporariamente desativado: a seleção personalizada causou tela preta
+    // em testes com clientes vanilla. Deixa o jogo executar o seletor original.
     public static bool Prefix()
     {
-        if (AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost)
-            return true;
-
-        try
-        {
-            return !SeletorProprioDeFuncoes.Atribuir();
-        }
-        catch (Exception ex)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[SeletorDeFuncoes] Erro ao substituir SelectRoles; liberando o seletor vanilla como fallback: " + ex);
-            return true;
-        }
+        return true;
     }
 
     internal static int SortearIndice(int maxExclusive) => Sorteador.Next(maxExclusive);
