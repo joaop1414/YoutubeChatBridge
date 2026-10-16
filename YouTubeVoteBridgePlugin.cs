@@ -1489,6 +1489,12 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 case "Adicionar 10 tarefa(s) a um jogador aleatório":
                     new EventoAdicionarTarefas(10, false).Executar();
                     break;
+                case "Completar 1 tarefa para todos":
+                    new EventoCompletarTarefa(true).Executar();
+                    break;
+                case "Completar 1 tarefa para um jogador aleatório":
+                    new EventoCompletarTarefa(false).Executar();
+                    break;
                 default:
                     Instance.Log.LogWarning("O evento vencedor ainda não tem efeito conectado: " + eventoVencedor.Nome);
                     break;
