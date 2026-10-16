@@ -24,6 +24,11 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
     private static readonly Dictionary<byte, float> RestauracoesAgendadas = new();
     private static readonly HashSet<byte> ListaNovaDetectada = new();
 
+    // Reenvios limitados: tenta sincronizar clientes que possam ter ignorado o primeiro RPC.
+    private static readonly Dictionary<byte, List<uint>> RpcConclusoesParaRepetir = new();
+    private static readonly Dictionary<byte, float> ProximoReenvioRpc = new();
+    private static readonly Dictionary<byte, int> ReenviosRestantes = new();
+
     public static void RegistrarRpcConclusao(PlayerControl jogador, uint taskId)
     {
         if (jogador == null) return;
@@ -64,9 +69,7 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
 
     public static void AtualizarRestauracoesAgendadas()
     {
-        if (RestauracoesAgendadas.Count == 0)
-            return;
-
+        if (RestauracoesAgendadas.Count > 0)
         foreach (var agendada in RestauracoesAgendadas.ToArray())
         {
             if (Time.time < agendada.Value)
@@ -134,6 +137,75 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
             else
                 ListaNovaDetectada.Remove(agendada.Key);
         }
+
+        // Repete os RPCs em quatro rodadas adicionais, espaçadas em 0,5 s.
+        // Não chama CompleteTask localmente nessas repetições para evitar somar
+        // o progresso do host várias vezes.
+        foreach (var item in ProximoReenvioRpc.ToArray())
+        {
+            if (Time.time < item.Value) continue;
+
+            if (!RpcConclusoesParaRepetir.TryGetValue(item.Key, out List<uint> ids) ||
+                !ReenviosRestantes.TryGetValue(item.Key, out int restantes) ||
+                restantes <= 0)
+            {
+                ProximoReenvioRpc.Remove(item.Key);
+                RpcConclusoesParaRepetir.Remove(item.Key);
+                ReenviosRestantes.Remove(item.Key);
+                continue;
+            }
+
+            PlayerControl alvo = null;
+            if (PlayerControl.AllPlayerControls != null)
+            {
+                foreach (PlayerControl candidato in PlayerControl.AllPlayerControls)
+                    if (candidato != null && candidato.PlayerId == item.Key)
+                    { alvo = candidato; break; }
+            }
+
+            if (alvo != null)
+            {
+                int enviados = 0;
+                foreach (uint taskId in ids)
+                {
+                    MessageWriter writer = null;
+                    try
+                    {
+                        writer = AmongUsClient.Instance.StartRpcImmediately(
+                            alvo.NetId, (byte)RpcCalls.CompleteTask, SendOption.Reliable, -1);
+                        writer.WritePacked(taskId);
+                        AmongUsClient.Instance.FinishRpcImmediately(writer);
+                        writer = null;
+                        enviados++;
+                    }
+                    catch (Exception ex)
+                    {
+                        YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                            $"Adicionar tarefas: falha no reenvio extra CompleteTask, PlayerId={item.Key}, TaskId={taskId}: {ex.GetBaseException().Message}");
+                    }
+                    finally
+                    {
+                        if (writer != null) writer.Recycle();
+                    }
+                }
+
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    $"Adicionar tarefas: rodada extra de RPC CompleteTask {5 - restantes}/4 para PlayerId={item.Key}; enviados={enviados}.");
+            }
+
+            restantes--;
+            if (restantes <= 0)
+            {
+                ProximoReenvioRpc.Remove(item.Key);
+                RpcConclusoesParaRepetir.Remove(item.Key);
+                ReenviosRestantes.Remove(item.Key);
+            }
+            else
+            {
+                ReenviosRestantes[item.Key] = restantes;
+                ProximoReenvioRpc[item.Key] = Time.time + 0.5f;
+            }
+        }
     }
 
     // Reenvia os mesmos RPCs CompleteTask recebidos durante a partida após a redistribuição.
@@ -149,6 +221,7 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
             return;
 
         int reenviadas = 0;
+        List<uint> idsParaRepetir = new();
         foreach (TarefaConcluidaAnterior antiga in antigas)
         {
             bool idExiste = false;
@@ -189,6 +262,8 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
                 AmongUsClient.Instance.FinishRpcImmediately(writer);
                 writer = null;
                 reenviadas++;
+                if (!idsParaRepetir.Contains(antiga.TaskId))
+                    idsParaRepetir.Add(antiga.TaskId);
 
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                     $"Adicionar tarefas: RPC CompleteTask reenviado para PlayerId={jogador.PlayerId}, NetId={jogador.NetId}, TaskId={antiga.TaskId}.");
@@ -220,6 +295,15 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             $"Adicionar tarefas: PlayerId={jogador.PlayerId}; RPCs CompleteTask reenviados={reenviadas}/{antigas.Count}.");
+
+        if (idsParaRepetir.Count > 0)
+        {
+            RpcConclusoesParaRepetir[jogador.PlayerId] = idsParaRepetir;
+            ReenviosRestantes[jogador.PlayerId] = 4;
+            ProximoReenvioRpc[jogador.PlayerId] = Time.time + 0.5f;
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                $"Adicionar tarefas: agendadas 4 rodadas extras de CompleteTask para PlayerId={jogador.PlayerId}.");
+        }
 
         ConclusoesPendentes.Remove(jogador.PlayerId);
         QuantidadeEsperada.Remove(jogador.PlayerId);
