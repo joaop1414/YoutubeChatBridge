@@ -1969,9 +1969,6 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         return LerMembro(objeto, nomes);
     }
 
-    private static readonly Dictionary<byte, string> NomesAntesDaEjecao = new();
-    private static byte? PlayerIdNaEjecao;
-
     public static void PrepararNomeGlobalDeEjecao(object playerInfo)
     {
         if (!EhHost() || playerInfo == null) return;
