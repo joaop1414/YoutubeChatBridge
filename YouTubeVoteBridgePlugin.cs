@@ -1903,13 +1903,9 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
     public static void AtualizarRainbow()
     {
-        // Não basta confiar apenas no GameState: durante transições de lobby/fim
-        // de partida ele pode permanecer como Started por alguns frames. O
-        // ShipStatus só existe quando a cena da partida está realmente ativa.
+        // O arco-íris deve funcionar no lobby e durante a partida.
+        // Apenas a decoração do nome fica restrita à partida.
         if (!EhHost() || !RainbowGlobalAtivo)
-            return;
-
-        if (!LobbyTagManager.PartidaIniciada() || ShipStatus.Instance == null)
             return;
 
         if (Time.realtimeSinceStartup < ProximaTrocaCorRainbow)
@@ -1945,7 +1941,13 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 string nomeOriginal = NomesOriginaisRainbow.TryGetValue(playerId, out string salvo)
                     ? salvo
                     : (jogador.Data.PlayerName ?? string.Empty);
-                DefinirNomeRainbowNosClientesComMod(jogador, CriarNomeRainbow(nomeOriginal));
+
+                // No lobby, manter o nome original. A tag colorida só aparece
+                // quando a partida está realmente em andamento.
+                if (LobbyTagManager.PartidaIniciada() && ShipStatus.Instance != null)
+                    DefinirNomeRainbowNosClientesComMod(jogador, CriarNomeRainbow(nomeOriginal));
+                else
+                    DefinirNomeRainbowNosClientesComMod(jogador, nomeOriginal);
             }
             catch (Exception ex)
             {
