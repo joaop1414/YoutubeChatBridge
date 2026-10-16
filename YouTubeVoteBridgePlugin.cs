@@ -2609,6 +2609,16 @@ public static class YouTubeVoteRainbowShapeshiftRevertPatch
         PlayerControl target,
         bool shouldAnimate)
     {
+        // Se o próprio host iniciar a transformação, também precisa pausar o ciclo.
+        // Para jogadores remotos, a pausa principal é feita no HandleRpc do host.
+        if (target != null &&
+            __instance != null &&
+            target.PlayerId != __instance.PlayerId)
+        {
+            YouTubeVoteBridgePlugin.PausarRainbowDuranteShapeshift(__instance);
+            return true;
+        }
+
         return YouTubeVoteBridgePlugin.InterceptarDestransformacaoRainbow(
             __instance, target, shouldAnimate);
     }
