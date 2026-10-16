@@ -2235,38 +2235,8 @@ public static class YouTubeVoteTaskKillPatch
 // ============================================================
 // MENSAGENS DE JOGADORES COM TAG
 // ============================================================
-// Modifica a mensagem antes de RpcSendChat transmiti-la pela rede.
-// Jogadores sem tag não são afetados.
-[HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.RpcSendChat))]
-public static class YouTubeVoteTaggedChatPatch
-{
-    public static void Prefix(PlayerControl __instance, ref string chatText)
-    {
-        try
-        {
-            // A formatação de quebra de linha é exclusiva do lobby:
-            // durante a partida os nomes não usam as tags de lobby.
-            if (LobbyTagManager.PartidaIniciada())
-                return;
-
-            if (__instance == null ||
-                string.IsNullOrEmpty(chatText) ||
-                !LobbyTagManager.TemTag(__instance))
-                return;
-
-            // Coloca a quebra de linha em tamanho pequeno antes da mensagem.
-            // Exemplo: <size=50%>\n</size>Mensagem
-            const string prefixo = "<size=50%>\n</size>";
-            if (!chatText.StartsWith(prefixo, StringComparison.Ordinal))
-                chatText = prefixo + chatText;
-        }
-        catch (Exception ex)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "Não foi possível formatar mensagem de jogador com tag: " + ex.Message);
-        }
-    }
-}
+// Não adicionamos quebra de linha às mensagens do chat dos jogadores tagueados.
+// A tag continua apenas no nome do jogador; o texto enviado fica intacto.
 
 
 // ============================================================
