@@ -1973,6 +1973,54 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         }
     }
 
+    // PlayerVoteArea mudou os nomes dos membros entre versões do jogo.
+    // Resolver o ID por reflexão evita depender de um membro que não existe
+    // em algumas versões das GameLibs.
+    private static byte? ObterPlayerIdDaArea(PlayerVoteArea area)
+    {
+        if (area == null)
+            return null;
+
+        Type tipo = area.GetType();
+        string[] nomes = { "TargetPlayerId", "targetPlayerId", "PlayerId", "playerId", "TargetId" };
+        foreach (string nome in nomes)
+        {
+            FieldInfo campo = tipo.GetField(nome, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (campo != null)
+            {
+                try { return Convert.ToByte(campo.GetValue(area)); }
+                catch { }
+            }
+
+            PropertyInfo propriedade = tipo.GetProperty(nome, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (propriedade != null && propriedade.GetIndexParameters().Length == 0)
+            {
+                try { return Convert.ToByte(propriedade.GetValue(area)); }
+                catch { }
+            }
+        }
+
+        // Fallback para versões em que o membro tem outro nome, mas continua
+        // sendo um byte relacionado ao jogador-alvo.
+        foreach (FieldInfo campo in tipo.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+        {
+            if (campo.FieldType != typeof(byte) ||
+                (!campo.Name.Contains("player", StringComparison.OrdinalIgnoreCase) &&
+                 !campo.Name.Contains("target", StringComparison.OrdinalIgnoreCase)))
+                continue;
+
+            try
+            {
+                byte id = (byte)campo.GetValue(area);
+                if (JogadoresRainbowAtivos.Contains(id))
+                    return id;
+            }
+            catch { }
+        }
+
+        return null;
+    }
+
     // A tela de reunião usa PlayerVoteArea.NameText, separado do nome acima do personagem.
     // O cliente host não recebe de volta o próprio SetName pela rede, então reaplicamos
     // a tag diretamente na interface da reunião em cada atualização local.
@@ -1987,11 +2035,12 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
             foreach (PlayerVoteArea area in reuniao.playerStates)
             {
-                if (area == null || !JogadoresRainbowAtivos.Contains(area.TargetPlayerId))
+                byte? playerId = ObterPlayerIdDaArea(area);
+                if (!playerId.HasValue || !JogadoresRainbowAtivos.Contains(playerId.Value))
                     continue;
 
                 if (!NomesOriginaisRainbow.TryGetValue(
-                    area.TargetPlayerId, out string nomeOriginal))
+                    playerId.Value, out string nomeOriginal))
                     continue;
 
                 if (area.NameText != null)
