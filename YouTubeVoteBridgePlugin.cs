@@ -1946,7 +1946,11 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 EncerrarRainbowJogador(jogador);
         }
 
-        // Remove estados de jogadores que já saíram e não estão mais em AllPlayerControls.
+        // Remove também os estados de jogadores que saíram e não estão mais
+        // em AllPlayerControls, para não deixar animações órfãs nos clientes.
+        foreach (byte playerId in JogadoresRainbowAtivos.ToArray())
+            NotificarEstadoRainbowVisual(playerId, false);
+
         JogadoresRainbowAtivos.Clear();
         CoresOriginaisRainbow.Clear();
         NomesOriginaisRainbow.Clear();
