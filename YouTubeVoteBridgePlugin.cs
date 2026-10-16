@@ -1842,7 +1842,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         NomesOriginaisRainbow.Clear();
         CoresRainbowRestauradasPorDestransformacao.Clear();
 
-        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls
+        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
         {
             if (jogador == null || jogador.Data == null || jogador.Data.Disconnected)
                 continue;
