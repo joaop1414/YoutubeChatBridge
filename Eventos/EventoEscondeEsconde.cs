@@ -24,7 +24,7 @@ internal sealed class EventoEscondeEsconde : EventoVotacao
     private static string nomeOriginalFugitivo;
     private static float terminaEm;
     private static bool ativo;
-    private static bool aplicandoPapel;
+    private static bool reaplicarPendente;
 
     // O Vanilla pode ignorar novas atribuições de papel sem canOverride.
     // Mantemos a flag ativa apenas durante cada operação do evento.
@@ -113,7 +113,26 @@ internal sealed class EventoEscondeEsconde : EventoVotacao
 
     public static void Atualizar()
     {
-        if (!ativo || !YouTubeVoteBridgePlugin.EhHost())
+        if (!ativo)
+            return;
+
+        // MeetingHud.OnDestroy ocorre durante a transição da reunião. Não alteramos
+        // funções nesse callback: aguardamos o retorno completo ao mapa para evitar
+        // interferir no fluxo de saída da reunião.
+        if (reaplicarPendente)
+        {
+            if (MeetingHud.Instance != null || ShipStatus.Instance == null)
+                return;
+
+            reaplicarPendente = false;
+
+            if (YouTubeVoteBridgePlugin.EhHost())
+                ReaplicarPapeisAposReuniao();
+
+            AplicarNomesVisuaisLocais();
+        }
+
+        if (!YouTubeVoteBridgePlugin.EhHost())
             return;
 
         if (cacador == null || cacador.Data == null || cacador.Data.Disconnected ||
@@ -160,13 +179,20 @@ internal sealed class EventoEscondeEsconde : EventoVotacao
         LimparEstado();
     }
 
-    // Chamado quando a tela de reunião é destruída (reunião encerrada).
-    // Não escolhe novos participantes: reaplica o ciclo nos mesmos dois jogadores.
+    // O callback de destruição da reunião apenas agenda o trabalho.
+    // A troca de papéis acontece no Update seguinte, quando o mapa já voltou.
     internal static void ReaplicarAposReuniao()
     {
-        if (!ativo || !YouTubeVoteBridgePlugin.EhHost())
+        if (!ativo)
             return;
 
+        reaplicarPendente = true;
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            "[Esconde-esconde] Reaplicação agendada para depois da transição da reunião.");
+    }
+
+    private static void ReaplicarPapeisAposReuniao()
+    {
         if (cacador == null || fugitivo == null ||
             cacador.Data == null || fugitivo.Data == null ||
             cacador.Data.Disconnected || fugitivo.Data.Disconnected ||
@@ -177,7 +203,7 @@ internal sealed class EventoEscondeEsconde : EventoVotacao
         }
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            "[Esconde-esconde] Reaplicando papéis após reunião.");
+            "[Esconde-esconde] Reaplicando papéis após retorno ao mapa.");
 
         bool papelCacadorDefinido =
             DefinirPapelParaCliente(cacador, "Impostor", cacador.OwnerId);
@@ -191,11 +217,32 @@ internal sealed class EventoEscondeEsconde : EventoVotacao
             Encerrar("falha ao restaurar os papéis após a reunião");
             return;
         }
+    }
 
-        YouTubeVoteBridgePlugin.DefinirNomeLocal(
-            cacador, nomeOriginalCacador + "\\n<color=#FF5555><size=70%>VOCÊ É O CAÇADOR</size></color>");
-        YouTubeVoteBridgePlugin.DefinirNomeLocal(
-            fugitivo, nomeOriginalFugitivo + "\\n<color=#55FF55><size=70%>VOCÊ É O FUGITIVO</size></color>");
+    // Cada cliente atualiza somente os textos visuais da própria tela.
+    // Não usa SetName/RPC no cliente, para não alterar nomes autoritativos.
+    private static void AplicarNomesVisuaisLocais()
+    {
+        if (cacador == null || fugitivo == null)
+            return;
+
+        string nomeCacador = nomeOriginalCacador +
+            "\\n<color=#FF5555><size=70%>VOCÊ É O CAÇADOR</size></color>";
+        string nomeFugitivo = nomeOriginalFugitivo +
+            "\\n<color=#55FF55><size=70%>VOCÊ É O FUGITIVO</size></color>";
+
+        try
+        {
+            if (cacador.cosmetics != null && cacador.cosmetics.nameText != null)
+                cacador.cosmetics.nameText.text = nomeCacador;
+            if (fugitivo.cosmetics != null && fugitivo.cosmetics.nameText != null)
+                fugitivo.cosmetics.nameText.text = nomeFugitivo;
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[Esconde-esconde] Falha ao atualizar nomes visuais após reunião: " + ex.Message);
+        }
     }
 
     private static void RestaurarPapeis()
@@ -214,6 +261,7 @@ internal sealed class EventoEscondeEsconde : EventoVotacao
     private static void LimparEstado()
     {
         ativo = false;
+        reaplicarPendente = false;
         cacador = null;
         fugitivo = null;
         papelOriginalCacador = null;
