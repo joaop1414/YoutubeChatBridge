@@ -76,6 +76,8 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         public bool Concluida;
     }
     private static readonly Dictionary<byte, List<EstadoTarefaShapeshift>> TarefasAntesDoShapeshift = new();
+    // Registro por evento real GameData.CompleteTask; não depende de PlayerTask.IsComplete.
+    private static readonly Dictionary<byte, List<EstadoTarefaShapeshift>> TarefasConcluidasRegistradas = new();
     private static readonly HashSet<byte> RestaurandoTarefasShapeshift = new();
     // Só tenta reaplicar tarefas quando o jogador retorna à própria aparência.
     private static readonly HashSet<byte> AguardandoRestauracaoTarefasShapeshift = new();
@@ -2235,12 +2237,57 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             object completaObj = LerMembro(tarefa, "IsComplete", "isComplete", "Complete", "complete");
             bool concluida = false;
             try { if (completaObj != null) concluida = Convert.ToBoolean(completaObj); } catch { }
+            if (TarefasConcluidasRegistradas.TryGetValue(jogador.PlayerId, out List<EstadoTarefaShapeshift> registradas) &&
+                registradas.Any(t => t.Tipo == tipo && t.Ocorrencia == ocorrencia))
+                concluida = true;
             resultado.Add(new EstadoTarefaShapeshift { Tipo = tipo, Ocorrencia = ocorrencia, Concluida = concluida });
         }
 
         Instance?.Log.LogInfo(
             $"Shapeshift/tarefas: snapshot PlayerId={jogador.PlayerId}, total={resultado.Count}, concluídas={resultado.Count(t => t.Concluida)}.");
         return resultado;
+    }
+
+    public static void RegistrarTarefaConcluida(PlayerControl jogador, uint taskId)
+    {
+        if (jogador == null || RestaurandoTarefasShapeshift.Contains(jogador.PlayerId))
+            return;
+
+        List<object> tarefas = EnumerarColecaoIl2Cpp(LerMembro(jogador, "myTasks", "MyTasks", "tasks", "Tasks"));
+        var ocorrencias = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (object tarefa in tarefas)
+        {
+            if (tarefa == null) continue;
+            string tipo = LerMembro(tarefa, "TaskType", "taskType", "Type", "type")?.ToString()
+                ?? tarefa.GetType().FullName;
+            ocorrencias.TryGetValue(tipo, out int ocorrencia);
+            ocorrencias[tipo] = ocorrencia + 1;
+
+            object idObj = LerMembro(tarefa, "Id", "id", "TaskId", "taskId");
+            uint idAtual;
+            try { idAtual = Convert.ToUInt32(idObj); } catch { continue; }
+            if (idAtual != taskId) continue;
+
+            if (!TarefasConcluidasRegistradas.TryGetValue(jogador.PlayerId, out List<EstadoTarefaShapeshift> registradas))
+            {
+                registradas = new List<EstadoTarefaShapeshift>();
+                TarefasConcluidasRegistradas[jogador.PlayerId] = registradas;
+            }
+            if (!registradas.Any(t => t.Tipo == tipo && t.Ocorrencia == ocorrencia))
+                registradas.Add(new EstadoTarefaShapeshift { Tipo = tipo, Ocorrencia = ocorrencia, Concluida = true });
+
+            Instance?.Log.LogInfo($"Shapeshift/tarefas: conclusão registrada pelo GameData.CompleteTask; PlayerId={jogador.PlayerId}, taskId={taskId}, tipo={tipo}, ocorrência={ocorrencia}.");
+            return;
+        }
+        Instance?.Log.LogWarning($"Shapeshift/tarefas: GameData.CompleteTask recebeu taskId={taskId}, mas não encontrou tarefa na lista de PlayerId={jogador.PlayerId}.");
+    }
+
+    public static void LimparRegistroTarefasShapeshift()
+    {
+        TarefasConcluidasRegistradas.Clear();
+        TarefasAntesDoShapeshift.Clear();
+        AguardandoRestauracaoTarefasShapeshift.Clear();
+        RestaurandoTarefasShapeshift.Clear();
     }
 
     public static void RegistrarTarefasAntesDoShapeshift(PlayerControl jogador, PlayerControl alvo)
@@ -3041,6 +3088,7 @@ public static class YouTubeVoteResetTaskEventsOnStartPatch
     public static void Postfix()
     {
         EventoTesteMenu.ResetarEstadoPartida("início de partida");
+        YouTubeVoteBridgePlugin.LimparRegistroTarefasShapeshift();
         EventoTarefaMataJogador.Desativar();
         EventoTarefaSuicidio.Desativar();
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
@@ -3054,11 +3102,22 @@ public static class YouTubeVoteResetTaskEventsOnEndPatch
     public static void Postfix()
     {
         EventoTesteMenu.ResetarEstadoPartida("fim de partida");
+        YouTubeVoteBridgePlugin.LimparRegistroTarefasShapeshift();
         YouTubeVoteBridgePlugin.ResetarRainbowFimDePartida();
         EventoTarefaMataJogador.Desativar();
         EventoTarefaSuicidio.Desativar();
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             "Eventos de tarefa desativados ao terminar a partida, mesmo sem reunião.");
+    }
+}
+
+// Captura a conclusão no mesmo ponto usado pelo EHR, com o taskId real do jogo.
+[HarmonyPatch(typeof(GameData), nameof(GameData.CompleteTask))]
+public static class YouTubeVoteShapeshiftTaskCompletionPatch
+{
+    public static void Postfix(PlayerControl pc, uint taskId)
+    {
+        YouTubeVoteBridgePlugin.RegistrarTarefaConcluida(pc, taskId);
     }
 }
 
