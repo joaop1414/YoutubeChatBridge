@@ -1916,6 +1916,111 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             EncerrarRainbowGlobal();
     }
 
+    // Registra transformações recebidas pelo host com log explícito para diagnóstico.
+    public static void RegistrarShapeshiftRecebido(PlayerControl jogador, PlayerControl alvo)
+    {
+        if (jogador == null || alvo == null || !JogadoresRainbowAtivos.Contains(jogador.PlayerId))
+            return;
+
+        if (alvo.PlayerId != jogador.PlayerId)
+        {
+            PausarRainbowDuranteShapeshift(jogador);
+            Instance?.Log.LogInfo(
+                $"Rainbow: transformação detectada para PlayerId={jogador.PlayerId}, alvo={alvo.PlayerId}; ciclo pausado.");
+        }
+        else
+        {
+            ShapeshiftersRainbowTransformados.Remove(jogador.PlayerId);
+            Instance?.Log.LogInfo(
+                $"Rainbow: destransformação detectada para PlayerId={jogador.PlayerId}; ciclo retomado.");
+        }
+    }
+
+    // Troca temporariamente o nome global do jogador ejetado pelo texto de revelação.
+    private static readonly Dictionary<byte, string> NomesAntesDaEjecao = new();
+    private static byte? PlayerIdNaEjecao;
+
+    private static object LerMembro(object objeto, params string[] nomes)
+    {
+        if (objeto == null) return null;
+        Type tipo = objeto.GetType();
+        foreach (string nome in nomes)
+        {
+            try
+            {
+                PropertyInfo p = tipo.GetProperty(nome, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                if (p != null && p.GetIndexParameters().Length == 0) return p.GetValue(objeto);
+                FieldInfo f = tipo.GetField(nome, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                if (f != null) return f.GetValue(objeto);
+            }
+            catch { }
+        }
+        return null;
+    }
+
+    public static void PrepararNomeGlobalDeEjecao(object playerInfo)
+    {
+        if (!EhHost() || playerInfo == null) return;
+        try
+        {
+            object idValor = LerMembro(playerInfo, "PlayerId", "playerId", "PlayerID");
+            if (idValor == null) return;
+            byte id = Convert.ToByte(idValor);
+
+            PlayerControl jogador = null;
+            foreach (PlayerControl p in PlayerControl.AllPlayerControls)
+                if (p != null && p.PlayerId == id) { jogador = p; break; }
+            if (jogador == null || jogador.Data == null) return;
+
+            object role = LerMembro(playerInfo, "Role", "role");
+            object roleType = LerMembro(role, "Role", "role", "RoleType", "roleType");
+            string nomeFuncao = roleType?.ToString();
+            if (string.IsNullOrWhiteSpace(nomeFuncao))
+                nomeFuncao = role?.ToString();
+            if (string.IsNullOrWhiteSpace(nomeFuncao))
+                nomeFuncao = "Desconhecida";
+
+            object impostorValor = LerMembro(role, "IsImpostor", "isImpostor");
+            bool impostor = impostorValor is bool b && b;
+            string cor = impostor ? "red" : "#00fffb";
+            string nomeOriginal = NomesOriginaisRainbow.TryGetValue(id, out string nomeRainbow)
+                ? nomeRainbow
+                : (jogador.Data.PlayerName ?? string.Empty);
+            if (!NomesAntesDaEjecao.ContainsKey(id))
+                NomesAntesDaEjecao[id] = nomeOriginal;
+            PlayerIdNaEjecao = id;
+
+            DefinirNomeRainbowNosClientesComMod(
+                jogador, $"{nomeOriginal} era <color={cor}>{nomeFuncao}</color>");
+            Instance?.Log.LogInfo(
+                $"Ejeção: nome global atualizado para PlayerId={id}, função={nomeFuncao}, impostor={impostor}.");
+        }
+        catch (Exception ex)
+        {
+            Instance?.Log.LogWarning("Ejeção: falha ao preparar nome global: " + ex.Message);
+        }
+    }
+
+    public static void RestaurarNomeGlobalDeEjecao()
+    {
+        if (!EhHost() || !PlayerIdNaEjecao.HasValue) return;
+        byte id = PlayerIdNaEjecao.Value;
+        try
+        {
+            PlayerControl jogador = null;
+            foreach (PlayerControl p in PlayerControl.AllPlayerControls)
+                if (p != null && p.PlayerId == id) { jogador = p; break; }
+            if (jogador != null && NomesAntesDaEjecao.TryGetValue(id, out string nome))
+                DefinirNomeRainbowNosClientesComMod(jogador, nome);
+        }
+        catch (Exception ex)
+        {
+            Instance?.Log.LogWarning("Ejeção: falha ao restaurar nome: " + ex.Message);
+        }
+        NomesAntesDaEjecao.Remove(id);
+        PlayerIdNaEjecao = null;
+    }
+
     public static void AtualizarRainbow()
     {
         // O arco-íris deve funcionar no lobby e durante a partida.
@@ -2717,6 +2822,7 @@ public static class YouTubeVoteRainbowIncomingShapeshiftPatch
             if (alvo == null)
                 return true;
 
+            YouTubeVoteBridgePlugin.RegistrarShapeshiftRecebido(__instance, alvo);
             if (alvo.PlayerId == __instance.PlayerId)
             {
                 // Revert: o host restaura a cor original, remove a pausa e
@@ -2739,6 +2845,57 @@ public static class YouTubeVoteRainbowIncomingShapeshiftPatch
                 "Rainbow: falha ao interceptar RPC de destransformação recebido: " + ex);
             return true;
         }
+    }
+}
+
+// Na tela de ejeção, altera o nome global após o jogo identificar quem foi ejetado.
+[HarmonyPatch]
+public static class YouTubeVoteEjectionGlobalNamePatch
+{
+    private static MethodBase TargetMethod()
+    {
+        Type tipo = AccessTools.TypeByName("ExileController");
+        return tipo == null ? null : AccessTools.Method(tipo, "Begin");
+    }
+
+    public static void Postfix(object[] __args)
+    {
+        if (__args == null) return;
+        foreach (object arg in __args)
+        {
+            if (arg == null) continue;
+            // PlayerInfo tem PlayerId e Role; evita depender de nomes de tipos
+            // que variam entre as versões das GameLibs.
+            if (LerSePlayerInfo(arg))
+            {
+                YouTubeVoteBridgePlugin.PrepararNomeGlobalDeEjecao(arg);
+                return;
+            }
+        }
+    }
+
+    private static bool LerSePlayerInfo(object arg)
+    {
+        Type tipo = arg.GetType();
+        return (tipo.Name.Contains("PlayerInfo", StringComparison.OrdinalIgnoreCase) ||
+                (tipo.GetProperty("PlayerId", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic) != null &&
+                 tipo.GetProperty("Role", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic) != null));
+    }
+}
+
+// WrapUp é chamado ao fim da animação de ejeção; restaura o nome normal global.
+[HarmonyPatch]
+public static class YouTubeVoteEjectionRestoreNamePatch
+{
+    private static MethodBase TargetMethod()
+    {
+        Type tipo = AccessTools.TypeByName("ExileController");
+        return tipo == null ? null : AccessTools.Method(tipo, "WrapUp");
+    }
+
+    public static void Postfix()
+    {
+        YouTubeVoteBridgePlugin.RestaurarNomeGlobalDeEjecao();
     }
 }
 
