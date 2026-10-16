@@ -2267,7 +2267,12 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
     public static void RegistrarTarefaConcluida(PlayerControl jogador, uint taskId)
     {
-        if (jogador == null || RestaurandoTarefasShapeshift.Contains(jogador.PlayerId))
+        if (jogador == null)
+            return;
+
+        EventoAdicionarTarefas.RegistrarRpcConclusao(jogador, taskId);
+
+        if (RestaurandoTarefasShapeshift.Contains(jogador.PlayerId))
             return;
 
         List<object> tarefas = EnumerarColecaoIl2Cpp(LerMembro(jogador, "myTasks", "MyTasks", "tasks", "Tasks"));
@@ -2313,6 +2318,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     public static void LimparRegistroTarefasShapeshift()
     {
         HistoricoConclusoesTarefas.Clear();
+        EventoAdicionarTarefas.LimparHistoricoRpcConclusoes();
         TarefasAntesDoShapeshift.Clear();
         AguardandoRestauracaoTarefasShapeshift.Clear();
         RestaurandoTarefasShapeshift.Clear();
