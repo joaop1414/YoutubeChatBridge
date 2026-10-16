@@ -1739,6 +1739,276 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     // COMANDO /color (ID, NOME OU RAINBOW)
     // ========================================================
 
+    private static bool RainbowGlobalAtivo;
+    private static float RainbowGlobalExpiraEm;
+    private static float ProximaTrocaCorRainbow;
+    private static int IndiceCorRainbow;
+    private static readonly Dictionary<byte, int> CoresOriginaisRainbow = new();
+    private static readonly Dictionary<byte, string> NomesOriginaisRainbow = new();
+    private static readonly string[] CoresTextoRainbow =
+    {
+        "#FF4040", "#FF9A32", "#FFE64A", "#55E66A", "#42D9E8",
+        "#4387FF", "#A45BFF", "#F05BCE", "#FF4040"
+    };
+
+    private static string CriarNomeRainbow(string nomeOriginal)
+    {
+        const string prefixo = "Arco-íris";
+        StringBuilder nome = new();
+        for (int i = 0; i < prefixo.Length; i++)
+        {
+            string cor = CoresTextoRainbow[(i + IndiceCorRainbow) % CoresTextoRainbow.Length];
+            nome.Append("<color=").Append(cor).Append(">").Append(prefixo[i]).Append("</color>");
+        }
+        nome.Append(" - ").Append(nomeOriginal ?? string.Empty);
+        return nome.ToString();
+    }
+
+    // Define o nome apenas na tela dos clientes que confirmaram possuir o mod.
+    // Clientes vanilla não recebem este nome decorado.
+    private static void DefinirNomeRainbowNosClientesComMod(PlayerControl jogador, string nome)
+    {
+        if (jogador == null || jogador.Data == null || AmongUsClient.Instance == null)
+            return;
+
+        // O host também precisa ver o nome animado na própria tela.
+        try
+        {
+            if (jogador.AmOwner)
+                jogador.SetName(nome);
+            if (jogador.cosmetics != null && jogador.cosmetics.nameText != null)
+                jogador.cosmetics.nameText.text = nome;
+        }
+        catch (Exception ex)
+        {
+            Instance?.Log.LogDebug("Rainbow: falha ao atualizar nome local do host: " + ex.Message);
+        }
+
+        if (!EhHost())
+            return;
+
+        foreach (int clientId in ClientesComMod.ToArray())
+        {
+            if (clientId < 0 || clientId == AmongUsClient.Instance.ClientId)
+                continue;
+
+            MessageWriter writer = null;
+            try
+            {
+                writer = MessageWriter.Get(SendOption.Reliable);
+                writer.StartMessage(6); // GameDataTo
+                writer.Write(AmongUsClient.Instance.GameId);
+                writer.WritePacked(clientId);
+                writer.StartMessage(2); // RPC
+                writer.WritePacked(jogador.NetId);
+                writer.Write((byte)RpcCalls.SetName);
+                writer.Write(jogador.Data.NetId);
+                writer.Write(nome);
+                writer.EndMessage();
+                writer.EndMessage();
+                AmongUsClient.Instance.SendOrDisconnect(writer);
+                writer.Recycle();
+                writer = null;
+            }
+            catch (Exception ex)
+            {
+                Instance?.Log.LogWarning("Rainbow: não foi possível atualizar nome no cliente " +
+                    clientId + ": " + ex.Message);
+            }
+            finally
+            {
+                if (writer != null)
+                {
+                    try { writer.Recycle(); } catch { }
+                }
+            }
+        }
+    }
+
+    private static void IniciarRainbowGlobal()
+    {
+        if (!EhHost())
+            return;
+
+        if (RainbowGlobalAtivo)
+            EncerrarRainbowGlobal();
+
+        CoresOriginaisRainbow.Clear();
+        NomesOriginaisRainbow.Clear();
+
+        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+        {
+            if (jogador == null || jogador.Data == null || jogador.Data.Disconnected)
+                continue;
+
+            CoresOriginaisRainbow[jogador.PlayerId] = jogador.Data.DefaultOutfit.ColorId;
+            NomesOriginaisRainbow[jogador.PlayerId] = jogador.Data.PlayerName ?? string.Empty;
+        }
+
+        RainbowGlobalAtivo = true;
+        RainbowGlobalExpiraEm = Time.realtimeSinceStartup + 20f;
+        ProximaTrocaCorRainbow = 0f;
+        IndiceCorRainbow = 0;
+        Instance?.Log.LogInfo("Rainbow global ativado por 20 segundos para todos os jogadores.");
+    }
+
+    private static void EncerrarRainbowGlobal()
+    {
+        if (!RainbowGlobalAtivo)
+            return;
+
+        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+        {
+            if (jogador == null || jogador.Data == null)
+                continue;
+
+            if (CoresOriginaisRainbow.TryGetValue(jogador.PlayerId, out int cor))
+            {
+                try { jogador.RpcSetColor((byte)Math.Clamp(cor, 0, 255)); }
+                catch (Exception ex)
+                {
+                    Instance?.Log.LogWarning("Rainbow: não foi possível restaurar cor: " + ex.Message);
+                }
+            }
+
+            if (NomesOriginaisRainbow.TryGetValue(jogador.PlayerId, out string nome))
+                DefinirNomeRainbowNosClientesComMod(jogador, nome);
+        }
+
+        CoresOriginaisRainbow.Clear();
+        NomesOriginaisRainbow.Clear();
+        RainbowGlobalAtivo = false;
+        RainbowGlobalExpiraEm = 0f;
+        Instance?.Log.LogInfo("Rainbow global encerrado; cores e nomes originais restaurados.");
+    }
+
+    public static void AtualizarRainbow()
+    {
+        if (!EhHost() || !RainbowGlobalAtivo)
+            return;
+
+        if (Time.realtimeSinceStartup >= RainbowGlobalExpiraEm)
+        {
+            EncerrarRainbowGlobal();
+            return;
+        }
+
+        if (Time.realtimeSinceStartup < ProximaTrocaCorRainbow)
+            return;
+
+        ProximaTrocaCorRainbow = Time.realtimeSinceStartup + 0.5f;
+        int totalCores = Palette.ColorNames?.Length ?? 0;
+        if (totalCores <= 0)
+            return;
+
+        IndiceCorRainbow = (IndiceCorRainbow + 1) % totalCores;
+        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+        {
+            if (jogador == null || jogador.Data == null || jogador.Data.Disconnected)
+                continue;
+
+            try
+            {
+                jogador.RpcSetColor((byte)IndiceCorRainbow);
+                string nomeOriginal = NomesOriginaisRainbow.TryGetValue(
+                    jogador.PlayerId, out string salvo)
+                    ? salvo
+                    : (jogador.Data.PlayerName ?? string.Empty);
+                DefinirNomeRainbowNosClientesComMod(jogador, CriarNomeRainbow(nomeOriginal));
+            }
+            catch (Exception ex)
+            {
+                Instance?.Log.LogWarning("Rainbow: falha ao animar jogador " +
+                    jogador.PlayerId + ": " + ex.Message);
+            }
+        }
+    }
+
+    public static void ProcessarComandoCor(
+        ChatController chat,
+        PlayerControl jogador,
+        string comando)
+    {
+        if (chat == null || jogador == null || Palette.ColorNames == null)
+            return;
+
+        string argumento = comando.Length > "/color".Length
+            ? comando.Substring("/color".Length).Trim()
+            : "";
+
+        if (argumento.Length == 0)
+        {
+            ResponderComando(chat, jogador,
+                "Use: /color (id/nome) ou /color rainbow. Exemplo: /color 0, /color Red ou /color rainbow.");
+            return;
+        }
+
+        bool pedidoRainbow = string.Equals(argumento, "rainbow", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(argumento, "arco-íris", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(argumento, "arcoiris", StringComparison.OrdinalIgnoreCase);
+
+        int idCor = -1;
+        if (!pedidoRainbow && int.TryParse(argumento, out int id))
+        {
+            if (id >= 0 && id < Palette.ColorNames.Length)
+                idCor = id;
+        }
+        else if (!pedidoRainbow)
+        {
+            for (int i = 0; i < Palette.ColorNames.Length; i++)
+            {
+                string nomeCor = Palette.ColorNames[i].ToString();
+                if (nomeCor.StartsWith("Color", StringComparison.OrdinalIgnoreCase))
+                    nomeCor = nomeCor.Substring("Color".Length);
+
+                if (string.Equals(nomeCor, argumento, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(Palette.ColorNames[i].ToString(), argumento, StringComparison.OrdinalIgnoreCase))
+                {
+                    idCor = i;
+                    break;
+                }
+            }
+        }
+
+        if (idCor < 0 && !pedidoRainbow)
+        {
+            string lista = string.Join(", ",
+                Enumerable.Range(0, Palette.ColorNames.Length)
+                    .Select(i => i + "=" + Palette.ColorNames[i].ToString()));
+            ResponderComando(chat, jogador,
+                "Cor inválida. Use um ID de 0 a " + (Palette.ColorNames.Length - 1) +
+                " ou um nome exato. Cores: " + lista);
+            return;
+        }
+
+        try
+        {
+            if (pedidoRainbow)
+            {
+                IniciarRainbowGlobal();
+                ResponderComando(chat, jogador,
+                    "Modo Arco-íris ativado para todos por 20 segundos! As cores e o nome animado aparecem nos clientes com o mod.");
+                return;
+            }
+
+            if (RainbowGlobalAtivo)
+                EncerrarRainbowGlobal();
+
+            jogador.RpcSetColor((byte)idCor);
+            ResponderComando(chat, jogador,
+                "Sua cor foi alterada para " + Palette.ColorNames[idCor] + " (ID " + idCor + ").");
+            Instance?.Log.LogInfo(
+                $"/color executado por PlayerId={jogador.PlayerId}, cor={idCor} ({Palette.ColorNames[idCor]}).");
+        }
+        catch (Exception ex)
+        {
+            Instance?.Log.LogError("Erro ao executar /color: " + ex);
+            ResponderComando(chat, jogador, "Não foi possível alterar a cor: " + ex.Message);
+        }
+    }
+
+    // ========================================================
+
     private static readonly HashSet<byte> JogadoresRainbow = new();
     private static float ProximaTrocaCorRainbow;
     private static int IndiceCorRainbow;
