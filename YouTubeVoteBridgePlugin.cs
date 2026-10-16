@@ -1991,7 +1991,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             PlayerIdNaEjecao = id;
 
             DefinirNomeRainbowNosClientesComMod(
-                jogador, $"{nomeOriginal} era <color={cor}>{nomeFuncao}</color>");
+                jogador, $"{nomeOriginal} era <color={cor}>{nomeFuncao}</color><size=0>");
             Instance?.Log.LogInfo(
                 $"Ejeção: nome global atualizado para PlayerId={id}, função={nomeFuncao}, impostor={impostor}.");
         }
