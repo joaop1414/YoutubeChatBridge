@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using HarmonyLib;
+using Il2CppInterop.Runtime;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using UnityEngine;
 
@@ -26,7 +27,7 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
         if (jogador == null || AmongUsClient.Instance == null)
             return;
 
-        AmongUsClient.Instance.StartCoroutine(RestaurarComAtraso(jogador));
+        AmongUsClient.Instance.StartCoroutine(RestaurarComAtraso(jogador).WrapToIl2Cpp());
     }
 
     private static IEnumerator RestaurarComAtraso(PlayerControl jogador)
@@ -211,7 +212,7 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
 
         if (!todos)
         {
-            PlayerControl alvo = jogadores[Random.Shared.Next(jogadores.Count)];
+            PlayerControl alvo = jogadores[System.Random.Shared.Next(jogadores.Count)];
             int adicionadas = AdicionarAoJogador(alvo);
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 $"Evento de tarefas: adicionadas {adicionadas}/{quantidade} tarefa(s) para {alvo.Data.PlayerName}.");
