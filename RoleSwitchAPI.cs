@@ -42,41 +42,81 @@ internal static class RoleSwitchAPI
         {
             InspecionarEstadoPapel("ANTES_TROCA", jogador, funcao);
 
-            if (AmongUsClient.Instance == null)
+            var cliente = AmongUsClient.Instance;
+            if (cliente == null)
             {
                 LogErro("AmongUsClient.Instance está nulo.");
                 return false;
             }
 
-            // Igual ao EHR: o host aplica diretamente se ele próprio é o dono.
-            // Evita enviar um RPC para si mesmo e evita propagar a troca a todos.
-            if (AmongUsClient.Instance.ClientId == jogador.OwnerId)
+            // Padrão inspirado no Hydra/EHR para o host:
+            // 1) atualiza o estado local do jogador no host com RoleManager.SetRole;
+            // 2) transmite SetRole para todos os clientes com canOverrideRole=true.
+            // Não usamos CoSetRole aqui: o Hydra documenta que ele pode causar
+            // problemas ao alternar entre funções normais e funções fantasma.
+            if (cliente.AmHost)
             {
-                // EHR usa a coroutine nativa CoSetRole para evitar a tela preta
-                // ao alterar o papel do cliente local.
+                if (RoleManager.Instance == null)
+                {
+                    LogErro("RoleManager.Instance está nulo.");
+                    return false;
+                }
+
+                RoleManager.Instance.SetRole(jogador, funcao);
+
+                // A mudança para função fantasma também precisa atualizar o botão
+                // Reportar no HUD local quando o alvo é o próprio host.
+                if (PlayerControl.LocalPlayer != null &&
+                    jogador.PlayerId == PlayerControl.LocalPlayer.PlayerId &&
+                    HudManager.Instance?.ReportButton != null)
+                {
+                    HudManager.Instance.ReportButton.gameObject.SetActive(
+                        !RoleManager.IsGhostRole(funcao));
+                }
+
+                MessageWriter writer = cliente.StartRpcImmediately(
+                    jogador.NetId,
+                    (byte)RpcCalls.SetRole,
+                    SendOption.Reliable,
+                    -1);
+
+                writer.Write((ushort)funcao);
+                writer.Write(true); // canOverrideRole
+                cliente.FinishRpcImmediately(writer);
+
                 InspecionarMetodosPapel(jogador);
-                LogInfo($"[INSPECTOR] Chamando CoSetRole: jogador={jogador.PlayerId}, destino={funcao}, canOverrideRole=true.");
-                jogador.StartCoroutine(jogador.CoSetRole(funcao, true));
-                InspecionarEstadoPapel("DEPOIS_AGENDAR_COSETROLE", jogador, funcao);
+                InspecionarEstadoPapel("DEPOIS_RPC_GLOBAL", jogador, funcao);
+                LogInfo($"SetRole global enviado pelo host: jogador={jogador.PlayerId}, destino={funcao}, canOverrideRole=true.");
                 return true;
             }
 
-            // EHR CustomRpcSender.RpcSetRole envia RpcCalls.SetRole ao OwnerId
-            // e escreve RoleTypes + true (canOverrideRole) no payload.
-            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
-                jogador.NetId,
-                (byte)RpcCalls.SetRole,
-                SendOption.Reliable,
-                jogador.OwnerId);
+            // Para um cliente que não é host, preservamos o comportamento direcionado
+            // ao dono do jogador, sem fingir que podemos sincronizar todos os clientes.
+            if (cliente.ClientId == jogador.OwnerId)
+            {
+                if (RoleManager.Instance == null)
+                {
+                    LogErro("RoleManager.Instance está nulo.");
+                    return false;
+                }
 
-            writer.Write((ushort)funcao);
-            writer.Write(true);
-            AmongUsClient.Instance.FinishRpcImmediately(writer);
+                RoleManager.Instance.SetRole(jogador, funcao);
 
-            InspecionarMetodosPapel(jogador);
-            InspecionarEstadoPapel("DEPOIS_ENVIAR_RPC", jogador, funcao);
-            LogInfo($"[INSPECTOR] RPC SetRole enviado: jogador={jogador.PlayerId}, destino={jogador.OwnerId}, payloadRole={(ushort)funcao}, canOverrideRole=true.");
-            return true;
+                if (PlayerControl.LocalPlayer != null &&
+                    jogador.PlayerId == PlayerControl.LocalPlayer.PlayerId &&
+                    HudManager.Instance?.ReportButton != null)
+                {
+                    HudManager.Instance.ReportButton.gameObject.SetActive(
+                        !RoleManager.IsGhostRole(funcao));
+                }
+
+                InspecionarEstadoPapel("DEPOIS_SETROLE_LOCAL", jogador, funcao);
+                LogInfo($"SetRole local aplicado: jogador={jogador.PlayerId}, destino={funcao}.");
+                return true;
+            }
+
+            LogAviso("Cliente não host não pode atribuir função a outro jogador por esta API.");
+            return false;
         }
         catch (Exception ex)
         {
