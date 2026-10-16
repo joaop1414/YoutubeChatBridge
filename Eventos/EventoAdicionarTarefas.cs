@@ -16,6 +16,7 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
     }
 
     private static readonly Dictionary<byte, List<TarefaConcluidaAnterior>> ConclusoesPendentes = new();
+    private static readonly Dictionary<byte, int> QuantidadeEsperada = new();
 
     // Chamado depois que a lista de tarefas do jogador é recriada.
     public static void RestaurarTarefasConcluidas(PlayerControl jogador)
@@ -24,8 +25,10 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
             return;
 
         List<object> atuais = EnumerarColecaoIl2Cpp(LerMembro(jogador, "myTasks", "MyTasks", "tasks", "Tasks"));
-        if (atuais.Count == 0)
-            return; // A lista ainda não chegou; o patch tentará novamente quando for atualizada.
+        if (atuais.Count == 0 ||
+            !QuantidadeEsperada.TryGetValue(jogador.PlayerId, out int quantidadeEsperada) ||
+            atuais.Count < quantidadeEsperada)
+            return; // Ainda é a lista antiga; o patch tentará novamente quando a nova chegar.
 
         int restauradas = 0;
         foreach (TarefaConcluidaAnterior antiga in antigas)
@@ -82,6 +85,7 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             $"Adicionar tarefas: PlayerId={jogador.PlayerId}; tarefas concluídas antigas restauradas={restauradas}/{antigas.Count}.");
         ConclusoesPendentes.Remove(jogador.PlayerId);
+        QuantidadeEsperada.Remove(jogador.PlayerId);
     }
 
     private static List<TarefaConcluidaAnterior> CapturarTarefasConcluidas(PlayerControl jogador)
@@ -280,7 +284,10 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
                 novaLista[i] = ids[i];
 
             if (concluidasAntes.Count > 0)
+            {
                 ConclusoesPendentes[jogador.PlayerId] = concluidasAntes;
+                QuantidadeEsperada[jogador.PlayerId] = ids.Count;
+            }
 
             jogador.Data.RpcSetTasks(novaLista);
             RestaurarTarefasConcluidas(jogador);
