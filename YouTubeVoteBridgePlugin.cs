@@ -77,8 +77,18 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     }
     private static readonly Dictionary<byte, List<EstadoTarefaShapeshift>> TarefasAntesDoShapeshift = new();
     private static readonly HashSet<byte> RestaurandoTarefasShapeshift = new();
+    // Só tenta reaplicar tarefas quando o jogador retorna à própria aparência.
+    private static readonly HashSet<byte> AguardandoRestauracaoTarefasShapeshift = new();
     public static bool RestaurandoTarefasDoShapeshift(byte playerId) =>
         RestaurandoTarefasShapeshift.Contains(playerId);
+
+    public static void RegistrarDestransformacaoShapeshifter(PlayerControl jogador)
+    {
+        if (jogador == null) return;
+        AguardandoRestauracaoTarefasShapeshift.Add(jogador.PlayerId);
+        Instance?.Log.LogInfo(
+            $"Shapeshift: DEStransformação detectada para PlayerId={jogador.PlayerId} (RpcShapeshift recebeu o próprio jogador como alvo).");
+    }
 
     private static readonly Dictionary<byte, string> NomesOriginaisPainel = new();
     private static string NomeHostOriginalPlacar;
@@ -2252,6 +2262,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     public static void RestaurarTarefasDepoisDeAtualizar(PlayerControl jogador)
     {
         if (jogador == null ||
+            !AguardandoRestauracaoTarefasShapeshift.Contains(jogador.PlayerId) ||
             !TarefasAntesDoShapeshift.TryGetValue(jogador.PlayerId, out List<EstadoTarefaShapeshift> antigas))
             return;
 
@@ -2326,6 +2337,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         Instance?.Log.LogInfo(
             $"Shapeshift/tarefas: PlayerId={jogador.PlayerId}; tarefas concluídas reaplicadas={restauradas}.");
         TarefasAntesDoShapeshift.Remove(jogador.PlayerId);
+        AguardandoRestauracaoTarefasShapeshift.Remove(jogador.PlayerId);
     }
 
     public static void DefinirEstadoShapeshiftRainbow(
@@ -3167,7 +3179,17 @@ public static class YouTubeVoteRainbowShapeshiftPatch
         PlayerControl __instance,
         [HarmonyArgument(0)] PlayerControl target)
     {
-        YouTubeVoteBridgePlugin.RegistrarTarefasAntesDoShapeshift(__instance, target);
+        if (__instance == null || target == null) return;
+
+        if (__instance.PlayerId == target.PlayerId)
+        {
+            // No protocolo do jogo, alvo == próprio jogador representa destransformação.
+            YouTubeVoteBridgePlugin.RegistrarDestransformacaoShapeshifter(__instance);
+        }
+        else
+        {
+            YouTubeVoteBridgePlugin.RegistrarTarefasAntesDoShapeshift(__instance, target);
+        }
     }
 
     public static void Postfix(
@@ -3178,8 +3200,16 @@ public static class YouTubeVoteRainbowShapeshiftPatch
         if (__instance == null || target == null)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "Rainbow diagnóstico: RpcShapeshift executou, mas instance ou target é null.");
+                "Shapeshift: RpcShapeshift executou, mas instance ou target é null.");
             return;
+        }
+
+        if (__instance.PlayerId == target.PlayerId)
+        {
+            // Segunda tentativa: alguns builds atualizam myTasks dentro do RPC,
+            // antes de executar o Postfix. Se SetTasks rodar depois, o patch da lista
+            // fará outra tentativa, pois o estado aguardando restauração permanece.
+            YouTubeVoteBridgePlugin.RestaurarTarefasDepoisDeAtualizar(__instance);
         }
 
         bool rainbow = YouTubeVoteBridgePlugin.JogadorTemRainbowParaDestransformacao(__instance);
