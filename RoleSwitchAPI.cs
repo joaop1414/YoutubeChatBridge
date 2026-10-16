@@ -1,13 +1,14 @@
 using System;
 using System.Reflection;
 using AmongUs.GameOptions;
+using Hazel;
 
 namespace YouTubeVoteBridge;
 
 /// <summary>
-/// API central para trocar a função de um jogador pelo RPC nativo.
-/// Não aplica funções intermediárias: isso poderia colocar temporariamente
-/// um jogador vivo no estado de fantasma e causar problemas na tela/intro.
+/// Troca de função inspirada no CustomRpcSender do EHR:
+/// envia SetRole somente ao cliente dono do jogador, com canOverrideRole=true.
+/// Se o jogador pertence ao próprio host, aplica localmente com SetRole.
 /// </summary>
 internal static class RoleSwitchAPI
 {
@@ -38,15 +39,36 @@ internal static class RoleSwitchAPI
 
         try
         {
-            LogInfo($"Iniciando troca direta: jogador={jogador.PlayerId}, atual={LerFuncao(jogador)}, destino={funcao}.");
+            LogInfo($"Solicitando troca direcionada: jogador={jogador.PlayerId}, atual={LerFuncao(jogador)}, destino={funcao}, OwnerId={jogador.OwnerId}.");
 
-            if (!Aplicar(jogador, funcao))
+            if (AmongUsClient.Instance == null)
             {
-                LogErro($"Não foi possível aplicar {funcao} ao jogador={jogador.PlayerId}.");
+                LogErro("AmongUsClient.Instance está nulo.");
                 return false;
             }
 
-            LogInfo($"Troca solicitada: jogador={jogador.PlayerId}, função destino={funcao}, função observada={LerFuncao(jogador)}.");
+            // Igual ao EHR: o host aplica diretamente se ele próprio é o dono.
+            // Evita enviar um RPC para si mesmo e evita propagar a troca a todos.
+            if (AmongUsClient.Instance.ClientId == jogador.OwnerId)
+            {
+                jogador.SetRole(funcao);
+                LogInfo($"SetRole local aplicado: jogador={jogador.PlayerId}, função={funcao}.");
+                return true;
+            }
+
+            // EHR CustomRpcSender.RpcSetRole envia RpcCalls.SetRole ao OwnerId
+            // e escreve RoleTypes + true (canOverrideRole) no payload.
+            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
+                jogador.NetId,
+                (byte)RpcCalls.SetRole,
+                SendOption.Reliable,
+                jogador.OwnerId);
+
+            writer.Write((ushort)funcao);
+            writer.Write(true);
+            AmongUsClient.Instance.FinishRpcImmediately(writer);
+
+            LogInfo($"RPC SetRole direcionado enviado: jogador={jogador.PlayerId}, função={funcao}, destino={jogador.OwnerId}, canOverrideRole=true.");
             return true;
         }
         catch (Exception ex)
@@ -54,38 +76,6 @@ internal static class RoleSwitchAPI
             LogErro($"Exceção ao trocar função do jogador={jogador.PlayerId}: {ex}");
             return false;
         }
-    }
-
-    private static bool Aplicar(PlayerControl jogador, RoleTypes funcao)
-    {
-        MethodInfo metodoCompatível = null;
-
-        foreach (MethodInfo metodo in jogador.GetType().GetMethods(
-            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
-        {
-            if (metodo.Name != "RpcSetRole")
-                continue;
-
-            ParameterInfo[] parametros = metodo.GetParameters();
-            if (parametros.Length == 2 &&
-                parametros[0].ParameterType == typeof(RoleTypes) &&
-                parametros[1].ParameterType == typeof(bool))
-            {
-                metodoCompatível = metodo;
-                break;
-            }
-        }
-
-        if (metodoCompatível == null)
-        {
-            LogErro("Não encontrei RpcSetRole(RoleTypes, bool). Não vou usar uma alternativa que ignore canOverrideRole.");
-            return false;
-        }
-
-        metodoCompatível.Invoke(jogador, new object[] { funcao, true });
-
-        LogInfo($"RpcSetRole chamado: jogador={jogador.PlayerId}, função={funcao}, canOverrideRole=true.");
-        return true;
     }
 
     private static string LerFuncao(PlayerControl jogador)
