@@ -1827,11 +1827,34 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             writer.Recycle();
             writer = null;
 
-            // Atualiza também a interface do host imediatamente.
-            if (jogador.AmOwner)
+            // Atualiza os dados e a interface local do host para qualquer jogador,
+            // inclusive quando o jogador ejetado pertence a outro cliente.
+            // O broadcast acima continua responsável por replicar o nome para a sala.
+            try
+            {
                 jogador.SetName(nome);
-            if (jogador.cosmetics != null && jogador.cosmetics.nameText != null)
-                jogador.cosmetics.nameText.text = nome;
+            }
+            catch (Exception exSetName)
+            {
+                Instance?.Log.LogWarning(
+                    $"Ejeção/Rainbow: SetName local falhou para PlayerId={jogador.PlayerId}: {exSetName.Message}");
+            }
+
+            try
+            {
+                if (jogador.Data != null)
+                    jogador.Data.PlayerName = nome;
+                if (jogador.cosmetics != null && jogador.cosmetics.nameText != null)
+                    jogador.cosmetics.nameText.text = nome;
+            }
+            catch (Exception exVisual)
+            {
+                Instance?.Log.LogWarning(
+                    $"Ejeção/Rainbow: atualização visual local falhou para PlayerId={jogador.PlayerId}: {exVisual.Message}");
+            }
+
+            Instance?.Log.LogInfo(
+                $"Ejeção/Rainbow: SetName enviado globalmente e aplicado localmente; PlayerId={jogador.PlayerId}, nome='{nome}'.");
         }
         catch (Exception ex)
         {
