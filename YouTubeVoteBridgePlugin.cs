@@ -1974,15 +1974,53 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         if (!EhHost() || playerInfo == null) return;
         try
         {
-            object idValor = LerMembro(playerInfo, "PlayerId", "playerId", "PlayerID");
-            if (idValor == null) return;
+            object infoJogador = playerInfo;
+            object idValor = LerMembro(infoJogador, "PlayerId", "playerId", "PlayerID");
+            if (idValor == null)
+            {
+                // ExileController.Begin recebe InitProperties; os dados do jogador
+                // normalmente ficam numa propriedade interna como exiled.
+                foreach (string membro in new[] {
+                    "exiled", "Exiled", "playerInfo", "PlayerInfo",
+                    "networkedPlayerInfo", "NetworkedPlayerInfo",
+                    "player", "Player", "target", "Target"
+                })
+                {
+                    object candidato = LerMembro(playerInfo, membro);
+                    if (candidato == null) continue;
+                    object idCandidato = LerMembro(candidato, "PlayerId", "playerId", "PlayerID");
+                    Instance?.Log.LogInfo(
+                        $"Ejeção diagnóstico: membro {membro} tipo={candidato.GetType().FullName}, PlayerId={idCandidato ?? "não encontrado"}.");
+                    if (idCandidato != null)
+                    {
+                        infoJogador = candidato;
+                        idValor = idCandidato;
+                        break;
+                    }
+                }
+            }
+            if (idValor == null)
+            {
+                try
+                {
+                    string membros = string.Join(", ", playerInfo.GetType()
+                        .GetMembers(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                        .Where(m => m.MemberType == MemberTypes.Field || m.MemberType == MemberTypes.Property)
+                        .Select(m => m.Name)
+                        .Distinct());
+                    Instance?.Log.LogWarning(
+                        $"Ejeção diagnóstico: membros disponíveis em {playerInfo.GetType().FullName}: {membros}");
+                }
+                catch { }
+                return;
+            }
             byte id = Convert.ToByte(idValor);
             PlayerControl jogador = null;
             foreach (PlayerControl p in PlayerControl.AllPlayerControls)
                 if (p != null && p.PlayerId == id) { jogador = p; break; }
             if (jogador == null || jogador.Data == null) return;
 
-            object role = LerMembro(playerInfo, "Role", "role");
+            object role = LerMembro(infoJogador, "Role", "role");
             if (role == null)
                 role = LerMembro(jogador.Data, "Role", "role");
             if (role == null)
@@ -2856,13 +2894,11 @@ public static class YouTubeVoteEjectionGlobalNamePatch
             object id = YouTubeVoteBridgePlugin.LerMembroPublico(arg, "PlayerId", "playerId", "PlayerID");
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 $"Ejeção diagnóstico: argumento tipo={arg.GetType().FullName}, PlayerId={id ?? "não encontrado"}.");
+            // Begin recebe InitProperties, que encapsula a informação do jogador.
+            // Passamos o objeto mesmo sem PlayerId direto para a rotina procurar os membros internos.
+            YouTubeVoteBridgePlugin.PrepararNomeGlobalDeEjecao(arg);
             if (id != null)
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    $"Ejeção: jogador identificado no argumento {arg.GetType().FullName}, PlayerId={id}.");
-                YouTubeVoteBridgePlugin.PrepararNomeGlobalDeEjecao(arg);
                 return;
-            }
         }
         YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
             "Ejeção: Begin foi chamado, mas nenhum argumento com PlayerId e Role foi encontrado.");
