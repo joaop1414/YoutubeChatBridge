@@ -344,7 +344,9 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
             // Este é o fluxo usado pela role Capitalist do EHR:
             // RpcResetTasks dispara a atribuição normal, e o Prefix de RpcSetTasks
             // acrescenta as tarefas antes de o RPC ser enviado aos clientes.
-            jogador.RpcResetTasks(false);
+            // Equivalente ao RpcResetTasks do EHR: envia uma lista vazia pelo RPC nativo.
+            // O Prefix de NetworkedPlayerInfo.RpcSetTasks acrescenta os tipos extras antes do envio.
+            jogador.Data.RpcSetTasks(new Il2CppStructArray<byte>(0));
 
             AgendarRestauracaoTarefasConcluidas(jogador);
             return quantidade;
