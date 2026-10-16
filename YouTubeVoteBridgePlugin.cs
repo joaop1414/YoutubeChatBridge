@@ -2929,9 +2929,9 @@ public static class YouTubeVoteRainbowShapeshiftPatch
 [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.SetName))]
 public static class YouTubeVoteEjectionBlockOtherNamesPatch
 {
-    public static bool Prefix(PlayerControl __instance, string name)
+    public static bool Prefix(PlayerControl __instance, string __0)
     {
-        return YouTubeVoteBridgePlugin.PodeAlterarNomeDuranteEjecao(__instance, name);
+        return YouTubeVoteBridgePlugin.PodeAlterarNomeDuranteEjecao(__instance, __0);
     }
 }
 
