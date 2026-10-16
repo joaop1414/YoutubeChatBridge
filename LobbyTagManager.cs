@@ -599,13 +599,13 @@ public static class LobbyTagManager
             if (!NomesOriginais.ContainsKey(jogador.PlayerId))
                 NomesOriginais[jogador.PlayerId] = nomeOriginal;
 
-            // Deixa a tag menor e mantém o nome original na linha seguinte.
-            // A cor configurada em tags.json fica dentro do <size>.
-            // Deixa a cor por fora do tamanho: alguns renderizadores lidam melhor
-            // com <color><size>...</size></color> do que com tags aninhadas ao contrário.
-            string tagRenderizada = configuracao.Tag;
+            // Mantém tag e jogador na mesma linha, preservando a formatação Rich Text.
+            // Normaliza eventuais quebras de linha presentes na tag ou no nome.
+            string tagSemQuebra = Regex.Replace(configuracao.Tag ?? string.Empty, @"[\r\n]+", " ").Trim();
+            string nomeSemQuebra = Regex.Replace(NomesOriginais[jogador.PlayerId] ?? string.Empty, @"[\r\n]+", " ").Trim();
+            string tagRenderizada = tagSemQuebra;
             Match corMatch = Regex.Match(
-                configuracao.Tag,
+                tagSemQuebra,
                 @"^<color=([^>]+)>(.*?)</color>$",
                 RegexOptions.Singleline);
 
@@ -613,10 +613,9 @@ public static class LobbyTagManager
                 tagRenderizada = "<color=" + corMatch.Groups[1].Value +
                     "><size=50%>" + corMatch.Groups[2].Value + "</size></color>";
             else
-                tagRenderizada = "<size=50%>" + configuracao.Tag + "</size>";
+                tagRenderizada = "<size=50%>" + tagSemQuebra + "</size>";
 
-            string nomeComTag = tagRenderizada + " - "+
-                NomesOriginais[jogador.PlayerId];
+            string nomeComTag = tagRenderizada + " - " + nomeSemQuebra;
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 $"[Tags][APLICAR] Nome original='{NomesOriginais[jogador.PlayerId]}'; nome enviado='{nomeComTag}'; cor configurada em tags.json. PlayerId={jogador.PlayerId}, FriendCode='{friendCode}'");
