@@ -1971,6 +1971,37 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         }
     }
 
+    // A tela de reunião usa PlayerVoteArea.NameText, separado do nome acima do personagem.
+    // O cliente host não recebe de volta o próprio SetName pela rede, então reaplicamos
+    // a tag diretamente na interface da reunião em cada atualização local.
+    public static void AtualizarTagRainbowNaReuniao()
+    {
+        try
+        {
+            MeetingHud reuniao = MeetingHud.Instance;
+            if (reuniao == null || reuniao.playerStates == null ||
+                !LobbyTagManager.PartidaIniciada() || ShipStatus.Instance == null)
+                return;
+
+            foreach (PlayerVoteArea area in reuniao.playerStates)
+            {
+                if (area == null || !JogadoresRainbowAtivos.Contains(area.TargetPlayerId))
+                    continue;
+
+                if (!NomesOriginaisRainbow.TryGetValue(
+                    area.TargetPlayerId, out string nomeOriginal))
+                    continue;
+
+                if (area.NameText != null)
+                    area.NameText.text = CriarNomeRainbow(nomeOriginal);
+            }
+        }
+        catch (Exception ex)
+        {
+            Instance?.Log.LogDebug("Rainbow: falha ao atualizar tag na reunião: " + ex.Message);
+        }
+    }
+
     // Intercepta a tentativa normal de voltar à forma original enquanto o
     // rainbow está ativo. Cancela a chamada inicial, restaura a cor do
     // Shapeshifter e emite um novo RPC de destransformação que será replicado.
@@ -2559,5 +2590,17 @@ public static class YouTubeVoteRainbowShapeshiftRevertPatch
     {
         return YouTubeVoteBridgePlugin.InterceptarDestransformacaoRainbow(
             __instance, target, shouldAnimate);
+    }
+}
+
+
+// Corrige a tag na lista de votação da reunião. A interface do host é local e pode
+// reconstruir os nomes sem receber o SetName que ele próprio enviou.
+[HarmonyPatch(typeof(MeetingHud), nameof(MeetingHud.Update))]
+public static class YouTubeVoteRainbowMeetingNamePatch
+{
+    public static void Postfix()
+    {
+        YouTubeVoteBridgePlugin.AtualizarTagRainbowNaReuniao();
     }
 }
