@@ -97,6 +97,11 @@ internal sealed class EventoEscondeEsconde : EventoVotacao
             return;
         }
 
+        // Tentativa de recuperação inspirada no EHR: chama FixBlackScreen
+        // para todos os jogadores após a atribuição dos papéis. Se EHR não estiver
+        // carregado, a API registra isso e não interrompe o evento.
+        RoleSwitchAPI.TentarCorrigirTelaPretaTodos();
+
         ativo = true;
         terminaEm = Time.realtimeSinceStartup + DuracaoSegundos;
         YouTubeVoteBridgePlugin.DefinirNomeLocal(
