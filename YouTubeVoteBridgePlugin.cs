@@ -1739,10 +1739,12 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     // COMANDO /color (ID, NOME OU RAINBOW)
     // ========================================================
 
-    private static bool RainbowGlobalAtivo;
-    private static float RainbowGlobalExpiraEm;
+    // O arco-íris pertence individualmente a cada jogador que usou /color rainbow.
+    // O efeito fica ativo até o fim da partida, sem temporizador de expiração.
+    private static bool RainbowGlobalAtivo => JogadoresRainbowAtivos.Count > 0;
     private static float ProximaTrocaCorRainbow;
     private static int IndiceCorRainbow;
+    private static readonly HashSet<byte> JogadoresRainbowAtivos = new();
     private static readonly Dictionary<byte, int> CoresOriginaisRainbow = new();
     private static readonly Dictionary<byte, string> NomesOriginaisRainbow = new();
     // Jogadores cujo RPC de destransformação foi interceptado durante o arco-íris.
@@ -1830,75 +1832,79 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         }
     }
 
-    private static void IniciarRainbowGlobal()
+    private static void IniciarRainbowGlobal(PlayerControl jogador)
     {
-        if (!EhHost())
+        if (!EhHost() || jogador == null || jogador.Data == null ||
+            jogador.Data.Disconnected)
             return;
 
-        if (RainbowGlobalAtivo)
-            EncerrarRainbowGlobal();
-
-        CoresOriginaisRainbow.Clear();
-        NomesOriginaisRainbow.Clear();
-        CoresRainbowRestauradasPorDestransformacao.Clear();
-
-        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+        byte playerId = jogador.PlayerId;
+        if (!JogadoresRainbowAtivos.Contains(playerId))
         {
-            if (jogador == null || jogador.Data == null || jogador.Data.Disconnected)
-                continue;
-
-            CoresOriginaisRainbow[jogador.PlayerId] = jogador.Data.DefaultOutfit.ColorId;
-            NomesOriginaisRainbow[jogador.PlayerId] = jogador.Data.PlayerName ?? string.Empty;
+            CoresOriginaisRainbow[playerId] = jogador.Data.DefaultOutfit.ColorId;
+            NomesOriginaisRainbow[playerId] = jogador.Data.PlayerName ?? string.Empty;
+            JogadoresRainbowAtivos.Add(playerId);
         }
 
-        RainbowGlobalAtivo = true;
-        RainbowGlobalExpiraEm = Time.realtimeSinceStartup + 20f;
+        CoresRainbowRestauradasPorDestransformacao.Remove(playerId);
         ProximaTrocaCorRainbow = 0f;
         IndiceCorRainbow = 0;
-        Instance?.Log.LogInfo("Rainbow global ativado por 20 segundos para todos os jogadores.");
+        Instance?.Log.LogInfo($"Rainbow ativado individualmente para PlayerId={playerId}; permanece ativo até o fim da partida.");
+    }
+
+    private static void EncerrarRainbowJogador(PlayerControl jogador)
+    {
+        if (jogador == null)
+            return;
+
+        byte playerId = jogador.PlayerId;
+        if (!JogadoresRainbowAtivos.Remove(playerId))
+            return;
+
+        if (CoresOriginaisRainbow.TryGetValue(playerId, out int cor))
+        {
+            try { jogador.RpcSetColor((byte)Math.Clamp(cor, 0, 255)); }
+            catch (Exception ex)
+            {
+                Instance?.Log.LogWarning("Rainbow: não foi possível restaurar cor: " + ex.Message);
+            }
+        }
+
+        if (NomesOriginaisRainbow.TryGetValue(playerId, out string nome))
+            DefinirNomeRainbowNosClientesComMod(jogador, nome);
+
+        CoresOriginaisRainbow.Remove(playerId);
+        NomesOriginaisRainbow.Remove(playerId);
+        CoresRainbowRestauradasPorDestransformacao.Remove(playerId);
     }
 
     private static void EncerrarRainbowGlobal()
     {
-        if (!RainbowGlobalAtivo)
-            return;
-
         foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
         {
-            if (jogador == null || jogador.Data == null)
-                continue;
-
-            if (CoresOriginaisRainbow.TryGetValue(jogador.PlayerId, out int cor))
-            {
-                try { jogador.RpcSetColor((byte)Math.Clamp(cor, 0, 255)); }
-                catch (Exception ex)
-                {
-                    Instance?.Log.LogWarning("Rainbow: não foi possível restaurar cor: " + ex.Message);
-                }
-            }
-
-            if (NomesOriginaisRainbow.TryGetValue(jogador.PlayerId, out string nome))
-                DefinirNomeRainbowNosClientesComMod(jogador, nome);
+            if (jogador != null && JogadoresRainbowAtivos.Contains(jogador.PlayerId))
+                EncerrarRainbowJogador(jogador);
         }
 
+        // Remove estados de jogadores que já saíram e não estão mais em AllPlayerControls.
+        JogadoresRainbowAtivos.Clear();
         CoresOriginaisRainbow.Clear();
         NomesOriginaisRainbow.Clear();
         CoresRainbowRestauradasPorDestransformacao.Clear();
-        RainbowGlobalAtivo = false;
-        RainbowGlobalExpiraEm = 0f;
-        Instance?.Log.LogInfo("Rainbow global encerrado; cores e nomes originais restaurados.");
+        ProximaTrocaCorRainbow = 0f;
+        Instance?.Log.LogInfo("Rainbow encerrado; cores e nomes originais restaurados.");
+    }
+
+    public static void ResetarRainbowFimDePartida()
+    {
+        if (EhHost())
+            EncerrarRainbowGlobal();
     }
 
     public static void AtualizarRainbow()
     {
-        if (!EhHost() || !RainbowGlobalAtivo)
+        if (!EhHost() || !RainbowGlobalAtivo || !LobbyTagManager.PartidaIniciada())
             return;
-
-        if (Time.realtimeSinceStartup >= RainbowGlobalExpiraEm)
-        {
-            EncerrarRainbowGlobal();
-            return;
-        }
 
         if (Time.realtimeSinceStartup < ProximaTrocaCorRainbow)
             return;
@@ -1909,19 +1915,28 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             return;
 
         IndiceCorRainbow = (IndiceCorRainbow + 1) % totalCores;
-        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+        foreach (byte playerId in JogadoresRainbowAtivos.ToArray())
         {
+            PlayerControl jogador = null;
+            foreach (PlayerControl candidato in PlayerControl.AllPlayerControls)
+            {
+                if (candidato != null && candidato.PlayerId == playerId)
+                {
+                    jogador = candidato;
+                    break;
+                }
+            }
+
             if (jogador == null || jogador.Data == null || jogador.Data.Disconnected)
                 continue;
 
             try
             {
-                // Após cancelar uma destransformação, a cor original do
-                // Shapeshifter deve permanecer restaurada até o fim do efeito.
-                if (!CoresRainbowRestauradasPorDestransformacao.Contains(jogador.PlayerId))
+                // Não sobrescreve a cor restaurada quando o Shapeshifter se destransforma.
+                if (!CoresRainbowRestauradasPorDestransformacao.Contains(playerId))
                     jogador.RpcSetColor((byte)IndiceCorRainbow);
-                string nomeOriginal = NomesOriginaisRainbow.TryGetValue(
-                    jogador.PlayerId, out string salvo)
+
+                string nomeOriginal = NomesOriginaisRainbow.TryGetValue(playerId, out string salvo)
                     ? salvo
                     : (jogador.Data.PlayerName ?? string.Empty);
                 DefinirNomeRainbowNosClientesComMod(jogador, CriarNomeRainbow(nomeOriginal));
@@ -1929,7 +1944,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             catch (Exception ex)
             {
                 Instance?.Log.LogWarning("Rainbow: falha ao animar jogador " +
-                    jogador.PlayerId + ": " + ex.Message);
+                    playerId + ": " + ex.Message);
             }
         }
     }
@@ -1946,7 +1961,8 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             !RainbowGlobalAtivo ||
             shapeshifter == null ||
             alvo == null ||
-            shapeshifter.PlayerId != alvo.PlayerId)
+            shapeshifter.PlayerId != alvo.PlayerId ||
+            !JogadoresRainbowAtivos.Contains(shapeshifter.PlayerId))
             return true;
 
         try
@@ -2042,15 +2058,13 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         {
             if (pedidoRainbow)
             {
-                IniciarRainbowGlobal();
+                IniciarRainbowGlobal(jogador);
                 ResponderComando(chat, jogador,
-                    "Modo Arco-íris ativado para todos por 20 segundos! As cores e o nome animado aparecem nos clientes com o mod.");
+                    "Modo Arco-íris ativado para você. A cor muda durante a partida e o efeito termina quando ela acabar.");
                 return;
             }
 
-            if (RainbowGlobalAtivo)
-                EncerrarRainbowGlobal();
-
+            EncerrarRainbowJogador(jogador);
             jogador.RpcSetColor((byte)idCor);
             ResponderComando(chat, jogador,
                 "Sua cor foi alterada para " + Palette.ColorNames[idCor] + " (ID " + idCor + ").");
@@ -2167,11 +2181,15 @@ public static class YouTubeVoteChatPatch
         if (mensagem.Equals("/color", StringComparison.OrdinalIgnoreCase) ||
             mensagem.StartsWith("/color ", StringComparison.OrdinalIgnoreCase))
         {
-            // Alterar cores é permitido somente no lobby. Bloqueia tanto o uso
-            // local quanto comandos recebidos de clientes quando a partida começou.
-            if (LobbyTagManager.PartidaIniciada())
+            // Cores fixas só podem ser escolhidas no lobby. /color rainbow
+            // pode ser ativado antes ou durante a partida e dura até ela terminar.
+            bool rainbowPedido = Regex.IsMatch(
+                mensagem,
+                @"^/color\s+(rainbow|arco-íris|arcoiris)\s*$",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            if (LobbyTagManager.PartidaIniciada() && !rainbowPedido)
             {
-                const string aviso = "O comando /color só pode ser usado no lobby.";
+                const string aviso = "Durante a partida, somente /color rainbow pode ser usado.";
                 if (ehLocal)
                     YouTubeVoteBridgePlugin.Responder(__instance, aviso);
                 else if (host)
@@ -2438,6 +2456,7 @@ public static class YouTubeVoteResetTaskEventsOnEndPatch
     public static void Postfix()
     {
         EventoTesteMenu.ResetarEstadoPartida("fim de partida");
+        YouTubeVoteBridgePlugin.ResetarRainbowFimDePartida();
         EventoTarefaMataJogador.Desativar();
         EventoTarefaSuicidio.Desativar();
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
