@@ -12,7 +12,7 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
 {
     private sealed class TarefaConcluidaAnterior
     {
-        public string Tipo;
+        public byte Tipo;
         public int Ocorrencia;
     }
 
@@ -72,7 +72,10 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
         if (jogador == null || !ConclusoesPendentes.TryGetValue(jogador.PlayerId, out var antigas))
             return;
 
-        List<object> atuais = EnumerarColecaoIl2Cpp(LerMembro(jogador, "myTasks", "MyTasks", "tasks", "Tasks"));
+        // A fonte autoritativa do estado sincronizado é NetworkedPlayerInfo.Tasks:
+        // cada TaskInfo contém TypeId, Id e Complete. PlayerTask.IsComplete pode
+        // estar desatualizado durante uma redistribuição de tarefas.
+        List<object> atuais = EnumerarColecaoIl2Cpp(LerMembro(jogador.Data, "Tasks", "tasks"));
         if (atuais.Count == 0 ||
             !QuantidadeEsperada.TryGetValue(jogador.PlayerId, out int quantidadeEsperada) ||
             atuais.Count < quantidadeEsperada)
@@ -86,9 +89,8 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
             foreach (object tarefa in atuais)
             {
                 if (tarefa == null) continue;
-                string tipo = LerMembro(tarefa, "TaskType", "taskType", "Type", "type")?.ToString()
-                    ?? tarefa.GetType().FullName;
-                if (tipo != antiga.Tipo) continue;
+                object tipoObj = LerMembro(tarefa, "TypeId", "typeId", "TaskType", "taskType");
+                if (tipoObj == null || ConverterByte(tipoObj) != antiga.Tipo) continue;
                 if (ocorrencia++ == antiga.Ocorrencia)
                 {
                     tarefaAlvo = tarefa;
@@ -99,8 +101,7 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
             if (tarefaAlvo == null)
                 continue;
 
-            // Se já estiver concluída, conta como restaurada e não envia o RPC novamente.
-            if (LerBool(tarefaAlvo, "IsComplete", "isComplete", "Complete", "complete"))
+            if (LerBool(tarefaAlvo, "Complete", "complete", "IsComplete", "isComplete"))
             {
                 restauradas++;
                 continue;
@@ -110,29 +111,31 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
             if (id == null)
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    $"Adicionar tarefas: não encontrei o ID da tarefa '{antiga.Tipo}' para PlayerId={jogador.PlayerId}.");
+                    $"Adicionar tarefas: não encontrei o ID da TaskInfo tipo={antiga.Tipo} para PlayerId={jogador.PlayerId}.");
                 continue;
             }
 
             try
             {
-                // EHR completa tarefas de outros jogadores usando RpcCompleteTask.
-                // Esse RPC propaga a conclusão pelo protocolo normal do jogo aos clientes,
-                // inclusive vanilla. CompleteTask local/GameData.CompleteTask pode alterar
-                // a barra no host sem atualizar a tarefa na tela dos demais clientes.
+                // RpcCompleteTask atualiza GameData.TaskInfo.Complete e propaga
+                // a conclusão pelo RPC normal, inclusive para clientes vanilla.
                 uint taskId = Convert.ToUInt32(id);
                 jogador.RpcCompleteTask(taskId);
 
-                if (LerBool(tarefaAlvo, "IsComplete", "isComplete", "Complete", "complete"))
+                // Releia Data.Tasks: TaskInfo pode ser struct e a cópia anterior
+                // não refletir a alteração feita pelo RPC.
+                List<object> depois = EnumerarColecaoIl2Cpp(LerMembro(jogador.Data, "Tasks", "tasks"));
+                object tarefaDepois = EncontrarTaskInfo(depois, antiga.Tipo, antiga.Ocorrencia);
+                if (LerBool(tarefaDepois, "Complete", "complete"))
                     restauradas++;
                 else
                     YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                        $"Adicionar tarefas: PlayerControl.CompleteTask ainda não marcou '{antiga.Tipo}' como concluída (PlayerId={jogador.PlayerId}, TaskId={taskId}).");
+                        $"Adicionar tarefas: TaskInfo ainda pendente após RpcCompleteTask (PlayerId={jogador.PlayerId}, TaskId={taskId}, TypeId={antiga.Tipo}).");
             }
             catch (Exception ex)
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    $"Adicionar tarefas: falha ao restaurar '{antiga.Tipo}' para PlayerId={jogador.PlayerId}: {ex.GetBaseException().Message}");
+                    $"Adicionar tarefas: falha ao restaurar TypeId={antiga.Tipo} para PlayerId={jogador.PlayerId}: {ex.GetBaseException().Message}");
             }
         }
 
@@ -155,16 +158,17 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
     private static List<TarefaConcluidaAnterior> CapturarTarefasConcluidas(PlayerControl jogador)
     {
         List<TarefaConcluidaAnterior> resultado = new();
-        Dictionary<string, int> ocorrencias = new();
-        List<object> tarefas = EnumerarColecaoIl2Cpp(LerMembro(jogador, "myTasks", "MyTasks", "tasks", "Tasks"));
+        Dictionary<byte, int> ocorrencias = new();
+        List<object> tarefas = EnumerarColecaoIl2Cpp(LerMembro(jogador?.Data, "Tasks", "tasks"));
         foreach (object tarefa in tarefas)
         {
             if (tarefa == null) continue;
-            string tipo = LerMembro(tarefa, "TaskType", "taskType", "Type", "type")?.ToString()
-                ?? tarefa.GetType().FullName;
+            object tipoObj = LerMembro(tarefa, "TypeId", "typeId", "TaskType", "taskType");
+            if (tipoObj == null) continue;
+            byte tipo = ConverterByte(tipoObj);
             ocorrencias.TryGetValue(tipo, out int ocorrencia);
             ocorrencias[tipo] = ocorrencia + 1;
-            if (LerBool(tarefa, "IsComplete", "isComplete", "Complete", "complete"))
+            if (LerBool(tarefa, "Complete", "complete"))
                 resultado.Add(new TarefaConcluidaAnterior { Tipo = tipo, Ocorrencia = ocorrencia });
         }
         return resultado;
@@ -173,24 +177,40 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
     private static List<byte> CapturarTiposTarefas(PlayerControl jogador)
     {
         List<byte> tipos = new();
-        List<object> tarefas = EnumerarColecaoIl2Cpp(
-            LerMembro(jogador, "myTasks", "MyTasks", "tasks", "Tasks"));
+        List<object> tarefas = EnumerarColecaoIl2Cpp(LerMembro(jogador?.Data, "Tasks", "tasks"));
 
         foreach (object tarefa in tarefas)
         {
             if (tarefa == null) continue;
-            object tipo = LerMembro(tarefa, "TaskType", "taskType", "Type", "type");
-            if (tipo == null) continue;
-
-            try { tipos.Add(Convert.ToByte(tipo)); }
-            catch
-            {
-                try { tipos.Add((byte)Convert.ToInt32(tipo)); }
-                catch { }
-            }
+            object tipo = LerMembro(tarefa, "TypeId", "typeId", "TaskType", "taskType");
+            if (tipo != null) tipos.Add(ConverterByte(tipo));
         }
 
         return tipos;
+    }
+
+    private static byte ConverterByte(object valor)
+    {
+        try { return Convert.ToByte(valor); }
+        catch
+        {
+            try { return (byte)Convert.ToInt32(valor); }
+            catch { return byte.MaxValue; }
+        }
+    }
+
+    private static object EncontrarTaskInfo(List<object> tarefas, byte tipoProcurado, int ocorrenciaProcurada)
+    {
+        int ocorrencia = 0;
+        foreach (object tarefa in tarefas)
+        {
+            if (tarefa == null) continue;
+            object tipoObj = LerMembro(tarefa, "TypeId", "typeId", "TaskType", "taskType");
+            if (tipoObj == null || ConverterByte(tipoObj) != tipoProcurado) continue;
+            if (ocorrencia++ == ocorrenciaProcurada) return tarefa;
+        }
+
+        return null;
     }
 
     private static List<object> EnumerarColecaoIl2Cpp(object colecao)
