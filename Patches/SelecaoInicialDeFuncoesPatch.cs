@@ -17,18 +17,7 @@ internal static class SelecaoInicialDeFuncoesPatch
 {
     private static bool funcoesAplicadas;
 
-    /// <summary>
-    /// Reseta o bloqueio quando o jogo começa a preparar uma nova partida.
-    /// Não substitui nem bloqueia CoStartGame/CoStartGameHost.
-    /// </summary>
-    [HarmonyPatch(typeof(AmongUsClient), nameof(AmongUsClient.CoStartGame))]
-    [HarmonyPostfix]
-    private static void AoPrepararPartida()
-    {
-        funcoesAplicadas = false;
-        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            "[FuncoesIniciais] Nova partida: pronto para aplicar as funções após a seleção vanilla.");
-    }
+    internal static void Resetar() => funcoesAplicadas = false;
 
     [HarmonyPostfix]
     private static void PosSelecionarFuncoes()
@@ -108,5 +97,22 @@ internal static class SelecaoInicialDeFuncoesPatch
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
                 "[FuncoesIniciais] Exceção após RoleManager.SelectRoles: " + ex);
         }
+    }
+}
+
+
+/// <summary>
+/// O reset fica em uma classe separada para não combinar o alvo AmongUsClient
+/// com o alvo RoleManager da classe de seleção.
+/// </summary>
+[HarmonyPatch(typeof(AmongUsClient), nameof(AmongUsClient.CoStartGame))]
+internal static class ResetSelecaoInicialDeFuncoesPatch
+{
+    [HarmonyPostfix]
+    private static void AoPrepararPartida()
+    {
+        SelecaoInicialDeFuncoesPatch.Resetar();
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            "[FuncoesIniciais] Nova partida: pronto para aplicar as funções após a seleção vanilla.");
     }
 }
