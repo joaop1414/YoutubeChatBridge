@@ -608,23 +608,11 @@ internal sealed class EventoTesteMenu : MonoBehaviour
             total++;
             try
             {
-                // Atualiza também o estado autoritativo do host para que ele veja
-                // todos os papéis, inclusive os jogadores controlados remotamente.
-                if (RoleManager.Instance == null)
-                {
+                // Usa a API central de troca de função, baseada nos padrões
+                // observados no Hydra/EHR: SetRole local no host + RPC global
+                // com canOverrideRole=true. Não usa CoSetRole nesta troca.
+                if (!RoleSwitchAPI.TrocarFuncao(jogador, papel))
                     falhas++;
-                    continue;
-                }
-
-                RoleManager.Instance.SetRole(jogador, papel);
-
-                // Importante: -1 transmite o SetRole a TODOS os clientes.
-                // Enviar para jogador.OwnerId só atualizava a tela do dono daquele jogador.
-                MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
-                    jogador.NetId, (byte)RpcCalls.SetRole, SendOption.Reliable, -1);
-                writer.Write((ushort)papel);
-                writer.Write(true); // canOverrideRole
-                AmongUsClient.Instance.FinishRpcImmediately(writer);
             }
             catch (Exception ex)
             {
