@@ -1,10 +1,8 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using HarmonyLib;
-using Il2CppInterop.Runtime;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using UnityEngine;
 
@@ -20,6 +18,7 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
 
     private static readonly Dictionary<byte, List<TarefaConcluidaAnterior>> ConclusoesPendentes = new();
     private static readonly Dictionary<byte, int> QuantidadeEsperada = new();
+    private static readonly Dictionary<byte, float> RestauracoesAgendadas = new();
 
     // Espera o jogo distribuir e materializar a nova lista antes de reaplicar conclusões.
     public static void AgendarRestauracaoTarefasConcluidas(PlayerControl jogador)
@@ -27,13 +26,44 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
         if (jogador == null || AmongUsClient.Instance == null)
             return;
 
-        AmongUsClient.Instance.StartCoroutine(RestaurarComAtraso(jogador).WrapToIl2Cpp());
+        // Agenda pelo Update do jogo, evitando depender de coroutines IL2CPP.
+        RestauracoesAgendadas[jogador.PlayerId] = Time.time + 0.75f;
     }
 
-    private static IEnumerator RestaurarComAtraso(PlayerControl jogador)
+    public static void AtualizarRestauracoesAgendadas()
     {
-        yield return new WaitForSeconds(0.75f);
-        RestaurarTarefasConcluidas(jogador);
+        if (RestauracoesAgendadas.Count == 0)
+            return;
+
+        foreach (var agendada in RestauracoesAgendadas.ToArray())
+        {
+            if (Time.time < agendada.Value)
+                continue;
+
+            RestauracoesAgendadas.Remove(agendada.Key);
+
+            PlayerControl jogador = null;
+            if (PlayerControl.AllPlayerControls != null)
+            {
+                foreach (PlayerControl candidato in PlayerControl.AllPlayerControls)
+                {
+                    if (candidato != null && candidato.PlayerId == agendada.Key)
+                    {
+                        jogador = candidato;
+                        break;
+                    }
+                }
+            }
+
+            if (jogador == null)
+                continue;
+
+            RestaurarTarefasConcluidas(jogador);
+
+            // Se a lista nova ainda não chegou, tenta novamente em 0,25 s.
+            if (ConclusoesPendentes.ContainsKey(agendada.Key))
+                RestauracoesAgendadas[agendada.Key] = Time.time + 0.25f;
+        }
     }
 
     // Chamado depois que a lista nova de tarefas já foi aplicada.
@@ -339,7 +369,7 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
     {
         for (int i = lista.Count - 1; i > 0; i--)
         {
-            int j = Random.Shared.Next(i + 1);
+            int j = System.Random.Shared.Next(i + 1);
             (lista[i], lista[j]) = (lista[j], lista[i]);
         }
     }
