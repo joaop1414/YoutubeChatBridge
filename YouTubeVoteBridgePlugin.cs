@@ -1751,6 +1751,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     private static bool RainbowGlobalAtivo => JogadoresRainbowAtivos.Count > 0;
     private static float ProximaTrocaCorRainbow;
     private static int IndiceCorRainbow;
+    private static readonly Dictionary<byte, int> IndicesCorRainbowPorJogador = new();
     private static readonly HashSet<byte> JogadoresRainbowAtivos = new();
     private static readonly Dictionary<byte, int> CoresOriginaisRainbow = new();
     private static readonly Dictionary<byte, string> NomesOriginaisRainbow = new();
@@ -1765,13 +1766,14 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         "#4387FF", "#A45BFF", "#F05BCE", "#FF4040"
     };
 
-    private static string CriarNomeRainbow(string nomeOriginal)
+    private static string CriarNomeRainbow(string nomeOriginal, int? indiceJogador = null)
     {
         const string prefixo = "Arco-íris";
         StringBuilder nome = new();
+        int indice = indiceJogador ?? IndiceCorRainbow;
         for (int i = 0; i < prefixo.Length; i++)
         {
-            string cor = CoresTextoRainbow[(i + IndiceCorRainbow) % CoresTextoRainbow.Length];
+            string cor = CoresTextoRainbow[(i + indice) % CoresTextoRainbow.Length];
             nome.Append("<color=").Append(cor).Append(">").Append(prefixo[i]).Append("</color>");
         }
         nome.Append(" - ").Append(nomeOriginal ?? string.Empty);
@@ -1855,8 +1857,9 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
         NotificarEstadoRainbowVisual(playerId, true);
         CoresRainbowRestauradasPorDestransformacao.Remove(playerId);
+        if (!IndicesCorRainbowPorJogador.ContainsKey(playerId))
+            IndicesCorRainbowPorJogador[playerId] = UnityEngine.Random.Range(0, Math.Max(1, Palette.ColorNames?.Length ?? 1));
         ProximaTrocaCorRainbow = 0f;
-        IndiceCorRainbow = 0;
         Instance?.Log.LogInfo($"Rainbow ativado individualmente para PlayerId={playerId}; permanece ativo até o fim da partida.");
     }
 
@@ -1886,6 +1889,8 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         CoresOriginaisRainbow.Remove(playerId);
         NomesOriginaisRainbow.Remove(playerId);
         CoresRainbowRestauradasPorDestransformacao.Remove(playerId);
+        IndicesCorRainbowPorJogador.Remove(playerId);
+        ShapeshiftersRainbowTransformados.Remove(playerId);
     }
 
     private static void EncerrarRainbowGlobal()
@@ -1906,6 +1911,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         NomesOriginaisRainbow.Clear();
         CoresRainbowRestauradasPorDestransformacao.Clear();
         ShapeshiftersRainbowTransformados.Clear();
+        IndicesCorRainbowPorJogador.Clear();
         ProximaTrocaCorRainbow = 0f;
         Instance?.Log.LogInfo("Rainbow encerrado; cores e nomes originais restaurados.");
     }
@@ -1958,6 +1964,32 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         return null;
     }
 
+    public static object LerMembroPublico(object objeto, params string[] nomes)
+    {
+        return LerMembro(objeto, nomes);
+    }
+
+    private static object LerMembro(object objeto, params string[] nomes)
+    {
+        if (objeto == null) return null;
+        Type tipo = objeto.GetType();
+        foreach (string nome in nomes)
+        {
+            try
+            {
+                PropertyInfo p = tipo.GetProperty(nome, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                if (p != null && p.GetIndexParameters().Length == 0) return p.GetValue(objeto);
+                FieldInfo f = tipo.GetField(nome, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                if (f != null) return f.GetValue(objeto);
+            }
+            catch { }
+        }
+        return null;
+    }
+
+    private static readonly Dictionary<byte, string> NomesAntesDaEjecao = new();
+    private static byte? PlayerIdNaEjecao;
+
     public static void PrepararNomeGlobalDeEjecao(object playerInfo)
     {
         if (!EhHost() || playerInfo == null) return;
@@ -1966,38 +1998,33 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             object idValor = LerMembro(playerInfo, "PlayerId", "playerId", "PlayerID");
             if (idValor == null) return;
             byte id = Convert.ToByte(idValor);
-
             PlayerControl jogador = null;
             foreach (PlayerControl p in PlayerControl.AllPlayerControls)
                 if (p != null && p.PlayerId == id) { jogador = p; break; }
             if (jogador == null || jogador.Data == null) return;
 
             object role = LerMembro(playerInfo, "Role", "role");
-            object roleType = LerMembro(role, "Role", "role", "RoleType", "roleType");
-            string nomeFuncao = roleType?.ToString();
-            if (string.IsNullOrWhiteSpace(nomeFuncao))
-                nomeFuncao = role?.ToString();
-            if (string.IsNullOrWhiteSpace(nomeFuncao))
-                nomeFuncao = "Desconhecida";
-
-            object impostorValor = LerMembro(role, "IsImpostor", "isImpostor");
-            bool impostor = impostorValor is bool b && b;
+            string nomeFuncao = role?.ToString();
+            if (string.IsNullOrWhiteSpace(nomeFuncao) || nomeFuncao == "None")
+                nomeFuncao = "Crewmate";
+            bool impostor = nomeFuncao.IndexOf("Impostor", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                            nomeFuncao.IndexOf("Shapeshifter", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                            nomeFuncao.IndexOf("Phantom", StringComparison.OrdinalIgnoreCase) >= 0;
             string cor = impostor ? "red" : "#00fffb";
+
             string nomeOriginal = NomesOriginaisRainbow.TryGetValue(id, out string nomeRainbow)
-                ? nomeRainbow
-                : (jogador.Data.PlayerName ?? string.Empty);
+                ? nomeRainbow : (jogador.Data.PlayerName ?? string.Empty);
             if (!NomesAntesDaEjecao.ContainsKey(id))
                 NomesAntesDaEjecao[id] = nomeOriginal;
             PlayerIdNaEjecao = id;
 
-            DefinirNomeRainbowNosClientesComMod(
-                jogador, $"{nomeOriginal} era <color={cor}>{nomeFuncao}</color><size=0>");
-            Instance?.Log.LogInfo(
-                $"Ejeção: nome global atualizado para PlayerId={id}, função={nomeFuncao}, impostor={impostor}.");
+            DefinirNomeRainbowNosClientesComMod(jogador,
+                $"{nomeOriginal} era <color={cor}>{nomeFuncao}</color>");
+            Instance?.Log.LogInfo($"Ejeção: nome global definido ANTES da tela; PlayerId={id}, função={nomeFuncao}.");
         }
         catch (Exception ex)
         {
-            Instance?.Log.LogWarning("Ejeção: falha ao preparar nome global: " + ex.Message);
+            Instance?.Log.LogWarning("Ejeção: falha ao preparar nome global: " + ex);
         }
     }
 
@@ -2012,13 +2039,30 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 if (p != null && p.PlayerId == id) { jogador = p; break; }
             if (jogador != null && NomesAntesDaEjecao.TryGetValue(id, out string nome))
                 DefinirNomeRainbowNosClientesComMod(jogador, nome);
+            Instance?.Log.LogInfo($"Ejeção: nome restaurado após a tela; PlayerId={id}.");
         }
         catch (Exception ex)
         {
-            Instance?.Log.LogWarning("Ejeção: falha ao restaurar nome: " + ex.Message);
+            Instance?.Log.LogWarning("Ejeção: falha ao restaurar nome: " + ex);
         }
         NomesAntesDaEjecao.Remove(id);
         PlayerIdNaEjecao = null;
+    }
+
+    public static void DefinirEstadoShapeshiftRainbow(
+        PlayerControl jogador, bool transformado, PlayerControl alvo, bool shouldAnimate)
+    {
+        if (jogador == null || !JogadoresRainbowAtivos.Contains(jogador.PlayerId))
+            return;
+        if (transformado)
+        {
+            ShapeshiftersRainbowTransformados.Add(jogador.PlayerId);
+            Instance?.Log.LogInfo($"Rainbow: RpcShapeshift (padrão EHR) detectou transformação PlayerId={jogador.PlayerId}, alvo={alvo?.PlayerId}; pausado.");
+        }
+        else if (ShapeshiftersRainbowTransformados.Remove(jogador.PlayerId))
+        {
+            Instance?.Log.LogInfo($"Rainbow: RpcShapeshift (padrão EHR) detectou destransformação PlayerId={jogador.PlayerId}; retomado.");
+        }
     }
 
     public static void AtualizarRainbow()
@@ -2058,17 +2102,27 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 // RpcSetColor para ele. Ao destransformar, o patch remove o ID
                 // da lista e este ciclo volta a aplicar as cores automaticamente.
                 bool rainbowPausado = ShapeshiftersRainbowTransformados.Contains(playerId);
+                if (!IndicesCorRainbowPorJogador.TryGetValue(playerId, out int indiceJogador))
+                {
+                    indiceJogador = UnityEngine.Random.Range(0, totalCores);
+                    IndicesCorRainbowPorJogador[playerId] = indiceJogador;
+                }
+
                 if (!rainbowPausado)
-                    jogador.RpcSetColor((byte)IndiceCorRainbow);
+                {
+                    // Cada jogador tem fase e passo próprios; os ciclos não ficam sincronizados.
+                    int passo = UnityEngine.Random.Range(1, Math.Max(2, totalCores));
+                    indiceJogador = (indiceJogador + passo) % totalCores;
+                    IndicesCorRainbowPorJogador[playerId] = indiceJogador;
+                    jogador.RpcSetColor((byte)indiceJogador);
+                }
 
                 string nomeOriginal = NomesOriginaisRainbow.TryGetValue(playerId, out string salvo)
                     ? salvo
                     : (jogador.Data.PlayerName ?? string.Empty);
 
-                // No lobby, manter o nome original. A tag colorida só aparece
-                // quando a partida está realmente em andamento.
                 if (LobbyTagManager.PartidaIniciada() && ShipStatus.Instance != null)
-                    DefinirNomeRainbowNosClientesComMod(jogador, CriarNomeRainbow(nomeOriginal));
+                    DefinirNomeRainbowNosClientesComMod(jogador, CriarNomeRainbow(nomeOriginal, indiceJogador));
                 else
                     DefinirNomeRainbowNosClientesComMod(jogador, nomeOriginal);
             }
@@ -2151,7 +2205,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                     continue;
 
                 if (area.NameText != null)
-                    area.NameText.text = CriarNomeRainbow(nomeOriginal);
+                    area.NameText.text = CriarNomeRainbow(nomeOriginal, IndicesCorRainbowPorJogador.TryGetValue(playerId.Value, out int indiceTag) ? indiceTag : 0);
             }
         }
         catch (Exception ex)
@@ -2764,138 +2818,22 @@ internal static class YouTubeVoteBridgeBloquearFimDeJogoOriginalPatch
 }
 
 
-// Durante o arco-íris, intercepta o RPC de destransformação (target == o próprio
-// Shapeshifter). O método central restaura a cor e reenvia o RPC uma única vez.
+// EHR detecta o estado no Postfix de RpcShapeshift: alvo != jogador = shift;
+// alvo == jogador = revert. Não reinterceptamos HandleRpc, pois isso pode impedir
+// o jogo de processar o evento original.
 [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.RpcShapeshift))]
-public static class YouTubeVoteRainbowShapeshiftRevertPatch
+public static class YouTubeVoteRainbowShapeshiftPatch
 {
-    public static bool Prefix(
+    public static void Postfix(
         PlayerControl __instance,
-        PlayerControl target,
-        bool shouldAnimate)
+        [HarmonyArgument(0)] PlayerControl target,
+        [HarmonyArgument(1)] bool shouldAnimate)
     {
-        // Se o próprio host iniciar a transformação, também precisa pausar o ciclo.
-        // Para jogadores remotos, a pausa principal é feita no HandleRpc do host.
-        if (target != null &&
-            __instance != null &&
-            target.PlayerId != __instance.PlayerId)
-        {
-            YouTubeVoteBridgePlugin.PausarRainbowDuranteShapeshift(__instance);
-            return true;
-        }
-
-        return YouTubeVoteBridgePlugin.InterceptarDestransformacaoRainbow(
-            __instance, target, shouldAnimate);
-    }
-}
-
-
-
-// O RPC enviado por outro cliente chega ao host por HandleRpc; patchar somente
-// RpcShapeshift não basta, pois esse método roda no cliente que iniciou a ação.
-// O host consome o payload, bloqueia a destransformação original e a reenvia
-// depois de restaurar a cor original do jogador.
-[HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.HandleRpc))]
-public static class YouTubeVoteRainbowIncomingShapeshiftPatch
-{
-    public static bool Prefix(
-        PlayerControl __instance,
-        [HarmonyArgument(0)] byte callId,
-        [HarmonyArgument(1)] MessageReader reader)
-    {
-        if (callId != (byte)RpcCalls.Shapeshift ||
-            AmongUsClient.Instance == null ||
-            !AmongUsClient.Instance.AmHost ||
-            __instance == null ||
-            __instance.AmOwner ||
-            reader == null)
-            return true;
-
-        if (!YouTubeVoteBridgePlugin.JogadorTemRainbowParaDestransformacao(__instance))
-            return true;
-
-        try
-        {
-            PlayerControl alvo = reader.ReadNetObject<PlayerControl>();
-            bool shouldAnimate = reader.ReadBoolean();
-
-            if (alvo == null)
-                return true;
-
-            YouTubeVoteBridgePlugin.RegistrarShapeshiftRecebido(__instance, alvo);
-            if (alvo.PlayerId == __instance.PlayerId)
-            {
-                // Revert: o host restaura a cor original, remove a pausa e
-                // reenvia a destransformação para todos os clientes.
-                return YouTubeVoteBridgePlugin.InterceptarDestransformacaoRainbow(
-                    __instance, alvo, shouldAnimate);
-            }
-
-            // Transformação inicial: bloqueia o RPC recebido, pausa o arco-íris
-            // desse Shapeshifter e reenvia a mesma transformação a partir do host.
-            YouTubeVoteBridgePlugin.PausarRainbowDuranteShapeshift(__instance);
-            __instance.RpcShapeshift(alvo, shouldAnimate);
-            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                $"Rainbow: transformação do Shapeshifter PlayerId={__instance.PlayerId} replicada pelo host; ciclo de cores pausado.");
-            return false;
-        }
-        catch (Exception ex)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "Rainbow: falha ao interceptar RPC de destransformação recebido: " + ex);
-            return true;
-        }
-    }
-}
-
-// Na tela de ejeção, altera o nome global após o jogo identificar quem foi ejetado.
-[HarmonyPatch]
-public static class YouTubeVoteEjectionGlobalNamePatch
-{
-    private static MethodBase TargetMethod()
-    {
-        Type tipo = AccessTools.TypeByName("ExileController");
-        return tipo == null ? null : AccessTools.Method(tipo, "Begin");
-    }
-
-    public static void Postfix(object[] __args)
-    {
-        if (__args == null) return;
-        foreach (object arg in __args)
-        {
-            if (arg == null) continue;
-            // PlayerInfo tem PlayerId e Role; evita depender de nomes de tipos
-            // que variam entre as versões das GameLibs.
-            if (LerSePlayerInfo(arg))
-            {
-                YouTubeVoteBridgePlugin.PrepararNomeGlobalDeEjecao(arg);
-                return;
-            }
-        }
-    }
-
-    private static bool LerSePlayerInfo(object arg)
-    {
-        Type tipo = arg.GetType();
-        return (tipo.Name.Contains("PlayerInfo", StringComparison.OrdinalIgnoreCase) ||
-                (tipo.GetProperty("PlayerId", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic) != null &&
-                 tipo.GetProperty("Role", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic) != null));
-    }
-}
-
-// WrapUp é chamado ao fim da animação de ejeção; restaura o nome normal global.
-[HarmonyPatch]
-public static class YouTubeVoteEjectionRestoreNamePatch
-{
-    private static MethodBase TargetMethod()
-    {
-        Type tipo = AccessTools.TypeByName("ExileController");
-        return tipo == null ? null : AccessTools.Method(tipo, "WrapUp");
-    }
-
-    public static void Postfix()
-    {
-        YouTubeVoteBridgePlugin.RestaurarNomeGlobalDeEjecao();
+        if (__instance == null || target == null ||
+            !YouTubeVoteBridgePlugin.JogadorTemRainbowParaDestransformacao(__instance))
+            return;
+        YouTubeVoteBridgePlugin.DefinirEstadoShapeshiftRainbow(
+            __instance, __instance.PlayerId != target.PlayerId, target, shouldAnimate);
     }
 }
 
