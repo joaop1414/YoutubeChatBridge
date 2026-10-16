@@ -68,6 +68,18 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     private static float ProximaAtualizacaoPainel;
     private static float ProximoLogDiagnostico;
     private static int UltimoTotalVotos = -1;
+    // Snapshot das tarefas antes do Shapeshift, para preservar as concluídas se a lista for recriada.
+    private sealed class EstadoTarefaShapeshift
+    {
+        public string Tipo;
+        public int Ocorrencia;
+        public bool Concluida;
+    }
+    private static readonly Dictionary<byte, List<EstadoTarefaShapeshift>> TarefasAntesDoShapeshift = new();
+    private static readonly HashSet<byte> RestaurandoTarefasShapeshift = new();
+    public static bool RestaurandoTarefasDoShapeshift(byte playerId) =>
+        RestaurandoTarefasShapeshift.Contains(playerId);
+
     private static readonly Dictionary<byte, string> NomesOriginaisPainel = new();
     private static string NomeHostOriginalPlacar;
     private static readonly Dictionary<byte, string> NomesOriginaisPlacarLocal = new();
@@ -2135,6 +2147,122 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         NomeTemporarioEjecao = null;
     }
 
+    private static List<EstadoTarefaShapeshift> CapturarEstadoTarefas(PlayerControl jogador)
+    {
+        var resultado = new List<EstadoTarefaShapeshift>();
+        if (jogador == null) return resultado;
+
+        object tarefasObj = LerMembro(jogador, "myTasks", "MyTasks", "tasks", "Tasks");
+        if (!(tarefasObj is System.Collections.IEnumerable tarefas))
+        {
+            Instance?.Log.LogWarning(
+                $"Shapeshift/tarefas: não consegui enumerar tarefas de PlayerId={jogador.PlayerId}; tipo={(tarefasObj == null ? "null" : tarefasObj.GetType().FullName)}.");
+            return resultado;
+        }
+
+        var ocorrencias = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (object tarefa in tarefas)
+        {
+            if (tarefa == null) continue;
+            string tipo = LerMembro(tarefa, "TaskType", "taskType", "Type", "type")?.ToString()
+                ?? tarefa.GetType().FullName;
+            ocorrencias.TryGetValue(tipo, out int ocorrencia);
+            ocorrencias[tipo] = ocorrencia + 1;
+            object completaObj = LerMembro(tarefa, "IsComplete", "isComplete", "Complete", "complete");
+            bool concluida = false;
+            try { if (completaObj != null) concluida = Convert.ToBoolean(completaObj); } catch { }
+            resultado.Add(new EstadoTarefaShapeshift { Tipo = tipo, Ocorrencia = ocorrencia, Concluida = concluida });
+        }
+
+        Instance?.Log.LogInfo(
+            $"Shapeshift/tarefas: snapshot PlayerId={jogador.PlayerId}, total={resultado.Count}, concluídas={resultado.Count(t => t.Concluida)}.");
+        return resultado;
+    }
+
+    public static void RegistrarTarefasAntesDoShapeshift(PlayerControl jogador, PlayerControl alvo)
+    {
+        if (jogador == null || alvo == null || jogador.PlayerId == alvo.PlayerId) return;
+        List<EstadoTarefaShapeshift> estado = CapturarEstadoTarefas(jogador);
+        if (estado.Count > 0)
+            TarefasAntesDoShapeshift[jogador.PlayerId] = estado;
+        Instance?.Log.LogInfo(
+            $"Shapeshift detectado: PlayerId={jogador.PlayerId} transformando-se em PlayerId={alvo.PlayerId}; snapshot de tarefas registrado.");
+    }
+
+    public static void RestaurarTarefasDepoisDeAtualizar(PlayerControl jogador)
+    {
+        if (jogador == null ||
+            !TarefasAntesDoShapeshift.TryGetValue(jogador.PlayerId, out List<EstadoTarefaShapeshift> antigas))
+            return;
+
+        List<EstadoTarefaShapeshift> atuais = CapturarEstadoTarefas(jogador);
+        if (atuais.Count == 0)
+        {
+            Instance?.Log.LogWarning(
+                $"Shapeshift/tarefas: lista atual vazia para PlayerId={jogador.PlayerId}; snapshot mantido.");
+            return;
+        }
+
+        int restauradas = 0;
+        RestaurandoTarefasShapeshift.Add(jogador.PlayerId);
+        try
+        {
+            foreach (EstadoTarefaShapeshift antiga in antigas.Where(t => t.Concluida))
+            {
+                EstadoTarefaShapeshift atual = atuais.FirstOrDefault(t =>
+                    t.Tipo == antiga.Tipo && t.Ocorrencia == antiga.Ocorrencia);
+                if (atual == null || atual.Concluida) continue;
+
+                object tarefasObj = LerMembro(jogador, "myTasks", "MyTasks", "tasks", "Tasks");
+                if (!(tarefasObj is System.Collections.IEnumerable tarefas)) break;
+                object tarefaAlvo = null;
+                int ocorrencia = 0;
+                foreach (object tarefa in tarefas)
+                {
+                    if (tarefa == null) continue;
+                    string tipo = LerMembro(tarefa, "TaskType", "taskType", "Type", "type")?.ToString()
+                        ?? tarefa.GetType().FullName;
+                    if (tipo != antiga.Tipo) continue;
+                    if (ocorrencia++ == antiga.Ocorrencia) { tarefaAlvo = tarefa; break; }
+                }
+
+                object idTarefa = LerMembro(tarefaAlvo, "Id", "id", "TaskId", "taskId");
+                MethodInfo completar = typeof(PlayerControl).GetMethods(
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                    .FirstOrDefault(m => m.Name == "CompleteTask" && m.GetParameters().Length == 1);
+                if (idTarefa == null || completar == null)
+                {
+                    Instance?.Log.LogWarning(
+                        $"Shapeshift/tarefas: ID ou método CompleteTask não encontrado para '{antiga.Tipo}'.");
+                    continue;
+                }
+
+                try
+                {
+                    Type parametro = completar.GetParameters()[0].ParameterType;
+                    object idConvertido = parametro.IsInstanceOfType(idTarefa)
+                        ? idTarefa
+                        : Convert.ChangeType(idTarefa, Nullable.GetUnderlyingType(parametro) ?? parametro);
+                    completar.Invoke(jogador, new[] { idConvertido });
+                    restauradas++;
+                }
+                catch (Exception ex)
+                {
+                    Instance?.Log.LogWarning(
+                        $"Shapeshift/tarefas: falha ao restaurar '{antiga.Tipo}' para PlayerId={jogador.PlayerId}: {ex.GetBaseException().Message}");
+                }
+            }
+        }
+        finally
+        {
+            RestaurandoTarefasShapeshift.Remove(jogador.PlayerId);
+        }
+
+        Instance?.Log.LogInfo(
+            $"Shapeshift/tarefas: PlayerId={jogador.PlayerId}; tarefas concluídas reaplicadas={restauradas}.");
+        TarefasAntesDoShapeshift.Remove(jogador.PlayerId);
+    }
+
     public static void DefinirEstadoShapeshiftRainbow(
         PlayerControl jogador, bool transformado, PlayerControl alvo, bool shouldAnimate)
     {
@@ -2862,8 +2990,25 @@ public static class YouTubeVoteTaskKillPatch
 {
     public static void Postfix(PlayerControl __instance)
     {
+        if (__instance != null && YouTubeVoteBridgePlugin.RestaurandoTarefasDoShapeshift(__instance.PlayerId))
+            return;
         EventoTarefaMataJogador.AoCompletarTarefa(__instance);
         EventoTarefaSuicidio.AoCompletarTarefa(__instance);
+    }
+}
+
+// Depois de o jogo substituir a lista de tarefas, reaplica as que já estavam concluídas.
+[HarmonyPatch]
+public static class YouTubeVoteShapeshiftTaskListPatch
+{
+    private static MethodBase TargetMethod()
+    {
+        return AccessTools.Method(typeof(PlayerControl), "RpcSetTasks");
+    }
+
+    public static void Postfix(PlayerControl __instance)
+    {
+        YouTubeVoteBridgePlugin.RestaurarTarefasDepoisDeAtualizar(__instance);
     }
 }
 
@@ -2923,6 +3068,13 @@ internal static class YouTubeVoteBridgeBloquearFimDeJogoOriginalPatch
 [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.RpcShapeshift))]
 public static class YouTubeVoteRainbowShapeshiftPatch
 {
+    public static void Prefix(
+        PlayerControl __instance,
+        [HarmonyArgument(0)] PlayerControl target)
+    {
+        YouTubeVoteBridgePlugin.RegistrarTarefasAntesDoShapeshift(__instance, target);
+    }
+
     public static void Postfix(
         PlayerControl __instance,
         [HarmonyArgument(0)] PlayerControl target,
