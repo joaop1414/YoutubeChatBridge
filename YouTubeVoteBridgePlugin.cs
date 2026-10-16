@@ -1949,9 +1949,11 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
             try
             {
-                // Durante o shapeshift, preservar a cor que o jogo atribuiu à
-                // aparência imitada. O ciclo volta após o RPC de destransformação.
-                if (!ShapeshiftersRainbowTransformados.Contains(playerId))
+                // A pausa é por jogador: enquanto transformado, NÃO enviar
+                // RpcSetColor para ele. Ao destransformar, o patch remove o ID
+                // da lista e este ciclo volta a aplicar as cores automaticamente.
+                bool rainbowPausado = ShapeshiftersRainbowTransformados.Contains(playerId);
+                if (!rainbowPausado)
                     jogador.RpcSetColor((byte)IndiceCorRainbow);
 
                 string nomeOriginal = NomesOriginaisRainbow.TryGetValue(playerId, out string salvo)
@@ -2067,7 +2069,11 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             !JogadoresRainbowAtivos.Contains(shapeshifter.PlayerId))
             return;
 
-        ShapeshiftersRainbowTransformados.Add(shapeshifter.PlayerId);
+        if (ShapeshiftersRainbowTransformados.Add(shapeshifter.PlayerId))
+        {
+            Instance?.Log.LogInfo(
+                $"Rainbow: pausa de troca de cor ativada para Shapeshifter PlayerId={shapeshifter.PlayerId}.");
+        }
     }
 
     // Intercepta a tentativa normal de voltar à forma original enquanto o
@@ -2094,9 +2100,14 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 : (int)shapeshifter.Data?.DefaultOutfit.ColorId;
 
             // A transformação terminou: retirar a pausa antes do próximo ciclo.
-            ShapeshiftersRainbowTransformados.Remove(shapeshifter.PlayerId);
+            bool estavaPausado = ShapeshiftersRainbowTransformados.Remove(shapeshifter.PlayerId);
             CoresRainbowRestauradasPorDestransformacao.Add(shapeshifter.PlayerId);
             shapeshifter.RpcSetColor((byte)Math.Clamp(corOriginal, 0, 255));
+            if (estavaPausado)
+            {
+                Instance?.Log.LogInfo(
+                    $"Rainbow: pausa encerrada para Shapeshifter PlayerId={shapeshifter.PlayerId}; a troca de cores será retomada.");
+            }
 
             // O guard evita que o RPC reenviado seja interceptado novamente.
             EnviandoRpcDestransformacaoRainbow = true;
