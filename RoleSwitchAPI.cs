@@ -51,8 +51,10 @@ internal static class RoleSwitchAPI
             // Evita enviar um RPC para si mesmo e evita propagar a troca a todos.
             if (AmongUsClient.Instance.ClientId == jogador.OwnerId)
             {
-                jogador.SetRole(funcao);
-                LogInfo($"SetRole local aplicado: jogador={jogador.PlayerId}, função={funcao}.");
+                // EHR usa a coroutine nativa CoSetRole para evitar a tela preta
+                // ao alterar o papel do cliente local.
+                jogador.StartCoroutine(jogador.CoSetRole(funcao, true));
+                LogInfo($"CoSetRole local agendado: jogador={jogador.PlayerId}, função={funcao}, canOverrideRole=true.");
                 return true;
             }
 
