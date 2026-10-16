@@ -1120,6 +1120,9 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             return;
         }
 
+        if (!PodeAlterarNomeDuranteEjecao(jogador, nome))
+            return;
+
         try
         {
             if (jogador.AmOwner)
@@ -1786,6 +1789,8 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     {
         if (jogador == null || jogador.Data == null || AmongUsClient.Instance == null)
             return;
+        if (!PodeAlterarNomeDuranteEjecao(jogador, nome))
+            return;
 
         if (!EhHost())
         {
@@ -1945,6 +1950,25 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     // Troca temporariamente o nome global do jogador ejetado pelo texto de revelação.
     private static readonly Dictionary<byte, string> NomesAntesDaEjecao = new();
     private static byte? PlayerIdNaEjecao;
+    private static string NomeTemporarioEjecao;
+
+    // Enquanto a ejeção está ativa, nenhuma outra rotina pode sobrescrever
+    // o nome do jogador ejetado. O nome temporário e o nome original são permitidos.
+    public static bool PodeAlterarNomeDuranteEjecao(PlayerControl jogador, string nome)
+    {
+        if (jogador == null || !PlayerIdNaEjecao.HasValue ||
+            jogador.PlayerId != PlayerIdNaEjecao.Value)
+            return true;
+
+        bool permitido = string.Equals(nome, NomeTemporarioEjecao, StringComparison.Ordinal) ||
+            (NomesAntesDaEjecao.TryGetValue(PlayerIdNaEjecao.Value, out string original) &&
+             string.Equals(nome, original, StringComparison.Ordinal));
+
+        if (!permitido)
+            Instance?.Log.LogInfo(
+                $"Ejeção: alteração de nome bloqueada para PlayerId={jogador.PlayerId}; nome solicitado='{nome}'.");
+        return permitido;
+    }
 
     private static object LerMembro(object objeto, params string[] nomes)
     {
@@ -2043,6 +2067,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             PlayerIdNaEjecao = id;
 
             string nomeEjecao = $"{nomeOriginal} era <color={cor}>{nomeFuncao}</color><size=0>";
+            NomeTemporarioEjecao = nomeEjecao;
             DefinirNomeRainbowNosClientesComMod(jogador, nomeEjecao);
 
             // Reforça a atualização visual local no host antes de a tela aparecer.
@@ -2084,6 +2109,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         }
         NomesAntesDaEjecao.Remove(id);
         PlayerIdNaEjecao = null;
+        NomeTemporarioEjecao = null;
     }
 
     public static void DefinirEstadoShapeshiftRainbow(
@@ -2895,6 +2921,17 @@ public static class YouTubeVoteRainbowShapeshiftPatch
 
         YouTubeVoteBridgePlugin.DefinirEstadoShapeshiftRainbow(
             __instance, __instance.PlayerId != target.PlayerId, target, shouldAnimate);
+    }
+}
+
+// Protege o nome temporário da ejeção contra chamadas diretas de SetName
+// feitas por outras rotinas do mod no host.
+[HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.SetName))]
+public static class YouTubeVoteEjectionBlockOtherNamesPatch
+{
+    public static bool Prefix(PlayerControl __instance, string name)
+    {
+        return YouTubeVoteBridgePlugin.PodeAlterarNomeDuranteEjecao(__instance, name);
     }
 }
 
