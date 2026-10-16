@@ -1,12 +1,154 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
+using HarmonyLib;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 
 namespace YouTubeVoteBridge;
 
 internal sealed class EventoAdicionarTarefas : EventoVotacao
 {
+    private sealed class TarefaConcluidaAnterior
+    {
+        public string Tipo;
+        public int Ocorrencia;
+    }
+
+    private static readonly Dictionary<byte, List<TarefaConcluidaAnterior>> ConclusoesPendentes = new();
+
+    // Chamado depois que a lista de tarefas do jogador é recriada.
+    public static void RestaurarTarefasConcluidas(PlayerControl jogador)
+    {
+        if (jogador == null || !ConclusoesPendentes.TryGetValue(jogador.PlayerId, out var antigas))
+            return;
+
+        List<object> atuais = EnumerarColecaoIl2Cpp(LerMembro(jogador, "myTasks", "MyTasks", "tasks", "Tasks"));
+        if (atuais.Count == 0)
+            return; // A lista ainda não chegou; o patch tentará novamente quando for atualizada.
+
+        int restauradas = 0;
+        foreach (TarefaConcluidaAnterior antiga in antigas)
+        {
+            int ocorrencia = 0;
+            object tarefaAlvo = null;
+            foreach (object tarefa in atuais)
+            {
+                if (tarefa == null) continue;
+                string tipo = LerMembro(tarefa, "TaskType", "taskType", "Type", "type")?.ToString()
+                    ?? tarefa.GetType().FullName;
+                if (tipo != antiga.Tipo) continue;
+                if (ocorrencia++ == antiga.Ocorrencia)
+                {
+                    tarefaAlvo = tarefa;
+                    break;
+                }
+            }
+
+            if (tarefaAlvo == null || LerBool(tarefaAlvo, "IsComplete", "isComplete", "Complete", "complete"))
+                continue;
+
+            object id = LerMembro(tarefaAlvo, "Id", "id", "TaskId", "taskId");
+            MethodInfo metodo = typeof(PlayerControl).GetMethods(
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                .FirstOrDefault(m => m.Name == "RpcCompleteTask" && m.GetParameters().Length == 1)
+                ?? typeof(PlayerControl).GetMethods(
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                .FirstOrDefault(m => m.Name == "CompleteTask" && m.GetParameters().Length == 1);
+
+            if (id == null || metodo == null)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    $"Adicionar tarefas: não encontrei ID/método para restaurar tarefa concluída '{antiga.Tipo}'.");
+                continue;
+            }
+
+            try
+            {
+                Type parametro = metodo.GetParameters()[0].ParameterType;
+                object idConvertido = parametro.IsInstanceOfType(id)
+                    ? id
+                    : Convert.ChangeType(id, Nullable.GetUnderlyingType(parametro) ?? parametro);
+                metodo.Invoke(jogador, new[] { idConvertido });
+                restauradas++;
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    $"Adicionar tarefas: falha ao restaurar '{antiga.Tipo}' para PlayerId={jogador.PlayerId}: {ex.GetBaseException().Message}");
+            }
+        }
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"Adicionar tarefas: PlayerId={jogador.PlayerId}; tarefas concluídas antigas restauradas={restauradas}/{antigas.Count}.");
+        ConclusoesPendentes.Remove(jogador.PlayerId);
+    }
+
+    private static List<TarefaConcluidaAnterior> CapturarTarefasConcluidas(PlayerControl jogador)
+    {
+        List<TarefaConcluidaAnterior> resultado = new();
+        Dictionary<string, int> ocorrencias = new();
+        List<object> tarefas = EnumerarColecaoIl2Cpp(LerMembro(jogador, "myTasks", "MyTasks", "tasks", "Tasks"));
+        foreach (object tarefa in tarefas)
+        {
+            if (tarefa == null) continue;
+            string tipo = LerMembro(tarefa, "TaskType", "taskType", "Type", "type")?.ToString()
+                ?? tarefa.GetType().FullName;
+            ocorrencias.TryGetValue(tipo, out int ocorrencia);
+            ocorrencias[tipo] = ocorrencia + 1;
+            if (LerBool(tarefa, "IsComplete", "isComplete", "Complete", "complete"))
+                resultado.Add(new TarefaConcluidaAnterior { Tipo = tipo, Ocorrencia = ocorrencia });
+        }
+        return resultado;
+    }
+
+    private static List<object> EnumerarColecaoIl2Cpp(object colecao)
+    {
+        List<object> itens = new();
+        if (colecao == null) return itens;
+        try
+        {
+            Type tipo = colecao.GetType();
+            object countObj = LerMembro(colecao, "Count", "count", "Length", "length");
+            if (countObj == null) return itens;
+            int count = Convert.ToInt32(countObj);
+            MethodInfo getItem = tipo.GetProperty("Item",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?.GetGetMethod(true);
+            if (getItem == null) return itens;
+            for (int i = 0; i < count; i++)
+            {
+                try { itens.Add(getItem.Invoke(colecao, new object[] { i })); }
+                catch { break; }
+            }
+        }
+        catch { }
+        return itens;
+    }
+
+    private static object LerMembro(object objeto, params string[] nomes)
+    {
+        if (objeto == null) return null;
+        foreach (string nome in nomes)
+        {
+            try
+            {
+                PropertyInfo propriedade = AccessTools.Property(objeto.GetType(), nome);
+                if (propriedade != null) return propriedade.GetValue(objeto);
+                FieldInfo campo = AccessTools.Field(objeto.GetType(), nome);
+                if (campo != null) return campo.GetValue(objeto);
+            }
+            catch { }
+        }
+        return null;
+    }
+
+    private static bool LerBool(object objeto, params string[] nomes)
+    {
+        object valor = LerMembro(objeto, nomes);
+        try { return valor != null && Convert.ToBoolean(valor); }
+        catch { return false; }
+    }
+
     private readonly int quantidade;
     private readonly bool todos;
 
@@ -70,6 +212,11 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
             if (jogador?.Data == null || ShipStatus.Instance == null)
                 return 0;
 
+            // Guarda quais tarefas já estavam concluídas antes de recriar a lista.
+            // RpcSetTasks recebe apenas os tipos e gera IDs novos, por isso reaplicamos
+            // as conclusões depois que a lista nova estiver disponível.
+            List<TarefaConcluidaAnterior> concluidasAntes = CapturarTarefasConcluidas(jogador);
+
             // RpcSetTasks recebe a lista completa: mantemos as tarefas existentes.
             List<byte> ids = new();
             foreach (NetworkedPlayerInfo.TaskInfo tarefaExistente in jogador.Data.Tasks)
@@ -132,7 +279,11 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
             for (int i = 0; i < ids.Count; i++)
                 novaLista[i] = ids[i];
 
+            if (concluidasAntes.Count > 0)
+                ConclusoesPendentes[jogador.PlayerId] = concluidasAntes;
+
             jogador.Data.RpcSetTasks(novaLista);
+            RestaurarTarefasConcluidas(jogador);
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 $"Atribuição de tarefas para {jogador.Data.PlayerName}: novas únicas={unicas}, repetidas={adicionadas - unicas}, total adicionadas={adicionadas}.");
