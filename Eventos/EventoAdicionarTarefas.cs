@@ -256,6 +256,70 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
         }
     }
 
+    // O EHR adiciona tarefas durante a atribuição normal, interceptando RpcSetTasks.
+    // Guardamos a quantidade extra e deixamos o jogo criar a lista que será replicada aos clientes.
+    private static readonly Dictionary<byte, int> AdicoesDuranteAtribuicao = new();
+
+    public static void AplicarAdicoesAntesDeEnviar(
+        NetworkedPlayerInfo dados,
+        ref Il2CppStructArray<byte> taskTypeIds)
+    {
+        if (!YouTubeVoteBridgePlugin.EhHost() || dados == null || taskTypeIds == null)
+            return;
+
+        PlayerControl jogador = dados.Object;
+        if (jogador == null ||
+            !AdicoesDuranteAtribuicao.TryGetValue(jogador.PlayerId, out int quantidadeExtra) ||
+            quantidadeExtra <= 0 ||
+            ShipStatus.Instance == null)
+            return;
+
+        List<byte> catalogo = new();
+        AdicionarTipos(ShipStatus.Instance.ShortTasks, catalogo);
+        AdicionarTipos(ShipStatus.Instance.LongTasks, catalogo);
+        catalogo = catalogo.Distinct().ToList();
+
+        if (catalogo.Count == 0)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                $"Adicionar tarefas: catálogo vazio ao atribuir tarefas para PlayerId={jogador.PlayerId}.");
+            AdicoesDuranteAtribuicao.Remove(jogador.PlayerId);
+            return;
+        }
+
+        List<byte> tipos = taskTypeIds.ToList();
+        HashSet<byte> existentes = new(tipos);
+        List<byte> novos = catalogo.Where(id => !existentes.Contains(id)).ToList();
+        Embaralhar(novos);
+        Embaralhar(catalogo);
+
+        int adicionadas = 0;
+        foreach (byte tipo in novos)
+        {
+            if (adicionadas >= quantidadeExtra) break;
+            tipos.Add(tipo);
+            existentes.Add(tipo);
+            adicionadas++;
+        }
+
+        // Caso o mapa não tenha tipos suficientes, repete tipos válidos, como fallback.
+        for (int i = 0; adicionadas < quantidadeExtra; i++)
+        {
+            tipos.Add(catalogo[i % catalogo.Count]);
+            adicionadas++;
+        }
+
+        taskTypeIds = new Il2CppStructArray<byte>(tipos.Count);
+        for (int i = 0; i < tipos.Count; i++)
+            taskTypeIds[i] = tipos[i];
+
+        QuantidadeEsperada[jogador.PlayerId] = tipos.Count;
+        AdicoesDuranteAtribuicao.Remove(jogador.PlayerId);
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"EHR-style RpcSetTasks: PlayerId={jogador.PlayerId}, extras={adicionadas}, total={tipos.Count}.");
+    }
+
     private int AdicionarAoJogador(PlayerControl jogador)
     {
         try
@@ -263,92 +327,33 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
             if (jogador?.Data == null || ShipStatus.Instance == null)
                 return 0;
 
-            // Guarda quais tarefas já estavam concluídas antes de recriar a lista.
-            // RpcSetTasks recebe apenas os tipos e gera IDs novos, por isso reaplicamos
-            // as conclusões depois que a lista nova estiver disponível.
-            List<TarefaConcluidaAnterior> concluidasAntes = CapturarTarefasConcluidas(jogador);
-            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                $"Adicionar tarefas: capturadas {concluidasAntes.Count} conclusão(ões) antigas para {jogador.Data.PlayerName}.");
-
-            // RpcSetTasks recebe a lista completa: mantemos as tarefas existentes.
-            List<byte> ids = new();
-            foreach (NetworkedPlayerInfo.TaskInfo tarefaExistente in jogador.Data.Tasks)
-                ids.Add(tarefaExistente.TypeId);
-
-            // Como no EHR, usamos o catálogo real de tarefas do mapa atual.
             List<byte> catalogo = new();
             AdicionarTipos(ShipStatus.Instance.ShortTasks, catalogo);
             AdicionarTipos(ShipStatus.Instance.LongTasks, catalogo);
-
             if (catalogo.Count == 0)
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    $"Não há tarefas disponíveis no mapa para {jogador.Data.PlayerName}.");
                 return 0;
-            }
 
-            HashSet<byte> existentes = new(ids);
-            List<byte> novas = catalogo
-                .Where(id => !existentes.Contains(id))
-                .Distinct()
-                .ToList();
-
-            Embaralhar(novas);
-
-            int adicionadas = 0;
-            int unicas = Math.Min(quantidade, novas.Count);
-
-            // Primeiro, atribui tipos que o jogador ainda não tem.
-            for (int i = 0; i < unicas; i++)
-            {
-                ids.Add(novas[i]);
-                existentes.Add(novas[i]);
-                adicionadas++;
-            }
-
-            // Se faltarem tarefas depois de esgotar os tipos inéditos,
-            // permite repetir tipos válidos do mapa.
-            int faltam = quantidade - adicionadas;
-            if (faltam > 0)
-            {
-                List<byte> repetiveis = catalogo.Distinct().ToList();
-                Embaralhar(repetiveis);
-
-                for (int i = 0; i < faltam; i++)
-                {
-                    ids.Add(repetiveis[i % repetiveis.Count]);
-                    adicionadas++;
-                }
-            }
-
-            if (adicionadas == 0)
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    $"Não foi possível adicionar tarefas para {jogador.Data.PlayerName}.");
-                return 0;
-            }
-
-            Il2CppStructArray<byte> novaLista = new(ids.Count);
-            for (int i = 0; i < ids.Count; i++)
-                novaLista[i] = ids[i];
-
-            if (concluidasAntes.Count > 0)
-            {
-                ConclusoesPendentes[jogador.PlayerId] = concluidasAntes;
-                QuantidadeEsperada[jogador.PlayerId] = ids.Count;
-            }
-
-            jogador.Data.RpcSetTasks(novaLista);
-            AgendarRestauracaoTarefasConcluidas(jogador);
+            List<TarefaConcluidaAnterior> concluidasAntes = CapturarTarefasConcluidas(jogador);
+            ConclusoesPendentes[jogador.PlayerId] = concluidasAntes;
+            AdicoesDuranteAtribuicao[jogador.PlayerId] = quantidade;
+            QuantidadeEsperada.Remove(jogador.PlayerId);
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                $"Atribuição de tarefas para {jogador.Data.PlayerName}: novas únicas={unicas}, repetidas={adicionadas - unicas}, total adicionadas={adicionadas}.");
-            return adicionadas;
+                $"EHR-style: capturadas {concluidasAntes.Count} tarefas concluídas de {jogador.Data.PlayerName}; solicitando redistribuição com +{quantidade} tarefa(s).");
+
+            // Este é o fluxo usado pela role Capitalist do EHR:
+            // RpcResetTasks dispara a atribuição normal, e o Prefix de RpcSetTasks
+            // acrescenta as tarefas antes de o RPC ser enviado aos clientes.
+            jogador.RpcResetTasks(false);
+
+            AgendarRestauracaoTarefasConcluidas(jogador);
+            return quantidade;
         }
         catch (Exception ex)
         {
+            AdicoesDuranteAtribuicao.Remove(jogador?.PlayerId ?? byte.MaxValue);
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                $"Falha ao adicionar tarefas para {jogador?.Data?.PlayerName}: {ex}");
+                $"Falha ao adicionar tarefas via fluxo EHR para {jogador?.Data?.PlayerName}: {ex}");
             return 0;
         }
     }
