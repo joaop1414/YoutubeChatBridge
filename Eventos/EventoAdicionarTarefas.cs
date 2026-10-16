@@ -100,28 +100,33 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
                 continue;
 
             object id = LerMembro(tarefaAlvo, "Id", "id", "TaskId", "taskId");
-            MethodInfo metodo = typeof(PlayerControl).GetMethods(
-                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-                .FirstOrDefault(m => m.Name == "RpcCompleteTask" && m.GetParameters().Length == 1)
-                ?? typeof(PlayerControl).GetMethods(
-                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-                .FirstOrDefault(m => m.Name == "CompleteTask" && m.GetParameters().Length == 1);
-
-            if (id == null || metodo == null)
+            if (id == null)
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    $"Adicionar tarefas: não encontrei ID/método para restaurar tarefa concluída '{antiga.Tipo}'.");
+                    $"Adicionar tarefas: não encontrei o ID da tarefa '{antiga.Tipo}' para PlayerId={jogador.PlayerId}.");
                 continue;
             }
 
             try
             {
-                Type parametro = metodo.GetParameters()[0].ParameterType;
-                object idConvertido = parametro.IsInstanceOfType(id)
-                    ? id
-                    : Convert.ChangeType(id, Nullable.GetUnderlyingType(parametro) ?? parametro);
-                metodo.Invoke(jogador, new[] { idConvertido });
-                restauradas++;
+                // GameData.CompleteTask é o ponto autoritativo que o jogo usa
+                // para registrar a conclusão. RpcCompleteTask pode ser rejeitado
+                // quando o host tenta completar uma tarefa pertencente a outro cliente.
+                uint taskId = Convert.ToUInt32(id);
+                if (GameData.Instance == null)
+                {
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                        "Adicionar tarefas: GameData.Instance está nulo; tentarei restaurar novamente.");
+                    continue;
+                }
+
+                GameData.Instance.CompleteTask(jogador, taskId);
+
+                if (LerBool(tarefaAlvo, "IsComplete", "isComplete", "Complete", "complete"))
+                    restauradas++;
+                else
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                        $"Adicionar tarefas: CompleteTask não marcou '{antiga.Tipo}' como concluída (PlayerId={jogador.PlayerId}, TaskId={taskId}).");
             }
             catch (Exception ex)
             {
@@ -268,6 +273,8 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
             // RpcSetTasks recebe apenas os tipos e gera IDs novos, por isso reaplicamos
             // as conclusões depois que a lista nova estiver disponível.
             List<TarefaConcluidaAnterior> concluidasAntes = CapturarTarefasConcluidas(jogador);
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                $"Adicionar tarefas: capturadas {concluidasAntes.Count} conclusão(ões) antigas para {jogador.Data.PlayerName}.");
 
             // RpcSetTasks recebe a lista completa: mantemos as tarefas existentes.
             List<byte> ids = new();
