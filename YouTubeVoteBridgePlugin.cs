@@ -1986,7 +1986,10 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             if (jogador == null || jogador.Data == null) return;
 
             object role = LerMembro(playerInfo, "Role", "role");
-            string nomeFuncao = role?.ToString();
+            object roleDetalhe = LerMembro(role, "Role", "role", "RoleType", "roleType");
+            string nomeFuncao = roleDetalhe?.ToString();
+            if (string.IsNullOrWhiteSpace(nomeFuncao))
+                nomeFuncao = role?.ToString();
             if (string.IsNullOrWhiteSpace(nomeFuncao) || nomeFuncao == "None")
                 nomeFuncao = "Crewmate";
             bool impostor = nomeFuncao.IndexOf("Impostor", StringComparison.OrdinalIgnoreCase) >= 0 ||
@@ -2816,6 +2819,55 @@ public static class YouTubeVoteRainbowShapeshiftPatch
             return;
         YouTubeVoteBridgePlugin.DefinirEstadoShapeshiftRainbow(
             __instance, __instance.PlayerId != target.PlayerId, target, shouldAnimate);
+    }
+}
+
+// Begin recebe os dados de quem foi ejetado. O Prefix muda o nome global
+// antes de a tela/animação de ejeção começar.
+[HarmonyPatch]
+public static class YouTubeVoteEjectionGlobalNamePatch
+{
+    private static MethodBase TargetMethod()
+    {
+        Type tipo = AccessTools.TypeByName("ExileController");
+        return tipo == null ? null : AccessTools.Method(tipo, "Begin");
+    }
+
+    public static void Prefix(object[] __args)
+    {
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"Ejeção: ExileController.Begin chamado; argumentos={__args?.Length ?? 0}.");
+        if (__args == null) return;
+        foreach (object arg in __args)
+        {
+            if (arg == null) continue;
+            object id = YouTubeVoteBridgePlugin.LerMembroPublico(arg, "PlayerId", "playerId", "PlayerID");
+            object role = YouTubeVoteBridgePlugin.LerMembroPublico(arg, "Role", "role");
+            if (id != null && role != null)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    $"Ejeção: jogador identificado no argumento {arg.GetType().FullName}, PlayerId={id}.");
+                YouTubeVoteBridgePlugin.PrepararNomeGlobalDeEjecao(arg);
+                return;
+            }
+        }
+        YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+            "Ejeção: Begin foi chamado, mas nenhum argumento com PlayerId e Role foi encontrado.");
+    }
+}
+
+[HarmonyPatch]
+public static class YouTubeVoteEjectionRestoreNamePatch
+{
+    private static MethodBase TargetMethod()
+    {
+        Type tipo = AccessTools.TypeByName("ExileController");
+        return tipo == null ? null : AccessTools.Method(tipo, "WrapUp");
+    }
+
+    public static void Postfix()
+    {
+        YouTubeVoteBridgePlugin.RestaurarNomeGlobalDeEjecao();
     }
 }
 
