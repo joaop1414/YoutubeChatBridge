@@ -73,57 +73,11 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     private static readonly Dictionary<byte, string> NomesOriginaisPlacarLocal = new();
     private static readonly HashSet<int> ClientesComMod = new();
     private static bool SinalModEnviado;
-    private const byte RpcEstadoRainbowVisual = 249;
-
-    // Compartilha o estado do arco-íris somente com clientes que possuem o mod.
-    // A mudança de cor normal continua usando RpcSetColor, compatível com vanilla.
-    private static void EnviarEstadoRainbowVisual(int clientId, byte playerId, bool ativo)
-    {
-        if (!EhHost() || AmongUsClient.Instance == null ||
-            PlayerControl.LocalPlayer == null ||
-            clientId < 0 || clientId == AmongUsClient.Instance.ClientId)
-            return;
-
-        MessageWriter writer = null;
-        try
-        {
-            writer = MessageWriter.Get(SendOption.Reliable);
-            writer.StartMessage(6); // GameDataTo
-            writer.Write(AmongUsClient.Instance.GameId);
-            writer.WritePacked(clientId);
-            writer.StartMessage(2); // RPC dirigido ao PlayerControl do host
-            writer.WritePacked(PlayerControl.LocalPlayer.NetId);
-            writer.Write(RpcEstadoRainbowVisual);
-            writer.Write(playerId);
-            writer.Write(ativo);
-            writer.EndMessage();
-            writer.EndMessage();
-            AmongUsClient.Instance.SendOrDisconnect(writer);
-            writer.Recycle();
-            writer = null;
-        }
-        catch (Exception ex)
-        {
-            Instance?.Log.LogWarning(
-                $"Rainbow visual: falha ao enviar estado para clientId={clientId}: {ex.Message}");
-        }
-        finally
-        {
-            if (writer != null)
-            {
-                try { writer.Recycle(); } catch { }
-            }
-        }
-    }
-
+    // A transição é visual e detectada nos clientes pela sequência de cores.
+    // Não enviamos RPC personalizado, para manter compatibilidade com clientes vanilla.
     private static void NotificarEstadoRainbowVisual(byte playerId, bool ativo)
     {
         RainbowColorTransition.DefinirAtivo(playerId, ativo);
-        if (!EhHost())
-            return;
-
-        foreach (int clientId in ClientesComMod.ToArray())
-            EnviarEstadoRainbowVisual(clientId, playerId, ativo);
     }
 
     // Usado por eventos que precisam alterar o nick somente na tela do cliente dono,
@@ -389,10 +343,6 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         ClientesComMod.Add(clientId);
         Instance?.Log.LogInfo("Cliente com YouTubeVoteBridge detectado: " + clientId);
 
-        // Se o jogador instalou/conectou o mod depois que o arco-íris começou,
-        // sincroniza os efeitos que já estão ativos.
-        foreach (byte playerId in JogadoresRainbowAtivos.ToArray())
-            EnviarEstadoRainbowVisual(clientId, playerId, true);
     }
 
     private static string CriarNomeComPlacar(string nomeOriginal)
