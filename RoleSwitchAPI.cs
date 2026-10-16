@@ -62,7 +62,11 @@ internal static class RoleSwitchAPI
                     return false;
                 }
 
-                RoleManager.Instance.SetRole(jogador, funcao);
+                // Use o mesmo caminho de aplicação local do EHR: CoSetRole com
+                // canOverrideRole=true. SetRole direto no RoleManager pode deixar
+                // o estado local diferente do papel enviado pelo RPC, especialmente
+                // quando o evento troca dois jogadores em sequência.
+                jogador.StartCoroutine(jogador.CoSetRole(funcao, true));
 
                 // A mudança para função fantasma também precisa atualizar o botão
                 // Reportar no HUD local quando o alvo é o próprio host.
