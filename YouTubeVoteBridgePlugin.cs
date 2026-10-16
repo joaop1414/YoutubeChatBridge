@@ -76,8 +76,17 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         public bool Concluida;
     }
     private static readonly Dictionary<byte, List<EstadoTarefaShapeshift>> TarefasAntesDoShapeshift = new();
-    // Registro por evento real GameData.CompleteTask; não depende de PlayerTask.IsComplete.
-    private static readonly Dictionary<byte, List<EstadoTarefaShapeshift>> TarefasConcluidasRegistradas = new();
+    // Registro explícito de cada conclusão: qual jogador concluiu qual tarefa.
+    // Guardamos IDs e tipo em vez de manter uma referência IL2CPP que pode ser recriada pelo jogo.
+    private sealed class RegistroConclusaoTarefa
+    {
+        public byte PlayerId;
+        public uint TaskId;
+        public string Tipo;
+        public int Ocorrencia;
+        public string NomeJogador;
+    }
+    private static readonly List<RegistroConclusaoTarefa> HistoricoConclusoesTarefas = new();
     private static readonly HashSet<byte> RestaurandoTarefasShapeshift = new();
     // Só tenta reaplicar tarefas quando o jogador retorna à própria aparência.
     private static readonly HashSet<byte> AguardandoRestauracaoTarefasShapeshift = new();
@@ -2237,8 +2246,9 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             object completaObj = LerMembro(tarefa, "IsComplete", "isComplete", "Complete", "complete");
             bool concluida = false;
             try { if (completaObj != null) concluida = Convert.ToBoolean(completaObj); } catch { }
-            if (TarefasConcluidasRegistradas.TryGetValue(jogador.PlayerId, out List<EstadoTarefaShapeshift> registradas) &&
-                registradas.Any(t => t.Tipo == tipo && t.Ocorrencia == ocorrencia))
+            // Marca a ocorrência como concluída somente se o registro pertence a este jogador.
+            if (HistoricoConclusoesTarefas.Any(t =>
+                t.PlayerId == jogador.PlayerId && t.Tipo == tipo && t.Ocorrencia == ocorrencia))
                 concluida = true;
             resultado.Add(new EstadoTarefaShapeshift { Tipo = tipo, Ocorrencia = ocorrencia, Concluida = concluida });
         }
@@ -2268,23 +2278,34 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             try { idAtual = Convert.ToUInt32(idObj); } catch { continue; }
             if (idAtual != taskId) continue;
 
-            if (!TarefasConcluidasRegistradas.TryGetValue(jogador.PlayerId, out List<EstadoTarefaShapeshift> registradas))
+            // A mesma tarefa pode gerar callbacks repetidos. Não duplicamos o registro
+            // da mesma combinação jogador + ID; tarefas distintas continuam separadas.
+            bool jaRegistrada = HistoricoConclusoesTarefas.Any(t =>
+                t.PlayerId == jogador.PlayerId && t.TaskId == taskId);
+            if (!jaRegistrada)
             {
-                registradas = new List<EstadoTarefaShapeshift>();
-                TarefasConcluidasRegistradas[jogador.PlayerId] = registradas;
+                HistoricoConclusoesTarefas.Add(new RegistroConclusaoTarefa
+                {
+                    PlayerId = jogador.PlayerId,
+                    TaskId = taskId,
+                    Tipo = tipo,
+                    Ocorrencia = ocorrencia,
+                    NomeJogador = jogador.Data?.PlayerName ?? jogador.name
+                });
             }
-            if (!registradas.Any(t => t.Tipo == tipo && t.Ocorrencia == ocorrencia))
-                registradas.Add(new EstadoTarefaShapeshift { Tipo = tipo, Ocorrencia = ocorrencia, Concluida = true });
 
-            Instance?.Log.LogInfo($"Shapeshift/tarefas: conclusão registrada pelo GameData.CompleteTask; PlayerId={jogador.PlayerId}, taskId={taskId}, tipo={tipo}, ocorrência={ocorrencia}.");
+            Instance?.Log.LogInfo(
+                $"Shapeshift/tarefas: registro jogador={jogador.Data?.PlayerName ?? jogador.name}, PlayerId={jogador.PlayerId}, NetId={jogador.NetId}, taskId={taskId}, tipo={tipo}, ocorrência={ocorrencia}, duplicado={jaRegistrada}.");
             return;
         }
-        Instance?.Log.LogWarning($"Shapeshift/tarefas: GameData.CompleteTask recebeu taskId={taskId}, mas não encontrou tarefa na lista de PlayerId={jogador.PlayerId}.");
+
+        Instance?.Log.LogWarning(
+            $"Shapeshift/tarefas: GameData.CompleteTask recebeu PlayerId={jogador.PlayerId}, NetId={jogador.NetId}, taskId={taskId}, mas não encontrou essa tarefa na lista do jogador.");
     }
 
     public static void LimparRegistroTarefasShapeshift()
     {
-        TarefasConcluidasRegistradas.Clear();
+        HistoricoConclusoesTarefas.Clear();
         TarefasAntesDoShapeshift.Clear();
         AguardandoRestauracaoTarefasShapeshift.Clear();
         RestaurandoTarefasShapeshift.Clear();
