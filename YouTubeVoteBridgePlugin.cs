@@ -1948,9 +1948,10 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
             try
             {
-                // Não sobrescreve a cor restaurada quando o Shapeshifter se destransforma.
-                if (!CoresRainbowRestauradasPorDestransformacao.Contains(playerId))
-                    jogador.RpcSetColor((byte)IndiceCorRainbow);
+                // A cor continua acompanhando o ciclo rainbow mesmo durante a transformação.
+                // Ao destransformar, o host restaura a cor original antes de reenviar o RPC;
+                // o próximo ciclo volta a aplicar a cor rainbow normalmente.
+                jogador.RpcSetColor((byte)IndiceCorRainbow);
 
                 string nomeOriginal = NomesOriginaisRainbow.TryGetValue(playerId, out string salvo)
                     ? salvo
@@ -2000,6 +2001,13 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         {
             Instance?.Log.LogDebug("Rainbow: falha ao atualizar tag na reunião: " + ex.Message);
         }
+    }
+
+    public static bool JogadorTemRainbowParaDestransformacao(PlayerControl jogador)
+    {
+        return RainbowGlobalAtivo &&
+            jogador != null &&
+            JogadoresRainbowAtivos.Contains(jogador.PlayerId);
     }
 
     // Intercepta a tentativa normal de voltar à forma original enquanto o
@@ -2593,6 +2601,56 @@ public static class YouTubeVoteRainbowShapeshiftRevertPatch
     }
 }
 
+
+
+// O RPC enviado por outro cliente chega ao host por HandleRpc; patchar somente
+// RpcShapeshift não basta, pois esse método roda no cliente que iniciou a ação.
+// O host consome o payload, bloqueia a destransformação original e a reenvia
+// depois de restaurar a cor original do jogador.
+[HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.HandleRpc))]
+public static class YouTubeVoteRainbowIncomingShapeshiftPatch
+{
+    public static bool Prefix(
+        PlayerControl __instance,
+        [HarmonyArgument(0)] byte callId,
+        [HarmonyArgument(1)] MessageReader reader)
+    {
+        if (callId != (byte)RpcCalls.Shapeshift ||
+            AmongUsClient.Instance == null ||
+            !AmongUsClient.Instance.AmHost ||
+            __instance == null ||
+            __instance.AmOwner ||
+            reader == null)
+            return true;
+
+        if (!YouTubeVoteBridgePlugin.JogadorTemRainbowParaDestransformacao(__instance))
+            return true;
+
+        try
+        {
+            PlayerControl alvo = reader.ReadNetObject<PlayerControl>();
+            bool shouldAnimate = reader.ReadBoolean();
+
+            // Só intercepta a destransformação (alvo = o próprio Shapeshifter),
+            // nunca a transformação inicial para outro jogador.
+            if (alvo == null || alvo.PlayerId != __instance.PlayerId)
+                return true;
+
+            YouTubeVoteBridgePlugin.InterceptarDestransformacaoRainbow(
+                __instance, alvo, shouldAnimate);
+
+            // Bloqueia o RPC de entrada: o host já enviou a versão corrigida
+            // com a cor original restaurada para todos os clientes.
+            return false;
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "Rainbow: falha ao interceptar RPC de destransformação recebido: " + ex);
+            return true;
+        }
+    }
+}
 
 // Corrige a tag na lista de votação da reunião. A interface do host é local e pode
 // reconstruir os nomes sem receber o SetName que ele próprio enviou.
