@@ -214,6 +214,8 @@ internal static class InspecaoSelecaoInicialFuncoesPatch
                 }
             }
 
+            RegistrarValoresRoleOptions(colecao, etapa);
+
             foreach (MethodInfo metodo in tipo.GetMethods(flags)
                 .Where(m => !m.IsSpecialName && !m.ContainsGenericParameters)
                 .OrderBy(m => m.Name))
@@ -228,6 +230,63 @@ internal static class InspecaoSelecaoInicialFuncoesPatch
         {
             plugin.Log.LogWarning(Prefixo + etapa +
                 " erro ao inspecionar RoleOptions: " + ex);
+        }
+    }
+
+    // Consulta os getters documentados pela própria coleção para cada RoleTypes.
+    // São chamadas somente de leitura: não modificam a seleção nem as opções.
+    private static void RegistrarValoresRoleOptions(object colecao, string etapa)
+    {
+        var plugin = YouTubeVoteBridgePlugin.Instance;
+        if (plugin == null || colecao == null)
+            return;
+
+        try
+        {
+            const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            Type tipoColecao = colecao.GetType();
+            Type tipoRole = typeof(RoleTypes);
+            MethodInfo chanceMethod = tipoColecao.GetMethod("GetChancePerGame", flags, null, new[] { tipoRole }, null);
+            MethodInfo quantidadeMethod = tipoColecao.GetMethod("GetNumPerGame", flags, null, new[] { tipoRole }, null);
+
+            if (chanceMethod == null && quantidadeMethod == null)
+            {
+                plugin.Log.LogInfo(Prefixo + etapa + " ROLE_OPTION_VALUES=getters não encontrados");
+                return;
+            }
+
+            foreach (object role in Enum.GetValues(tipoRole))
+            {
+                string chance = "(indisponível)";
+                string quantidade = "(indisponível)";
+
+                try
+                {
+                    if (chanceMethod != null)
+                        chance = Formatar(chanceMethod.Invoke(colecao, new[] { role }));
+                }
+                catch (Exception ex)
+                {
+                    chance = "<erro:" + (ex.InnerException?.GetType().Name ?? ex.GetType().Name) + ">";
+                }
+
+                try
+                {
+                    if (quantidadeMethod != null)
+                        quantidade = Formatar(quantidadeMethod.Invoke(colecao, new[] { role }));
+                }
+                catch (Exception ex)
+                {
+                    quantidade = "<erro:" + (ex.InnerException?.GetType().Name ?? ex.GetType().Name) + ">";
+                }
+
+                plugin.Log.LogInfo(Prefixo + etapa +
+                    $" ROLE_OPTION_VALUES role={role} chancePerGame={chance} numPerGame={quantidade}");
+            }
+        }
+        catch (Exception ex)
+        {
+            plugin.Log.LogWarning(Prefixo + etapa + " erro ao consultar valores de RoleOptions: " + ex);
         }
     }
 
