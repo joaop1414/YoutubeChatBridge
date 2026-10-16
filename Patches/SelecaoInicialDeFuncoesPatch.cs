@@ -1,199 +1,112 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using AmongUs.GameOptions;
-using BepInEx.Unity.IL2CPP.Utils.Collections;
 using HarmonyLib;
-using Hazel;
-using InnerNet;
-using UnityEngine;
 
 namespace YouTubeVoteBridge;
 
-[HarmonyPatch(typeof(AmongUsClient), nameof(AmongUsClient.CoStartGameHost))]
+/// <summary>
+/// Mantém a inicialização original do Among Us intacta e altera as funções
+/// somente depois que o jogo vanilla executa RoleManager.SelectRoles().
+/// Substituir CoStartGameHost exige reproduzir toda a sequência de loading,
+/// criação do mapa, intro e início das tarefas; fazer isso parcialmente causava
+/// a tela preta observada.
+/// </summary>
+[HarmonyPatch(typeof(RoleManager), nameof(RoleManager.SelectRoles))]
 internal static class SelecaoInicialDeFuncoesPatch
 {
-    [HarmonyPrefix]
-    private static bool Prefix(AmongUsClient __instance, ref Il2CppSystem.Collections.IEnumerator __result)
+    private static bool funcoesAplicadas;
+
+    /// <summary>
+    /// Reseta o bloqueio quando o jogo começa a preparar uma nova partida.
+    /// Não substitui nem bloqueia CoStartGame/CoStartGameHost.
+    /// </summary>
+    [HarmonyPatch(typeof(AmongUsClient), nameof(AmongUsClient.CoStartGame))]
+    [HarmonyPostfix]
+    private static void AoPrepararPartida()
     {
-        if (!__instance.AmHost) return true;
-
-        __result = Iniciar(__instance).WrapToIl2Cpp();
-        return false;
-    }
-
-    private static IEnumerator Iniciar(AmongUsClient client)
-    {
-        LoadingBarManager loading = LoadingBarManager.Instance;
-
-        try
-        {
-            loading.ToggleLoadingBar(true);
-            loading.SetLoadingPercent(0f, StringNames.LoadingBarGameStart);
-        }
-        catch (Exception ex)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning("[FuncoesIniciais] Loading UI: " + ex.Message);
-        }
-
-        if (LobbyBehaviour.Instance == null)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogError("[FuncoesIniciais] LobbyBehaviour nulo; cancelando inicialização para evitar uma partida travada.");
-            yield break;
-        }
-
-        MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
-        writer.StartMessage(5);
-        writer.Write(client.GameId);
-        writer.StartMessage(5);
-        writer.WritePacked(LobbyBehaviour.Instance.NetId);
-        writer.EndMessage();
-        writer.EndMessage();
-        client.SendOrDisconnect(writer);
-        writer.Recycle();
-        client.RemoveNetObject(LobbyBehaviour.Instance);
-        UnityEngine.Object.Destroy(LobbyBehaviour.Instance.gameObject);
-
-        if (ShipStatus.Instance == null)
-        {
-            int map = Mathf.Clamp(GameOptionsManager.Instance.CurrentGameOptions.MapId, 0, Constants.MapNames.Length - 1);
-            client.ShipLoadingAsyncHandle = client.ShipPrefabs[map].InstantiateAsync();
-
-            while (!client.ShipLoadingAsyncHandle.IsDone)
-            {
-                try
-                {
-                    loading.SetLoadingPercent(Mathf.Lerp(0f, 10f, client.ShipLoadingAsyncHandle.PercentComplete), StringNames.LoadingBarGameStart);
-                }
-                catch { }
-
-                yield return null;
-            }
-
-            GameObject shipObject = client.ShipLoadingAsyncHandle.Result;
-            if (shipObject == null)
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogError("[FuncoesIniciais] O carregamento do mapa terminou sem retornar um objeto.");
-                yield break;
-            }
-
-            ShipStatus.Instance = shipObject.GetComponent<ShipStatus>();
-            if (ShipStatus.Instance == null)
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogError("[FuncoesIniciais] O objeto carregado não contém ShipStatus.");
-                yield break;
-            }
-
-            client.Spawn(ShipStatus.Instance);
-        }
-
-        // Mesmo intervalo de frame e limpeza de recursos usados pelo fluxo do EHR
-        // antes de começar a espera pelos clientes.
-        try
-        {
-            loading.SetLoadingPercent(10f, StringNames.LoadingBarGameStart);
-        }
-        catch { }
-
-        yield return null;
-
-        try
-        {
-            GC.Collect();
-            Resources.UnloadUnusedAssets();
-            GC.Collect();
-        }
-        catch (Exception ex)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning("[FuncoesIniciais] Limpeza de recursos: " + ex.Message);
-        }
-
-        DateTime start = DateTime.Now;
-        int limit = GameOptionsManager.Instance.CurrentGameOptions.MapId is 4 or 5 ? 15 : 10;
-
-        while (true)
-        {
-            bool ready = true;
-            float elapsed = (float)(DateTime.Now - start).TotalSeconds;
-
-            lock (client.allClients)
-            {
-                for (int i = 0; i < client.allClients.Count; i++)
-                {
-                    ClientData data = client.allClients[i];
-                    if (data.Id == client.ClientId || data.IsReady) continue;
-
-                    if (elapsed < limit)
-                    {
-                        ready = false;
-                    }
-                    else
-                    {
-                        client.SendLateRejection(data.Id, DisconnectReasons.ClientTimeout);
-                        data.IsReady = true;
-                        client.OnPlayerLeft(data, DisconnectReasons.ClientTimeout);
-                    }
-                }
-            }
-
-            try
-            {
-                loading.SetLoadingPercent(10f + Mathf.Clamp01(elapsed / limit) * 80f, StringNames.LoadingBarGameStartWaitingPlayers);
-            }
-            catch { }
-
-            if (!ready)
-                yield return new WaitForEndOfFrame();
-            else
-                break;
-        }
-
-        // O EHR também envia ClientReady antes de executar a rotina de atribuição
-        // de funções, mas mantém essa rotina como coroutine e não bloqueia o frame.
-        client.SendClientReady();
-        yield return AtribuirFuncoes();
-
-        try
-        {
-            loading.SetLoadingPercent(100f, StringNames.LoadingBarGameStart);
-        }
-        catch { }
-    }
-
-    private static IEnumerator AtribuirFuncoes()
-    {
-        if (AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost)
-            yield break;
-
-        var options = GameOptionsManager.Instance?.CurrentGameOptions;
-        if (options == null)
-            yield break;
-
-        List<PlayerControl> players = new();
-        foreach (PlayerControl player in PlayerControl.AllPlayerControls)
-        {
-            if (player != null && player.Data != null && !player.Data.Disconnected)
-                players.Add(player);
-        }
-
-        if (players.Count == 0)
-            yield break;
-
-        int impostors = Math.Clamp(options.NumImpostors, 0, Math.Max(0, players.Count - 1));
-
-        for (int i = players.Count - 1; i > 0; i--)
-        {
-            int j = System.Random.Shared.Next(i + 1);
-            (players[i], players[j]) = (players[j], players[i]);
-        }
-
-        for (int i = 0; i < players.Count; i++)
-        {
-            RoleSwitchAPI.TrocarFuncao(players[i], i < impostors ? RoleTypes.Impostor : RoleTypes.Crewmate);
-            yield return null;
-        }
-
+        funcoesAplicadas = false;
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"[FuncoesIniciais] Mod atribuiu {impostors} impostor(es) e {players.Count - impostors} tripulante(s).");
+            "[FuncoesIniciais] Nova partida: pronto para aplicar as funções após a seleção vanilla.");
+    }
+
+    [HarmonyPostfix]
+    private static void PosSelecionarFuncoes()
+    {
+        AmongUsClient client = AmongUsClient.Instance;
+        if (client == null || !client.AmHost)
+            return;
+
+        if (funcoesAplicadas)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[FuncoesIniciais] SelectRoles foi chamado novamente nesta partida; ignorando atribuição duplicada.");
+            return;
+        }
+
+        funcoesAplicadas = true;
+
+        try
+        {
+            var options = GameOptionsManager.Instance?.CurrentGameOptions;
+            if (options == null)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                    "[FuncoesIniciais] CurrentGameOptions está nulo; mantendo as funções escolhidas pelo jogo.");
+                return;
+            }
+
+            List<PlayerControl> players = new();
+            foreach (PlayerControl player in PlayerControl.AllPlayerControls)
+            {
+                if (player != null && player.Data != null &&
+                    !player.Data.Disconnected && !player.Data.IsDead)
+                {
+                    players.Add(player);
+                }
+            }
+
+            if (players.Count < 2)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    $"[FuncoesIniciais] Apenas {players.Count} jogador(es) válido(s); mantendo as funções vanilla.");
+                return;
+            }
+
+            int impostors = Math.Clamp(options.NumImpostors, 0, players.Count - 1);
+
+            // Fisher-Yates: escolhe os impostores sem favorecer a ordem dos PlayerIds.
+            for (int i = players.Count - 1; i > 0; i--)
+            {
+                int j = Random.Shared.Next(i + 1);
+                (players[i], players[j]) = (players[j], players[i]);
+            }
+
+            int sucessos = 0;
+            for (int i = 0; i < players.Count; i++)
+            {
+                PlayerControl player = players[i];
+                RoleTypes role = i < impostors ? RoleTypes.Impostor : RoleTypes.Crewmate;
+
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    $"[FuncoesIniciais] Aplicando: PlayerId={player.PlayerId}, OwnerId={player.OwnerId}, função={role}.");
+
+                if (RoleSwitchAPI.TrocarFuncao(player, role))
+                    sucessos++;
+                else
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                        $"[FuncoesIniciais] Falha ao atribuir {role} a PlayerId={player.PlayerId}.");
+            }
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                $"[FuncoesIniciais] Resultado: {sucessos}/{players.Count} atribuições solicitadas; " +
+                $"{impostors} impostor(es), {players.Count - impostors} tripulante(s). " +
+                "O fluxo original de CoStartGameHost foi preservado.");
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "[FuncoesIniciais] Exceção após RoleManager.SelectRoles: " + ex);
+        }
     }
 }
