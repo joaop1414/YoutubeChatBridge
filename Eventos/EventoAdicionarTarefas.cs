@@ -54,7 +54,7 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
         if (jogador == null || !HistoricoRpcConclusoes.TryGetValue(jogador.PlayerId, out List<uint> ids))
             return resultado;
         foreach (uint id in ids)
-            resultado.Add(new TarefaConcluidaAnterior { TaskId = id });
+            resultado.Add(new TarefaConcluidaAnterior { TaskId = id, Tipo = byte.MaxValue });
         return resultado;
     }
 
@@ -305,7 +305,7 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
                 ? EncontrarTaskInfo(atuais, antiga.Tipo, antiga.Ocorrencia)
                 : null;
 
-            uint taskIdAlvo;
+            uint taskIdAlvo = antiga.TaskId;
             if (tarefaAlvo != null)
             {
                 object idObj = LerMembro(tarefaAlvo, "Id", "id", "TaskId", "taskId");
