@@ -3188,6 +3188,7 @@ public static class YouTubeVoteShapeshiftTaskListPatch
     public static void Postfix(PlayerControl __instance)
     {
         YouTubeVoteBridgePlugin.RestaurarTarefasDepoisDeAtualizar(__instance);
+        EventoAdicionarTarefas.RestaurarTarefasConcluidas(__instance);
     }
 }
 
