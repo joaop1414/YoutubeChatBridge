@@ -67,62 +67,110 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
     {
         try
         {
-            // Copia a lista já atribuída para não substituir as tarefas existentes.
+            if (jogador?.Data == null || ShipStatus.Instance == null)
+                return 0;
+
+            // Preserva as tarefas já atribuídas. RpcSetTasks envia a lista completa,
+            // portanto não substituímos as tarefas que o jogador já possui.
             List<byte> ids = new();
             foreach (NetworkedPlayerInfo.TaskInfo tarefaExistente in jogador.Data.Tasks)
                 ids.Add(tarefaExistente.TypeId);
 
-            HashSet<byte> existentes = new(ids);
+            // Inspirado no TaskAssignPatch do EHR: primeiro montamos um catálogo
+            // de tarefas válidas para o mapa e evitamos tipos repetidos enquanto
+            // ainda houver tipos novos disponíveis.
+            List<byte> catalogo = new();
+            AdicionarTipos(ShipStatus.Instance.ShortTasks, catalogo);
+            AdicionarTipos(ShipStatus.Instance.LongTasks, catalogo);
 
-            // Usa apenas tarefas disponibilizadas pelo mapa atual.
-            List<byte> disponiveis = new();
-            foreach (NormalPlayerTask tarefa in ShipStatus.Instance.ShortTasks)
-            {
-                if (tarefa == null) continue;
-                byte id = (byte)tarefa.TaskType;
-                if (!existentes.Contains(id) && !disponiveis.Contains(id))
-                    disponiveis.Add(id);
-            }
-            foreach (NormalPlayerTask tarefa in ShipStatus.Instance.LongTasks)
-            {
-                if (tarefa == null) continue;
-                byte id = (byte)tarefa.TaskType;
-                if (!existentes.Contains(id) && !disponiveis.Contains(id))
-                    disponiveis.Add(id);
-            }
-
-            // Embaralha para que a seleção não dependa da ordem interna do mapa.
-            for (int i = disponiveis.Count - 1; i > 0; i--)
-            {
-                int j = Random.Shared.Next(i + 1);
-                (disponiveis[i], disponiveis[j]) = (disponiveis[j], disponiveis[i]);
-            }
-
-            int adicionar = Math.Min(quantidade, disponiveis.Count);
-            for (int i = 0; i < adicionar; i++)
-                ids.Add(disponiveis[i]);
-
-            if (adicionar == 0)
+            if (catalogo.Count == 0)
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    $"Não há tipos de tarefa novos disponíveis para {jogador.Data.PlayerName}.");
+                    $"Não há tarefas disponíveis no mapa para {jogador.Data.PlayerName}.");
                 return 0;
             }
 
-            // RpcSetTasks sincroniza a lista completa com os clientes.
-            // Os IDs existentes permanecem na lista; apenas acrescentamos novos IDs.
+            HashSet<byte> existentes = new(ids);
+            List<byte> novas = catalogo
+                .Where(id => !existentes.Contains(id))
+                .Distinct()
+                .ToList();
+
+            Embaralhar(novas);
+
+            int adicionadas = 0;
+
+            // Fase 1: atribui cada tipo ainda não presente, sem duplicar.
+            int unicas = Math.Min(quantidade, novas.Count);
+            for (int i = 0; i < unicas; i++)
+            {
+                ids.Add(novas[i]);
+                existentes.Add(novas[i]);
+                adicionadas++;
+            }
+
+            // Fase 2: se o jogador já recebeu todos os tipos disponíveis,
+            // permite repetir tarefas. Cada entrada extra na lista é uma
+            // atribuição separada; por exemplo, dois SwipeCard em vez de um.
+            // O jogo recebe a lista completa pelo RpcSetTasks.
+            int faltam = quantidade - adicionadas;
+            if (faltam > 0)
+            {
+                List<byte> repetiveis = catalogo.Distinct().ToList();
+                Embaralhar(repetiveis);
+
+                for (int i = 0; i < faltam; i++)
+                {
+                    byte tipo = repetiveis[i % repetiveis.Count];
+                    ids.Add(tipo);
+                    adicionadas++;
+                }
+            }
+
+            if (adicionadas == 0)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    $"Não foi possível adicionar tarefas para {jogador.Data.PlayerName}.");
+                return 0;
+            }
+
             Il2CppStructArray<byte> novaLista = new(ids.Count);
             for (int i = 0; i < ids.Count; i++)
                 novaLista[i] = ids[i];
 
             jogador.Data.RpcSetTasks(novaLista);
-            return adicionar;
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                $"Atribuição de tarefas para {jogador.Data.PlayerName}: novas únicas={unicas}, repetidas={adicionadas - unicas}, total adicionadas={adicionadas}.");
+            return adicionadas;
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
                 $"Falha ao adicionar tarefas para {jogador?.Data?.PlayerName}: {ex}");
             return 0;
+        }
+    }
+
+    private static void AdicionarTipos(
+        Il2CppSystem.Collections.Generic.List<NormalPlayerTask> tarefas,
+        List<byte> destino)
+    {
+        if (tarefas == null) return;
+
+        foreach (NormalPlayerTask tarefa in tarefas)
+        {
+            if (tarefa == null) continue;
+            destino.Add((byte)tarefa.TaskType);
+        }
+    }
+
+    private static void Embaralhar<T>(List<T> lista)
+    {
+        for (int i = lista.Count - 1; i > 0; i--)
+        {
+            int j = Random.Shared.Next(i + 1);
+            (lista[i], lista[j]) = (lista[j], lista[i]);
         }
     }
 }
