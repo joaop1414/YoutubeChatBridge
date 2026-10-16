@@ -3336,21 +3336,30 @@ internal static class YouTubeVoteBridgeBloquearFimDeJogoOriginalPatch
 [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.RpcShapeshift))]
 public static class YouTubeVoteRainbowShapeshiftPatch
 {
-    public static void Prefix(
+    public static bool Prefix(
         PlayerControl __instance,
-        [HarmonyArgument(0)] PlayerControl target)
+        [HarmonyArgument(0)] PlayerControl target,
+        [HarmonyArgument(1)] bool shouldAnimate)
     {
-        if (__instance == null || target == null) return;
+        if (__instance == null || target == null)
+            return true;
 
         if (__instance.PlayerId == target.PlayerId)
         {
-            // No protocolo do jogo, alvo == próprio jogador representa destransformação.
+            // alvo == próprio jogador representa a destransformação.
             YouTubeVoteBridgePlugin.RegistrarDestransformacaoShapeshifter(__instance);
+
+            // Cancela o RPC original, restaura a cor original antes da destransformação
+            // e retransmite um RPC novo para que todos os clientes recebam a sequência.
+            return YouTubeVoteBridgePlugin.InterceptarDestransformacaoRainbow(
+                __instance, target, shouldAnimate);
         }
-        else
-        {
-            YouTubeVoteBridgePlugin.RegistrarTarefasAntesDoShapeshift(__instance, target);
-        }
+
+        // Pausa o ciclo antes que o RPC de transformação copie a aparência do alvo.
+        // Assim, o arco-íris do Shapeshifter não sobrescreve a cor copiada.
+        YouTubeVoteBridgePlugin.PausarRainbowDuranteShapeshift(__instance);
+        YouTubeVoteBridgePlugin.RegistrarTarefasAntesDoShapeshift(__instance, target);
+        return true;
     }
 
     public static void Postfix(
