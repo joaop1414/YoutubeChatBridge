@@ -2636,12 +2636,12 @@ public static class YouTubeVoteRainbowIncomingShapeshiftPatch
             if (alvo == null || alvo.PlayerId != __instance.PlayerId)
                 return true;
 
-            YouTubeVoteBridgePlugin.InterceptarDestransformacaoRainbow(
+            bool permitirOriginal = YouTubeVoteBridgePlugin.InterceptarDestransformacaoRainbow(
                 __instance, alvo, shouldAnimate);
 
-            // Bloqueia o RPC de entrada: o host já enviou a versão corrigida
-            // com a cor original restaurada para todos os clientes.
-            return false;
+            // O método retorna false quando restaurou a cor e reenviou o RPC corrigido.
+            // Se houve falha, deixa o jogo processar o RPC original normalmente.
+            return permitirOriginal;
         }
         catch (Exception ex)
         {
