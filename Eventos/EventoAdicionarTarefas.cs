@@ -24,6 +24,10 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
     private static readonly Dictionary<byte, int> QuantidadeEsperada = new();
     private static readonly Dictionary<byte, float> RestauracoesAgendadas = new();
     private static readonly HashSet<byte> ListaNovaDetectada = new();
+    // Limita a espera pela lista: se o jogo descartar algum tipo repetido, não ficamos
+    // reagendando a restauração para sempre e congelando a lógica do evento.
+    private static readonly Dictionary<byte, int> TentativasEsperaLista = new();
+    private const int MaxTentativasEsperaLista = 12; // 12 x 0,25 s = 3 segundos
 
     // Reenvios limitados: tenta sincronizar clientes que possam ter ignorado o primeiro RPC.
     private static readonly Dictionary<byte, List<uint>> RpcConclusoesParaRepetir = new();
@@ -173,13 +177,42 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
                 List<object> tarefasAtuais = EnumerarColecaoIl2Cpp(
                     LerMembro(jogador.Data, "Tasks", "tasks"));
 
-                if (!QuantidadeEsperada.TryGetValue(agendada.Key, out int esperada) ||
-                    tarefasAtuais.Count < esperada)
+                QuantidadeEsperada.TryGetValue(agendada.Key, out int esperada);
+                if (tarefasAtuais.Count < esperada)
                 {
-                    RestauracoesAgendadas[agendada.Key] = Time.time + 0.25f;
-                    continue;
+                    TentativasEsperaLista.TryGetValue(agendada.Key, out int tentativas);
+                    tentativas++;
+                    TentativasEsperaLista[agendada.Key] = tentativas;
+
+                    if (tentativas < MaxTentativasEsperaLista)
+                    {
+                        RestauracoesAgendadas[agendada.Key] = Time.time + 0.25f;
+                        continue;
+                    }
+
+                    if (tarefasAtuais.Count == 0)
+                    {
+                        YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                            $"Adicionar tarefas: a nova lista continuou vazia após {MaxTentativasEsperaLista} tentativas; cancelando a restauração para evitar loop infinito. PlayerId={agendada.Key}, esperadas={esperada}.");
+
+                        ConclusoesPendentes.Remove(agendada.Key);
+                        QuantidadeEsperada.Remove(agendada.Key);
+                        ListaNovaDetectada.Remove(agendada.Key);
+                        TentativasEsperaLista.Remove(agendada.Key);
+                        RestauracoesAgendadas.Remove(agendada.Key);
+                        AdicoesDuranteAtribuicao.Remove(agendada.Key);
+                        TiposOriginaisDuranteAtribuicao.Remove(agendada.Key);
+                        continue;
+                    }
+
+                    // Algumas versões/listas podem materializar menos entradas que o array
+                    // solicitado quando há tipos repetidos. Prossegue com o que o jogo criou.
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                        $"Adicionar tarefas: o jogo materializou {tarefasAtuais.Count}/{esperada} tarefas após {tentativas} tentativas. Prosseguindo com a lista real para evitar travamento; PlayerId={agendada.Key}.");
+                    QuantidadeEsperada[agendada.Key] = tarefasAtuais.Count;
                 }
 
+                TentativasEsperaLista.Remove(agendada.Key);
                 ListaNovaDetectada.Add(agendada.Key);
 
                 // RpcSetTasks substitui a lista, mas o contador global da barra pode
@@ -408,6 +441,7 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
         ConclusoesPendentes.Remove(jogador.PlayerId);
         QuantidadeEsperada.Remove(jogador.PlayerId);
         ListaNovaDetectada.Remove(jogador.PlayerId);
+        TentativasEsperaLista.Remove(jogador.PlayerId);
         RestauracoesAgendadas.Remove(jogador.PlayerId);
     }
 
