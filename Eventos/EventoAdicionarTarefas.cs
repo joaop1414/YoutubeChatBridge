@@ -109,12 +109,12 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
 
             try
             {
-                // CompleteTask do GameData atualiza o contador da barra, mas não
-                // necessariamente marca a instância local de PlayerTask como concluída.
-                // Isso deixa a tarefa pendente visualmente enquanto a barra conta como feita.
-                // PlayerControl.CompleteTask é a rotina do jogo que conclui pelo taskId.
+                // EHR completa tarefas de outros jogadores usando RpcCompleteTask.
+                // Esse RPC propaga a conclusão pelo protocolo normal do jogo aos clientes,
+                // inclusive vanilla. CompleteTask local/GameData.CompleteTask pode alterar
+                // a barra no host sem atualizar a tarefa na tela dos demais clientes.
                 uint taskId = Convert.ToUInt32(id);
-                jogador.CompleteTask(taskId);
+                jogador.RpcCompleteTask(taskId);
 
                 if (LerBool(tarefaAlvo, "IsComplete", "isComplete", "Complete", "complete"))
                     restauradas++;
