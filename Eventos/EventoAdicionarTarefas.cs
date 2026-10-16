@@ -104,6 +104,22 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
                 }
 
                 ListaNovaDetectada.Add(agendada.Key);
+
+                // RpcSetTasks substitui a lista, mas o contador global da barra pode
+                // continuar com o valor anterior. Recalcula-o a partir das listas novas
+                // antes de reaplicar as conclusões antigas.
+                try
+                {
+                    GameData.Instance?.RecomputeTaskCounts();
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                        $"Adicionar tarefas: contador da barra recalculado após nova lista de PlayerId={agendada.Key}.");
+                }
+                catch (Exception ex)
+                {
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                        $"Adicionar tarefas: falha ao recalcular a barra após reset: {ex.GetBaseException().Message}");
+                }
+
                 RestauracoesAgendadas[agendada.Key] = Time.time + 1f;
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                     $"Adicionar tarefas: lista nova aplicada para PlayerId={agendada.Key} " +
@@ -186,6 +202,20 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
             {
                 if (writer != null) writer.Recycle();
             }
+        }
+
+        // CompleteTask altera o estado individual; força o contador agregado da barra
+        // a ser reconstruído a partir do estado final de todos os jogadores.
+        try
+        {
+            GameData.Instance?.RecomputeTaskCounts();
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                $"Adicionar tarefas: contador da barra recalculado após restaurar PlayerId={jogador.PlayerId}.");
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                $"Adicionar tarefas: falha ao recalcular a barra após restauração: {ex.GetBaseException().Message}");
         }
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
