@@ -40,7 +40,7 @@ internal static class RoleSwitchAPI
 
         try
         {
-            LogInfo($"Solicitando troca direcionada: jogador={jogador.PlayerId}, atual={LerFuncao(jogador)}, destino={funcao}, OwnerId={jogador.OwnerId}.");
+            InspecionarEstadoPapel("ANTES_TROCA", jogador, funcao);
 
             if (AmongUsClient.Instance == null)
             {
@@ -54,8 +54,10 @@ internal static class RoleSwitchAPI
             {
                 // EHR usa a coroutine nativa CoSetRole para evitar a tela preta
                 // ao alterar o papel do cliente local.
+                InspecionarMetodosPapel(jogador);
+                LogInfo($"[INSPECTOR] Chamando CoSetRole: jogador={jogador.PlayerId}, destino={funcao}, canOverrideRole=true.");
                 jogador.StartCoroutine(jogador.CoSetRole(funcao, true));
-                LogInfo($"CoSetRole local agendado: jogador={jogador.PlayerId}, função={funcao}, canOverrideRole=true.");
+                InspecionarEstadoPapel("DEPOIS_AGENDAR_COSETROLE", jogador, funcao);
                 return true;
             }
 
@@ -71,7 +73,9 @@ internal static class RoleSwitchAPI
             writer.Write(true);
             AmongUsClient.Instance.FinishRpcImmediately(writer);
 
-            LogInfo($"RPC SetRole direcionado enviado: jogador={jogador.PlayerId}, função={funcao}, destino={jogador.OwnerId}, canOverrideRole=true.");
+            InspecionarMetodosPapel(jogador);
+            InspecionarEstadoPapel("DEPOIS_ENVIAR_RPC", jogador, funcao);
+            LogInfo($"[INSPECTOR] RPC SetRole enviado: jogador={jogador.PlayerId}, destino={jogador.OwnerId}, payloadRole={(ushort)funcao}, canOverrideRole=true.");
             return true;
         }
         catch (Exception ex)
@@ -149,6 +153,51 @@ internal static class RoleSwitchAPI
         catch (Exception ex)
         {
             LogErro("Erro na tentativa de recuperação FixBlackScreen: " + ex);
+        }
+    }
+
+    // Inspetor temporário: apenas registra dados e assinaturas; não invoca métodos extras.
+    private static void InspecionarEstadoPapel(string etapa, PlayerControl jogador, RoleTypes destino)
+    {
+        try
+        {
+            object roleData = jogador?.Data?.Role;
+            LogInfo($"[INSPECTOR][{etapa}] PlayerId={jogador?.PlayerId}, OwnerId={jogador?.OwnerId}, " +
+                $"ClientIdLocal={AmongUsClient.Instance?.ClientId}, Destino={destino}, " +
+                $"PapelAtual={LerFuncao(jogador)}, RoleDataTipo={roleData?.GetType().FullName ?? "null"}, " +
+                $"DataNula={jogador?.Data == null}, Desconectado={jogador?.Data?.Disconnected}, " +
+                $"Morto={jogador?.Data?.IsDead}, NetId={jogador?.NetId}");
+        }
+        catch (Exception ex)
+        {
+            LogAviso($"[INSPECTOR][{etapa}] Falha ao ler estado: {ex.Message}");
+        }
+    }
+
+    private static void InspecionarMetodosPapel(PlayerControl jogador)
+    {
+        try
+        {
+            Type tipo = jogador?.GetType();
+            if (tipo == null)
+                return;
+
+            foreach (MethodInfo metodo in tipo.GetMethods(
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            {
+                if (metodo.Name.IndexOf("Role", StringComparison.OrdinalIgnoreCase) < 0 &&
+                    metodo.Name.IndexOf("Murder", StringComparison.OrdinalIgnoreCase) < 0 &&
+                    metodo.Name.IndexOf("BlackScreen", StringComparison.OrdinalIgnoreCase) < 0)
+                    continue;
+
+                string parametros = string.Join(", ", metodo.GetParameters().Select(p =>
+                    p.ParameterType.Name + " " + p.Name));
+                LogInfo($"[INSPECTOR][METHOD] {metodo.DeclaringType?.FullName}.{metodo.Name}({parametros}) -> {metodo.ReturnType.FullName}");
+            }
+        }
+        catch (Exception ex)
+        {
+            LogAviso("[INSPECTOR] Falha ao enumerar métodos: " + ex.Message);
         }
     }
 
