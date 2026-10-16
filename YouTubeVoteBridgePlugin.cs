@@ -2147,16 +2147,70 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         NomeTemporarioEjecao = null;
     }
 
+    // Il2CppSystem.Collections.Generic.List<T> não implementa necessariamente
+    // System.Collections.IEnumerable do .NET. Acessamos Count/Item por reflexão.
+    private static List<object> EnumerarColecaoIl2Cpp(object colecao)
+    {
+        var itens = new List<object>();
+        if (colecao == null) return itens;
+
+        try
+        {
+            Type tipo = colecao.GetType();
+            object countObj = LerMembro(colecao, "Count", "count", "Length", "length");
+            if (countObj != null)
+            {
+                int count = Convert.ToInt32(countObj);
+                PropertyInfo indexador = tipo.GetProperty("Item", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                MethodInfo getItem = indexador?.GetGetMethod(true);
+                if (getItem != null)
+                {
+                    for (int i = 0; i < count; i++)
+                    {
+                        try { itens.Add(getItem.Invoke(colecao, new object[] { i })); }
+                        catch (Exception ex)
+                        {
+                            Instance?.Log.LogWarning($"Shapeshift/tarefas: falha lendo índice {i} da coleção IL2CPP: {ex.GetBaseException().Message}");
+                            break;
+                        }
+                    }
+                    return itens;
+                }
+            }
+
+            // Fallback para coleções que exponham GetEnumerator, sem depender da interface .NET.
+            MethodInfo getEnumerator = tipo.GetMethod("GetEnumerator", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            object enumerador = getEnumerator?.Invoke(colecao, null);
+            if (enumerador != null)
+            {
+                MethodInfo moveNext = enumerador.GetType().GetMethod("MoveNext", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                PropertyInfo current = enumerador.GetType().GetProperty("Current", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                if (moveNext != null && current != null)
+                {
+                    while (Convert.ToBoolean(moveNext.Invoke(enumerador, null)))
+                        itens.Add(current.GetValue(enumerador));
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Instance?.Log.LogWarning("Shapeshift/tarefas: erro ao enumerar coleção IL2CPP: " + ex.GetBaseException().Message);
+        }
+
+        return itens;
+    }
+
     private static List<EstadoTarefaShapeshift> CapturarEstadoTarefas(PlayerControl jogador)
     {
         var resultado = new List<EstadoTarefaShapeshift>();
         if (jogador == null) return resultado;
 
         object tarefasObj = LerMembro(jogador, "myTasks", "MyTasks", "tasks", "Tasks");
-        if (!(tarefasObj is System.Collections.IEnumerable tarefas))
+        List<object> tarefas = EnumerarColecaoIl2Cpp(tarefasObj);
+        if (tarefas.Count == 0)
         {
             Instance?.Log.LogWarning(
-                $"Shapeshift/tarefas: não consegui enumerar tarefas de PlayerId={jogador.PlayerId}; tipo={(tarefasObj == null ? "null" : tarefasObj.GetType().FullName)}.");
+                $"Shapeshift/tarefas: nenhuma tarefa enumerada para PlayerId={jogador.PlayerId}; tipo={(tarefasObj == null ? "null" : tarefasObj.GetType().FullName)}.");
             return resultado;
         }
 
@@ -2183,8 +2237,14 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     {
         if (jogador == null || alvo == null || jogador.PlayerId == alvo.PlayerId) return;
         List<EstadoTarefaShapeshift> estado = CapturarEstadoTarefas(jogador);
-        if (estado.Count > 0)
-            TarefasAntesDoShapeshift[jogador.PlayerId] = estado;
+        if (estado.Count == 0)
+        {
+            Instance?.Log.LogWarning(
+                $"Shapeshift detectado para PlayerId={jogador.PlayerId}, mas não foi possível capturar tarefas; snapshot anterior preservado.");
+            return;
+        }
+
+        TarefasAntesDoShapeshift[jogador.PlayerId] = estado;
         Instance?.Log.LogInfo(
             $"Shapeshift detectado: PlayerId={jogador.PlayerId} transformando-se em PlayerId={alvo.PlayerId}; snapshot de tarefas registrado.");
     }
@@ -2214,7 +2274,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 if (atual == null || atual.Concluida) continue;
 
                 object tarefasObj = LerMembro(jogador, "myTasks", "MyTasks", "tasks", "Tasks");
-                if (!(tarefasObj is System.Collections.IEnumerable tarefas)) break;
+                List<object> tarefas = EnumerarColecaoIl2Cpp(tarefasObj);
                 object tarefaAlvo = null;
                 int ocorrencia = 0;
                 foreach (object tarefa in tarefas)
