@@ -1,5 +1,6 @@
 using System;
 using System.Reflection;
+using System.Linq;
 using AmongUs.GameOptions;
 using Hazel;
 
@@ -77,6 +78,77 @@ internal static class RoleSwitchAPI
         {
             LogErro($"Exceção ao trocar função do jogador={jogador.PlayerId}: {ex}");
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Tentativa de recuperação baseada no FixBlackScreen do EHR.
+    /// O método do EHR é uma extensão estática; procuramos por reflexão para
+    /// não adicionar uma dependência obrigatória ao EHR.
+    /// </summary>
+    internal static void TentarCorrigirTelaPretaTodos()
+    {
+        try
+        {
+            Type tipoPlayer = typeof(PlayerControl);
+            MethodInfo metodoFix = null;
+
+            foreach (Assembly assembly in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                Type[] tipos;
+                try { tipos = assembly.GetTypes(); }
+                catch (ReflectionTypeLoadException ex) { tipos = ex.Types.Where(t => t != null).ToArray(); }
+                catch { continue; }
+
+                foreach (Type tipo in tipos)
+                {
+                    MethodInfo candidato = tipo.GetMethod(
+                        "FixBlackScreen",
+                        BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic,
+                        null,
+                        new[] { tipoPlayer },
+                        null);
+
+                    if (candidato == null || candidato.ReturnType != typeof(void))
+                        continue;
+
+                    metodoFix = candidato;
+                    break;
+                }
+
+                if (metodoFix != null)
+                    break;
+            }
+
+            if (metodoFix == null)
+            {
+                LogAviso("Tentativa FixBlackScreen: método do EHR não está carregado; nenhuma correção externa foi executada.");
+                return;
+            }
+
+            int tentativas = 0;
+            foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+            {
+                if (jogador == null || jogador.Data == null || jogador.Data.Disconnected)
+                    continue;
+
+                try
+                {
+                    metodoFix.Invoke(null, new object[] { jogador });
+                    tentativas++;
+                    LogInfo($"FixBlackScreen do EHR chamado para PlayerId={jogador.PlayerId}, OwnerId={jogador.OwnerId}.");
+                }
+                catch (Exception ex)
+                {
+                    LogAviso($"FixBlackScreen falhou para PlayerId={jogador.PlayerId}: {(ex.InnerException ?? ex).Message}");
+                }
+            }
+
+            LogInfo($"Tentativa de correção de tela preta concluída; chamadas solicitadas={tentativas}.");
+        }
+        catch (Exception ex)
+        {
+            LogErro("Erro na tentativa de recuperação FixBlackScreen: " + ex);
         }
     }
 
