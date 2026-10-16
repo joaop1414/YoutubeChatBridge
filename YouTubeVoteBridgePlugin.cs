@@ -2515,7 +2515,7 @@ public static class YouTubeVoteChatPatch
                 RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
             if (LobbyTagManager.PartidaIniciada() && !rainbowPedido)
             {
-                const string aviso = "Durante a partida, somente /color rainbow pode ser usado.";
+                const string aviso = "<color=red>Durante a partida não é permitido o uso desse comando.";
                 if (ehLocal)
                     YouTubeVoteBridgePlugin.Responder(__instance, aviso);
                 else if (host)
@@ -2573,9 +2573,9 @@ public static class YouTubeVoteChatPatch
             if (!host || !ehLocal)
             {
                 if (ehLocal)
-                    YouTubeVoteBridgePlugin.Responder(__instance, "Somente o host pode usar /tag update.");
+                    YouTubeVoteBridgePlugin.Responder(__instance, "<color=red>Somente o host pode usar /tag update.");
                 else if (host)
-                    YouTubeVoteBridgePlugin.EnviarMensagemIndividual(sourcePlayer, "Somente o host pode usar /tag update.");
+                    YouTubeVoteBridgePlugin.EnviarMensagemIndividual(sourcePlayer, "<color=red>Somente o host pode usar /tag update.");
                 return false;
             }
 
