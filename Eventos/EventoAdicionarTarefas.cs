@@ -18,6 +18,7 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
         public uint TaskId;
     }
 
+    private static readonly Dictionary<byte, List<TarefaConcluidaAnterior>> ConclusoesLocaisAntesDaRedistribuicao = new();
     private static readonly Dictionary<byte, List<uint>> HistoricoRpcConclusoes = new();
     private static readonly Dictionary<byte, List<TarefaConcluidaAnterior>> ConclusoesPendentes = new();
     private static readonly Dictionary<byte, int> QuantidadeEsperada = new();
@@ -55,6 +56,79 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
         foreach (uint id in ids)
             resultado.Add(new TarefaConcluidaAnterior { TaskId = id });
         return resultado;
+    }
+
+    // Cada cliente com o mod guarda o estado anterior localmente antes de receber
+    // a nova lista. O host é quem possui ConclusoesPendentes; os clientes modificados
+    // precisam de uma restauração local independente dos RPCs retransmitidos.
+    public static void CapturarConclusoesLocaisAntesDaRedistribuicao(NetworkedPlayerInfo dados)
+    {
+        if (dados == null || AmongUsClient.Instance == null || AmongUsClient.Instance.AmHost)
+            return;
+
+        PlayerControl jogador = dados.Object;
+        if (jogador == null || ConclusoesLocaisAntesDaRedistribuicao.ContainsKey(jogador.PlayerId))
+            return;
+
+        List<TarefaConcluidaAnterior> concluidas = CapturarTarefasConcluidas(jogador);
+        if (concluidas.Count == 0)
+            return;
+
+        ConclusoesLocaisAntesDaRedistribuicao[jogador.PlayerId] = concluidas;
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"Adicionar tarefas: cliente com mod guardou {concluidas.Count} tarefas concluídas antes da redistribuição; PlayerId={jogador.PlayerId}.");
+    }
+
+    public static void RestaurarConclusoesLocaisDepoisDaRedistribuicao(NetworkedPlayerInfo dados)
+    {
+        if (dados == null || AmongUsClient.Instance == null || AmongUsClient.Instance.AmHost)
+            return;
+
+        PlayerControl jogador = dados.Object;
+        if (jogador == null ||
+            !ConclusoesLocaisAntesDaRedistribuicao.TryGetValue(jogador.PlayerId, out List<TarefaConcluidaAnterior> antigas))
+            return;
+
+        List<object> atuais = EnumerarColecaoIl2Cpp(LerMembro(dados, "Tasks", "tasks"));
+        if (atuais.Count == 0)
+            return;
+
+        int restauradas = 0;
+        foreach (TarefaConcluidaAnterior antiga in antigas)
+        {
+            object tarefaAlvo = EncontrarTaskInfo(atuais, antiga.Tipo, antiga.Ocorrencia);
+            if (tarefaAlvo == null || LerBool(tarefaAlvo, "Complete", "complete"))
+                continue;
+
+            object idObj = LerMembro(tarefaAlvo, "Id", "id", "TaskId", "taskId");
+            uint taskId;
+            try { taskId = Convert.ToUInt32(idObj); }
+            catch { continue; }
+
+            try
+            {
+                // No cliente modificado, atualiza o estado local diretamente. O host
+                // continua responsável por enviar os RPCs que atualizam os vanilla.
+                GameData.Instance?.CompleteTask(jogador, taskId);
+                restauradas++;
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    $"Adicionar tarefas: falha ao restaurar conclusão local, PlayerId={jogador.PlayerId}, TaskId={taskId}: {ex.GetBaseException().Message}");
+            }
+        }
+
+        try { GameData.Instance?.RecomputeTaskCounts(); }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                $"Adicionar tarefas: falha ao recalcular barra no cliente modificado: {ex.GetBaseException().Message}");
+        }
+
+        ConclusoesLocaisAntesDaRedistribuicao.Remove(jogador.PlayerId);
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"Adicionar tarefas: cliente com mod restaurou localmente {restauradas}/{antigas.Count} conclusões para PlayerId={jogador.PlayerId}.");
     }
 
     // Espera o jogo distribuir e materializar a nova lista antes de reaplicar conclusões.
