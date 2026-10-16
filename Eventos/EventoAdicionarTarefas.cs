@@ -161,17 +161,17 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
                 if (GameData.Instance != null)
                     GameData.Instance.CompleteTask(jogador, antiga.TaskId);
 
-                // Broadcast GameData contendo o RPC CompleteTask real.
-                writer = MessageWriter.Get(SendOption.Reliable);
-                writer.StartMessage(5);
-                writer.Write(AmongUsClient.Instance.GameId);
-                writer.StartMessage(2);
-                writer.WritePacked(jogador.NetId);
-                writer.Write((byte)RpcCalls.CompleteTask);
+                // Usa o caminho oficial de RPC do Among Us em vez de montar manualmente
+                // um pacote GameData. A montagem manual pode deixar o estado/progresso
+                // de tarefas inconsistente entre host e clientes.
+                writer = AmongUsClient.Instance.StartRpcImmediately(
+                    jogador.NetId,
+                    (byte)RpcCalls.CompleteTask,
+                    SendOption.Reliable,
+                    -1);
                 writer.WritePacked(antiga.TaskId);
-                writer.EndMessage();
-                writer.EndMessage();
-                AmongUsClient.Instance.SendOrDisconnect(writer);
+                AmongUsClient.Instance.FinishRpcImmediately(writer);
+                writer = null;
                 reenviadas++;
 
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
