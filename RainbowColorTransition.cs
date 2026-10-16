@@ -14,6 +14,7 @@ internal static class RainbowColorTransition
     private const float INTERVALO_RAINBOW_MAX = 0.85f;
     private const float TEMPO_PARA_PARAR = 1.25f;
     private const string BODY_COLOR = "_BodyColor";
+    private const string BACK_COLOR = "_BackColor";
 
     private sealed class Estado
     {
@@ -21,6 +22,9 @@ internal static class RainbowColorTransition
         public Color CorAtual;
         public Color CorInicial;
         public Color CorDestino;
+        public Color SombraAtual;
+        public Color SombraInicial;
+        public Color SombraDestino;
         public float Inicio;
         public bool Inicializado;
 
@@ -149,6 +153,7 @@ internal static class RainbowColorTransition
 
                 Estado estado = ObterEstado(playerId);
                 Color corRede = Palette.PlayerColors[idCor];
+                Color sombraRede = Palette.ShadowColors[idCor];
 
                 if (!estado.Inicializado)
                 {
@@ -156,6 +161,9 @@ internal static class RainbowColorTransition
                     estado.CorAtual = corRede;
                     estado.CorInicial = corRede;
                     estado.CorDestino = corRede;
+                    estado.SombraAtual = sombraRede;
+                    estado.SombraInicial = sombraRede;
+                    estado.SombraDestino = sombraRede;
                     estado.Inicio = agora;
                     estado.Inicializado = true;
                 }
@@ -163,6 +171,8 @@ internal static class RainbowColorTransition
                 {
                     estado.CorInicial = estado.CorAtual;
                     estado.CorDestino = corRede;
+                    estado.SombraInicial = estado.SombraAtual;
+                    estado.SombraDestino = sombraRede;
                     estado.CorAlvo = idCor;
                     estado.Inicio = agora;
                 }
@@ -170,9 +180,12 @@ internal static class RainbowColorTransition
                 float progresso = Mathf.Clamp01(
                     (agora - estado.Inicio) / DURACAO_TRANSICAO);
                 estado.CorAtual = Color.Lerp(estado.CorInicial, estado.CorDestino, progresso);
+                estado.SombraAtual = Color.Lerp(
+                    estado.SombraInicial, estado.SombraDestino, progresso);
 
-                // Só altera o material visual deste corpo neste cliente.
+                // Interpola a cor principal e a sombra no material deste corpo.
                 renderer.material.SetColor(BODY_COLOR, estado.CorAtual);
+                renderer.material.SetColor(BACK_COLOR, estado.SombraAtual);
             }
             catch (Exception ex)
             {
