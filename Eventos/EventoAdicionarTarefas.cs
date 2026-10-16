@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using HarmonyLib;
+using Hazel;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using UnityEngine;
 
@@ -14,12 +15,42 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
     {
         public byte Tipo;
         public int Ocorrencia;
+        public uint TaskId;
     }
 
+    private static readonly Dictionary<byte, List<uint>> HistoricoRpcConclusoes = new();
     private static readonly Dictionary<byte, List<TarefaConcluidaAnterior>> ConclusoesPendentes = new();
     private static readonly Dictionary<byte, int> QuantidadeEsperada = new();
     private static readonly Dictionary<byte, float> RestauracoesAgendadas = new();
     private static readonly HashSet<byte> ListaNovaDetectada = new();
+
+    public static void RegistrarRpcConclusao(PlayerControl jogador, uint taskId)
+    {
+        if (jogador == null) return;
+        if (!HistoricoRpcConclusoes.TryGetValue(jogador.PlayerId, out List<uint> ids))
+        {
+            ids = new List<uint>();
+            HistoricoRpcConclusoes[jogador.PlayerId] = ids;
+        }
+        if (!ids.Contains(taskId))
+        {
+            ids.Add(taskId);
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                $"Adicionar tarefas: RPC CompleteTask registrado: PlayerId={jogador.PlayerId}, TaskId={taskId}.");
+        }
+    }
+
+    public static void LimparHistoricoRpcConclusoes() => HistoricoRpcConclusoes.Clear();
+
+    private static List<TarefaConcluidaAnterior> CapturarRpcConclusoes(PlayerControl jogador)
+    {
+        List<TarefaConcluidaAnterior> resultado = new();
+        if (jogador == null || !HistoricoRpcConclusoes.TryGetValue(jogador.PlayerId, out List<uint> ids))
+            return resultado;
+        foreach (uint id in ids)
+            resultado.Add(new TarefaConcluidaAnterior { TaskId = id });
+        return resultado;
+    }
 
     // Espera o jogo distribuir e materializar a nova lista antes de reaplicar conclusões.
     public static void AgendarRestauracaoTarefasConcluidas(PlayerControl jogador)
@@ -89,94 +120,81 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
         }
     }
 
-    // Chamado depois que a lista nova de tarefas já foi aplicada.
+    // Reenvia os mesmos RPCs CompleteTask recebidos durante a partida após a redistribuição.
     public static void RestaurarTarefasConcluidas(PlayerControl jogador)
     {
         if (jogador == null || !ConclusoesPendentes.TryGetValue(jogador.PlayerId, out var antigas))
             return;
 
-        // A fonte autoritativa do estado sincronizado é NetworkedPlayerInfo.Tasks:
-        // cada TaskInfo contém TypeId, Id e Complete. PlayerTask.IsComplete pode
-        // estar desatualizado durante uma redistribuição de tarefas.
         List<object> atuais = EnumerarColecaoIl2Cpp(LerMembro(jogador.Data, "Tasks", "tasks"));
         if (atuais.Count == 0 ||
             !QuantidadeEsperada.TryGetValue(jogador.PlayerId, out int quantidadeEsperada) ||
             atuais.Count < quantidadeEsperada)
-            return; // Ainda é a lista antiga; o patch tentará novamente quando a nova chegar.
+            return;
 
-        int restauradas = 0;
+        int reenviadas = 0;
         foreach (TarefaConcluidaAnterior antiga in antigas)
         {
-            int ocorrencia = 0;
-            object tarefaAlvo = null;
+            bool idExiste = false;
             foreach (object tarefa in atuais)
             {
-                if (tarefa == null) continue;
-                object tipoObj = LerMembro(tarefa, "TypeId", "typeId", "TaskType", "taskType");
-                if (tipoObj == null || ConverterByte(tipoObj) != antiga.Tipo) continue;
-                if (ocorrencia++ == antiga.Ocorrencia)
+                object idObj = LerMembro(tarefa, "Id", "id", "TaskId", "taskId");
+                try
                 {
-                    tarefaAlvo = tarefa;
-                    break;
+                    if (idObj != null && Convert.ToUInt32(idObj) == antiga.TaskId)
+                    { idExiste = true; break; }
                 }
+                catch { }
             }
 
-            if (tarefaAlvo == null)
-                continue;
-
-            if (LerBool(tarefaAlvo, "Complete", "complete", "IsComplete", "isComplete"))
-            {
-                restauradas++;
-                continue;
-            }
-
-            object id = LerMembro(tarefaAlvo, "Id", "id", "TaskId", "taskId");
-            if (id == null)
+            if (!idExiste)
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    $"Adicionar tarefas: não encontrei o ID da TaskInfo tipo={antiga.Tipo} para PlayerId={jogador.PlayerId}.");
+                    $"Adicionar tarefas: TaskId original {antiga.TaskId} não existe na nova lista de PlayerId={jogador.PlayerId}; RPC não reenviado.");
                 continue;
             }
 
+            MessageWriter writer = null;
             try
             {
-                // RpcCompleteTask atualiza GameData.TaskInfo.Complete e propaga
-                // a conclusão pelo RPC normal, inclusive para clientes vanilla.
-                uint taskId = Convert.ToUInt32(id);
-                jogador.RpcCompleteTask(taskId);
+                // Atualiza o estado autoritativo do host.
+                if (GameData.Instance != null)
+                    GameData.Instance.CompleteTask(jogador, antiga.TaskId);
 
-                // Releia Data.Tasks: TaskInfo pode ser struct e a cópia anterior
-                // não refletir a alteração feita pelo RPC.
-                List<object> depois = EnumerarColecaoIl2Cpp(LerMembro(jogador.Data, "Tasks", "tasks"));
-                object tarefaDepois = EncontrarTaskInfo(depois, antiga.Tipo, antiga.Ocorrencia);
-                if (LerBool(tarefaDepois, "Complete", "complete"))
-                    restauradas++;
-                else
-                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                        $"Adicionar tarefas: TaskInfo ainda pendente após RpcCompleteTask (PlayerId={jogador.PlayerId}, TaskId={taskId}, TypeId={antiga.Tipo}).");
+                // Broadcast GameData contendo o RPC CompleteTask real.
+                writer = MessageWriter.Get(SendOption.Reliable);
+                writer.StartMessage(5);
+                writer.Write(AmongUsClient.Instance.GameId);
+                writer.StartMessage(2);
+                writer.WritePacked(jogador.NetId);
+                writer.Write((byte)RpcCalls.CompleteTask);
+                writer.WritePacked(antiga.TaskId);
+                writer.EndMessage();
+                writer.EndMessage();
+                AmongUsClient.Instance.SendOrDisconnect(writer);
+                reenviadas++;
+
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    $"Adicionar tarefas: RPC CompleteTask reenviado para PlayerId={jogador.PlayerId}, NetId={jogador.NetId}, TaskId={antiga.TaskId}.");
             }
             catch (Exception ex)
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    $"Adicionar tarefas: falha ao restaurar TypeId={antiga.Tipo} para PlayerId={jogador.PlayerId}: {ex.GetBaseException().Message}");
+                    $"Adicionar tarefas: falha ao reenviar CompleteTask para PlayerId={jogador.PlayerId}, TaskId={antiga.TaskId}: {ex.GetBaseException().Message}");
+            }
+            finally
+            {
+                if (writer != null) writer.Recycle();
             }
         }
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"Adicionar tarefas: PlayerId={jogador.PlayerId}; tarefas concluídas antigas restauradas={restauradas}/{antigas.Count}.");
-
-        // Não descarte o estado pendente se o RPC ainda não marcou todas as tarefas.
-        // O Update tentará novamente após 0,25 s; antes, o código removia os dados
-        // mesmo quando nenhuma conclusão tinha sido reaplicada.
-        if (restauradas < antigas.Count)
-        {
-            RestauracoesAgendadas[jogador.PlayerId] = Time.time + 0.25f;
-            return;
-        }
+            $"Adicionar tarefas: PlayerId={jogador.PlayerId}; RPCs CompleteTask reenviados={reenviadas}/{antigas.Count}.");
 
         ConclusoesPendentes.Remove(jogador.PlayerId);
         QuantidadeEsperada.Remove(jogador.PlayerId);
         ListaNovaDetectada.Remove(jogador.PlayerId);
+        RestauracoesAgendadas.Remove(jogador.PlayerId);
     }
 
     private static List<TarefaConcluidaAnterior> CapturarTarefasConcluidas(PlayerControl jogador)
@@ -426,7 +444,7 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
             if (catalogo.Count == 0)
                 return 0;
 
-            List<TarefaConcluidaAnterior> concluidasAntes = CapturarTarefasConcluidas(jogador);
+            List<TarefaConcluidaAnterior> concluidasAntes = CapturarRpcConclusoes(jogador);
             List<byte> tiposOriginais = CapturarTiposTarefas(jogador);
             ConclusoesPendentes[jogador.PlayerId] = concluidasAntes;
             TiposOriginaisDuranteAtribuicao[jogador.PlayerId] = tiposOriginais;
@@ -434,7 +452,7 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
             QuantidadeEsperada.Remove(jogador.PlayerId);
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                $"EHR-style: capturadas {concluidasAntes.Count} tarefas concluídas de {jogador.Data.PlayerName}; solicitando redistribuição com +{quantidade} tarefa(s).");
+                $"EHR-style: capturados {concluidasAntes.Count} RPCs CompleteTask de {jogador.Data.PlayerName}; solicitando redistribuição com +{quantidade} tarefa(s).");
 
             // Este é o fluxo usado pela role Capitalist do EHR:
             // RpcResetTasks dispara a atribuição normal, e o Prefix de RpcSetTasks
