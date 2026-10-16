@@ -298,49 +298,67 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
         List<uint> idsParaRepetir = new();
         foreach (TarefaConcluidaAnterior antiga in antigas)
         {
-            bool idExiste = false;
-            foreach (object tarefa in atuais)
+            // A lista recém-criada pode atribuir IDs diferentes às tarefas antigas.
+            // Primeiro localizamos a tarefa correspondente por tipo + ocorrência e usamos
+            // o ID NOVO para atualizar o host e enviar o RPC aos clientes.
+            object tarefaAlvo = antiga.Tipo != byte.MaxValue
+                ? EncontrarTaskInfo(atuais, antiga.Tipo, antiga.Ocorrencia)
+                : null;
+
+            uint taskIdAlvo;
+            if (tarefaAlvo != null)
             {
-                object idObj = LerMembro(tarefa, "Id", "id", "TaskId", "taskId");
-                try
+                object idObj = LerMembro(tarefaAlvo, "Id", "id", "TaskId", "taskId");
+                try { taskIdAlvo = Convert.ToUInt32(idObj); }
+                catch { continue; }
+            }
+            else
+            {
+                // Compatibilidade com registros antigos que só guardavam o TaskId.
+                bool idExiste = false;
+                foreach (object tarefa in atuais)
                 {
-                    if (idObj != null && Convert.ToUInt32(idObj) == antiga.TaskId)
-                    { idExiste = true; break; }
+                    object idObj = LerMembro(tarefa, "Id", "id", "TaskId", "taskId");
+                    try
+                    {
+                        if (idObj != null && Convert.ToUInt32(idObj) == antiga.TaskId)
+                        { idExiste = true; taskIdAlvo = antiga.TaskId; break; }
+                    }
+                    catch { }
                 }
-                catch { }
+
+                if (!idExiste)
+                {
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                        $"Adicionar tarefas: não encontrou a tarefa antiga por tipo/ocorrência nem pelo TaskId={antiga.TaskId} na nova lista de PlayerId={jogador.PlayerId}.");
+                    continue;
+                }
             }
 
-            if (!idExiste)
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    $"Adicionar tarefas: TaskId original {antiga.TaskId} não existe na nova lista de PlayerId={jogador.PlayerId}; RPC não reenviado.");
+            if (tarefaAlvo != null && LerBool(tarefaAlvo, "Complete", "complete"))
                 continue;
-            }
 
             MessageWriter writer = null;
             try
             {
-                // Atualiza o estado autoritativo do host.
+                // Atualiza o estado autoritativo do host usando o ID da nova lista.
                 if (GameData.Instance != null)
-                    GameData.Instance.CompleteTask(jogador, antiga.TaskId);
+                    GameData.Instance.CompleteTask(jogador, taskIdAlvo);
 
-                // Usa o caminho oficial de RPC do Among Us em vez de montar manualmente
-                // um pacote GameData. A montagem manual pode deixar o estado/progresso
-                // de tarefas inconsistente entre host e clientes.
                 writer = AmongUsClient.Instance.StartRpcImmediately(
                     jogador.NetId,
                     (byte)RpcCalls.CompleteTask,
                     SendOption.Reliable,
                     -1);
-                writer.WritePacked(antiga.TaskId);
+                writer.WritePacked(taskIdAlvo);
                 AmongUsClient.Instance.FinishRpcImmediately(writer);
                 writer = null;
                 reenviadas++;
-                if (!idsParaRepetir.Contains(antiga.TaskId))
-                    idsParaRepetir.Add(antiga.TaskId);
+                if (!idsParaRepetir.Contains(taskIdAlvo))
+                    idsParaRepetir.Add(taskIdAlvo);
 
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    $"Adicionar tarefas: RPC CompleteTask reenviado para PlayerId={jogador.PlayerId}, NetId={jogador.NetId}, TaskId={antiga.TaskId}.");
+                    $"Adicionar tarefas: conclusão restaurada para PlayerId={jogador.PlayerId}, NetId={jogador.NetId}, TaskId antigo={antiga.TaskId}, TaskId atual={taskIdAlvo}.");
             }
             catch (Exception ex)
             {
@@ -632,7 +650,12 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
             if (catalogo.Count == 0)
                 return 0;
 
-            List<TarefaConcluidaAnterior> concluidasAntes = CapturarRpcConclusoes(jogador);
+            // Captura o estado real das tarefas antes do reset, incluindo tipo e ocorrência.
+            // Os TaskId podem mudar quando o jogo recria a lista, então não podemos depender
+            // apenas dos IDs antigos registrados nos RPCs.
+            List<TarefaConcluidaAnterior> concluidasAntes = CapturarTarefasConcluidas(jogador);
+            if (concluidasAntes.Count == 0)
+                concluidasAntes = CapturarRpcConclusoes(jogador);
             List<byte> tiposOriginais = CapturarTiposTarefas(jogador);
             ConclusoesPendentes[jogador.PlayerId] = concluidasAntes;
             TiposOriginaisDuranteAtribuicao[jogador.PlayerId] = tiposOriginais;
