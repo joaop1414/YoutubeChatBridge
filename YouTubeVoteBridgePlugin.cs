@@ -3110,8 +3110,18 @@ public static class YouTubeVoteShapeshiftCheckPatch
 {
     public static void Prefix(PlayerControl __instance, [HarmonyArgument(0)] PlayerControl target)
     {
-        if (__instance == null || target == null || __instance.PlayerId == target.PlayerId)
+        if (__instance == null || target == null)
             return;
+
+        // O log do próprio jogo confirma que CheckShapeshift é chamado com
+        // target == jogador quando a habilidade está revertendo.
+        if (__instance.PlayerId == target.PlayerId)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                $"Shapeshift: CheckShapeshift detectou DEStransformação para PlayerId={__instance.PlayerId}; aguardando RpcShapeshift/SetTasks para restaurar tarefas.");
+            YouTubeVoteBridgePlugin.RegistrarDestransformacaoShapeshifter(__instance);
+            return;
+        }
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             $"Shapeshift detectado via CheckShapeshift (padrão EHR): PlayerId={__instance.PlayerId}, alvo={target.PlayerId}.");
