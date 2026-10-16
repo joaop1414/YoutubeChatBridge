@@ -335,28 +335,42 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
                 }
             }
 
-            if (tarefaAlvo != null && LerBool(tarefaAlvo, "Complete", "complete"))
+            // A versão que funcionava localmente verificava PlayerTask.IsComplete,
+            // não apenas TaskInfo.Complete. Os dois estados podem divergir no host.
+            List<object> tarefasLocaisAtuais = EnumerarColecaoIl2Cpp(
+                LerMembro(jogador, "myTasks", "MyTasks", "tasks", "Tasks"));
+            object tarefaLocalAlvo = antiga.Tipo != byte.MaxValue
+                ? EncontrarTarefaLocal(tarefasLocaisAtuais, antiga.Tipo, antiga.Ocorrencia)
+                : null;
+
+            if (tarefaLocalAlvo != null)
+            {
+                object idLocal = LerMembro(tarefaLocalAlvo, "Id", "id", "TaskId", "taskId");
+                try { taskIdAlvo = Convert.ToUInt32(idLocal); }
+                catch { }
+            }
+
+            if (tarefaLocalAlvo != null &&
+                LerBool(tarefaLocalAlvo, "IsComplete", "isComplete", "Complete", "complete"))
                 continue;
 
             try
             {
-                // Reutiliza o método oficial do Among Us, que atualiza a tarefa no
-                // estado local do host e envia o RPC correto aos outros jogadores.
-                // GameData.CompleteTask + StartRpcImmediately podia deixar a lista
-                // visual myTasks do próprio host pendente.
+                // Caminho da versão antiga que funcionava no host: PlayerTask local
+                // determina se está pendente e RpcCompleteTask atualiza esse estado.
                 jogador.RpcCompleteTask(taskIdAlvo);
                 reenviadas++;
                 if (!idsParaRepetir.Contains(taskIdAlvo))
                     idsParaRepetir.Add(taskIdAlvo);
 
-                List<object> depois = EnumerarColecaoIl2Cpp(
-                    LerMembro(jogador.Data, "Tasks", "tasks"));
-                object tarefaDepois = tarefaAlvo != null
-                    ? EncontrarTaskInfo(depois, antiga.Tipo, antiga.Ocorrencia)
+                List<object> locaisDepois = EnumerarColecaoIl2Cpp(
+                    LerMembro(jogador, "myTasks", "MyTasks", "tasks", "Tasks"));
+                object localDepois = tarefaLocalAlvo != null
+                    ? EncontrarTarefaLocal(locaisDepois, antiga.Tipo, antiga.Ocorrencia)
                     : null;
 
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    $"Adicionar tarefas: RpcCompleteTask chamado no host; PlayerId={jogador.PlayerId}, TaskId antigo={antiga.TaskId}, TaskId atual={taskIdAlvo}, TaskInfoComplete={LerBool(tarefaDepois, "Complete", "complete")}.");
+                    $"Adicionar tarefas: RpcCompleteTask chamado; PlayerId={jogador.PlayerId}, TaskId atual={taskIdAlvo}, PlayerTaskComplete={LerBool(localDepois, "IsComplete", "isComplete", "Complete", "complete")}.");
             }
             catch (Exception ex)
             {
@@ -400,20 +414,56 @@ internal sealed class EventoAdicionarTarefas : EventoVotacao
     private static List<TarefaConcluidaAnterior> CapturarTarefasConcluidas(PlayerControl jogador)
     {
         List<TarefaConcluidaAnterior> resultado = new();
-        Dictionary<byte, int> ocorrencias = new();
-        List<object> tarefas = EnumerarColecaoIl2Cpp(LerMembro(jogador?.Data, "Tasks", "tasks"));
-        foreach (object tarefa in tarefas)
+        if (jogador == null) return resultado;
+
+        // Reaproveita a captura da versão antiga que funcionava no host:
+        // PlayerControl.myTasks representa as tarefas visuais locais (PlayerTask).
+        Dictionary<byte, int> ocorrenciasLocais = new();
+        List<object> tarefasLocais = EnumerarColecaoIl2Cpp(
+            LerMembro(jogador, "myTasks", "MyTasks", "tasks", "Tasks"));
+        foreach (object tarefa in tarefasLocais)
+        {
+            if (tarefa == null) continue;
+            object tipoObj = LerMembro(tarefa, "TaskType", "taskType", "Type", "type");
+            if (tipoObj == null) continue;
+            byte tipo = ConverterByte(tipoObj);
+            ocorrenciasLocais.TryGetValue(tipo, out int ocorrencia);
+            ocorrenciasLocais[tipo] = ocorrencia + 1;
+            if (LerBool(tarefa, "IsComplete", "isComplete", "Complete", "complete"))
+                resultado.Add(new TarefaConcluidaAnterior { Tipo = tipo, Ocorrencia = ocorrencia });
+        }
+
+        // Complementa com TaskInfo, que é a fonte sincronizada. Não duplica tipo/ocorrência
+        // já capturado pela lista local.
+        Dictionary<byte, int> ocorrenciasDados = new();
+        List<object> tarefasDados = EnumerarColecaoIl2Cpp(LerMembro(jogador.Data, "Tasks", "tasks"));
+        foreach (object tarefa in tarefasDados)
         {
             if (tarefa == null) continue;
             object tipoObj = LerMembro(tarefa, "TypeId", "typeId", "TaskType", "taskType");
             if (tipoObj == null) continue;
             byte tipo = ConverterByte(tipoObj);
-            ocorrencias.TryGetValue(tipo, out int ocorrencia);
-            ocorrencias[tipo] = ocorrencia + 1;
-            if (LerBool(tarefa, "Complete", "complete"))
+            ocorrenciasDados.TryGetValue(tipo, out int ocorrencia);
+            ocorrenciasDados[tipo] = ocorrencia + 1;
+            if (LerBool(tarefa, "Complete", "complete") &&
+                !resultado.Any(t => t.Tipo == tipo && t.Ocorrencia == ocorrencia))
                 resultado.Add(new TarefaConcluidaAnterior { Tipo = tipo, Ocorrencia = ocorrencia });
         }
+
         return resultado;
+    }
+
+    private static object EncontrarTarefaLocal(List<object> tarefas, byte tipoProcurado, int ocorrenciaProcurada)
+    {
+        int ocorrencia = 0;
+        foreach (object tarefa in tarefas)
+        {
+            if (tarefa == null) continue;
+            object tipoObj = LerMembro(tarefa, "TaskType", "taskType", "Type", "type");
+            if (tipoObj == null || ConverterByte(tipoObj) != tipoProcurado) continue;
+            if (ocorrencia++ == ocorrenciaProcurada) return tarefa;
+        }
+        return null;
     }
 
     private static List<byte> CapturarTiposTarefas(PlayerControl jogador)
