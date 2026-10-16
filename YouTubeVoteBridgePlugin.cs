@@ -2997,13 +2997,29 @@ public static class YouTubeVoteTaskKillPatch
     }
 }
 
-// Depois de o jogo substituir a lista de tarefas, reaplica as que já estavam concluídas.
+// Algumas versões do Among Us não possuem PlayerControl.RpcSetTasks.
+// Selecionamos somente um método existente que realmente atualize as tarefas,
+// evitando que um TargetMethod nulo impeça o plugin inteiro de carregar.
 [HarmonyPatch]
 public static class YouTubeVoteShapeshiftTaskListPatch
 {
     private static MethodBase TargetMethod()
     {
-        return AccessTools.Method(typeof(PlayerControl), "RpcSetTasks");
+        string[] nomes = { "SetTasks", "RpcSetTasks", "AddTasks", "SetTaskList" };
+        foreach (string nome in nomes)
+        {
+            MethodBase metodo = AccessTools.Method(typeof(PlayerControl), nome);
+            if (metodo != null)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    $"Shapeshift/tarefas: patch conectado a PlayerControl.{nome}.");
+                return metodo;
+            }
+        }
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+            "Shapeshift/tarefas: nenhum método de atualização de tarefas conhecido foi encontrado; plugin continuará carregando, mas a restauração automática não estará conectada.");
+        return null;
     }
 
     public static void Postfix(PlayerControl __instance)
