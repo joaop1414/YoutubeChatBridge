@@ -1969,24 +1969,6 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         return LerMembro(objeto, nomes);
     }
 
-    private static object LerMembro(object objeto, params string[] nomes)
-    {
-        if (objeto == null) return null;
-        Type tipo = objeto.GetType();
-        foreach (string nome in nomes)
-        {
-            try
-            {
-                PropertyInfo p = tipo.GetProperty(nome, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-                if (p != null && p.GetIndexParameters().Length == 0) return p.GetValue(objeto);
-                FieldInfo f = tipo.GetField(nome, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-                if (f != null) return f.GetValue(objeto);
-            }
-            catch { }
-        }
-        return null;
-    }
-
     private static readonly Dictionary<byte, string> NomesAntesDaEjecao = new();
     private static byte? PlayerIdNaEjecao;
 
