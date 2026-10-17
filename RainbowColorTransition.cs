@@ -267,6 +267,7 @@ internal static class RainbowColorTransition
             Estados.Remove(id);
             Ativos.Remove(id);
             AtivosForcados.Remove(id);
+            PendenteRestaurarVisual.Remove(id);
         }
     }
 }
