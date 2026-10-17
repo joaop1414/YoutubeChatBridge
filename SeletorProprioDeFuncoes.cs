@@ -5,6 +5,7 @@ using System.Reflection;
 using AmongUs.GameOptions;
 using HarmonyLib;
 using Hazel;
+using UnityEngine;
 
 namespace YouTubeVoteBridge;
 
@@ -18,11 +19,10 @@ internal static class SeletorProprioDeFuncoesPatch
 {
     private static readonly System.Random Sorteador = new();
 
-    // Temporariamente desativado: a seleção personalizada causou tela preta
-    // em testes com clientes vanilla. Deixa o jogo executar o seletor original.
-    public static bool Prefix()
+    // Mantém a seleção original do jogo e aplica a seleção do mod logo depois.
+    public static void Postfix()
     {
-        return true;
+        SeletorProprioDeFuncoes.IniciarSelecaoPersonalizada();
     }
 
     internal static int SortearIndice(int maxExclusive) => Sorteador.Next(maxExclusive);
@@ -30,6 +30,61 @@ internal static class SeletorProprioDeFuncoesPatch
 
 internal static class SeletorProprioDeFuncoes
 {
+    private static readonly List<(PlayerControl Jogador, RoleTypes Funcao)> AtribuicoesAtivas = new();
+    private static bool selecaoAplicadaNestaPartida;
+    private static float inicioReenvio;
+    private static float proximoReenvio;
+    private static int quantidadeReenvios;
+    private const float DURACAO_REENVIO_SEGUNDOS = 5f;
+    private const float INTERVALO_REENVIO_SEGUNDOS = 0.25f;
+
+    internal static void IniciarSelecaoPersonalizada()
+    {
+        if (selecaoAplicadaNestaPartida)
+            return;
+
+        if (Atribuir())
+            selecaoAplicadaNestaPartida = true;
+    }
+
+    // Chamado por FixedUpdate: reenvia o mesmo conjunto de funções por até 5 s.
+    // Não sorteia novamente e não aplica RPCs em loop apertado no mesmo frame.
+    internal static void AtualizarReenvio()
+    {
+        if (!selecaoAplicadaNestaPartida || AtribuicoesAtivas.Count == 0)
+            return;
+
+        var cliente = AmongUsClient.Instance;
+        if (cliente == null || !cliente.AmHost)
+            return;
+
+        float agora = Time.time;
+        if (agora - inicioReenvio >= DURACAO_REENVIO_SEGUNDOS)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                $"[SeletorDeFuncoes] Reenvio encerrado após {DURACAO_REENVIO_SEGUNDOS:0.0}s; " +
+                $"tentativas adicionais={quantidadeReenvios}.");
+            AtribuicoesAtivas.Clear();
+            return;
+        }
+
+        if (agora < proximoReenvio)
+            return;
+
+        EnviarSetRoleParaTodos(cliente);
+        quantidadeReenvios++;
+        proximoReenvio = agora + INTERVALO_REENVIO_SEGUNDOS;
+    }
+
+    internal static void Resetar()
+    {
+        selecaoAplicadaNestaPartida = false;
+        AtribuicoesAtivas.Clear();
+        inicioReenvio = 0f;
+        proximoReenvio = 0f;
+        quantidadeReenvios = 0;
+    }
+
     private static readonly RoleTypes[] FuncoesTripulantes =
     {
         RoleTypes.Scientist,
@@ -105,31 +160,69 @@ internal static class SeletorProprioDeFuncoes
                 "[SeletorDeFuncoes] Não consegui ler as opções de funções especiais; atribuindo apenas Impostor/Crewmate.");
         }
 
-        // Define o papel local no host e então replica o SetRole globalmente.
-        foreach (var atribuicao in atribuicoes.Values)
-            gerenciador.SetRole(atribuicao.Jogador, atribuicao.Funcao);
-
+        // Aplica localmente no host e guarda exatamente o mesmo sorteio para os reenvios.
+        AtribuicoesAtivas.Clear();
         foreach (var atribuicao in atribuicoes.Values)
         {
-            MessageWriter writer = cliente.StartRpcImmediately(
-                atribuicao.Jogador.NetId,
-                (byte)RpcCalls.SetRole,
-                SendOption.Reliable,
-                -1);
-            writer.Write((ushort)atribuicao.Funcao);
-            writer.Write(true);
-            cliente.FinishRpcImmediately(writer);
+            gerenciador.SetRole(atribuicao.Jogador, atribuicao.Funcao);
+            AtribuicoesAtivas.Add((atribuicao.Jogador, atribuicao.Funcao));
         }
+
+        inicioReenvio = Time.time;
+        proximoReenvio = inicioReenvio;
+        quantidadeReenvios = 0;
+        EnviarSetRoleParaTodos(cliente);
 
         int quantidadeEspeciais = atribuicoes.Values.Count(x =>
             x.Funcao != RoleTypes.Crewmate && x.Funcao != RoleTypes.Impostor);
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"[SeletorDeFuncoes] Atribuição própria enviada: jogadores={jogadores.Count}, " +
+            $"[SeletorDeFuncoes] Seleção personalizada aplicada: jogadores={jogadores.Count}, " +
             $"impostores={quantidadeImpostores}, tripulantes={jogadores.Count - quantidadeImpostores}, " +
-            $"funções especiais={quantidadeEspeciais}.");
+            $"funções especiais={quantidadeEspeciais}; reenvio por até {DURACAO_REENVIO_SEGUNDOS:0.0}s.");
 
         return true;
+    }
+
+    private static void EnviarSetRoleParaTodos(AmongUsClient cliente)
+    {
+        foreach (var atribuicao in AtribuicoesAtivas.ToArray())
+        {
+            PlayerControl jogador = atribuicao.Jogador;
+            if (jogador == null || jogador.Data == null || jogador.Data.Disconnected)
+                continue;
+
+            try
+            {
+                MessageWriter writer = cliente.StartRpcImmediately(
+                    jogador.NetId,
+                    (byte)RpcCalls.SetRole,
+                    SendOption.Reliable,
+                    -1);
+                writer.Write((ushort)atribuicao.Funcao);
+                writer.Write(true);
+                cliente.FinishRpcImmediately(writer);
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    $"[SeletorDeFuncoes] Falha ao reenviar SetRole para PlayerId={jogador.PlayerId}: {ex.Message}");
+            }
+        }
+    }
+
+    [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.FixedUpdate))]
+    private static class ReenvioSetRolePatch
+    {
+        public static void Postfix()
+        {
+            // Apenas um jogador local por frame dispara o temporizador no host.
+            if (PlayerControl.LocalPlayer == null ||
+                PlayerControl.LocalPlayer.PlayerId != PlayerControl.LocalPlayer.Data?.PlayerId)
+                return;
+
+            AtualizarReenvio();
+        }
     }
 
     private static void AtribuirFuncoesEspeciais(
