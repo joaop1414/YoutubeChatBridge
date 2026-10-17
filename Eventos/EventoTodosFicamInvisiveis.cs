@@ -1,5 +1,4 @@
 using System;
-using System.Linq;
 using System.Reflection;
 using HarmonyLib;
 
@@ -9,6 +8,8 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
 {
     private static bool ativo;
     private static bool armado;
+    public static bool AplicandoEvento { get; private set; }
+
     public override string Nome => "Todos ficam invisíveis";
 
     public void Executar()
@@ -28,39 +29,61 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
     {
         if (!ativo || PlayerControl.AllPlayerControls == null) return;
         armado = false;
+        AplicandoEvento = true;
         int sucesso = 0;
-        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
-        {
-            if (jogador == null || jogador.Data == null || jogador.Data.Disconnected || jogador.Data.IsDead)
-                continue;
-            if (InvocarMetodoVisibilidade(jogador, true)) sucesso++;
-        }
-        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"[Invisibilidade] Evento ativado: invisibilidade solicitada para {sucesso} jogador(es), até a próxima reunião.");
-    }
 
-    private static bool InvocarMetodoVisibilidade(PlayerControl jogador, bool invisivel)
-    {
-        if (jogador == null) return false;
         try
         {
-            MethodInfo metodo = jogador.GetType().GetMethods(
-                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-                .FirstOrDefault(m => string.Equals(m.Name, "SetRoleInvisibility", StringComparison.OrdinalIgnoreCase)
-                    && m.GetParameters().Length == 3 && m.GetParameters()[0].ParameterType == typeof(bool));
-            if (metodo == null)
+            foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
             {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    $"[Invisibilidade] Método SetRoleInvisibility(bool, bool, bool) não encontrado para PlayerId={jogador.PlayerId}.");
-                return false;
+                if (jogador == null || jogador.Data == null ||
+                    jogador.Data.Disconnected || jogador.Data.IsDead)
+                    continue;
+
+                if (DefinirInvisibilidadeVisual(jogador, true))
+                    sucesso++;
             }
-            metodo.Invoke(jogador, new object[] { invisivel, false, true });
+        }
+        finally
+        {
+            AplicandoEvento = false;
+        }
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"[Invisibilidade] Evento aplicado visualmente a {sucesso} jogador(es); termina na próxima reunião.");
+    }
+
+    private static bool DefinirInvisibilidadeVisual(PlayerControl jogador, bool invisivel)
+    {
+        try
+        {
+            // Segue a abordagem visual do EHR (MakeInvisible/MakeVisible), sem chamar
+            // SetRoleInvisibility, que é específico da habilidade do Phantom.
+            jogador.invisibilityAlpha = invisivel
+                ? (jogador.AmOwner ? 0.5f : (PlayerControl.LocalPlayer?.Data?.Role?.IsDead == true ? 0.5f : 0f))
+                : 1f;
+
+            jogador.shouldAppearInvisible = invisivel;
+            jogador.Visible = invisivel ? jogador.AmOwner : !jogador.inVent;
+
+            if (jogador.cosmetics != null)
+            {
+                MethodInfo alpha = jogador.cosmetics.GetType().GetMethods(
+                        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                    .FirstOrDefault(m =>
+                        string.Equals(m.Name, "SetPhantomRoleAlpha", StringComparison.OrdinalIgnoreCase) &&
+                        m.GetParameters().Length == 1 &&
+                        m.GetParameters()[0].ParameterType == typeof(float));
+
+                alpha?.Invoke(jogador.cosmetics, new object[] { jogador.invisibilityAlpha });
+            }
+
             return true;
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                $"[Invisibilidade] Falha ao alterar visibilidade de PlayerId={jogador.PlayerId}: {ex.GetBaseException().Message}");
+                $"[Invisibilidade] Não foi possível alterar visualmente PlayerId={jogador.PlayerId}: {ex.GetBaseException().Message}");
             return false;
         }
     }
@@ -70,15 +93,19 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         if (!ativo) return;
         ativo = false;
         armado = false;
+
         if (PlayerControl.AllPlayerControls != null)
         {
             foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
             {
-                if (jogador == null || jogador.Data == null || jogador.Data.Disconnected || jogador.Data.IsDead)
+                if (jogador == null || jogador.Data == null ||
+                    jogador.Data.Disconnected || jogador.Data.IsDead)
                     continue;
-                InvocarMetodoVisibilidade(jogador, false);
+
+                DefinirInvisibilidadeVisual(jogador, false);
             }
         }
+
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             "[Invisibilidade] Evento encerrado na reunião; visibilidade restaurada.");
     }
@@ -88,7 +115,8 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
     {
         private static void Postfix()
         {
-            if (YouTubeVoteBridgePlugin.EhHost()) EncerrarNaReuniao();
+            if (YouTubeVoteBridgePlugin.EhHost())
+                EncerrarNaReuniao();
         }
     }
 }
