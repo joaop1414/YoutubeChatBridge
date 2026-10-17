@@ -1,6 +1,9 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using AmongUs.GameOptions;
+using Hazel;
+using UnityEngine;
 
 namespace YouTubeVoteBridge;
 
@@ -34,26 +37,60 @@ internal sealed class EventoTestarRastreadorComFantasma : EventoVotacao
         }
 
         PlayerControl alvo = candidatos[Sorteador.Next(candidatos.Count)];
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"Teste EHR canOverride: jogador escolhido: {alvo.Data.PlayerName} (PlayerId={alvo.PlayerId}).");
 
+        // EHR aplica a função localmente pela coroutine e envia o SetRole RPC
+        // global com o booleano canOverride=true.
+        AmongUsClient.Instance.StartCoroutine(TestarSequencia(alvo));
+    }
+
+    private static IEnumerator TestarSequencia(PlayerControl alvo)
+    {
         try
         {
+            EnviarRoleGlobalComoEhr(alvo, RoleTypes.CrewmateGhost);
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                $"Teste de Rastreador: jogador escolhido: {alvo.Data.PlayerName} (PlayerId={alvo.PlayerId}).");
+                $"Teste EHR: enviado SetRole global(CrewmateGhost, canOverride=true) para PlayerId={alvo.PlayerId}.");
 
-            // Primeiro tenta atribuir CrewmateGhost, permitindo substituir a função atual.
-            alvo.RpcSetRole(RoleTypes.CrewmateGhost, true);
-            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                $"Teste de Rastreador: enviado RpcSetRole(CrewmateGhost, canOverride: true) para PlayerId={alvo.PlayerId}.");
+            // Dá tempo para CoSetRole terminar e para os clientes processarem
+            // o primeiro SetRole antes de mandar a segunda função.
+            yield return new WaitForSeconds(0.5f);
 
-            // Em seguida, tenta substituir a função fantasma por Tracker com a mesma permissão.
-            alvo.RpcSetRole(RoleTypes.Tracker, true);
+            if (alvo == null || alvo.Data == null || alvo.Data.Disconnected)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "Teste EHR cancelado: o jogador saiu antes da segunda atribuição.");
+                yield break;
+            }
+
+            EnviarRoleGlobalComoEhr(alvo, RoleTypes.Tracker);
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                $"Teste de Rastreador: enviado RpcSetRole(Tracker, canOverride: true) para PlayerId={alvo.PlayerId}.");
+                $"Teste EHR: enviado SetRole global(Tracker, canOverride=true) para PlayerId={alvo.PlayerId}.");
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                $"Falha no teste CrewmateGhost -> Tracker para PlayerId={alvo.PlayerId}: {ex}");
+                $"Falha no teste EHR CrewmateGhost -> Tracker para PlayerId={alvo?.PlayerId}: {ex}");
         }
+    }
+
+    private static void EnviarRoleGlobalComoEhr(PlayerControl alvo, RoleTypes role)
+    {
+        if (!YouTubeVoteBridgePlugin.EhHost() || alvo == null)
+            return;
+
+        // Equivalente ao EHR: player.SetRole(role) local + SetRole RPC global.
+        // SetRole chama CoSetRole(role, canOverride), que também executa a
+        // rotina interna do jogo, enquanto o RPC informa canOverride=true a todos.
+        alvo.StartCoroutine(alvo.CoSetRole(role, true));
+
+        MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
+            alvo.NetId,
+            (byte)RpcCalls.SetRole,
+            SendOption.Reliable);
+        writer.Write((ushort)role);
+        writer.Write(true);
+        AmongUsClient.Instance.FinishRpcImmediately(writer);
     }
 }
