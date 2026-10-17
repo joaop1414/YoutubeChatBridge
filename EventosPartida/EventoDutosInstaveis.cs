@@ -15,7 +15,7 @@ internal sealed class EventoDutosInstaveis : EventoVotacao
     {
         if (!YouTubeVoteBridgePlugin.EhHost()) return;
         armado = true;
-        if (ShipStatus.Instance != null) ativo = true;
+        if (LobbyTagManager.PartidaIniciada()) ativo = true;
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo("[F7/Dutos instáveis] Evento armado para o início da partida.");
     }
 
