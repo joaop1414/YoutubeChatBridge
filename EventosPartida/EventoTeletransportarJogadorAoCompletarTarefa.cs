@@ -16,7 +16,7 @@ internal sealed class EventoTeletransportarJogadorAoCompletarTarefa : EventoVota
     {
         if (!YouTubeVoteBridgePlugin.EhHost()) return;
         armado = true;
-        if (ShipStatus.Instance != null) ativo = true;
+        if (LobbyTagManager.PartidaIniciada()) ativo = true;
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             "[Tarefa/teleporte] Ativado até a próxima reunião.");
     }
