@@ -184,7 +184,7 @@ internal static class YouTubeVotePhantomHandleRpcPatch
             // O EHR usa ProtectPlayer como parte da correção direcionada do Phantom.
             MessageWriter protectWriter = AmongUsClient.Instance.StartRpcImmediately(
                 __instance.NetId, (byte)RpcCalls.ProtectPlayer, SendOption.Reliable, ownerId);
-            protectWriter.WriteNetObject(__instance);
+            protectWriter.WritePacked(__instance.NetId);
             protectWriter.Write(0);
             AmongUsClient.Instance.FinishRpcImmediately(protectWriter);
 
