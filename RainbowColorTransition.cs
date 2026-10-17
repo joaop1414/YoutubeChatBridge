@@ -54,6 +54,25 @@ internal static class RainbowColorTransition
         }
     }
 
+    // O Shapeshifter pode reutilizar o renderer do alvo durante a transição.
+    // Descarta a interpolação antiga para que a próxima atualização use a cor
+    // registrada no DefaultOutfit depois da transformação/reversão.
+    internal static void ReiniciarTransicao(byte playerId)
+    {
+        if (!Ativos.Contains(playerId) && !AtivosForcados.Contains(playerId))
+        {
+            Estados.Remove(playerId);
+            return;
+        }
+
+        Estado estado = ObterEstado(playerId);
+        estado.CorAlvo = -1;
+        estado.Inicializado = false;
+        estado.UltimaCorObservada = -1;
+        estado.MudancasRegulares = 0;
+        estado.DetectadoAutomaticamente = false;
+    }
+
     private static Estado ObterEstado(byte playerId)
     {
         if (!Estados.TryGetValue(playerId, out Estado estado))
