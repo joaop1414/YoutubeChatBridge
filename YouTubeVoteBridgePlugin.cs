@@ -3243,6 +3243,7 @@ public static class YouTubeVoteUpdatePatch
     public static void Postfix()
     {
         LobbyTagManager.Update();
+        EventoTestarRastreadorComFantasma.Atualizar();
         EventoAdicionarTarefas.AtualizarRestauracoesAgendadas();
 
         DiagnosticoPlayerReal.Atualizar();
