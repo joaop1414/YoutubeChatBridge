@@ -91,7 +91,7 @@ internal static class YouTubeVotePhantomHandleRpcPatch
                 (byte)RpcCalls.ProtectPlayer,
                 SendOption.Reliable,
                 ownerId);
-            protectWriter.WriteNetObject(__instance);
+            protectWriter.WritePacked(__instance.NetId);
             protectWriter.Write(0);
             AmongUsClient.Instance.FinishRpcImmediately(protectWriter);
 
