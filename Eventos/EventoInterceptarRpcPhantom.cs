@@ -45,3 +45,4 @@ internal static class EventoInterceptarRpcPhantom
         // do Phantom dessincronizados e resultar em tela preta.
         return true;
     }
+}
