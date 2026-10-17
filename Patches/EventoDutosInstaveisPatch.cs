@@ -13,7 +13,25 @@ internal static class EventoDutosInstaveisPatch
     {
         try
         {
-            if (__instance == null || ShipStatus.Instance == null)
+            if (__instance == null)
+                return;
+
+            PlayerControl jogador = null;
+            foreach (PlayerControl p in PlayerControl.AllPlayerControls)
+            {
+                if (p != null && p.MyPhysics == __instance)
+                {
+                    jogador = p;
+                    break;
+                }
+            }
+
+            string nome = jogador?.Data?.PlayerName ?? "desconhecido";
+            string playerId = jogador != null ? jogador.PlayerId.ToString() : "desconhecido";
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                $"[DutosInstaveis][ENTRADA] Jogador={nome}, PlayerId={playerId}, VentId={ventId}");
+
+            if (ShipStatus.Instance == null)
                 return;
 
             Vent duto = null;
@@ -26,8 +44,17 @@ internal static class EventoDutosInstaveisPatch
                 }
             }
 
-            if (duto != null)
-                EventoDutosInstaveis.AoEntrarNoDuto(__instance, duto);
+            if (duto == null)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    $"[DutosInstaveis] Não foi possível localizar o duto VentId={ventId}.");
+                return;
+            }
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                $"[DutosInstaveis] Duto identificado: VentId={duto.Id}; chamando AoEntrarNoDuto.");
+
+            EventoDutosInstaveis.AoEntrarNoDuto(__instance, duto);
         }
         catch (Exception ex)
         {
