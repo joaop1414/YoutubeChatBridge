@@ -150,9 +150,8 @@ internal static class YouTubeVotePhantomHandleRpcPatch
             protectWriter.Write(0);
             AmongUsClient.Instance.FinishRpcImmediately(protectWriter);
 
-            // O EHR também restaura a recarga de morte depois de cancelar o vanish.
-            // O ajuste pequeno evita que a habilidade deixe o botão de kill preso.
-            __instance.SetKillCooldown(0.001f);
+            // Não chamamos SetKillCooldown aqui: essa API não existe nesta versão
+            // de PlayerControl. A restauração do botão será tratada pelo estado local.
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 $"[Phantom] Vanish rejeitado; SetRole, ProtectPlayer e restauração do cooldown enviados/aplicados. PlayerId={__instance.PlayerId}, OwnerId={ownerId}.");
