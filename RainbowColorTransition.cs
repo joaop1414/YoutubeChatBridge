@@ -36,6 +36,7 @@ internal static class RainbowColorTransition
 
     private static readonly HashSet<byte> AtivosForcados = new();
     private static readonly HashSet<byte> Ativos = new();
+    private static readonly HashSet<byte> PendenteRestaurarVisual = new();
     private static readonly Dictionary<byte, Estado> Estados = new();
 
     internal static void DefinirAtivo(byte playerId, bool ativo)
@@ -44,6 +45,7 @@ internal static class RainbowColorTransition
         {
             AtivosForcados.Add(playerId);
             Ativos.Add(playerId);
+            PendenteRestaurarVisual.Remove(playerId);
             ObterEstado(playerId);
         }
         else
@@ -62,6 +64,7 @@ internal static class RainbowColorTransition
         if (!Ativos.Contains(playerId) && !AtivosForcados.Contains(playerId))
         {
             Estados.Remove(playerId);
+            PendenteRestaurarVisual.Add(playerId);
             return;
         }
 
@@ -210,6 +213,44 @@ internal static class RainbowColorTransition
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogDebug(
                     $"Rainbow visual: falha ao interpolar PlayerId={playerId}: {ex.Message}");
+            }
+        }
+
+        // Ao terminar um rainbow temporário, a animação pode ter deixado o material
+        // do corpo com a cor copiada do alvo. Restaure a cor de rede mesmo que o
+        // jogador já não esteja na lista Ativos.
+        foreach (byte playerId in new List<byte>(PendenteRestaurarVisual))
+        {
+            PlayerControl jogador = null;
+            foreach (PlayerControl candidato in PlayerControl.AllPlayerControls)
+            {
+                if (candidato != null && candidato.PlayerId == playerId)
+                {
+                    jogador = candidato;
+                    break;
+                }
+            }
+
+            if (jogador == null || jogador.Data == null || jogador.cosmetics == null)
+                continue;
+
+            try
+            {
+                var corpo = jogador.cosmetics.currentBodySprite;
+                int idCor = (int)jogador.Data.DefaultOutfit.ColorId;
+                if (corpo != null && corpo.BodySprite != null &&
+                    idCor >= 0 && idCor < (Palette.PlayerColors?.Length ?? 0) &&
+                    idCor < (Palette.ShadowColors?.Length ?? 0))
+                {
+                    corpo.BodySprite.material.SetColor(BODY_COLOR, Palette.PlayerColors[idCor]);
+                    corpo.BodySprite.material.SetColor(BACK_COLOR, Palette.ShadowColors[idCor]);
+                    PendenteRestaurarVisual.Remove(playerId);
+                }
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogDebug(
+                    $"Rainbow visual: falha ao restaurar cor após shapeshift PlayerId={playerId}: {ex.Message}");
             }
         }
 
