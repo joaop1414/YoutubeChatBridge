@@ -1812,8 +1812,8 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     }
     private static readonly Dictionary<byte, EstadoShapeshiftRainbow> EstadosShapeshiftRainbow = new();
     private static bool EnviandoRpcDestransformacaoRainbow;
-    private static bool ReenviandoRpcShapeshiftPreparado;
-    private static bool BloqueioCompletoShapeshift;
+    public static bool ReenviandoRpcShapeshiftPreparado;
+    public static bool BloqueioCompletoShapeshift;
 
     // API pública para eventos: true bloqueia completamente transformações e destransformações.
     public static bool ShapeshiftBloqueado => BloqueioCompletoShapeshift;
@@ -2720,7 +2720,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         return jogador.Data?.PlayerName ?? string.Empty;
     }
 
-    private static bool PrepararEReenviarShapeshift(PlayerControl shapeshifter, PlayerControl alvo, bool shouldAnimate)
+    public static bool PrepararEReenviarShapeshift(PlayerControl shapeshifter, PlayerControl alvo, bool shouldAnimate)
     {
         if (shapeshifter == null || alvo == null || shapeshifter.PlayerId == alvo.PlayerId)
             return true;
@@ -3502,11 +3502,9 @@ public static class YouTubeVoteRainbowShapeshiftPatch
         if (__instance.PlayerId == target.PlayerId)
             YouTubeVoteBridgePlugin.RestaurarTarefasDepoisDeAtualizar(__instance);
 
-        // O Prefix preparou o estado antes do RPC retransmitido. O ciclo Rainbow
-        // cuida de manter a cor/nome do alvo se aplicável.
-        if (YouTubeVoteBridgePlugin.JogadorTemRainbowParaDestransformacao(__instance))
-            YouTubeVoteBridgePlugin.DefinirEstadoShapeshiftRainbow(
-                __instance, __instance.PlayerId != target.PlayerId, target, shouldAnimate);
+        // O estado Rainbow já foi preparado antes do RPC retransmitido pelo Prefix.
+        // Não reaplicar DefinirEstadoShapeshiftRainbow aqui: isso pausaria também
+        // o arco-íris copiado do alvo e sobrescreveria a preparação feita acima.
     }
 }
 
