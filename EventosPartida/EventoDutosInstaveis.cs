@@ -9,6 +9,14 @@ internal sealed class EventoDutosInstaveis : EventoVotacao
     private static bool armado;
     private static bool ativo;
     private static readonly HashSet<byte> alterandoDuto = new();
+    private sealed class TrocaDutoPendente
+    {
+        public byte PlayerId;
+        public int VentId;
+        public float EntrarEm;
+        public float LiberarEm = -1f;
+    }
+    private static readonly Dictionary<byte, TrocaDutoPendente> trocasPendentes = new();
     public override string Nome => "Dutos instáveis: você pode sair por outro duto ou ser expulso sozinho";
 
     private static void Log(string mensagem) =>
@@ -38,6 +46,85 @@ internal sealed class EventoDutosInstaveis : EventoVotacao
         else
         {
             Log("IniciarPartida chamado, mas o evento não estava armado.");
+        }
+    }
+
+    internal static void Atualizar()
+    {
+        if (!YouTubeVoteBridgePlugin.EhHost() || trocasPendentes.Count == 0)
+            return;
+
+        float agora = Time.realtimeSinceStartup;
+        List<byte> ids = new(trocasPendentes.Keys);
+        foreach (byte playerId in ids)
+        {
+            if (!trocasPendentes.TryGetValue(playerId, out TrocaDutoPendente troca))
+                continue;
+
+            PlayerControl jogador = null;
+            foreach (PlayerControl p in PlayerControl.AllPlayerControls)
+            {
+                if (p != null && p.PlayerId == playerId)
+                {
+                    jogador = p;
+                    break;
+                }
+            }
+
+            if (jogador == null || jogador.Data == null || jogador.Data.IsDead ||
+                jogador.Data.Disconnected || ShipStatus.Instance == null)
+            {
+                trocasPendentes.Remove(playerId);
+                alterandoDuto.Remove(playerId);
+                Log($"Troca pendente cancelada para PlayerId={playerId}: jogador indisponível.");
+                continue;
+            }
+
+            if (troca.LiberarEm >= 0f)
+            {
+                if (agora >= troca.LiberarEm)
+                {
+                    trocasPendentes.Remove(playerId);
+                    alterandoDuto.Remove(playerId);
+                    Log($"Troca concluída para PlayerId={playerId}; bloqueio liberado.");
+                }
+                continue;
+            }
+
+            if (agora < troca.EntrarEm)
+                continue;
+
+            Vent destino = null;
+            foreach (Vent v in ShipStatus.Instance.AllVents)
+            {
+                if (v != null && v.Id == troca.VentId)
+                {
+                    destino = v;
+                    break;
+                }
+            }
+
+            if (destino == null)
+            {
+                trocasPendentes.Remove(playerId);
+                alterandoDuto.Remove(playerId);
+                Log($"Troca pendente cancelada: duto destino {troca.VentId} não existe mais.");
+                continue;
+            }
+
+            try
+            {
+                // Espera após o SnapTo para o cliente estabilizar a posição antes de entrar.
+                jogador.MyPhysics?.RpcEnterVent(destino.Id);
+                troca.LiberarEm = agora + 0.5f;
+                Log($"RpcEnterVent enviado após SnapTo para PlayerId={playerId}, destino={destino.Id}.");
+            }
+            catch (Exception ex)
+            {
+                trocasPendentes.Remove(playerId);
+                alterandoDuto.Remove(playerId);
+                Log($"Falha ao entrar no duto destino para PlayerId={playerId}: {ex.Message}");
+            }
         }
     }
 
@@ -87,6 +174,7 @@ internal sealed class EventoDutosInstaveis : EventoVotacao
 
         if (sorteio >= 65) return;
 
+        bool manterBloqueio = false;
         try
         {
             alterandoDuto.Add(jogador.PlayerId);
@@ -111,6 +199,7 @@ internal sealed class EventoDutosInstaveis : EventoVotacao
 
             Vent destino = candidatos[System.Random.Shared.Next(candidatos.Count)];
             Log($"Executando troca: PlayerId={jogador.PlayerId}, origem={duto.Id}, destino={destino.Id} ({destino.name}).");
+            // Primeiro sai do duto atual, depois força a posição do jogador para o destino.
             fisica.RpcExitVent(duto.Id);
             Vector3 pos = destino.transform.position;
             if (jogador.NetTransform != null)
@@ -121,10 +210,18 @@ internal sealed class EventoDutosInstaveis : EventoVotacao
             else
             {
                 Log($"NetTransform nulo para PlayerId={jogador.PlayerId}; não foi possível enviar RpcSnapTo.");
+                return;
             }
 
-            fisica.RpcEnterVent(destino.Id);
-            Log($"RPC RpcEnterVent enviado para PlayerId={jogador.PlayerId}, destino={destino.Id}.");
+            // Não entra imediatamente: dá tempo para o SnapTo ser aplicado antes do RPC do duto.
+            trocasPendentes[jogador.PlayerId] = new TrocaDutoPendente
+            {
+                PlayerId = jogador.PlayerId,
+                VentId = destino.Id,
+                EntrarEm = Time.realtimeSinceStartup + 0.16f
+            };
+            manterBloqueio = true;
+            Log($"Entrada no duto {destino.Id} agendada para daqui a 0,16s após SnapTo.");
         }
         catch (Exception ex)
         {
@@ -132,7 +229,8 @@ internal sealed class EventoDutosInstaveis : EventoVotacao
         }
         finally
         {
-            alterandoDuto.Remove(jogador.PlayerId);
+            if (!manterBloqueio)
+                alterandoDuto.Remove(jogador.PlayerId);
         }
     }
 
@@ -141,6 +239,7 @@ internal sealed class EventoDutosInstaveis : EventoVotacao
         ativo = false;
         armado = false;
         alterandoDuto.Clear();
+        trocasPendentes.Clear();
         Log("Evento resetado: ativo=false, armado=false.");
     }
 }
