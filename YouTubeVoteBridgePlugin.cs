@@ -3352,6 +3352,7 @@ public static class YouTubeVoteResetTaskEventsOnStartPatch
             "Shapeshift/tarefas: histórico de jogador + tarefa concluída limpo no início da partida.");
         EventoTarefaMataJogador.Desativar();
         EventoTarefaSuicidio.Desativar();
+        EventoTeletransportarAlvoParaMetamorfo.Desativar();
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             "Eventos de tarefa resetados no início da partida.");
     }
@@ -3367,6 +3368,7 @@ public static class YouTubeVoteResetTaskEventsOnEndPatch
         YouTubeVoteBridgePlugin.ResetarRainbowFimDePartida();
         EventoTarefaMataJogador.Desativar();
         EventoTarefaSuicidio.Desativar();
+        EventoTeletransportarAlvoParaMetamorfo.Desativar();
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             "Eventos de tarefa desativados ao terminar a partida, mesmo sem reunião.");
     }
