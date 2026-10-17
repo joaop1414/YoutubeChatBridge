@@ -1445,6 +1445,9 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 case "Teleporte aleatório":
                     new EventoTeleporteAleatorio().Executar();
                     break;
+                case "Alvo da metamorfose é teleportado para o metamorfo":
+                    new EventoTeletransportarAlvoParaMetamorfo().Executar();
+                    break;
                 case "Um jogador aleatório comete suicídio":
                     new EventoSuicidioAleatorio().Executar();
                     break;
@@ -3212,6 +3215,7 @@ public static class YouTubeVoteCancelMeetingPatch
         YouTubeVoteBridgePlugin.CancelarReuniaoSolicitada();
         EventoTarefaMataJogador.Desativar();
         EventoTarefaSuicidio.Desativar();
+        EventoTeletransportarAlvoParaMetamorfo.Desativar();
         // Deixa a chamada original continuar depois de restaurar os nomes.
         // Retornar false aqui cancelava a reunião e não havia um segundo RPC.
         return true;
@@ -3483,6 +3487,11 @@ public static class YouTubeVoteShapeshiftCheckPatch
     {
         if (__instance == null || target == null)
             return;
+
+        // O evento move o alvo para a posição do metamorfo uma única vez por tentativa.
+        // A transformação original continua normalmente; o efeito termina na próxima reunião.
+        if (__instance.PlayerId != target.PlayerId)
+            EventoTeletransportarAlvoParaMetamorfo.AoTentarMetamorfosear(__instance, target);
 
         // O log do próprio jogo confirma que CheckShapeshift é chamado com
         // target == jogador quando a habilidade está revertendo.
