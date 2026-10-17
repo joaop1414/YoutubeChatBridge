@@ -7,6 +7,7 @@ namespace YouTubeVoteBridge;
 internal sealed class EventoTeletransportarJogadorAoCompletarTarefa : EventoVotacao
 {
     private static bool ativo;
+    private static bool armado;
 
     public override string Nome => "Ao concluir uma tarefa, um jogador aleatório é teleportado até você";
     internal static bool EstaAtivo => ativo;
@@ -14,7 +15,8 @@ internal sealed class EventoTeletransportarJogadorAoCompletarTarefa : EventoVota
     public void Executar()
     {
         if (!YouTubeVoteBridgePlugin.EhHost()) return;
-        ativo = true;
+        armado = true;
+        if (ShipStatus.Instance != null) ativo = true;
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             "[Tarefa/teleporte] Ativado até a próxima reunião.");
     }
@@ -53,10 +55,16 @@ internal sealed class EventoTeletransportarJogadorAoCompletarTarefa : EventoVota
         }
     }
 
+    internal static void IniciarPartida()
+    {
+        if (armado) ativo = true;
+    }
+
     internal static void Desativar(string motivo)
     {
-        if (!ativo) return;
+        if (!ativo && !armado) return;
         ativo = false;
+        armado = false;
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             "[Tarefa/teleporte] Evento encerrado: " + motivo + ".");
     }
