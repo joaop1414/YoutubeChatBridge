@@ -39,7 +39,6 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     public static ConfigEntry<int> TempoVotacao;
     public static ConfigEntry<int> IntervaloRodadas;
     public static ConfigEntry<int> PreparacaoChat;
-    public static ConfigEntry<bool> SemFimDeJogo;
 
     private static bool LeitorConectado;
     private static bool PreparacaoIniciada;
@@ -172,11 +171,6 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         PreparacaoChat = Config.Bind(
             "Configurações do Mod", "PreparacaoChat", 10,
             "Tempo de preparação do chat ao conectar. Votos antigos recebidos durante esse período são descartados."
-        );
-
-        SemFimDeJogo = Config.Bind(
-            "Configurações do Mod", "Sem fim de jogo", false,
-            "Impede os encerramentos automáticos originais do Among Us. Os encerramentos solicitados pelo próprio mod continuam permitidos."
         );
 
         LobbyTagManager.Initialize();
