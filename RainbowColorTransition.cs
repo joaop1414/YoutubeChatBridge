@@ -42,16 +42,12 @@ internal static class RainbowColorTransition
     // IDs de jogadores que estão transformados. Durante esse período não
     // interpolamos o material: mantemos a cor exata que o jogo registrou.
     private static readonly HashSet<byte> MetamorfosTransformados = new();
-    // Reaplica a cor local repetidamente por 1 segundo após iniciar a transformação.
-    private static readonly Dictionary<byte, float> CorrecaoLocalAte = new();
-    private const float DURACAO_CORRECAO_LOCAL = 1.0f;
 
     internal static void DefinirMetamorfoTransformado(byte playerId, bool transformado)
     {
         if (transformado)
         {
             MetamorfosTransformados.Add(playerId);
-            CorrecaoLocalAte.Remove(playerId);
             // Retira o jogador do loop visual durante a transformação. A lista
             // será reativada explicitamente quando ele voltar à forma original.
             Ativos.Remove(playerId);
@@ -67,7 +63,6 @@ internal static class RainbowColorTransition
         else
         {
             MetamorfosTransformados.Remove(playerId);
-            CorrecaoLocalAte.Remove(playerId);
             ReiniciarTransicao(playerId);
         }
     }
@@ -315,53 +310,6 @@ internal static class RainbowColorTransition
             }
         }
 
-        // Durante o primeiro segundo da transformação, reaplica a cor correta
-        // diretamente no material local em toda atualização. Isso não envia RPC
-        // nem altera a cor de rede; usa o ColorId que o jogo expõe (o mesmo usado
-        // para identificar a cor no texto para daltônicos).
-        foreach (var entrada in new List<KeyValuePair<byte, float>>(CorrecaoLocalAte))
-        {
-            byte playerId = entrada.Key;
-            if (agora >= entrada.Value)
-            {
-                CorrecaoLocalAte.Remove(playerId);
-                continue;
-            }
-
-            PlayerControl jogador = null;
-            foreach (PlayerControl candidato in PlayerControl.AllPlayerControls)
-            {
-                if (candidato != null && candidato.PlayerId == playerId)
-                {
-                    jogador = candidato;
-                    break;
-                }
-            }
-
-            if (jogador == null || jogador.Data == null || jogador.cosmetics == null)
-                continue;
-
-            try
-            {
-                int idCor = (int)jogador.Data.DefaultOutfit.ColorId;
-                if (idCor < 0 || idCor >= (Palette.PlayerColors?.Length ?? 0) ||
-                    idCor >= (Palette.ShadowColors?.Length ?? 0))
-                    continue;
-
-                var corpo = jogador.cosmetics.currentBodySprite;
-                if (corpo == null || corpo.BodySprite == null)
-                    continue;
-
-                corpo.BodySprite.material.SetColor(BODY_COLOR, Palette.PlayerColors[idCor]);
-                corpo.BodySprite.material.SetColor(BACK_COLOR, Palette.ShadowColors[idCor]);
-            }
-            catch (Exception ex)
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogDebug(
-                    $"Rainbow visual: falha na correção local temporária PlayerId={playerId}: {ex.Message}");
-            }
-        }
-
         // Limpa o estado de observação de jogadores que saíram da sala.
         var idsPresentes = new HashSet<byte>();
         foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
@@ -377,7 +325,6 @@ internal static class RainbowColorTransition
             AtivosForcados.Remove(id);
             PendenteRestaurarVisual.Remove(id);
             MetamorfosTransformados.Remove(id);
-            CorrecaoLocalAte.Remove(id);
         }
     }
 }
