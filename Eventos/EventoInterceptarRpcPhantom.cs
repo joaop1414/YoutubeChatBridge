@@ -6,7 +6,9 @@ using HarmonyLib;
 
 namespace YouTubeVoteBridge;
 
-// A habilidade do Phantom passa pelo método nativo SetRoleInvisibility(bool, bool, bool).
+// Intercepta a invisibilidade nativa para bloquear a habilidade do Phantom.
+// Não dispara teleporte: esse efeito foi removido para impedir que a invisibilidade
+// global seja confundida com a habilidade do Phantom.
 [HarmonyPatch]
 internal static class EventoInterceptarRpcPhantom
 {
@@ -25,24 +27,31 @@ internal static class EventoInterceptarRpcPhantom
         if (fallback != null)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "[Phantom/teleporte] SetRoleInvisibility não foi encontrado; o teleporte do Espectro não será disparado até identificar o método usado nesta versão.");
+                "[Phantom] SetRoleInvisibility não foi encontrado; o bloqueio da habilidade não será aplicado nesta versão.");
             return new[] { fallback };
         }
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-            "[Phantom/teleporte] Não foi encontrado SetRoleInvisibility nem CheckShapeshift para fallback.");
+            "[Phantom] Não foi encontrado SetRoleInvisibility nem CheckShapeshift para fallback.");
         return Array.Empty<MethodBase>();
     }
 
-    private static void Prefix(PlayerControl __instance, object[] __args, MethodBase __originalMethod)
+    private static bool Prefix(PlayerControl __instance, object[] __args, MethodBase __originalMethod)
     {
         if (__instance == null || __args == null || __args.Length == 0 ||
             __originalMethod == null ||
             !string.Equals(__originalMethod.Name, "SetRoleInvisibility", StringComparison.OrdinalIgnoreCase) ||
-            __args[0] is not bool invisivel || !invisivel ||
-            !YouTubeVoteBridgePlugin.EhHost())
-            return;
+            __args[0] is not bool invisivel || !invisivel)
+            return true;
 
-        EventoTeletransportarAleatorioParaPhantom.AoAtivarInvisibilidade(__instance);
+        string papel = __instance.Data?.Role?.GetType().Name + " " + __instance.Data?.Role?.ToString();
+        bool ePhantom = !string.IsNullOrEmpty(papel) &&
+            papel.IndexOf("Phantom", StringComparison.OrdinalIgnoreCase) >= 0;
+
+        if (!ePhantom) return true;
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"[Phantom] Invisibilidade bloqueada para PlayerId={__instance.PlayerId}.");
+        return false;
     }
 }
