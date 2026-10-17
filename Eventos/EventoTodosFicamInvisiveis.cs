@@ -7,13 +7,28 @@ namespace YouTubeVoteBridge;
 
 internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
 {
+    private static bool armado;
+
     public override string Nome => "Todos ficam invisíveis";
 
     public void Executar()
     {
-        if (!YouTubeVoteBridgePlugin.EhHost() || PlayerControl.AllPlayerControls == null)
-            return;
+        if (!YouTubeVoteBridgePlugin.EhHost()) return;
+        armado = true;
+        if (ShipStatus.Instance != null)
+            Aplicar();
+    }
 
+    internal static void IniciarPartida()
+    {
+        if (armado && ShipStatus.Instance != null)
+            Aplicar();
+    }
+
+    private static void Aplicar()
+    {
+        armado = false;
+        if (PlayerControl.AllPlayerControls == null) return;
         int sucesso = 0;
         foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
         {
