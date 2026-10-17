@@ -1443,6 +1443,18 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 case "Alvo da metamorfose é teleportado para o metamorfo":
                     new EventoTeletransportarAlvoParaMetamorfo().Executar();
                     break;
+                case "Todos ficam invisíveis":
+                    new EventoTodosFicamInvisiveis().Executar();
+                    break;
+                case "Ao ficar invisível, o Phantom teleporta um jogador aleatório até ele":
+                    new EventoTeletransportarAleatorioParaPhantom().Executar();
+                    break;
+                case "Ao concluir uma tarefa, um jogador aleatório é teleportado até você":
+                    new EventoTeletransportarJogadorAoCompletarTarefa().Executar();
+                    break;
+                case "Alvo da metamorfose é teleportado para o metamorfo (partida inteira)":
+                    new EventoTeletransportarAlvoParaMetamorfoPartida().Executar();
+                    break;
                 case "Testar Rastreador após Tripulante Fantasma":
                     new EventoTestarRastreadorComFantasma().Executar();
                     break;
