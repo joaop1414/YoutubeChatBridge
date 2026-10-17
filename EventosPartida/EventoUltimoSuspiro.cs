@@ -14,7 +14,7 @@ internal sealed class EventoUltimoSuspiro : EventoVotacao
     {
         if (!YouTubeVoteBridgePlugin.EhHost()) return;
         armado = true;
-        if (ShipStatus.Instance != null) ativo = true;
+        if (LobbyTagManager.PartidaIniciada()) ativo = true;
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo("[F7/Último suspiro] Evento armado para o início da partida.");
     }
 
