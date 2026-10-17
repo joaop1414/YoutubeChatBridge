@@ -66,6 +66,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         .ToList();
     private static bool RodadaAtiva;
     private static bool RodadaModoLobby;
+    private static string EventoF7Pendente;
     private static float FimRodada;
     private static int NumeroRodada;
 
@@ -1321,7 +1322,33 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         }
     }
 
-    private static void ExecutarEventoPartida(string nome)
+    internal static void AtivarEventoF7Pendente()
+    {
+        if (!EhHost() || string.IsNullOrWhiteSpace(EventoF7Pendente))
+            return;
+
+        string nome = EventoF7Pendente;
+        EventoF7Pendente = null;
+        Instance?.Log.LogInfo("[F7] Ativando agora o evento escolhido no lobby: " + nome);
+
+        try
+        {
+            ExecutarEventoPartida(nome);
+        }
+        catch (Exception ex)
+        {
+            Instance?.Log.LogError("[F7] Falha ao ativar o evento pendente '" + nome + "': " + ex);
+        }
+    }
+
+    internal static void LimparEventoF7Pendente()
+    {
+        if (!string.IsNullOrWhiteSpace(EventoF7Pendente))
+            Instance?.Log.LogInfo("[F7] Evento pendente descartado: " + EventoF7Pendente);
+        EventoF7Pendente = null;
+    }
+
+    internal static void ExecutarEventoPartida(string nome)
     {
         EventoVotacao evento = RegistroEventosPartida.ObterTodos()
             .FirstOrDefault(e => string.Equals(e.Nome, nome, StringComparison.Ordinal));
@@ -1383,10 +1410,9 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         {
             try
             {
-                ExecutarEventoPartida(eventoVencedor.Nome);
-                string estadoEvento = ShipStatus.Instance != null
-                    ? "Ele já foi aplicado nesta partida."
-                    : "Ele será aplicado quando a partida começar.";
+                EventoF7Pendente = eventoVencedor.Nome;
+                Instance?.Log.LogInfo("[F7] Evento guardado para ativação no início da partida: " + EventoF7Pendente);
+                string estadoEvento = "Ele será ativado quando a partida começar.";
                 AnunciarEventoLobby(
                     "<color=#66CCFF>[F7]</color> Evento escolhido: <color=yellow>" +
                     eventoVencedor.Nome + "</color>. " + estadoEvento);
@@ -1528,6 +1554,11 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             return;
 
         bool modoLobby = !LobbyTagManager.PartidaIniciada();
+
+        // Se a votação F7 terminou no lobby, ativa o evento assim que a partida realmente começar.
+        // Isso também cobre o caso em que a votação ainda estava aberta durante a transição do lobby.
+        if (!modoLobby && !string.IsNullOrWhiteSpace(EventoF7Pendente))
+            AtivarEventoF7Pendente();
 
         // Ao iniciar a partida, conclui imediatamente a última rodada F7 do lobby.
         // Ao voltar ao lobby, cancela uma eventual rodada F6 que ficou ativa.
