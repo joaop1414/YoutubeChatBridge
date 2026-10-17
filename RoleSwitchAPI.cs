@@ -49,12 +49,9 @@ internal static class RoleSwitchAPI
                 return false;
             }
 
-            // Padrão inspirado no Hydra/EHR para o host:
-            // 1) atualiza o estado local do jogador no host com RoleManager.SetRole;
-            // 2) transmite SetRole para todos os clientes com canOverrideRole=true.
-            // Para a aplicação local, usamos CoSetRole(funcao, true), como no EHR.
-            // O RPC global continua sendo enviado separadamente pelo host; não
-            // chamamos RpcSetRole por método para evitar caminhos recursivos.
+            // Use o método oficial do jogo para trocar a função e replicá-la.
+            // Montar o RPC SetRole manualmente pode não reproduzir todo o fluxo
+            // de atualização usado pelo PlayerControl.
             if (cliente.AmHost)
             {
                 if (RoleManager.Instance == null)
@@ -63,66 +60,28 @@ internal static class RoleSwitchAPI
                     return false;
                 }
 
-                // Use o mesmo caminho de aplicação local do EHR: CoSetRole com
-                // canOverrideRole=true. SetRole direto no RoleManager pode deixar
-                // o estado local diferente do papel enviado pelo RPC, especialmente
-                // quando o evento troca dois jogadores em sequência.
-                jogador.StartCoroutine(jogador.CoSetRole(funcao, true));
+                LogInfo($"Chamando PlayerControl.RpcSetRole: jogador={jogador.PlayerId}, OwnerId={jogador.OwnerId}, função={funcao}.");
+                jogador.RpcSetRole(funcao, true);
 
-                // A mudança para função fantasma também precisa atualizar o botão
-                // Reportar no HUD local quando o alvo é o próprio host.
                 if (PlayerControl.LocalPlayer != null &&
                     jogador.PlayerId == PlayerControl.LocalPlayer.PlayerId &&
                     HudManager.Instance?.ReportButton != null)
                 {
                     HudManager.Instance.ReportButton.gameObject.SetActive(
                         !RoleManager.IsGhostRole(funcao));
-                }
-
-                // Não transmitir SetRole em broadcast (-1): replicamos a abordagem
-                // do EHR de endereçar a atribuição a cada cliente individualmente.
-                // O estado local do host já foi atualizado pela coroutine acima.
-                int envios = 0;
-                foreach (PlayerControl destinatario in PlayerControl.AllPlayerControls)
-                {
-                    if (destinatario == null || destinatario.Data == null ||
-                        destinatario.Data.Disconnected || destinatario.OwnerId < 0)
-                        continue;
-
-                    // O host já aplicou a mudança localmente; não precisamos enviar
-                    // um RPC para o próprio cliente host.
-                    if (destinatario.OwnerId == cliente.ClientId)
-                        continue;
-
-                    MessageWriter writer = cliente.StartRpcImmediately(
-                        jogador.NetId,
-                        (byte)RpcCalls.SetRole,
-                        SendOption.Reliable,
-                        destinatario.OwnerId);
-
-                    writer.Write((ushort)funcao);
-                    writer.Write(true); // canOverrideRole explícito somente neste RPC
-                    cliente.FinishRpcImmediately(writer);
-                    envios++;
                 }
 
                 InspecionarMetodosPapel(jogador);
-                InspecionarEstadoPapel("DEPOIS_RPCS_DIRECIONADOS", jogador, funcao);
-                LogInfo($"SetRole direcionado enviado: jogador={jogador.PlayerId}, destino={funcao}, clientes={envios}, canOverrideRole=true.");
+                InspecionarEstadoPapel("DEPOIS_RPCSETROLE", jogador, funcao);
+                LogInfo($"PlayerControl.RpcSetRole chamado: jogador={jogador.PlayerId}, função={funcao}, canOverrideRole=true.");
                 return true;
             }
 
-            // Para um cliente que não é host, preservamos o comportamento direcionado
-            // ao dono do jogador, sem fingir que podemos sincronizar todos os clientes.
+            // Em cliente não host, só permite a chamada para o próprio jogador.
             if (cliente.ClientId == jogador.OwnerId)
             {
-                if (RoleManager.Instance == null)
-                {
-                    LogErro("RoleManager.Instance está nulo.");
-                    return false;
-                }
-
-                RoleManager.Instance.SetRole(jogador, funcao);
+                LogInfo($"Cliente dono chamando PlayerControl.RpcSetRole: jogador={jogador.PlayerId}, função={funcao}.");
+                jogador.RpcSetRole(funcao, true);
 
                 if (PlayerControl.LocalPlayer != null &&
                     jogador.PlayerId == PlayerControl.LocalPlayer.PlayerId &&
@@ -132,8 +91,7 @@ internal static class RoleSwitchAPI
                         !RoleManager.IsGhostRole(funcao));
                 }
 
-                InspecionarEstadoPapel("DEPOIS_SETROLE_LOCAL", jogador, funcao);
-                LogInfo($"SetRole local aplicado: jogador={jogador.PlayerId}, destino={funcao}.");
+                InspecionarEstadoPapel("DEPOIS_RPCSETROLE_LOCAL", jogador, funcao);
                 return true;
             }
 
