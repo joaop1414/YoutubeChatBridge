@@ -95,52 +95,77 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
             PlayerControl.AllPlayerControls == null)
             return;
 
-        // Usar a API oficial de RPC direcionado do Among Us, como o EHR,
-        // em vez de montar manualmente o pacote GameDataTo.
-        int clientHost = AmongUsClient.Instance.ClientId;
-        var clientes = new System.Collections.Generic.HashSet<int>();
+        // Segue o formato usado pelo EHR: GameDataTo direcionado dentro de um
+        // Packed message, com os SnapTo agrupados para cada cliente espectador.
+        // Enviar cada RPC isoladamente não reproduziu o comportamento do EHR.
+        MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
+        bool enviou = false;
 
-        foreach (PlayerControl espectador in PlayerControl.AllPlayerControls)
+        try
         {
-            if (espectador == null || espectador.Data == null || espectador.Data.Disconnected ||
-                espectador.OwnerId < 0 || espectador.OwnerId == clientHost ||
-                espectador == alvo || !clientes.Add(espectador.OwnerId))
-                continue;
+            writer.StartMessage(26);
+            writer.WritePacked(AmongUsClient.Instance.GameId);
 
-            try
+            int clientHost = AmongUsClient.Instance.ClientId;
+            var clientes = new System.Collections.Generic.HashSet<int>();
+
+            foreach (PlayerControl espectador in PlayerControl.AllPlayerControls)
             {
+                if (espectador == null || espectador.Data == null || espectador.Data.Disconnected ||
+                    espectador.OwnerId < 0 || espectador.OwnerId == clientHost ||
+                    espectador == alvo || !clientes.Add(espectador.OwnerId))
+                    continue;
+
                 int clientId = espectador.OwnerId;
                 ushort seq = alvo.NetTransform.lastSequenceId;
 
+                // GameDataTo para um cliente específico.
+                writer.StartMessage(6);
+                writer.Write(AmongUsClient.Instance.GameId);
+                writer.WritePacked(clientId);
+
                 if (!restaurar)
                 {
-                    EnviarSnapDirecionado(alvo, clientId, new Vector2(50f, 50f), seq);
-                    EnviarSnapDirecionado(alvo, clientId, new Vector2(50f, 50f), (ushort)(seq + 16383));
+                    EscreverSnap(writer, alvo, new Vector2(50f, 50f), seq);
+                    EscreverSnap(writer, alvo, new Vector2(50f, 50f), (ushort)(seq + 16383));
                 }
                 else
                 {
-                    EnviarSnapDirecionado(alvo, clientId, new Vector2(50f, 50f), (ushort)(seq + 32767));
-                    EnviarSnapDirecionado(alvo, clientId, new Vector2(50f, 50f), (ushort)(seq + 32767 + 16383));
+                    EscreverSnap(writer, alvo, new Vector2(50f, 50f), (ushort)(seq + 32767));
+                    EscreverSnap(writer, alvo, new Vector2(50f, 50f), (ushort)(seq + 32767 + 16383));
                     Vector3 pos = alvo.transform.position;
-                    EnviarSnapDirecionado(alvo, clientId, new Vector2(pos.x, pos.y), seq);
+                    EscreverSnap(writer, alvo, new Vector2(pos.x, pos.y), seq);
                 }
+
+                writer.EndMessage();
+                enviou = true;
             }
-            catch (Exception ex)
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    $"[Invisibilidade/EHR] Falha ao enviar SnapTo para ClientId={espectador.OwnerId}, PlayerId={alvo.PlayerId}: {ex.GetBaseException().Message}");
-            }
+
+            writer.EndMessage(); // fecha o Packed message raiz
+
+            if (enviou)
+                AmongUsClient.Instance.SendOrDisconnect(writer);
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                $"[Invisibilidade/EHR] Falha ao enviar SnapTo agrupado para PlayerId={alvo.PlayerId}: {ex.GetBaseException().Message}");
+        }
+        finally
+        {
+            writer.Recycle();
         }
     }
 
-    private static void EnviarSnapDirecionado(PlayerControl alvo, int clientId, Vector2 pos, ushort sequence)
+    private static void EscreverSnap(MessageWriter writer, PlayerControl alvo, Vector2 pos, ushort sequence)
     {
-        MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
-            alvo.NetTransform.NetId, (byte)RpcCalls.SnapTo, SendOption.Reliable, clientId);
+        writer.StartMessage(2);
+        writer.WritePacked(alvo.NetTransform.NetId);
+        writer.Write((byte)RpcCalls.SnapTo);
         writer.Write(pos.x);
         writer.Write(pos.y);
         writer.Write(sequence);
-        AmongUsClient.Instance.FinishRpcImmediately(writer);
+        writer.EndMessage();
     }
 
     internal static void EncerrarNaReuniao()
