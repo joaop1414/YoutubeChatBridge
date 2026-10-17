@@ -7,77 +7,88 @@ namespace YouTubeVoteBridge;
 
 internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
 {
+    private static bool ativo;
     private static bool armado;
-
     public override string Nome => "Todos ficam invisíveis";
 
     public void Executar()
     {
         if (!YouTubeVoteBridgePlugin.EhHost()) return;
+        ativo = true;
         armado = true;
-        if (ShipStatus.Instance != null)
-            Aplicar();
+        if (ShipStatus.Instance != null) Aplicar();
     }
 
     internal static void IniciarPartida()
     {
-        if (armado && ShipStatus.Instance != null)
-            Aplicar();
+        if (armado && ativo && ShipStatus.Instance != null) Aplicar();
     }
 
     private static void Aplicar()
     {
-        if (PlayerControl.AllPlayerControls == null) return;
+        if (!ativo || PlayerControl.AllPlayerControls == null) return;
         armado = false;
         int sucesso = 0;
         foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
         {
-            if (jogador == null || jogador.Data == null ||
-                jogador.Data.Disconnected || jogador.Data.IsDead)
+            if (jogador == null || jogador.Data == null || jogador.Data.Disconnected || jogador.Data.IsDead)
                 continue;
-
-            if (InvocarRpcInvisibilidade(jogador, true))
-                sucesso++;
+            if (InvocarMetodoVisibilidade(jogador, "RpcMakeInvisible")) sucesso++;
         }
-
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"[Phantom] Evento 'Todos ficam invisíveis': RPC de invisibilidade enviado para {sucesso} jogador(es).");
+            $"[Invisibilidade] Evento ativado: invisibilidade solicitada para {sucesso} jogador(es), até a próxima reunião.");
     }
 
-    internal static bool InvocarRpcInvisibilidade(PlayerControl jogador, bool invisivel)
+    private static bool InvocarMetodoVisibilidade(PlayerControl jogador, string nomeMetodo)
     {
         if (jogador == null) return false;
         try
         {
             MethodInfo metodo = jogador.GetType().GetMethods(
                     BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-                .Where(m =>
-                    (m.Name.StartsWith("Rpc", StringComparison.OrdinalIgnoreCase) &&
-                     (m.Name.IndexOf("Invisib", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                      m.Name.IndexOf("Vanish", StringComparison.OrdinalIgnoreCase) >= 0)) ||
-                    string.Equals(m.Name, "SetRoleInvisibility", StringComparison.OrdinalIgnoreCase))
-                .OrderByDescending(m => m.Name.StartsWith("Rpc", StringComparison.OrdinalIgnoreCase))
-                .FirstOrDefault(m =>
-                {
-                    ParameterInfo[] p = m.GetParameters();
-                    return p.Length == 1 && p[0].ParameterType == typeof(bool);
-                });
-
+                .FirstOrDefault(m => string.Equals(m.Name, nomeMetodo, StringComparison.OrdinalIgnoreCase)
+                    && m.GetParameters().Length == 0);
             if (metodo == null)
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "[Phantom] Não encontrei um RPC de invisibilidade com um parâmetro bool em PlayerControl.");
+                    $"[Invisibilidade] Método {nomeMetodo}() não encontrado para PlayerId={jogador.PlayerId}.");
                 return false;
             }
-
-            metodo.Invoke(jogador, new object[] { invisivel });
+            metodo.Invoke(jogador, null);
             return true;
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                $"[Phantom] Falha ao chamar RPC de invisibilidade para PlayerId={jogador.PlayerId}: {ex.GetBaseException().Message}");
+                $"[Invisibilidade] Falha em {nomeMetodo} para PlayerId={jogador.PlayerId}: {ex.GetBaseException().Message}");
             return false;
+        }
+    }
+
+    internal static void EncerrarNaReuniao()
+    {
+        if (!ativo) return;
+        ativo = false;
+        armado = false;
+        if (PlayerControl.AllPlayerControls != null)
+        {
+            foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+            {
+                if (jogador == null || jogador.Data == null || jogador.Data.Disconnected || jogador.Data.IsDead)
+                    continue;
+                InvocarMetodoVisibilidade(jogador, "RpcMakeVisible");
+            }
+        }
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            "[Invisibilidade] Evento encerrado na reunião; visibilidade restaurada.");
+    }
+
+    [HarmonyPatch(typeof(MeetingHud), nameof(MeetingHud.Start))]
+    private static class ReuniaoInvisibilidadePatch
+    {
+        private static void Postfix()
+        {
+            if (YouTubeVoteBridgePlugin.EhHost()) EncerrarNaReuniao();
         }
     }
 }
