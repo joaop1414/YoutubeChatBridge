@@ -2631,15 +2631,21 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
     public static void PausarRainbowDuranteShapeshift(PlayerControl shapeshifter)
     {
-        if (shapeshifter == null ||
-            !RainbowGlobalAtivo ||
-            !JogadoresRainbowAtivos.Contains(shapeshifter.PlayerId))
+        if (shapeshifter == null)
             return;
 
-        if (ShapeshiftersRainbowTransformados.Add(shapeshifter.PlayerId))
+        byte id = shapeshifter.PlayerId;
+        // Só pausamos a lista persistente quando o jogador realmente fazia parte
+        // do rainbow. Os dados originais ficam guardados para retomar depois.
+        if (!JogadoresRainbowAtivos.Contains(id))
+            return;
+
+        if (ShapeshiftersRainbowTransformados.Add(id))
         {
+            JogadoresRainbowAtivos.Remove(id);
+            NotificarEstadoRainbowVisual(id, false);
             Instance?.Log.LogInfo(
-                $"Rainbow: pausa de cor e nome ativada para Shapeshifter PlayerId={shapeshifter.PlayerId}.");
+                $"Rainbow: PlayerId={id} removido temporariamente da lista ativa durante shapeshift; será retomado ao reverter ou na próxima reunião.");
         }
     }
 
@@ -2648,10 +2654,32 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         if (shapeshifter == null)
             return;
 
-        if (ShapeshiftersRainbowTransformados.Remove(shapeshifter.PlayerId))
+        byte id = shapeshifter.PlayerId;
+        if (ShapeshiftersRainbowTransformados.Remove(id))
         {
+            // Mantém o registro e a fase individual; só reativa a lista e a
+            // transição visual depois que o jogador volta à própria aparência.
+            JogadoresRainbowAtivos.Add(id);
+            NotificarEstadoRainbowVisual(id, true);
+            RainbowColorTransition.ReiniciarTransicao(id);
             Instance?.Log.LogInfo(
-                $"Rainbow: pausa de cor e nome removida após destransformação; PlayerId={shapeshifter.PlayerId}.");
+                $"Rainbow: PlayerId={id} reinserido na lista ativa após destransformação.");
+        }
+    }
+
+    public static void RetomarRainbowPausadosNaReuniao()
+    {
+        // A reunião é um limite seguro para limpar pausas que não receberam
+        // o callback de destransformação, evitando jogadores presos fora da lista.
+        foreach (byte id in ShapeshiftersRainbowTransformados.ToArray())
+        {
+            ShapeshiftersRainbowTransformados.Remove(id);
+            JogadoresRainbowAtivos.Add(id);
+            NotificarEstadoRainbowVisual(id, true);
+            RainbowColorTransition.DefinirMetamorfoTransformado(id, false);
+            RainbowColorTransition.ReiniciarTransicao(id);
+            Instance?.Log.LogInfo(
+                $"Rainbow: PlayerId={id} reativado na próxima reunião.");
         }
     }
 
@@ -3163,6 +3191,7 @@ public static class YouTubeVoteCancelMeetingPatch
         if (!YouTubeVoteBridgePlugin.EhHost())
             return true;
         EventoTsunami.PrepararAntesDaReuniao();
+        YouTubeVoteBridgePlugin.RetomarRainbowPausadosNaReuniao();
         YouTubeVoteBridgePlugin.CancelarReuniaoSolicitada();
         EventoTarefaMataJogador.Desativar();
         EventoTarefaSuicidio.Desativar();
