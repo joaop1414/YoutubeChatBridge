@@ -7,7 +7,10 @@ internal static class RegistroEventosPartida
     // Eventos especiais selecionáveis pela votação do YouTube no lobby.
     private static readonly IReadOnlyList<EventoVotacao> Eventos = new EventoVotacao[]
     {
-        new EventoOportunista()
+        new EventoTeletransportarAlvoParaMetamorfoPartida(),
+        new EventoTeletransportarJogadorAoCompletarTarefa(),
+        new EventoTodosFicamInvisiveis(),
+        new EventoTeletransportarAleatorioParaPhantom()
     };
 
     public static IReadOnlyList<EventoVotacao> ObterTodos() => Eventos;
