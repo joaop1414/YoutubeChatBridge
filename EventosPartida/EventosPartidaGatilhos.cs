@@ -10,6 +10,8 @@ internal static class EventosPartidaInicioPatch
     private static void Postfix()
     {
         if (!YouTubeVoteBridgePlugin.EhHost()) return;
+        EventoTeletransportarAlvoParaMetamorfoPartida.IniciarPartida();
+        EventoTeletransportarJogadorAoCompletarTarefa.IniciarPartida();
         EventoTarefaMortal.IniciarPartida();
         EventoAssassinatoDesviado.IniciarPartida();
         EventoTrocaDeDestinos.IniciarPartida();
@@ -69,6 +71,8 @@ internal static class EventosPartidaFimPatch
 {
     private static void Postfix()
     {
+        EventoTeletransportarAlvoParaMetamorfoPartida.Resetar();
+        EventoTeletransportarJogadorAoCompletarTarefa.Desativar("fim da partida");
         EventoTarefaMortal.Resetar();
         EventoAssassinatoDesviado.Resetar();
         EventoTrocaDeDestinos.Resetar();
