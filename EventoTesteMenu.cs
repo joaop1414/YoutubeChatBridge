@@ -18,6 +18,7 @@ internal sealed class EventoTesteMenu : MonoBehaviour
     private const uint WM_COMMAND = 0x0111;
     private const uint WM_APP_TOGGLE = 0x8001;
     private const uint WM_APP_STATUS = 0x8002;
+    private const uint WM_APP_MODO_EVENTOS = 0x8003;
     private const uint WS_OVERLAPPEDWINDOW = 0x00CF0000;
     private const uint WS_VSCROLL = 0x00200000;
     private const uint WM_VSCROLL = 0x0115;
@@ -58,6 +59,9 @@ internal sealed class EventoTesteMenu : MonoBehaviour
     private static IntPtr textoStatus;
     private static string mensagem = "Pressione F6 para abrir/fechar a janela.";
     private static IReadOnlyList<EventoVotacao> eventos = Array.Empty<EventoVotacao>();
+    private static IReadOnlyList<EventoVotacao> eventosTradicionais = Array.Empty<EventoVotacao>();
+    private static IReadOnlyList<EventoVotacao> eventosPartida = Array.Empty<EventoVotacao>();
+    private static bool modoEventosPartida;
     private static readonly ConcurrentQueue<int> filaExecucao = new();
     private static float encerrarPartidaEm = -1f;
     private static string motivoEncerramentoAgendado = "HumansByVote";
@@ -78,7 +82,9 @@ internal sealed class EventoTesteMenu : MonoBehaviour
         UnityEngine.Object.DontDestroyOnLoad(objeto);
         objeto.AddComponent<EventoTesteMenu>();
 
-        eventos = new List<EventoVotacao>(RegistroEventos.ObterTodos());
+        eventosTradicionais = new List<EventoVotacao>(RegistroEventos.ObterTodos());
+        eventosPartida = new List<EventoVotacao>(RegistroEventosPartida.ObterTodos());
+        eventos = eventosTradicionais;
         threadJanela = new Thread(CriarJanelaNativa)
         {
             IsBackground = true,
@@ -330,13 +336,13 @@ internal sealed class EventoTesteMenu : MonoBehaviour
         IntPtr instancia = GetModuleHandleW(null);
 
         IntPtr titulo = CriarControle("STATIC",
-            "PAINEL DE TESTE DE EVENTOS",
+            modoEventosPartida ? "PAINEL DE EVENTOS DE PARTIDA INTEIRA" : "PAINEL DE TESTE DE EVENTOS",
             WS_CHILD | WS_VISIBLE | SS_LEFT,
             18, 14, 520, 28, hwnd, IntPtr.Zero, instancia);
         AplicarFonte(titulo, fonteTitulo);
 
         IntPtr subtitulo = CriarControle("STATIC",
-            "Clique em Testar para executar no jogo. É necessário ser o host.",
+            modoEventosPartida ? "Eventos escolhidos para afetar a partida inteira. Somente host." : "Clique em Testar para executar no jogo. É necessário ser o host.",
             WS_CHILD | WS_VISIBLE | SS_LEFT,
             20, 44, 535, 25, hwnd, IntPtr.Zero, instancia);
         AplicarFonte(subtitulo, fonteNormal);
