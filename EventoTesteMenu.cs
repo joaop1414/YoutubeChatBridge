@@ -671,8 +671,14 @@ internal sealed class EventoTesteMenu : MonoBehaviour
             return;
         }
 
-        // F7 é uma seleção pré-partida: o evento fica armado e sua mensagem
-        // vai para o chat, sem usar o nome de nenhum jogador como painel.
+        // F7 é uma seleção pré-partida; F6 só executa durante uma partida.
+        if (!modoEventosPartida && ShipStatus.Instance == null)
+        {
+            MostrarMensagem("Os eventos F6 só podem ser executados durante a partida.");
+            return;
+        }
+
+        // O evento F7 é armado no lobby e ativado no início da partida.
         if (modoEventosPartida && ShipStatus.Instance != null)
         {
             const string aviso = "<color=red>Os eventos F7 só podem ser selecionados no lobby.</color>";
