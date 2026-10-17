@@ -1455,9 +1455,6 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 case "Alvo da metamorfose é teleportado para o metamorfo (partida inteira)":
                     new EventoTeletransportarAlvoParaMetamorfoPartida().Executar();
                     break;
-                case "Testar Rastreador após Tripulante Fantasma":
-                    new EventoTestarRastreadorComFantasma().Executar();
-                    break;
                 case "Um jogador aleatório comete suicídio":
                     new EventoSuicidioAleatorio().Executar();
                     break;
@@ -3251,7 +3248,6 @@ public static class YouTubeVoteUpdatePatch
     public static void Postfix()
     {
         LobbyTagManager.Update();
-        EventoTestarRastreadorComFantasma.Atualizar();
         EventoAdicionarTarefas.AtualizarRestauracoesAgendadas();
 
         DiagnosticoPlayerReal.Atualizar();
