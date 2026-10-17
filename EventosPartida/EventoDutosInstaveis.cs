@@ -58,7 +58,7 @@ internal sealed class EventoDutosInstaveis : EventoVotacao
             Vector3 pos = destino.transform.position;
             if (jogador.NetTransform != null)
                 jogador.NetTransform.RpcSnapTo(new Vector2(pos.x, pos.y));
-            fisica.RpcEnterVent(destino);
+            fisica.RpcEnterVent(destino.Id);
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 $"[F7/Dutos instáveis] PlayerId={jogador.PlayerId} saiu do duto {duto.Id} e entrou no duto {destino.Id}.");
         }
