@@ -1446,9 +1446,6 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 case "Todos ficam invisíveis":
                     new EventoTodosFicamInvisiveis().Executar();
                     break;
-                case "Ao ficar invisível, o Phantom teleporta um jogador aleatório até ele":
-                    new EventoTeletransportarAleatorioParaPhantom().Executar();
-                    break;
                 case "Ao concluir uma tarefa, um jogador aleatório é teleportado até você":
                     new EventoTeletransportarJogadorAoCompletarTarefa().Executar();
                     break;
@@ -3288,7 +3285,6 @@ public static class YouTubeVoteRestoreLobbyTagsBeforeMatchPatch
             EventoTeletransportarAlvoParaMetamorfoPartida.IniciarPartida();
             EventoTeletransportarJogadorAoCompletarTarefa.IniciarPartida();
             EventoTodosFicamInvisiveis.IniciarPartida();
-            EventoTeletransportarAleatorioParaPhantom.IniciarPartida();
         }
     }
 }
@@ -3385,7 +3381,6 @@ public static class YouTubeVoteResetTaskEventsOnEndPatch
         EventoTeletransportarAlvoParaMetamorfo.Desativar();
         EventoTeletransportarAlvoParaMetamorfoPartida.Resetar();
         EventoTeletransportarJogadorAoCompletarTarefa.Desativar("fim da partida");
-        EventoTeletransportarAleatorioParaPhantom.Resetar();
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             "Eventos de tarefa desativados ao terminar a partida, mesmo sem reunião.");
     }
