@@ -79,19 +79,36 @@ internal static class RoleSwitchAPI
                         !RoleManager.IsGhostRole(funcao));
                 }
 
-                MessageWriter writer = cliente.StartRpcImmediately(
-                    jogador.NetId,
-                    (byte)RpcCalls.SetRole,
-                    SendOption.Reliable,
-                    -1);
+                // Não transmitir SetRole em broadcast (-1): replicamos a abordagem
+                // do EHR de endereçar a atribuição a cada cliente individualmente.
+                // O estado local do host já foi atualizado pela coroutine acima.
+                int envios = 0;
+                foreach (PlayerControl destinatario in PlayerControl.AllPlayerControls)
+                {
+                    if (destinatario == null || destinatario.Data == null ||
+                        destinatario.Data.Disconnected || destinatario.OwnerId < 0)
+                        continue;
 
-                writer.Write((ushort)funcao);
-                writer.Write(true); // canOverrideRole
-                cliente.FinishRpcImmediately(writer);
+                    // O host já aplicou a mudança localmente; não precisamos enviar
+                    // um RPC para o próprio cliente host.
+                    if (destinatario.OwnerId == cliente.ClientId)
+                        continue;
+
+                    MessageWriter writer = cliente.StartRpcImmediately(
+                        jogador.NetId,
+                        (byte)RpcCalls.SetRole,
+                        SendOption.Reliable,
+                        destinatario.OwnerId);
+
+                    writer.Write((ushort)funcao);
+                    writer.Write(true); // canOverrideRole explícito somente neste RPC
+                    cliente.FinishRpcImmediately(writer);
+                    envios++;
+                }
 
                 InspecionarMetodosPapel(jogador);
-                InspecionarEstadoPapel("DEPOIS_RPC_GLOBAL", jogador, funcao);
-                LogInfo($"SetRole global enviado pelo host: jogador={jogador.PlayerId}, destino={funcao}, canOverrideRole=true.");
+                InspecionarEstadoPapel("DEPOIS_RPCS_DIRECIONADOS", jogador, funcao);
+                LogInfo($"SetRole direcionado enviado: jogador={jogador.PlayerId}, destino={funcao}, clientes={envios}, canOverrideRole=true.");
                 return true;
             }
 
