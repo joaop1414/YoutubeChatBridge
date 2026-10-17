@@ -3244,6 +3244,7 @@ public static class YouTubeVoteUpdatePatch
     {
         LobbyTagManager.Update();
         EventoTestarRastreadorComFantasma.Atualizar();
+        EventoOportunista.Atualizar();
         EventoAdicionarTarefas.AtualizarRestauracoesAgendadas();
 
         DiagnosticoPlayerReal.Atualizar();
