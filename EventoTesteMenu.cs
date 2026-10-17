@@ -673,6 +673,53 @@ internal sealed class EventoTesteMenu : MonoBehaviour
         encerrarPartidaEm = Time.realtimeSinceStartup + 1.5f;
     }
 
+    private static object ObterMotivoFimDeJogo(Type tipoEnum, string motivoSolicitado)
+    {
+        string[] nomes = Enum.GetNames(tipoEnum);
+        if (nomes.Length == 0)
+            throw new InvalidOperationException("O enum de motivo de fim de jogo não possui valores.");
+
+        string encontrado = nomes.FirstOrDefault(n =>
+            string.Equals(n, motivoSolicitado, StringComparison.OrdinalIgnoreCase));
+
+        if (encontrado == null)
+        {
+            // Os nomes do enum mudam entre versões do Among Us. Preferimos
+            // uma vitória humana por voto/tarefa para o encerramento normal,
+            // e uma vitória impostora por kill para o teste de ImpostorGhost.
+            bool pediuImpostor = !string.IsNullOrEmpty(motivoSolicitado) &&
+                motivoSolicitado.IndexOf("Impostor", StringComparison.OrdinalIgnoreCase) >= 0;
+
+            string[] preferidos = pediuImpostor
+                ? new[] { "ImpostorByKill", "ImpostorByVote", "ImpostorBySabotage" }
+                : new[] { "HumansByVote", "HumansByTask", "HumansBySabotage" };
+
+            foreach (string preferido in preferidos)
+            {
+                encontrado = nomes.FirstOrDefault(n =>
+                    string.Equals(n, preferido, StringComparison.OrdinalIgnoreCase));
+                if (encontrado != null) break;
+            }
+        }
+
+        if (encontrado == null)
+        {
+            bool pediuImpostor = !string.IsNullOrEmpty(motivoSolicitado) &&
+                motivoSolicitado.IndexOf("Impostor", StringComparison.OrdinalIgnoreCase) >= 0;
+            encontrado = nomes.FirstOrDefault(n =>
+                n.IndexOf(pediuImpostor ? "Impostor" : "Human", StringComparison.OrdinalIgnoreCase) >= 0);
+        }
+
+        if (encontrado == null)
+            encontrado = nomes[0];
+
+        if (!string.Equals(encontrado, motivoSolicitado, StringComparison.OrdinalIgnoreCase))
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                $"[Menu de teste] Motivo '{motivoSolicitado}' não existe nesta versão; usando '{encontrado}'. Valores disponíveis: {string.Join(", ", nomes)}");
+
+        return Enum.Parse(tipoEnum, encontrado, true);
+    }
+
     private static void EncerrarPartida(string nomeMotivo = "HumansByVote")
     {
         if (!ValidarHostEPartida())
@@ -697,15 +744,7 @@ internal sealed class EventoTesteMenu : MonoBehaviour
                         parametros[1].ParameterType != typeof(bool))
                         continue;
 
-                    object motivo;
-                    try
-                    {
-                        motivo = Enum.Parse(parametros[0].ParameterType, nomeMotivo, true);
-                    }
-                    catch
-                    {
-                        motivo = Enum.Parse(parametros[0].ParameterType, "HumansByVote", true);
-                    }
+                    object motivo = ObterMotivoFimDeJogo(parametros[0].ParameterType, nomeMotivo);
 
                     metodo.Invoke(gerente, new object[] { motivo, false });
                     enviado = true;
