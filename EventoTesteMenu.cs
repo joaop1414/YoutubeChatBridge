@@ -45,6 +45,20 @@ internal sealed class EventoTesteMenu : MonoBehaviour
     private const int ID_BOTAO_ENCERRAR = 9000;
     private const int ID_BOTAO_TRIPULANTE_FANTASMA = 9001;
     private const int ID_BOTAO_IMPOSTOR_FANTASMA = 9002;
+    private const int ID_SELETOR_FUNCAO = 9100;
+    private const int ID_BOTAO_APLICAR_FUNCAO = 9101;
+    private const int ACAO_TROCAR_FUNCAO_BASE = 10000;
+    private const uint CBS_DROPDOWNLIST = 0x0003;
+    private const uint CB_ADDSTRING = 0x0143;
+    private const uint CB_SETCURSEL = 0x014E;
+    private const uint CB_GETCURSEL = 0x0147;
+    private static IntPtr seletorFuncao;
+    private static readonly string[] FuncoesTeste =
+    {
+        "Crewmate", "Scientist", "Engineer", "GuardianAngel",
+        "Impostor", "Shapeshifter", "Phantom", "Noisemaker",
+        "Tracker", "Detective", "Viper"
+    };
     private const int ACAO_ENCERRAR = -1;
     private const int ACAO_TRIPULANTE_FANTASMA = -2;
     private const int ACAO_IMPOSTOR_FANTASMA = -3;
@@ -172,6 +186,13 @@ internal sealed class EventoTesteMenu : MonoBehaviour
                 if (indice == ACAO_IMPOSTOR_FANTASMA)
                 {
                     TestarFantasmaEEncerrar("ImpostorGhost", "Impostor fantasma");
+                    continue;
+                }
+
+                if (indice >= ACAO_TROCAR_FUNCAO_BASE &&
+                    indice < ACAO_TROCAR_FUNCAO_BASE + FuncoesTeste.Length)
+                {
+                    TestarTrocaFuncao(FuncoesTeste[indice - ACAO_TROCAR_FUNCAO_BASE]);
                     continue;
                 }
 
@@ -308,6 +329,24 @@ internal sealed class EventoTesteMenu : MonoBehaviour
 
                 case WM_COMMAND:
                     int id = wParam.ToInt32() & 0xFFFF;
+                    if (id == ID_BOTAO_APLICAR_FUNCAO)
+                    {
+                        int selecao = seletorFuncao == IntPtr.Zero
+                            ? -1 : SendMessageW(seletorFuncao, CB_GETCURSEL, IntPtr.Zero, IntPtr.Zero).ToInt32();
+                        if (selecao >= 0 && selecao < FuncoesTeste.Length)
+                        {
+                            filaExecucao.Enqueue(ACAO_TROCAR_FUNCAO_BASE + selecao);
+                            mensagem = "Solicitação de troca para " + FuncoesTeste[selecao] + "...";
+                        }
+                        else
+                        {
+                            mensagem = "Selecione uma função primeiro.";
+                        }
+                        if (textoStatus != IntPtr.Zero)
+                            SetWindowTextW(textoStatus, "STATUS: " + mensagem);
+                        return IntPtr.Zero;
+                    }
+
                     if (id == ID_BOTAO_ENCERRAR ||
                         id == ID_BOTAO_TRIPULANTE_FANTASMA ||
                         id == ID_BOTAO_IMPOSTOR_FANTASMA)
@@ -434,7 +473,33 @@ internal sealed class EventoTesteMenu : MonoBehaviour
                 22, acoesY + 106, 520, 30, hwnd,
                 new IntPtr(ID_BOTAO_IMPOSTOR_FANTASMA), instancia);
 
-            statusY = acoesY + 146;
+            int funcoesY = acoesY + 148;
+            CriarControle("STATIC", "", WS_CHILD | WS_VISIBLE | SS_ETCHEDHORZ,
+                18, funcoesY, 545, 2, hwnd, IntPtr.Zero, instancia);
+
+            IntPtr labelFuncoes = CriarControle("STATIC", "TESTE DE TROCA DE FUNÇÃO (jogador local)",
+                WS_CHILD | WS_VISIBLE | SS_LEFT,
+                22, funcoesY + 8, 520, 24, hwnd, IntPtr.Zero, instancia);
+            AplicarFonte(labelFuncoes, fonteNormal);
+
+            seletorFuncao = CriarControle("COMBOBOX", "",
+                WS_CHILD | WS_VISIBLE | WS_BORDER | CBS_DROPDOWNLIST,
+                22, funcoesY + 34, 320, 180, hwnd,
+                new IntPtr(ID_SELETOR_FUNCAO), instancia);
+            for (int i = 0; i < FuncoesTeste.Length; i++)
+            {
+                IntPtr textoFuncao = Marshal.StringToHGlobalUni(FuncoesTeste[i]);
+                SendMessageW(seletorFuncao, CB_ADDSTRING, IntPtr.Zero, textoFuncao);
+                Marshal.FreeHGlobal(textoFuncao);
+            }
+            SendMessageW(seletorFuncao, CB_SETCURSEL, IntPtr.Zero, IntPtr.Zero);
+
+            CriarControle("BUTTON", "Aplicar função",
+                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                355, funcoesY + 34, 187, 30, hwnd,
+                new IntPtr(ID_BOTAO_APLICAR_FUNCAO), instancia);
+
+            statusY = funcoesY + 76;
         }
         else
         {
@@ -613,6 +678,34 @@ internal sealed class EventoTesteMenu : MonoBehaviour
         }
 
         return true;
+    }
+
+    private static void TestarTrocaFuncao(string nomeFuncao)
+    {
+        if (!ValidarHostEPartida())
+            return;
+
+        PlayerControl jogador = PlayerControl.LocalPlayer;
+        if (jogador == null || jogador.Data == null || jogador.Data.Disconnected)
+        {
+            MostrarMensagem("Não foi possível encontrar o jogador local.");
+            return;
+        }
+
+        if (!Enum.TryParse(typeof(RoleTypes), nomeFuncao, true, out object valorPapel))
+        {
+            MostrarMensagem("Esta versão do jogo não reconhece a função " + nomeFuncao + ".");
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[Menu de teste] RoleTypes não contém " + nomeFuncao + ".");
+            return;
+        }
+
+        bool sucesso = RoleSwitchAPI.TrocarFuncao(jogador, (RoleTypes)valorPapel);
+        MostrarMensagem(sucesso
+            ? $"Troca solicitada: jogador local -> {nomeFuncao}. Verifique a tela de função."
+            : $"Falha ao aplicar {nomeFuncao}; consulte o log [RoleSwitchAPI].");
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"[Menu de teste] Teste de troca individual: jogador local, função={nomeFuncao}, sucesso={sucesso}.");
     }
 
     private static void TestarFantasmaEEncerrar(string nomePapel, string descricao)
