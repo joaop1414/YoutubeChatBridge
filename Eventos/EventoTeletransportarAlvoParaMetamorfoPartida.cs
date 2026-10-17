@@ -6,6 +6,7 @@ namespace YouTubeVoteBridge;
 internal sealed class EventoTeletransportarAlvoParaMetamorfoPartida : EventoVotacao
 {
     private static bool ativo;
+    private static bool armado;
 
     public override string Nome => "Alvo da metamorfose é teleportado para o metamorfo (partida inteira)";
     internal static bool EstaAtivo => ativo;
@@ -13,7 +14,8 @@ internal sealed class EventoTeletransportarAlvoParaMetamorfoPartida : EventoVota
     public void Executar()
     {
         if (!YouTubeVoteBridgePlugin.EhHost()) return;
-        ativo = true;
+        armado = true;
+        if (ShipStatus.Instance != null) ativo = true;
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             "[Metamorfo/partida inteira] Ativado: toda tentativa de metamorfose teleporta o alvo para o metamorfo e rejeita a transformação até o fim da partida.");
     }
@@ -41,8 +43,14 @@ internal sealed class EventoTeletransportarAlvoParaMetamorfoPartida : EventoVota
         }
     }
 
+    internal static void IniciarPartida()
+    {
+        if (armado) ativo = true;
+    }
+
     internal static void Resetar()
     {
         ativo = false;
+        armado = false;
     }
 }
