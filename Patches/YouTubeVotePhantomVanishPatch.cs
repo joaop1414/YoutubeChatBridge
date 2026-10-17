@@ -176,18 +176,5 @@ internal static class YouTubeVotePhantomCheckVanishPatch
     }
 }
 
-// Segue o ajuste do EHR: força CanOverrideRole=true em todas as chamadas
-// nativas a RpcSetRole, para que a correção de papel não seja ignorada.
-[HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.RpcSetRole))]
-internal static class YouTubeVotePhantomCanOverrideRolePatch
-{
-    private static void Prefix(
-        PlayerControl __instance,
-        [HarmonyArgument(0)] ref RoleTypes roleType,
-        [HarmonyArgument(1)] ref bool canOverrideRole)
-    {
-        canOverrideRole = true;
-        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"[Phantom] RpcSetRole: CanOverrideRole forçado para true; PlayerId={__instance?.PlayerId}, Role={roleType}.");
-    }
-}
+// Não alteramos globalmente RpcSetRole. O EHR define CanOverrideRole
+// explicitamente apenas nos RPCs direcionados que precisam dessa correção.
