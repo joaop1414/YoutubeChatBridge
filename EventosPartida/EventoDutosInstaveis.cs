@@ -17,6 +17,13 @@ internal sealed class EventoDutosInstaveis : EventoVotacao
         public float LiberarEm = -1f;
     }
     private static readonly Dictionary<byte, TrocaDutoPendente> trocasPendentes = new();
+    private sealed class ExpulsaoPendente
+    {
+        public int VentId;
+        public float ExecutarEm;
+        public float LiberarEm = -1f;
+    }
+    private static readonly Dictionary<byte, ExpulsaoPendente> expulsoesPendentes = new();
     public override string Nome => "Dutos instáveis: você pode sair por outro duto ou ser expulso sozinho";
 
     private static void Log(string mensagem) =>
@@ -51,10 +58,61 @@ internal sealed class EventoDutosInstaveis : EventoVotacao
 
     internal static void Atualizar()
     {
-        if (!YouTubeVoteBridgePlugin.EhHost() || trocasPendentes.Count == 0)
+        if (!YouTubeVoteBridgePlugin.EhHost() ||
+            (trocasPendentes.Count == 0 && expulsoesPendentes.Count == 0))
             return;
 
         float agora = Time.realtimeSinceStartup;
+
+        // A expulsão usa o mesmo RpcBootFromVent dos eventos que expulsam
+        // um jogador aleatório ou todos dos dutos. A espera evita expulsar
+        // o jogador no mesmo instante em que ele entra e ficar preso no duto.
+        List<byte> idsExpulsao = new(expulsoesPendentes.Keys);
+        foreach (byte playerId in idsExpulsao)
+        {
+            if (!expulsoesPendentes.TryGetValue(playerId, out ExpulsaoPendente expulsao))
+                continue;
+
+            PlayerControl jogadorExpulsao = null;
+            foreach (PlayerControl p in PlayerControl.AllPlayerControls)
+                if (p != null && p.PlayerId == playerId) { jogadorExpulsao = p; break; }
+
+            if (jogadorExpulsao == null || jogadorExpulsao.Data == null ||
+                jogadorExpulsao.Data.IsDead || jogadorExpulsao.Data.Disconnected ||
+                ShipStatus.Instance == null)
+            {
+                expulsoesPendentes.Remove(playerId);
+                alterandoDuto.Remove(playerId);
+                continue;
+            }
+
+            if (expulsao.LiberarEm >= 0f)
+            {
+                if (agora >= expulsao.LiberarEm)
+                {
+                    expulsoesPendentes.Remove(playerId);
+                    alterandoDuto.Remove(playerId);
+                    Log($"Expulsão concluída para PlayerId={playerId}; bloqueio liberado.");
+                }
+                continue;
+            }
+
+            if (agora < expulsao.ExecutarEm)
+                continue;
+
+            try
+            {
+                jogadorExpulsao.MyPhysics?.RpcBootFromVent(expulsao.VentId);
+                expulsao.LiberarEm = agora + 0.8f;
+                Log($"RpcBootFromVent enviado após espera para PlayerId={playerId}, VentId={expulsao.VentId}.");
+            }
+            catch (Exception ex)
+            {
+                expulsoesPendentes.Remove(playerId);
+                alterandoDuto.Remove(playerId);
+                Log($"Falha ao expulsar PlayerId={playerId} do duto: {ex.Message}");
+            }
+        }
         List<byte> ids = new(trocasPendentes.Keys);
         foreach (byte playerId in ids)
         {
@@ -180,9 +238,14 @@ internal sealed class EventoDutosInstaveis : EventoVotacao
             alterandoDuto.Add(jogador.PlayerId);
             if (sorteio < 35)
             {
-                Log($"Executando expulsão: PlayerId={jogador.PlayerId}, VentId={duto.Id}.");
-                fisica.RpcExitVent(duto.Id);
-                Log($"RPC RpcExitVent enviado para PlayerId={jogador.PlayerId}.");
+                // Dá tempo para a animação/estado de entrada no duto se estabelecer.
+                expulsoesPendentes[jogador.PlayerId] = new ExpulsaoPendente
+                {
+                    VentId = duto.Id,
+                    ExecutarEm = Time.realtimeSinceStartup + 1.25f
+                };
+                manterBloqueio = true;
+                Log($"Expulsão agendada para PlayerId={jogador.PlayerId}, VentId={duto.Id}, atraso=1,25s; será usado RpcBootFromVent.");
                 return;
             }
 
@@ -204,8 +267,12 @@ internal sealed class EventoDutosInstaveis : EventoVotacao
             Vector3 pos = destino.transform.position;
             if (jogador.NetTransform != null)
             {
-                jogador.NetTransform.RpcSnapTo(new Vector2(pos.x, pos.y));
-                Log($"RpcSnapTo enviado para PlayerId={jogador.PlayerId}, posição=({pos.x}, {pos.y}).");
+                Vector2 destinoLocal = new(pos.x, pos.y);
+                // RPC sincroniza os clientes remotos; aplicar a posição localmente
+                // também é necessário quando o alvo é o próprio host.
+                jogador.NetTransform.RpcSnapTo(destinoLocal);
+                jogador.transform.position = new Vector3(pos.x, pos.y, jogador.transform.position.z);
+                Log($"RpcSnapTo enviado e posição local aplicada para PlayerId={jogador.PlayerId}, posição=({pos.x}, {pos.y}).");
             }
             else
             {
@@ -240,6 +307,7 @@ internal sealed class EventoDutosInstaveis : EventoVotacao
         armado = false;
         alterandoDuto.Clear();
         trocasPendentes.Clear();
+        expulsoesPendentes.Clear();
         Log("Evento resetado: ativo=false, armado=false.");
     }
 }
