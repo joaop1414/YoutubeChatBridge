@@ -3600,6 +3600,15 @@ public static class YouTubeVoteRainbowShapeshiftPatch
         if (__instance == null || target == null)
             return true;
 
+        // Durante o evento, o host cancela o RPC que cria a aparência de ovo.
+        // A tentativa já foi detectada em CheckShapeshift e o alvo foi teleportado.
+        if (EventoTeletransportarAlvoParaMetamorfo.DeveCancelarRpc(__instance, target))
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                $"Shapeshift cancelado pelo evento: jogador={__instance.PlayerId}, alvo={target.PlayerId}.");
+            return false;
+        }
+
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             $"Shapeshift diagnóstico: RpcShapeshift Prefix executou; host={YouTubeVoteBridgePlugin.EhHost()}, jogador={__instance.PlayerId}, alvo={target.PlayerId}, reenviando={YouTubeVoteBridgePlugin.ReenviandoRpcShapeshiftPreparado}, bloqueado={YouTubeVoteBridgePlugin.BloqueioCompletoShapeshift}.");
 
