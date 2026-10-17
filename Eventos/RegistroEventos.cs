@@ -31,6 +31,7 @@ internal static class RegistroEventos
         new EventoInverterMovimentoTodos(),
         new EventoTeleporteAleatorio(),
         new EventoTeletransportarAlvoParaMetamorfo(),
+        new EventoTestarRastreadorComFantasma(),
         new EventoSuicidioAleatorio(),
         new EventoVisaoReduzida(),
         new EventoAdicionarTarefas(1, true),
