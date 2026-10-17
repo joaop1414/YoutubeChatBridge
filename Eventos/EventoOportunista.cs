@@ -65,7 +65,7 @@ internal sealed class EventoOportunista : EventoVotacao
             return;
         }
 
-        PlayerControl escolhido = candidatos[Random.Shared.Next(candidatos.Count)];
+        PlayerControl escolhido = candidatos[System.Random.Shared.Next(candidatos.Count)];
         playerIdOportunista = escolhido.PlayerId;
         ativo = true;
 
