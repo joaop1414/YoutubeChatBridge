@@ -3,7 +3,6 @@ using System.Collections;
 using System.Collections.Generic;
 using AmongUs.GameOptions;
 using Hazel;
-using Il2CppInterop.Runtime;
 using UnityEngine;
 
 namespace YouTubeVoteBridge;
@@ -11,6 +10,8 @@ namespace YouTubeVoteBridge;
 internal sealed class EventoTestarRastreadorComFantasma : EventoVotacao
 {
     private static readonly System.Random Sorteador = new();
+    private static PlayerControl alvoPendente;
+    private static float horarioTrackerPendente;
 
     public override string Nome => "Testar Rastreador após Tripulante Fantasma";
 
@@ -41,24 +42,28 @@ internal sealed class EventoTestarRastreadorComFantasma : EventoVotacao
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             $"Teste EHR canOverride: jogador escolhido: {alvo.Data.PlayerName} (PlayerId={alvo.PlayerId}).");
 
-        // PlayerControl, assim como no EHR, inicia a coroutine de sequência.
-        alvo.StartCoroutine(TestarSequencia(alvo).WrapToIl2Cpp());
-    }
-
-    private static IEnumerator TestarSequencia(PlayerControl alvo)
-    {
         EnviarRoleGlobalComoEhr(alvo, RoleTypes.CrewmateGhost);
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             $"Teste EHR: tentativa CrewmateGhost com canOverride=true para PlayerId={alvo.PlayerId}.");
 
-        // Aguarda o jogo processar a primeira atribuição antes de tentar Tracker.
-        yield return new WaitForSeconds(0.5f);
+        // Agenda Tracker sem coroutine: evita a conversão IEnumerator/IL2CPP.
+        alvoPendente = alvo;
+        horarioTrackerPendente = Time.time + 0.5f;
+    }
 
-        if (alvo == null || alvo.Data == null || alvo.Data.Disconnected)
+    public static void Atualizar()
+    {
+        if (alvoPendente == null || Time.time < horarioTrackerPendente)
+            return;
+
+        PlayerControl alvo = alvoPendente;
+        alvoPendente = null;
+
+        if (alvo.Data == null || alvo.Data.Disconnected)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
                 "Teste EHR cancelado: o jogador saiu antes da segunda atribuição.");
-            yield break;
+            return;
         }
 
         EnviarRoleGlobalComoEhr(alvo, RoleTypes.Tracker);
