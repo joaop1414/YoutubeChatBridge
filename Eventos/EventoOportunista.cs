@@ -18,6 +18,8 @@ internal sealed class EventoOportunista : EventoVotacao
     private static bool imortal;
     private static bool morreu;
     private static bool avisoTasksEnviado;
+    private static string nomeOriginalOportunista;
+    private static bool nomeLocalAplicado;
 
     public override string Nome => "Oportunista";
 
@@ -32,6 +34,8 @@ internal sealed class EventoOportunista : EventoVotacao
         imortal = false;
         morreu = false;
         avisoTasksEnviado = false;
+        nomeOriginalOportunista = null;
+        nomeLocalAplicado = false;
 
         if (ShipStatus.Instance != null)
             IniciarPartida();
@@ -67,7 +71,9 @@ internal sealed class EventoOportunista : EventoVotacao
 
         PlayerControl escolhido = candidatos[System.Random.Shared.Next(candidatos.Count)];
         playerIdOportunista = escolhido.PlayerId;
+        nomeOriginalOportunista = escolhido.Data.PlayerName ?? escolhido.name ?? string.Empty;
         ativo = true;
+        AplicarNomeLocal(escolhido);
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             $"[Oportunista] Escolhido {escolhido.Data.PlayerName} (PlayerId={escolhido.PlayerId}).");
@@ -95,6 +101,9 @@ internal sealed class EventoOportunista : EventoVotacao
         PlayerControl alvo = EncontrarOportunista();
         if (alvo == null || alvo.Data == null)
             return;
+
+        if (!nomeLocalAplicado)
+            AplicarNomeLocal(alvo);
 
         if (alvo.Data.IsDead || alvo.Data.Disconnected)
         {
@@ -128,6 +137,35 @@ internal sealed class EventoOportunista : EventoVotacao
 
     internal static bool EhOportunista(PlayerControl jogador) =>
         ativo && jogador != null && jogador.PlayerId == playerIdOportunista;
+
+
+    private static void AplicarNomeLocal(PlayerControl jogador)
+    {
+        if (jogador == null || jogador.Data == null)
+            return;
+
+        if (string.IsNullOrEmpty(nomeOriginalOportunista))
+            nomeOriginalOportunista = jogador.Data.PlayerName ?? jogador.name ?? string.Empty;
+
+        string nome = "<color=#2cc71e>Oportunista - " + nomeOriginalOportunista + "</color>";
+        YouTubeVoteBridgePlugin.DefinirNomeLocal(jogador, nome);
+        nomeLocalAplicado = true;
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            "[Oportunista] Identificação local aplicada ao PlayerId=" + jogador.PlayerId + ".");
+    }
+
+    private static void RestaurarNomeLocal()
+    {
+        if (!nomeLocalAplicado || string.IsNullOrEmpty(nomeOriginalOportunista))
+            return;
+
+        PlayerControl jogador = EncontrarOportunista();
+        if (jogador != null && jogador.Data != null)
+            YouTubeVoteBridgePlugin.DefinirNomeLocal(jogador, nomeOriginalOportunista);
+
+        nomeLocalAplicado = false;
+    }
 
     private static PlayerControl EncontrarOportunista()
     {
@@ -207,12 +245,15 @@ internal sealed class EventoOportunista : EventoVotacao
 
     private static void Resetar()
     {
+        RestaurarNomeLocal();
         armado = false;
         ativo = false;
         playerIdOportunista = byte.MaxValue;
         imortal = false;
         morreu = false;
         avisoTasksEnviado = false;
+        nomeOriginalOportunista = null;
+        nomeLocalAplicado = false;
     }
 }
 
