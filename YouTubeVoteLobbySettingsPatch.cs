@@ -108,7 +108,6 @@ namespace YouTubeVoteBridge
                 y -= 0.52f;
                 CriarControle(__instance, modelo, "Preparação do chat", PREFIX + "PREPARACAO", y);
                 y -= 0.52f;
-                CriarControle(__instance, modelo, "Sem fim de jogo", PREFIX + "SEMFIM", y);
 
                 AtualizarControles(__instance);
                 if (__instance.scrollBar != null)
@@ -177,14 +176,10 @@ namespace YouTubeVoteBridge
                 !YouTubeVoteBridgePlugin.EhHost() ||
                 YouTubeVoteBridgePlugin.TempoVotacao == null ||
                 YouTubeVoteBridgePlugin.IntervaloRodadas == null ||
-                YouTubeVoteBridgePlugin.PreparacaoChat == null ||
-                YouTubeVoteBridgePlugin.SemFimDeJogo == null)
+                YouTubeVoteBridgePlugin.PreparacaoChat == null)
                 return;
 
-            if (option.name == PREFIX + "SEMFIM")
-                YouTubeVoteBridgePlugin.SemFimDeJogo.Value =
-                    !YouTubeVoteBridgePlugin.SemFimDeJogo.Value;
-            else if (option.name == PREFIX + "TEMPO")
+            if (option.name == PREFIX + "TEMPO")
                 YouTubeVoteBridgePlugin.TempoVotacao.Value = Mathf.Clamp(
                     YouTubeVoteBridgePlugin.TempoVotacao.Value + delta * 5, 5, 600);
             else if (option.name == PREFIX + "INTERVALO")
@@ -221,8 +216,9 @@ namespace YouTubeVoteBridge
                 if (!EhControle(option))
                     continue;
 
-                option.gameObject.SetActive(host);
-                AtualizarUmControle(option);
+                option.gameObject.SetActive(host && option.name != PREFIX + "SEMFIM");
+                if (option.name != PREFIX + "SEMFIM")
+                    AtualizarUmControle(option);
             }
         }
 
@@ -247,17 +243,20 @@ namespace YouTubeVoteBridge
                 valor = YouTubeVoteBridgePlugin.PreparacaoChat.Value;
                 option.TitleText.text = "Preparação do chat";
             }
+            else if (option.name == PREFIX + "PREPARACAO")
+            {
+                valor = YouTubeVoteBridgePlugin.PreparacaoChat.Value;
+                option.TitleText.text = "Preparação do chat";
+            }
             else
             {
-                valor = YouTubeVoteBridgePlugin.SemFimDeJogo.Value ? 1 : 0;
-                option.TitleText.text = "Sem fim de jogo";
+                option.gameObject.SetActive(false);
+                return;
             }
 
             option.Value = valor;
             option.oldValue = valor;
-            option.ValueText.text = option.name == PREFIX + "SEMFIM"
-                ? (valor == 1 ? "Ativado" : "Desativado")
-                : valor + " s";
+            option.ValueText.text = valor + " s";
         }
     }
 
