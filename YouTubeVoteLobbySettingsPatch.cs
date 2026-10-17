@@ -243,11 +243,6 @@ namespace YouTubeVoteBridge
                 valor = YouTubeVoteBridgePlugin.PreparacaoChat.Value;
                 option.TitleText.text = "Preparação do chat";
             }
-            else if (option.name == PREFIX + "PREPARACAO")
-            {
-                valor = YouTubeVoteBridgePlugin.PreparacaoChat.Value;
-                option.TitleText.text = "Preparação do chat";
-            }
             else
             {
                 option.gameObject.SetActive(false);
