@@ -168,11 +168,16 @@ internal static class YouTubeVotePhantomHandleRpcPatch
             protectWriter.Write(0);
             AmongUsClient.Instance.FinishRpcImmediately(protectWriter);
 
-            // Não chamamos SetKillCooldown aqui: essa API não existe nesta versão
-            // de PlayerControl. A restauração do botão será tratada pelo estado local.
+            // CheckVanish começa a animação local no cliente antes de receber
+            // a decisão do host. Enviar CheckAppear ao dono força a rotina nativa
+            // de reaparecimento e pede que a animação de invisibilidade seja encerrada.
+            MessageWriter appearWriter = AmongUsClient.Instance.StartRpcImmediately(
+                __instance.NetId, (byte)RpcCalls.CheckAppear, SendOption.Reliable, ownerId);
+            appearWriter.Write(false);
+            AmongUsClient.Instance.FinishRpcImmediately(appearWriter);
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                $"[Phantom] Vanish rejeitado; SetRole, ProtectPlayer e restauração do cooldown enviados/aplicados. PlayerId={__instance.PlayerId}, OwnerId={ownerId}.");
+                $"[Phantom] Vanish rejeitado; SetRole, ProtectPlayer e CheckAppear(false) enviados ao dono. PlayerId={__instance.PlayerId}, OwnerId={ownerId}.");
         }
         catch (Exception ex)
         {
