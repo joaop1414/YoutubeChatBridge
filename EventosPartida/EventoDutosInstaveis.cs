@@ -172,16 +172,19 @@ internal sealed class EventoDutosInstaveis : EventoVotacao
 
             try
             {
-                // Espera após o SnapTo para o cliente estabilizar a posição antes de entrar.
+                // O jogador já está dentro de um duto. Não usar SnapTo nem
+                // RpcExitVent: isso tira o jogador do estado de ventilação e
+                // o SnapTo pode ser ignorado enquanto ele está dentro do duto.
+                // Enviar RpcEnterVent para o destino para trocar o duto ocupado.
                 jogador.MyPhysics?.RpcEnterVent(destino.Id);
                 troca.LiberarEm = agora + 0.5f;
-                Log($"RpcEnterVent enviado após SnapTo para PlayerId={playerId}, destino={destino.Id}.");
+                Log($"RpcEnterVent enviado para trocar diretamente de duto sem sair: PlayerId={playerId}, destino={destino.Id}.");
             }
             catch (Exception ex)
             {
                 trocasPendentes.Remove(playerId);
                 alterandoDuto.Remove(playerId);
-                Log($"Falha ao entrar no duto destino para PlayerId={playerId}: {ex.Message}");
+                Log($"Falha ao trocar diretamente para o duto destino para PlayerId={playerId}: {ex.Message}");
             }
         }
     }
@@ -262,25 +265,8 @@ internal sealed class EventoDutosInstaveis : EventoVotacao
 
             Vent destino = candidatos[System.Random.Shared.Next(candidatos.Count)];
             Log($"Executando troca: PlayerId={jogador.PlayerId}, origem={duto.Id}, destino={destino.Id} ({destino.name}).");
-            // Primeiro sai do duto atual, depois força a posição do jogador para o destino.
-            fisica.RpcExitVent(duto.Id);
-            Vector3 pos = destino.transform.position;
-            if (jogador.NetTransform != null)
-            {
-                Vector2 destinoLocal = new(pos.x, pos.y);
-                // RPC sincroniza os clientes remotos; aplicar a posição localmente
-                // também é necessário quando o alvo é o próprio host.
-                jogador.NetTransform.RpcSnapTo(destinoLocal);
-                jogador.transform.position = new Vector3(pos.x, pos.y, jogador.transform.position.z);
-                Log($"RpcSnapTo enviado e posição local aplicada para PlayerId={jogador.PlayerId}, posição=({pos.x}, {pos.y}).");
-            }
-            else
-            {
-                Log($"NetTransform nulo para PlayerId={jogador.PlayerId}; não foi possível enviar RpcSnapTo.");
-                return;
-            }
-
-            // Não entra imediatamente: dá tempo para o SnapTo ser aplicado antes do RPC do duto.
+            // Mantém o jogador dentro do duto atual. A troca será feita
+            // com RpcEnterVent no duto de destino, sem SnapTo nem RpcExitVent.
             trocasPendentes[jogador.PlayerId] = new TrocaDutoPendente
             {
                 PlayerId = jogador.PlayerId,
@@ -288,7 +274,7 @@ internal sealed class EventoDutosInstaveis : EventoVotacao
                 EntrarEm = Time.realtimeSinceStartup + 0.16f
             };
             manterBloqueio = true;
-            Log($"Entrada no duto {destino.Id} agendada para daqui a 0,16s após SnapTo.");
+            Log($"Troca direta para o duto {destino.Id} agendada para daqui a 0,16s; jogador permanece no duto.");
         }
         catch (Exception ex)
         {
