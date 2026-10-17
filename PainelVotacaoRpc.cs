@@ -409,8 +409,8 @@ internal sealed class PainelVotacaoOverlay : MonoBehaviour
 
         GUI.Label(new Rect(dentroX, atualY, larguraInterna, 20f * escala),
             PainelVotacaoRpc.VotacaoLobby
-                ? $"F7 • VOTAÇÃO NO LOBBY  #{PainelVotacaoRpc.Rodada}"
-                : $"F6 • VOTAÇÃO NA PARTIDA  #{PainelVotacaoRpc.Rodada}",
+                ? $"VOTAÇÃO NO LOBBY  #{PainelVotacaoRpc.Rodada}"
+                : $"VOTAÇÃO NA PARTIDA  #{PainelVotacaoRpc.Rodada}",
             estiloSubtitulo);
         atualY += 25f * escala;
         GUI.color = new Color(0.20f, 0.29f, 0.40f, 1f);
