@@ -45,7 +45,7 @@ internal sealed class EventoTeletransportarAleatorioParaPhantom : EventoVotacao
         }
 
         if (candidatos.Count == 0) return;
-        PlayerControl alvo = candidatos[Random.Shared.Next(candidatos.Count)];
+        PlayerControl alvo = candidatos[System.Random.Shared.Next(candidatos.Count)];
         try
         {
             Vector3 pos = phantom.transform.position;
