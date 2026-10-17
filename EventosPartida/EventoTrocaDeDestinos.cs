@@ -15,7 +15,7 @@ internal sealed class EventoTrocaDeDestinos : EventoVotacao
     {
         if (!YouTubeVoteBridgePlugin.EhHost()) return;
         armado = true;
-        if (ShipStatus.Instance != null) IniciarPartida();
+        if (LobbyTagManager.PartidaIniciada()) IniciarPartida();
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo("[F7/Troca de destinos] Evento armado para o início da partida.");
     }
 
