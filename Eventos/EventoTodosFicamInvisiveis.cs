@@ -27,8 +27,8 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
 
     private static void Aplicar()
     {
-        armado = false;
         if (PlayerControl.AllPlayerControls == null) return;
+        armado = false;
         int sucesso = 0;
         foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
         {
@@ -56,6 +56,7 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
                      (m.Name.IndexOf("Invisib", StringComparison.OrdinalIgnoreCase) >= 0 ||
                       m.Name.IndexOf("Vanish", StringComparison.OrdinalIgnoreCase) >= 0)) ||
                     string.Equals(m.Name, "SetRoleInvisibility", StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(m => m.Name.StartsWith("Rpc", StringComparison.OrdinalIgnoreCase))
                 .FirstOrDefault(m =>
                 {
                     ParameterInfo[] p = m.GetParameters();
