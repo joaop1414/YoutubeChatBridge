@@ -3280,7 +3280,13 @@ public static class YouTubeVoteRestoreLobbyTagsBeforeMatchPatch
         // Postfix faz a restauração depois dessa inicialização, evitando que os
         // nomes voltem a aparecer como "Jogador" quando a partida começa.
         if (AmongUsClient.Instance != null && AmongUsClient.Instance.AmHost)
+        {
             LobbyTagManager.RestaurarTodos();
+            EventoTeletransportarAlvoParaMetamorfoPartida.IniciarPartida();
+            EventoTeletransportarJogadorAoCompletarTarefa.IniciarPartida();
+            EventoTodosFicamInvisiveis.IniciarPartida();
+            EventoTeletransportarAleatorioParaPhantom.IniciarPartida();
+        }
     }
 }
 
@@ -3358,9 +3364,6 @@ public static class YouTubeVoteResetTaskEventsOnStartPatch
         EventoTarefaMataJogador.Desativar();
         EventoTarefaSuicidio.Desativar();
         EventoTeletransportarAlvoParaMetamorfo.Desativar();
-        EventoTeletransportarAlvoParaMetamorfoPartida.Resetar();
-        EventoTeletransportarJogadorAoCompletarTarefa.Desativar("início de nova partida");
-        EventoTeletransportarAleatorioParaPhantom.Resetar();
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             "Eventos de tarefa resetados no início da partida.");
     }
