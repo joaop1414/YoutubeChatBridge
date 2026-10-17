@@ -3380,9 +3380,9 @@ public static class YouTubeVoteUpdatePatch
         DiagnosticoPlayerReal.Atualizar();
         JogadorRealExperimental.Atualizar();
         EventoTesteMenu.VerificarTecla();
-        // O menu pode ser aberto no lobby, mas os eventos de teste só executam em partida.
-        if (LobbyTagManager.PartidaIniciada())
-            EventoTesteMenu.ProcessarFilaExecucao();
+        // Processa cliques também no lobby: F7 precisa ser armado antes de iniciar a partida.
+        // O próprio menu valida que F6 só seja executado durante a partida.
+        EventoTesteMenu.ProcessarFilaExecucao();
         // Não enviar RPC customizado 248 para hosts vanilla: eles não conhecem esse RPC.
         YouTubeVoteBridgePlugin.AtualizarAvisos();
         FakePlayerAPI.Atualizar();
