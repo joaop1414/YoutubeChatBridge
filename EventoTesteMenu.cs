@@ -47,12 +47,16 @@ internal sealed class EventoTesteMenu : MonoBehaviour
     private const int ID_BOTAO_IMPOSTOR_FANTASMA = 9002;
     private const int ID_SELETOR_FUNCAO = 9100;
     private const int ID_BOTAO_APLICAR_FUNCAO = 9101;
+    private const int ID_CAMPO_PLAYER_ALVO = 9102;
+    private const int ID_BOTAO_APLICAR_FUNCAO_ALVO = 9103;
     private const int ACAO_TROCAR_FUNCAO_BASE = 10000;
+    private const int ACAO_TROCAR_FUNCAO_ALVO_BASE = 20000;
     private const uint CBS_DROPDOWNLIST = 0x0003;
     private const uint CB_ADDSTRING = 0x0143;
     private const uint CB_SETCURSEL = 0x014E;
     private const uint CB_GETCURSEL = 0x0147;
     private static IntPtr seletorFuncao;
+    private static IntPtr campoPlayerAlvo;
     private static readonly string[] FuncoesTeste =
     {
         "Crewmate", "Scientist", "Engineer", "GuardianAngel",
@@ -189,10 +193,20 @@ internal sealed class EventoTesteMenu : MonoBehaviour
                     continue;
                 }
 
+                if (indice >= ACAO_TROCAR_FUNCAO_ALVO_BASE &&
+                    indice < ACAO_TROCAR_FUNCAO_ALVO_BASE + 256 * FuncoesTeste.Length)
+                {
+                    int codificado = indice - ACAO_TROCAR_FUNCAO_ALVO_BASE;
+                    byte playerIdAlvo = (byte)(codificado / FuncoesTeste.Length);
+                    int indiceFuncao = codificado % FuncoesTeste.Length;
+                    TestarTrocaFuncao(FuncoesTeste[indiceFuncao], playerIdAlvo);
+                    continue;
+                }
+
                 if (indice >= ACAO_TROCAR_FUNCAO_BASE &&
                     indice < ACAO_TROCAR_FUNCAO_BASE + FuncoesTeste.Length)
                 {
-                    TestarTrocaFuncao(FuncoesTeste[indice - ACAO_TROCAR_FUNCAO_BASE]);
+                    TestarTrocaFuncao(FuncoesTeste[indice - ACAO_TROCAR_FUNCAO_BASE], null);
                     continue;
                 }
 
@@ -329,18 +343,33 @@ internal sealed class EventoTesteMenu : MonoBehaviour
 
                 case WM_COMMAND:
                     int id = wParam.ToInt32() & 0xFFFF;
-                    if (id == ID_BOTAO_APLICAR_FUNCAO)
+                    if (id == ID_BOTAO_APLICAR_FUNCAO || id == ID_BOTAO_APLICAR_FUNCAO_ALVO)
                     {
                         int selecao = seletorFuncao == IntPtr.Zero
                             ? -1 : SendMessageW(seletorFuncao, CB_GETCURSEL, IntPtr.Zero, IntPtr.Zero).ToInt32();
-                        if (selecao >= 0 && selecao < FuncoesTeste.Length)
+                        if (selecao < 0 || selecao >= FuncoesTeste.Length)
+                        {
+                            mensagem = "Selecione uma função primeiro.";
+                        }
+                        else if (id == ID_BOTAO_APLICAR_FUNCAO)
                         {
                             filaExecucao.Enqueue(ACAO_TROCAR_FUNCAO_BASE + selecao);
-                            mensagem = "Solicitação de troca para " + FuncoesTeste[selecao] + "...";
+                            mensagem = "Solicitação para o jogador local: " + FuncoesTeste[selecao] + "...";
                         }
                         else
                         {
-                            mensagem = "Selecione uma função primeiro.";
+                            string textoId = LerTextoControle(campoPlayerAlvo).Trim();
+                            if (!byte.TryParse(textoId, out byte playerIdAlvo))
+                            {
+                                mensagem = "Digite um PlayerId válido (0 a 255).";
+                            }
+                            else
+                            {
+                                int acao = ACAO_TROCAR_FUNCAO_ALVO_BASE + playerIdAlvo * FuncoesTeste.Length + selecao;
+                                filaExecucao.Enqueue(acao);
+                                mensagem = "Solicitação para PlayerId " + playerIdAlvo + ": " + FuncoesTeste[selecao] + "...";
+                                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo("[Menu de teste] Pedido direcionado enfileirado: PlayerId=" + playerIdAlvo + ", função=" + FuncoesTeste[selecao] + ".");
+                            }
                         }
                         if (textoStatus != IntPtr.Zero)
                             SetWindowTextW(textoStatus, "STATUS: " + mensagem);
@@ -499,7 +528,21 @@ internal sealed class EventoTesteMenu : MonoBehaviour
                 355, funcoesY + 34, 187, 30, hwnd,
                 new IntPtr(ID_BOTAO_APLICAR_FUNCAO), instancia);
 
-            statusY = funcoesY + 76;
+            IntPtr labelAlvo = CriarControle("STATIC", "PlayerId do outro jogador (consulte o log):",
+                WS_CHILD | WS_VISIBLE | SS_LEFT,
+                22, funcoesY + 72, 520, 22, hwnd, IntPtr.Zero, instancia);
+            AplicarFonte(labelAlvo, fonteNormal);
+
+            campoPlayerAlvo = CriarControle("EDIT", "",
+                WS_CHILD | WS_VISIBLE | WS_BORDER,
+                22, funcoesY + 98, 150, 28, hwnd,
+                new IntPtr(ID_CAMPO_PLAYER_ALVO), instancia);
+            CriarControle("BUTTON", "Aplicar no jogador",
+                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                185, funcoesY + 97, 357, 30, hwnd,
+                new IntPtr(ID_BOTAO_APLICAR_FUNCAO_ALVO), instancia);
+
+            statusY = funcoesY + 137;
         }
         else
         {
@@ -857,6 +900,64 @@ internal sealed class EventoTesteMenu : MonoBehaviour
             "[Menu de teste] RPC vanilla de encerramento; motivo=" + nomeMotivo + ", enviado=" + enviado + ".");
     }
 
+    private static string LerTextoControle(IntPtr controle)
+    {
+        if (controle == IntPtr.Zero)
+            return string.Empty;
+        System.Text.StringBuilder texto = new(128);
+        GetWindowTextW(controle, texto, 128);
+        return texto.ToString();
+    }
+
+    private static void TestarTrocaFuncao(string nomeFuncao, byte? playerIdAlvo)
+    {
+        if (!ValidarHostEPartida())
+            return;
+
+        PlayerControl jogador = null;
+        if (playerIdAlvo.HasValue)
+        {
+            foreach (PlayerControl candidato in PlayerControl.AllPlayerControls)
+            {
+                if (candidato != null && candidato.PlayerId == playerIdAlvo.Value)
+                {
+                    jogador = candidato;
+                    break;
+                }
+            }
+        }
+        else
+        {
+            jogador = PlayerControl.LocalPlayer;
+        }
+
+        if (jogador == null || jogador.Data == null || jogador.Data.Disconnected)
+        {
+            string erro = playerIdAlvo.HasValue
+                ? "Não encontrei jogador conectado com PlayerId " + playerIdAlvo.Value + "."
+                : "Não foi possível encontrar o jogador local.";
+            MostrarMensagem(erro);
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning("[Menu de teste] " + erro);
+            return;
+        }
+
+        if (!Enum.TryParse(typeof(RoleTypes), nomeFuncao, true, out object valorPapel))
+        {
+            MostrarMensagem("Esta versão do jogo não reconhece a função " + nomeFuncao + ".");
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning("[Menu de teste] RoleTypes não contém " + nomeFuncao + ".");
+            return;
+        }
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"[Menu de teste] Tentando trocar função: PlayerId={jogador.PlayerId}, nome={jogador.Data.PlayerName}, OwnerId={jogador.OwnerId}, função={nomeFuncao}.");
+        bool sucesso = RoleSwitchAPI.TrocarFuncao(jogador, (RoleTypes)valorPapel);
+        MostrarMensagem(sucesso
+            ? $"RPC solicitado: PlayerId {jogador.PlayerId} -> {nomeFuncao}. Confira log [RoleSwitchAPI]."
+            : $"Falha ao solicitar função para PlayerId {jogador.PlayerId}; consulte o log.");
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"[Menu de teste] Resultado: PlayerId={jogador.PlayerId}, função={nomeFuncao}, sucesso={sucesso}.");
+    }
+
     private static void MostrarMensagem(string texto)
     {
         mensagem = texto ?? "";
@@ -961,6 +1062,9 @@ internal sealed class EventoTesteMenu : MonoBehaviour
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "SetWindowTextW", SetLastError = true)]
     private static extern bool SetWindowTextW(IntPtr hWnd, string lpString);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "GetWindowTextW", SetLastError = true)]
+    private static extern int GetWindowTextW(IntPtr hWnd, System.Text.StringBuilder lpString, int nMaxCount);
 
     [DllImport("user32.dll", EntryPoint = "SendMessageW")]
     private static extern IntPtr SendMessageW(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
