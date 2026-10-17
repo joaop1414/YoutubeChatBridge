@@ -18,7 +18,9 @@ internal sealed class EventoTsunami : EventoVotacao
     public static bool AvisoAtivo => ativo || avisoLocalAtivo;
     private const byte PlayerIdIndicador = CompatibilidadeClientes.PlayerIdIndicadorTsunami;
     private const float Velocidade = 3.0f;
-    private const float Intervalo = 0.08f;
+    // Atualizações mais frequentes reduzem os saltos visuais ao carregar jogadores.
+    // 25 atualizações/s; Velocidade * Intervalo mantém a velocidade física da onda.
+    private const float Intervalo = 0.04f;
     private const float ProtecaoDuto = 1.0f;
     private const float AlcanceDutoTsunami = 0.65f;
     private const float AlcanceIdentificarDutoTsunami = 0.85f;
