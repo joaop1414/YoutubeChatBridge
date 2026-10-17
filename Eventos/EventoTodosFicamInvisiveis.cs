@@ -2,6 +2,8 @@ using System;
 using System.Reflection;
 using System.Linq;
 using HarmonyLib;
+using Hazel;
+using UnityEngine;
 
 namespace YouTubeVoteBridge;
 
@@ -9,7 +11,7 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
 {
     private static bool ativo;
     private static bool armado;
-    public static bool AplicandoEvento { get; private set; }
+    private static readonly System.Collections.Generic.HashSet<byte> invisiveis = new();
 
     public override string Nome => "Todos ficam invisíveis";
 
@@ -28,68 +30,39 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
 
     private static void Aplicar()
     {
-        if (!ativo || PlayerControl.AllPlayerControls == null) return;
+        if (!ativo || PlayerControl.AllPlayerControls == null || AmongUsClient.Instance == null) return;
         armado = false;
-        AplicandoEvento = true;
+        invisiveis.Clear();
         int sucesso = 0;
 
-        try
+        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
         {
-            foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
-            {
-                if (jogador == null || jogador.Data == null ||
-                    jogador.Data.Disconnected || jogador.Data.IsDead)
-                    continue;
+            if (jogador == null || jogador.Data == null ||
+                jogador.Data.Disconnected || jogador.Data.IsDead)
+                continue;
 
-                if (DefinirInvisibilidadeVisual(jogador, true))
-                    sucesso++;
+            if (DefinirInvisibilidadeLocal(jogador, true))
+            {
+                invisiveis.Add(jogador.PlayerId);
+                EnviarSnapParaClientes(jogador, false);
+                sucesso++;
             }
-        }
-        finally
-        {
-            AplicandoEvento = false;
         }
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"[Invisibilidade] Evento aplicado visualmente a {sucesso} jogador(es); termina na próxima reunião.");
+            $"[Invisibilidade/EHR] Aplicada a {sucesso} jogador(es). Para clientes remotos, usa SnapTo direcionado para fora da tela; termina na próxima reunião.");
     }
 
-    private static bool DefinirInvisibilidadeVisual(PlayerControl jogador, bool invisivel)
+    // Equivalente ao RpcMakeInvisible do EHR: no cliente local altera alpha/visibilidade;
+    // para cada outro cliente envia SnapTo direcionado para fora da tela. Clientes vanilla
+    // não entendem RPCs personalizados, mas processam o RPC nativo SnapTo.
+    private static bool DefinirInvisibilidadeLocal(PlayerControl jogador, bool invisivel)
     {
         try
         {
-            // Usa o mesmo mecanismo nativo de invisibilidade do Phantom para cada jogador.
-            // AplicandoEvento sinaliza ao patch de bloqueio que esta chamada é do evento,
-            // não uma tentativa de ativar a habilidade do Phantom.
-            MethodInfo metodoNativo = typeof(PlayerControl).GetMethods(
-                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-                .FirstOrDefault(m =>
-                    string.Equals(m.Name, "SetRoleInvisibility", StringComparison.OrdinalIgnoreCase) &&
-                    m.GetParameters().Length >= 1 &&
-                    m.GetParameters()[0].ParameterType == typeof(bool));
-
-            if (metodoNativo != null)
-            {
-                ParameterInfo[] parametros = metodoNativo.GetParameters();
-                object[] argumentos = new object[parametros.Length];
-                argumentos[0] = invisivel;
-                for (int i = 1; i < parametros.Length; i++)
-                    argumentos[i] = parametros[i].HasDefaultValue
-                        ? parametros[i].DefaultValue
-                        : (parametros[i].ParameterType.IsValueType
-                            ? Activator.CreateInstance(parametros[i].ParameterType)
-                            : null);
-                metodoNativo.Invoke(jogador, argumentos);
-            }
-
-            // Mantém os campos visuais como complemento/fallback local.
             jogador.invisibilityAlpha = invisivel
                 ? (jogador.AmOwner ? 0.5f : (PlayerControl.LocalPlayer?.Data?.Role?.IsDead == true ? 0.5f : 0f))
                 : 1f;
-
-            jogador.shouldAppearInvisible = invisivel;
-            jogador.Visible = invisivel ? jogador.AmOwner : !jogador.inVent;
-
             if (jogador.cosmetics != null)
             {
                 MethodInfo alpha = jogador.cosmetics.GetType().GetMethods(
@@ -98,18 +71,80 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
                         string.Equals(m.Name, "SetPhantomRoleAlpha", StringComparison.OrdinalIgnoreCase) &&
                         m.GetParameters().Length == 1 &&
                         m.GetParameters()[0].ParameterType == typeof(float));
-
                 alpha?.Invoke(jogador.cosmetics, new object[] { jogador.invisibilityAlpha });
             }
 
+            if (!jogador.AmOwner)
+            {
+                jogador.shouldAppearInvisible = invisivel;
+                jogador.Visible = invisivel ? false : !jogador.inVent;
+            }
             return true;
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                $"[Invisibilidade] Não foi possível alterar visualmente PlayerId={jogador.PlayerId}: {ex.GetBaseException().Message}");
+                $"[Invisibilidade/EHR] Falha visual para PlayerId={jogador.PlayerId}: {ex.GetBaseException().Message}");
             return false;
         }
+    }
+
+    private static void EnviarSnapParaClientes(PlayerControl alvo, bool restaurar)
+    {
+        if (alvo?.NetTransform == null || AmongUsClient.Instance == null ||
+            PlayerControl.AllPlayerControls == null)
+            return;
+
+        int clientHost = AmongUsClient.Instance.ClientId;
+        var clientes = new System.Collections.Generic.HashSet<int>();
+        foreach (PlayerControl espectador in PlayerControl.AllPlayerControls)
+        {
+            if (espectador == null || espectador.Data == null || espectador.Data.Disconnected ||
+                espectador.OwnerId < 0 || espectador.OwnerId == clientHost ||
+                espectador.OwnerId == alvo.OwnerId || !clientes.Add(espectador.OwnerId))
+                continue;
+
+            try
+            {
+                ushort seq = alvo.NetTransform.lastSequenceId;
+                MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
+                writer.StartMessage(6); // GameDataTo: apenas este cliente
+                writer.Write(AmongUsClient.Instance.GameId);
+                writer.WritePacked(espectador.OwnerId);
+
+                if (!restaurar)
+                {
+                    EscreverSnap(writer, alvo, new Vector2(50f, 50f), seq);
+                    EscreverSnap(writer, alvo, new Vector2(50f, 50f), (ushort)(seq + 16383));
+                }
+                else
+                {
+                    EscreverSnap(writer, alvo, new Vector2(50f, 50f), (ushort)(seq + 32767));
+                    EscreverSnap(writer, alvo, new Vector2(50f, 50f), (ushort)(seq + 32767 + 16383));
+                    Vector3 pos = alvo.transform.position;
+                    EscreverSnap(writer, alvo, new Vector2(pos.x, pos.y), seq);
+                }
+
+                writer.EndMessage();
+                AmongUsClient.Instance.SendOrDisconnect(writer);
+                writer.Recycle();
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    $"[Invisibilidade/EHR] Falha ao enviar SnapTo para ClientId={espectador.OwnerId}, PlayerId={alvo.PlayerId}: {ex.GetBaseException().Message}");
+            }
+        }
+    }
+
+    private static void EscreverSnap(MessageWriter writer, PlayerControl alvo, Vector2 pos, ushort sequence)
+    {
+        writer.StartMessage(2);
+        writer.WritePacked(alvo.NetTransform.NetId);
+        writer.Write((byte)RpcCalls.SnapTo);
+        writer.WriteVector2(pos);
+        writer.Write(sequence);
+        writer.EndMessage();
     }
 
     internal static void EncerrarNaReuniao()
@@ -122,16 +157,20 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         {
             foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
             {
-                if (jogador == null || jogador.Data == null ||
-                    jogador.Data.Disconnected || jogador.Data.IsDead)
+                if (jogador == null || jogador.Data == null || jogador.Data.Disconnected)
                     continue;
 
-                DefinirInvisibilidadeVisual(jogador, false);
+                if (invisiveis.Contains(jogador.PlayerId))
+                {
+                    EnviarSnapParaClientes(jogador, true);
+                    DefinirInvisibilidadeLocal(jogador, false);
+                }
             }
         }
 
+        invisiveis.Clear();
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            "[Invisibilidade] Evento encerrado na reunião; visibilidade restaurada.");
+            "[Invisibilidade/EHR] Evento encerrado na reunião; visibilidade restaurada.");
     }
 
     [HarmonyPatch(typeof(MeetingHud), nameof(MeetingHud.Start))]
