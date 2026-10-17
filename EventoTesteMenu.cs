@@ -679,10 +679,49 @@ internal sealed class EventoTesteMenu : MonoBehaviour
             return;
 
         MostrarMensagem("Enviando RPC de encerramento...");
-        bool enviado = ControleFimDeJogo.EncerrarPartidaPeloMod(nomeMotivo, false);
-        MostrarMensagem(enviado ? "Comando de encerramento enviado." : "Não foi possível enviar o RPC de encerramento.");
+        bool enviado = false;
+        try
+        {
+            GameManager gerente = GameManager.Instance;
+            if (gerente != null)
+            {
+                foreach (MethodInfo metodo in typeof(GameManager).GetMethods(
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+                {
+                    if (metodo.Name != "RpcEndGame")
+                        continue;
+
+                    ParameterInfo[] parametros = metodo.GetParameters();
+                    if (parametros.Length != 2 ||
+                        !parametros[0].ParameterType.IsEnum ||
+                        parametros[1].ParameterType != typeof(bool))
+                        continue;
+
+                    object motivo;
+                    try
+                    {
+                        motivo = Enum.Parse(parametros[0].ParameterType, nomeMotivo, true);
+                    }
+                    catch
+                    {
+                        motivo = Enum.Parse(parametros[0].ParameterType, "HumansByVote", true);
+                    }
+
+                    metodo.Invoke(gerente, new object[] { motivo, false });
+                    enviado = true;
+                    break;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "[Menu de teste] Falha ao chamar o RPC vanilla de fim de jogo: " + ex);
+        }
+
+        MostrarMensagem(enviado ? "Comando de encerramento enviado." : "Não foi possível encontrar/chamar RpcEndGame.");
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            "[Menu de teste] Encerramento pelo controlador compartilhado; motivo=" + nomeMotivo + ", enviado=" + enviado + ".");
+            "[Menu de teste] RPC vanilla de encerramento; motivo=" + nomeMotivo + ", enviado=" + enviado + ".");
     }
 
     private static void MostrarMensagem(string texto)
