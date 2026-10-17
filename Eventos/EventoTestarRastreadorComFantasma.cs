@@ -40,39 +40,29 @@ internal sealed class EventoTestarRastreadorComFantasma : EventoVotacao
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             $"Teste EHR canOverride: jogador escolhido: {alvo.Data.PlayerName} (PlayerId={alvo.PlayerId}).");
 
-        // EHR aplica a função localmente pela coroutine e envia o SetRole RPC
-        // global com o booleano canOverride=true.
-        AmongUsClient.Instance.StartCoroutine(TestarSequencia(alvo));
+        // PlayerControl, assim como no EHR, inicia a coroutine de sequência.
+        alvo.StartCoroutine(TestarSequencia(alvo));
     }
 
     private static IEnumerator TestarSequencia(PlayerControl alvo)
     {
-        try
+        EnviarRoleGlobalComoEhr(alvo, RoleTypes.CrewmateGhost);
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"Teste EHR: tentativa CrewmateGhost com canOverride=true para PlayerId={alvo.PlayerId}.");
+
+        // Aguarda o jogo processar a primeira atribuição antes de tentar Tracker.
+        yield return new WaitForSeconds(0.5f);
+
+        if (alvo == null || alvo.Data == null || alvo.Data.Disconnected)
         {
-            EnviarRoleGlobalComoEhr(alvo, RoleTypes.CrewmateGhost);
-            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                $"Teste EHR: enviado SetRole global(CrewmateGhost, canOverride=true) para PlayerId={alvo.PlayerId}.");
-
-            // Dá tempo para CoSetRole terminar e para os clientes processarem
-            // o primeiro SetRole antes de mandar a segunda função.
-            yield return new WaitForSeconds(0.5f);
-
-            if (alvo == null || alvo.Data == null || alvo.Data.Disconnected)
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "Teste EHR cancelado: o jogador saiu antes da segunda atribuição.");
-                yield break;
-            }
-
-            EnviarRoleGlobalComoEhr(alvo, RoleTypes.Tracker);
-            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                $"Teste EHR: enviado SetRole global(Tracker, canOverride=true) para PlayerId={alvo.PlayerId}.");
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "Teste EHR cancelado: o jogador saiu antes da segunda atribuição.");
+            yield break;
         }
-        catch (Exception ex)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                $"Falha no teste EHR CrewmateGhost -> Tracker para PlayerId={alvo?.PlayerId}: {ex}");
-        }
+
+        EnviarRoleGlobalComoEhr(alvo, RoleTypes.Tracker);
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"Teste EHR: tentativa Tracker com canOverride=true para PlayerId={alvo.PlayerId}.");
     }
 
     private static void EnviarRoleGlobalComoEhr(PlayerControl alvo, RoleTypes role)
@@ -80,17 +70,24 @@ internal sealed class EventoTestarRastreadorComFantasma : EventoVotacao
         if (!YouTubeVoteBridgePlugin.EhHost() || alvo == null)
             return;
 
-        // Equivalente ao EHR: player.SetRole(role) local + SetRole RPC global.
-        // SetRole chama CoSetRole(role, canOverride), que também executa a
-        // rotina interna do jogo, enquanto o RPC informa canOverride=true a todos.
-        alvo.StartCoroutine(alvo.CoSetRole(role, true));
+        try
+        {
+            // O EHR inicia a rotina local CoSetRole e também transmite SetRole
+            // globalmente, com o booleano canOverride=true.
+            alvo.StartCoroutine(alvo.CoSetRole(role, true));
 
-        MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
-            alvo.NetId,
-            (byte)RpcCalls.SetRole,
-            SendOption.Reliable);
-        writer.Write((ushort)role);
-        writer.Write(true);
-        AmongUsClient.Instance.FinishRpcImmediately(writer);
+            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
+                alvo.NetId,
+                (byte)RpcCalls.SetRole,
+                SendOption.Reliable);
+            writer.Write((ushort)role);
+            writer.Write(true);
+            AmongUsClient.Instance.FinishRpcImmediately(writer);
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                $"Falha ao atribuir {role} com canOverride=true a PlayerId={alvo.PlayerId}: {ex}");
+        }
     }
 }
