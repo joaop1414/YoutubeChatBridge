@@ -156,28 +156,15 @@ internal static class YouTubeVotePhantomHandleRpcPatch
 
         try
         {
-            MessageWriter roleWriter = AmongUsClient.Instance.StartRpcImmediately(
-                __instance.NetId, (byte)RpcCalls.SetRole, SendOption.Reliable, ownerId);
-            roleWriter.Write((ushort)RoleTypes.Phantom);
-            roleWriter.Write(true);
-            AmongUsClient.Instance.FinishRpcImmediately(roleWriter);
-
-            MessageWriter protectWriter = AmongUsClient.Instance.StartRpcImmediately(
-                __instance.NetId, (byte)RpcCalls.ProtectPlayer, SendOption.Reliable, ownerId);
-            protectWriter.WritePacked(__instance.NetId);
-            protectWriter.Write(0);
-            AmongUsClient.Instance.FinishRpcImmediately(protectWriter);
-
-            // CheckVanish começa a animação local no cliente antes de receber
-            // a decisão do host. Enviar CheckAppear ao dono força a rotina nativa
-            // de reaparecimento e pede que a animação de invisibilidade seja encerrada.
+            // Cancela o vanish apenas no cliente dono do Phantom.
+            // Não altera a função nem o estado dos outros jogadores.
             MessageWriter appearWriter = AmongUsClient.Instance.StartRpcImmediately(
                 __instance.NetId, (byte)RpcCalls.CheckAppear, SendOption.Reliable, ownerId);
             appearWriter.Write(false);
             AmongUsClient.Instance.FinishRpcImmediately(appearWriter);
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                $"[Phantom] Vanish rejeitado; SetRole, ProtectPlayer e CheckAppear(false) enviados ao dono. PlayerId={__instance.PlayerId}, OwnerId={ownerId}.");
+                $"[Phantom] Vanish rejeitado; CheckAppear(false) enviado somente ao dono. PlayerId={__instance.PlayerId}, OwnerId={ownerId}.");
         }
         catch (Exception ex)
         {
