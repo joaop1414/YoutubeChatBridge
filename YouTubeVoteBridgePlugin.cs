@@ -1448,6 +1448,9 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 case "Alvo da metamorfose é teleportado para o metamorfo":
                     new EventoTeletransportarAlvoParaMetamorfo().Executar();
                     break;
+                case "Testar Rastreador após Tripulante Fantasma":
+                    new EventoTestarRastreadorComFantasma().Executar();
+                    break;
                 case "Um jogador aleatório comete suicídio":
                     new EventoSuicidioAleatorio().Executar();
                     break;
