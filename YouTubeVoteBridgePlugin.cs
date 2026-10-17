@@ -2714,7 +2714,14 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             EnviandoRpcDestransformacaoRainbow = true;
             ReenviandoRpcShapeshiftPreparado = true;
             shapeshifter.RpcShapeshift(shapeshifter, shouldAnimate);
-            Instance?.Log.LogInfo($"Shapeshift: destransformação interceptada e reenviada; PlayerId={id}, estadoRainbowAnterior={(tinhaEstado ? estado.EraRainbow : rainbowAtivo)}.");
+
+            // O host pode atualizar a aparência local ao processar o RPC de
+            // destransformação e sobrescrever visualmente a cor aplicada antes.
+            // Reaplicamos depois do RPC: isso mantém a cor de dados e a cor
+            // realmente exibida consistentes no host, sem mudar o fluxo vanilla.
+            shapeshifter.RpcSetColor((byte)Math.Clamp(corOriginal, 0, 255));
+            Instance?.Log.LogInfo(
+                $"Shapeshift: destransformação reenviada e cor original reaplicada após RPC; PlayerId={id}, cor={corOriginal}, estadoRainbowAnterior={(tinhaEstado ? estado.EraRainbow : rainbowAtivo)}.");
             return false;
         }
         catch (Exception ex)
