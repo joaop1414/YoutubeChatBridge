@@ -3488,6 +3488,7 @@ public static class YouTubeVoteShapeshiftCheckPatch
         // target == jogador quando a habilidade está revertendo.
         if (__instance.PlayerId == target.PlayerId)
         {
+            RainbowShapeshiftController.Encerrar(__instance.PlayerId);
             RainbowColorTransition.DefinirMetamorfoTransformado(__instance.PlayerId, false);
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 $"Shapeshift: CheckShapeshift detectou DEStransformação para PlayerId={__instance.PlayerId}; retomando rainbow e aguardando RpcShapeshift/SetTasks para restaurar tarefas.");
@@ -3504,10 +3505,14 @@ public static class YouTubeVoteShapeshiftCheckPatch
         // A suspensão só vale para uma transformação comum de um jogador Rainbow.
         if (alvoRainbow)
         {
+            // Controlador separado acompanha visualmente o alvo Rainbow transformado,
+            // copiando a cor já interpolada para o corpo do Shapeshifter em cada frame.
+            RainbowShapeshiftController.Iniciar(__instance, target);
             RainbowColorTransition.DefinirMetamorfoTransformado(__instance.PlayerId, false);
         }
         else
         {
+            RainbowShapeshiftController.Encerrar(__instance.PlayerId);
             RainbowColorTransition.DefinirMetamorfoTransformado(__instance.PlayerId, true);
             if (jogadorRainbow)
                 YouTubeVoteBridgePlugin.PausarRainbowDuranteShapeshift(__instance);
