@@ -404,33 +404,42 @@ internal sealed class EventoTesteMenu : MonoBehaviour
             }
         }
 
-        int acoesY = 96 + eventos.Count * ALTURA_LINHA + 8;
-        CriarControle("STATIC", "",
-            WS_CHILD | WS_VISIBLE | SS_ETCHEDHORZ,
-            18, acoesY, 545, 2, hwnd, IntPtr.Zero, instancia);
+        int statusY;
+        if (!modoEventosPartida)
+        {
+            int acoesY = 96 + eventos.Count * ALTURA_LINHA + 8;
+            CriarControle("STATIC", "",
+                WS_CHILD | WS_VISIBLE | SS_ETCHEDHORZ,
+                18, acoesY, 545, 2, hwnd, IntPtr.Zero, instancia);
 
-        IntPtr labelAcoes = CriarControle("STATIC",
-            "TESTES DE PARTIDA (somente host)",
-            WS_CHILD | WS_VISIBLE | SS_LEFT,
-            22, acoesY + 8, 520, 24, hwnd, IntPtr.Zero, instancia);
-        AplicarFonte(labelAcoes, fonteNormal);
+            IntPtr labelAcoes = CriarControle("STATIC",
+                "TESTES DE PARTIDA (somente host)",
+                WS_CHILD | WS_VISIBLE | SS_LEFT,
+                22, acoesY + 8, 520, 24, hwnd, IntPtr.Zero, instancia);
+            AplicarFonte(labelAcoes, fonteNormal);
 
-        CriarControle("BUTTON", "Encerrar partida",
-            WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-            22, acoesY + 34, 520, 30, hwnd,
-            new IntPtr(ID_BOTAO_ENCERRAR), instancia);
+            CriarControle("BUTTON", "Encerrar partida",
+                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                22, acoesY + 34, 520, 30, hwnd,
+                new IntPtr(ID_BOTAO_ENCERRAR), instancia);
 
-        CriarControle("BUTTON", "Tripulante fantasma + encerrar",
-            WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-            22, acoesY + 70, 520, 30, hwnd,
-            new IntPtr(ID_BOTAO_TRIPULANTE_FANTASMA), instancia);
+            CriarControle("BUTTON", "Tripulante fantasma + encerrar",
+                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                22, acoesY + 70, 520, 30, hwnd,
+                new IntPtr(ID_BOTAO_TRIPULANTE_FANTASMA), instancia);
 
-        CriarControle("BUTTON", "Impostor fantasma + encerrar",
-            WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-            22, acoesY + 106, 520, 30, hwnd,
-            new IntPtr(ID_BOTAO_IMPOSTOR_FANTASMA), instancia);
+            CriarControle("BUTTON", "Impostor fantasma + encerrar",
+                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                22, acoesY + 106, 520, 30, hwnd,
+                new IntPtr(ID_BOTAO_IMPOSTOR_FANTASMA), instancia);
 
-        int statusY = acoesY + 146;
+            statusY = acoesY + 146;
+        }
+        else
+        {
+            statusY = 100 + eventos.Count * ALTURA_LINHA + 8;
+        }
+
         CriarControle("STATIC", "",
             WS_CHILD | WS_VISIBLE | SS_ETCHEDHORZ,
             18, statusY, 545, 2, hwnd, IntPtr.Zero, instancia);
