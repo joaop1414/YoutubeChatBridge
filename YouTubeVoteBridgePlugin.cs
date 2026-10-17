@@ -3580,6 +3580,76 @@ public static class YouTubeVoteShapeshiftCheckPatch
 internal static class ControleFimDeJogo
 {
     internal static bool PermitirFimDoMod;
+
+    // Reutiliza o mesmo RPC usado pelo botão "Encerrar partida" do F6.
+    // O chamador deve preparar papéis/estado antes de pedir o encerramento.
+    internal static bool EncerrarPartidaPeloMod(string nomeMotivo, bool mostrarAd = false)
+    {
+        if (!YouTubeVoteBridgePlugin.EhHost())
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[Fim de jogo] O encerramento próprio foi recusado porque este cliente não é o host.");
+            return false;
+        }
+
+        try
+        {
+            object gerenciador = GameManager.Instance;
+            if (gerenciador == null)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[Fim de jogo] GameManager.Instance está nulo; não foi possível encerrar.");
+                return false;
+            }
+
+            MethodInfo metodo = gerenciador.GetType().GetMethods(
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                .FirstOrDefault(candidato =>
+                {
+                    if (candidato.Name != "RpcEndGame")
+                        return false;
+                    ParameterInfo[] p = candidato.GetParameters();
+                    return p.Length == 2 && p[0].ParameterType.IsEnum &&
+                        p[1].ParameterType == typeof(bool);
+                });
+
+            if (metodo == null)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                    "[Fim de jogo] GameManager.RpcEndGame compatível não foi encontrado.");
+                return false;
+            }
+
+            Type tipoMotivo = metodo.GetParameters()[0].ParameterType;
+            if (!Enum.TryParse(tipoMotivo, nomeMotivo, true, out object motivo))
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[Fim de jogo] Motivo '" + nomeMotivo + "' inválido para " +
+                    tipoMotivo.Name + "; encerramento cancelado.");
+                return false;
+            }
+
+            PermitirFimDoMod = true;
+            try
+            {
+                metodo.Invoke(gerenciador, new object[] { motivo, mostrarAd });
+            }
+            finally
+            {
+                PermitirFimDoMod = false;
+            }
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[Fim de jogo] GameManager.RpcEndGame enviado pelo mod. Motivo=" + motivo + ".");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "[Fim de jogo] Falha ao enviar RpcEndGame: " + (ex.InnerException ?? ex));
+            return false;
+        }
+    }
 }
 
 [HarmonyPatch]
