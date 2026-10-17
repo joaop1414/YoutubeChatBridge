@@ -51,7 +51,13 @@ internal static class RainbowColorTransition
         if (transformado)
         {
             MetamorfosTransformados.Add(playerId);
-            CorrecaoLocalAte[playerId] = Time.realtimeSinceStartup + DURACAO_CORRECAO_LOCAL;
+            CorrecaoLocalAte.Remove(playerId);
+            // Retira o jogador do loop visual durante a transformação. A lista
+            // será reativada explicitamente quando ele voltar à forma original.
+            Ativos.Remove(playerId);
+            AtivosForcados.Remove(playerId);
+            PendenteRestaurarVisual.Remove(playerId);
+            Estados.Remove(playerId);
             Estado estado = ObterEstado(playerId);
             estado.CorAlvo = -1;
             estado.Inicializado = false;
@@ -129,6 +135,16 @@ internal static class RainbowColorTransition
                 continue;
 
             byte playerId = jogador.PlayerId;
+            if (MetamorfosTransformados.Contains(playerId))
+            {
+                // Não detecta nem reativa o rainbow pela sequência de cores
+                // enquanto o jogador estiver transformado.
+                Estado pausado = ObterEstado(playerId);
+                pausado.UltimaCorObservada = -1;
+                pausado.MudancasRegulares = 0;
+                continue;
+            }
+
             int idCor = (int)jogador.Data.DefaultOutfit.ColorId;
             Estado estado = ObterEstado(playerId);
 
