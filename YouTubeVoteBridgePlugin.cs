@@ -59,6 +59,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     private static readonly List<Evento> Opcoes = new();
     private static readonly System.Random Sorteador = new();
     private static readonly List<Evento> Catalogo = RegistroEventos.ObterTodos()
+        .Concat(RegistroEventosPartida.ObterTodos())
         .Select(evento => new Evento(evento.Nome))
         .ToList();
     private static bool RodadaAtiva;
