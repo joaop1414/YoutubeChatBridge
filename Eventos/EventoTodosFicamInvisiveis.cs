@@ -95,39 +95,35 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
             PlayerControl.AllPlayerControls == null)
             return;
 
+        // Usar a API oficial de RPC direcionado do Among Us, como o EHR,
+        // em vez de montar manualmente o pacote GameDataTo.
         int clientHost = AmongUsClient.Instance.ClientId;
         var clientes = new System.Collections.Generic.HashSet<int>();
+
         foreach (PlayerControl espectador in PlayerControl.AllPlayerControls)
         {
             if (espectador == null || espectador.Data == null || espectador.Data.Disconnected ||
                 espectador.OwnerId < 0 || espectador.OwnerId == clientHost ||
-                espectador.OwnerId == alvo.OwnerId || !clientes.Add(espectador.OwnerId))
+                espectador == alvo || !clientes.Add(espectador.OwnerId))
                 continue;
 
             try
             {
+                int clientId = espectador.OwnerId;
                 ushort seq = alvo.NetTransform.lastSequenceId;
-                MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
-                writer.StartMessage(6); // GameDataTo: apenas este cliente
-                writer.Write(AmongUsClient.Instance.GameId);
-                writer.WritePacked(espectador.OwnerId);
 
                 if (!restaurar)
                 {
-                    EscreverSnap(writer, alvo, new Vector2(50f, 50f), seq);
-                    EscreverSnap(writer, alvo, new Vector2(50f, 50f), (ushort)(seq + 16383));
+                    EnviarSnapDirecionado(alvo, clientId, new Vector2(50f, 50f), seq);
+                    EnviarSnapDirecionado(alvo, clientId, new Vector2(50f, 50f), (ushort)(seq + 16383));
                 }
                 else
                 {
-                    EscreverSnap(writer, alvo, new Vector2(50f, 50f), (ushort)(seq + 32767));
-                    EscreverSnap(writer, alvo, new Vector2(50f, 50f), (ushort)(seq + 32767 + 16383));
+                    EnviarSnapDirecionado(alvo, clientId, new Vector2(50f, 50f), (ushort)(seq + 32767));
+                    EnviarSnapDirecionado(alvo, clientId, new Vector2(50f, 50f), (ushort)(seq + 32767 + 16383));
                     Vector3 pos = alvo.transform.position;
-                    EscreverSnap(writer, alvo, new Vector2(pos.x, pos.y), seq);
+                    EnviarSnapDirecionado(alvo, clientId, new Vector2(pos.x, pos.y), seq);
                 }
-
-                writer.EndMessage();
-                AmongUsClient.Instance.SendOrDisconnect(writer);
-                writer.Recycle();
             }
             catch (Exception ex)
             {
@@ -137,15 +133,14 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         }
     }
 
-    private static void EscreverSnap(MessageWriter writer, PlayerControl alvo, Vector2 pos, ushort sequence)
+    private static void EnviarSnapDirecionado(PlayerControl alvo, int clientId, Vector2 pos, ushort sequence)
     {
-        writer.StartMessage(2);
-        writer.WritePacked(alvo.NetTransform.NetId);
-        writer.Write((byte)RpcCalls.SnapTo);
+        MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
+            alvo.NetTransform.NetId, (byte)RpcCalls.SnapTo, SendOption.Reliable, clientId);
         writer.Write(pos.x);
         writer.Write(pos.y);
         writer.Write(sequence);
-        writer.EndMessage();
+        AmongUsClient.Instance.FinishRpcImmediately(writer);
     }
 
     internal static void EncerrarNaReuniao()
