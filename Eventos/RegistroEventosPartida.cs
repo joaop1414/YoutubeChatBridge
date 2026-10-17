@@ -9,7 +9,6 @@ internal static class RegistroEventosPartida
     {
         new EventoTeletransportarAlvoParaMetamorfoPartida(),
         new EventoTeletransportarJogadorAoCompletarTarefa(),
-        new EventoTeletransportarAleatorioParaPhantom()
     };
 
     public static IReadOnlyList<EventoVotacao> ObterTodos() => Eventos;
