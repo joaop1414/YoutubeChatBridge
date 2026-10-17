@@ -58,8 +58,31 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
     {
         try
         {
-            // Segue a abordagem visual do EHR (MakeInvisible/MakeVisible), sem chamar
-            // SetRoleInvisibility, que é específico da habilidade do Phantom.
+            // Usa o mesmo mecanismo nativo de invisibilidade do Phantom para cada jogador.
+            // AplicandoEvento sinaliza ao patch de bloqueio que esta chamada é do evento,
+            // não uma tentativa de ativar a habilidade do Phantom.
+            MethodInfo metodoNativo = typeof(PlayerControl).GetMethods(
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                .FirstOrDefault(m =>
+                    string.Equals(m.Name, "SetRoleInvisibility", StringComparison.OrdinalIgnoreCase) &&
+                    m.GetParameters().Length >= 1 &&
+                    m.GetParameters()[0].ParameterType == typeof(bool));
+
+            if (metodoNativo != null)
+            {
+                ParameterInfo[] parametros = metodoNativo.GetParameters();
+                object[] argumentos = new object[parametros.Length];
+                argumentos[0] = invisivel;
+                for (int i = 1; i < parametros.Length; i++)
+                    argumentos[i] = parametros[i].HasDefaultValue
+                        ? parametros[i].DefaultValue
+                        : (parametros[i].ParameterType.IsValueType
+                            ? Activator.CreateInstance(parametros[i].ParameterType)
+                            : null);
+                metodoNativo.Invoke(jogador, argumentos);
+            }
+
+            // Mantém os campos visuais como complemento/fallback local.
             jogador.invisibilityAlpha = invisivel
                 ? (jogador.AmOwner ? 0.5f : (PlayerControl.LocalPlayer?.Data?.Role?.IsDead == true ? 0.5f : 0f))
                 : 1f;
