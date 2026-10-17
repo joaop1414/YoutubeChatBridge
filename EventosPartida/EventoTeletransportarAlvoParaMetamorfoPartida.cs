@@ -15,7 +15,7 @@ internal sealed class EventoTeletransportarAlvoParaMetamorfoPartida : EventoVota
     {
         if (!YouTubeVoteBridgePlugin.EhHost()) return;
         armado = true;
-        if (ShipStatus.Instance != null) ativo = true;
+        if (LobbyTagManager.PartidaIniciada()) ativo = true;
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             "[Metamorfo/partida inteira] Ativado: toda tentativa de metamorfose teleporta o alvo para o metamorfo e rejeita a transformação até o fim da partida.");
     }
