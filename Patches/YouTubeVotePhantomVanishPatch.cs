@@ -139,7 +139,25 @@ internal static class YouTubeVotePhantomCheckVanishPatch
     }
 }
 
+// Segue o ajuste do EHR: força CanOverrideRole=true em todas as chamadas
+// nativas a RpcSetRole, para que a correção de papel não seja ignorada.
+[HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.RpcSetRole))]
+internal static class YouTubeVotePhantomCanOverrideRolePatch
+{
+    private static void Prefix(
+        PlayerControl __instance,
+        [HarmonyArgument(0)] ref RoleTypes roleType,
+        [HarmonyArgument(1)] ref bool canOverrideRole)
+    {
+        canOverrideRole = true;
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"[Phantom] RpcSetRole: CanOverrideRole forçado para true; PlayerId={__instance?.PlayerId}, Role={roleType}.");
+    }
+}
+
 // Rejeita o pedido vindo inclusive de clientes vanilla e corrige o estado no dono.
+// Segue a recuperação usada pelo EHR: SetRole(Phantom, true) + ProtectPlayer,
+// enviados exclusivamente ao cliente que controla o Phantom.
 [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.HandleRpc))]
 internal static class YouTubeVotePhantomHandleRpcPatch
 {
@@ -156,15 +174,22 @@ internal static class YouTubeVotePhantomHandleRpcPatch
 
         try
         {
-            // Cancela o vanish apenas no cliente dono do Phantom.
-            // Não altera a função nem o estado dos outros jogadores.
-            MessageWriter appearWriter = AmongUsClient.Instance.StartRpcImmediately(
-                __instance.NetId, (byte)RpcCalls.CheckAppear, SendOption.Reliable, ownerId);
-            appearWriter.Write(false);
-            AmongUsClient.Instance.FinishRpcImmediately(appearWriter);
+            // O bool enviado após RoleTypes é o CanOverrideRole.
+            MessageWriter roleWriter = AmongUsClient.Instance.StartRpcImmediately(
+                __instance.NetId, (byte)RpcCalls.SetRole, SendOption.Reliable, ownerId);
+            roleWriter.Write((ushort)RoleTypes.Phantom);
+            roleWriter.Write(true);
+            AmongUsClient.Instance.FinishRpcImmediately(roleWriter);
+
+            // O EHR usa ProtectPlayer como parte da correção direcionada do Phantom.
+            MessageWriter protectWriter = AmongUsClient.Instance.StartRpcImmediately(
+                __instance.NetId, (byte)RpcCalls.ProtectPlayer, SendOption.Reliable, ownerId);
+            protectWriter.WriteNetObject(__instance);
+            protectWriter.Write(0);
+            AmongUsClient.Instance.FinishRpcImmediately(protectWriter);
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                $"[Phantom] Vanish rejeitado; CheckAppear(false) enviado somente ao dono. PlayerId={__instance.PlayerId}, OwnerId={ownerId}.");
+                $"[Phantom] Vanish rejeitado; SetRole(Phantom, CanOverride=true) + ProtectPlayer enviados somente ao dono. PlayerId={__instance.PlayerId}, OwnerId={ownerId}.");
         }
         catch (Exception ex)
         {
