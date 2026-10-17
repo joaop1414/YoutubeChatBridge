@@ -11,22 +11,15 @@ internal sealed class EventoTeletransportarAlvoParaMetamorfo : EventoVotacao
 
     public static bool EstaAtivo => ativo;
 
-    // Só cancela transformações reais; a destransformação (alvo == metamorfo) continua normal.
-    public static bool DeveCancelarRpc(PlayerControl metamorfo, PlayerControl alvo)
-    {
-        return ativo && YouTubeVoteBridgePlugin.EhHost() &&
-            metamorfo != null && alvo != null &&
-            metamorfo.PlayerId != alvo.PlayerId;
-    }
-
     public void Executar()
     {
         if (!YouTubeVoteBridgePlugin.EhHost())
             return;
 
         ativo = true;
+        YouTubeVoteBridgePlugin.DefinirBloqueioCompletoShapeshift(true);
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            "Evento ativado: quando alguém tentar se metamorfosear, o alvo será teleportado até o metamorfo. O evento termina na próxima reunião.");
+            "Evento ativado: quando alguém tentar se metamorfosear, o alvo será teleportado até o metamorfo; o shapeshift ficará bloqueado até a próxima reunião.");
     }
 
     public static void AoTentarMetamorfosear(PlayerControl metamorfo, PlayerControl alvo)
@@ -65,7 +58,8 @@ internal sealed class EventoTeletransportarAlvoParaMetamorfo : EventoVotacao
             return;
 
         ativo = false;
+        YouTubeVoteBridgePlugin.DefinirBloqueioCompletoShapeshift(false);
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            "Evento de teleporte do alvo da metamorfose encerrado na reunião.");
+            "Evento de teleporte do alvo da metamorfose encerrado na reunião; bloqueio de shapeshift liberado.");
     }
 }
