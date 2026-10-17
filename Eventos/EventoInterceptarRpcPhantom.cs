@@ -36,22 +36,12 @@ internal static class EventoInterceptarRpcPhantom
         return Array.Empty<MethodBase>();
     }
 
-    private static bool Prefix(PlayerControl __instance, object[] __args, MethodBase __originalMethod)
+    private static bool Prefix()
     {
-        if (__instance == null || __args == null || __args.Length == 0 ||
-            __originalMethod == null ||
-            !string.Equals(__originalMethod.Name, "SetRoleInvisibility", StringComparison.OrdinalIgnoreCase) ||
-            __args[0] is not bool invisivel || !invisivel)
-            return true;
-
-        string papel = __instance.Data?.Role?.GetType().Name + " " + __instance.Data?.Role?.ToString();
-        bool ePhantom = !string.IsNullOrEmpty(papel) &&
-            papel.IndexOf("Phantom", StringComparison.OrdinalIgnoreCase) >= 0;
-
-        if (!ePhantom) return true;
-
-        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"[Phantom] Invisibilidade bloqueada para PlayerId={__instance.PlayerId}.");
-        return false;
+        // O EHR não bloqueia SetRoleInvisibility(true) aqui. O cliente pode
+        // iniciar o estado visual nativo, e a recuperação do host usa
+        // SetRole(Phantom, CanOverrideRole=true) + ProtectPlayer para desfazê-lo.
+        // Bloquear esta chamada isoladamente pode deixar animação/estado visual
+        // do Phantom dessincronizados e resultar em tela preta.
+        return true;
     }
-}
