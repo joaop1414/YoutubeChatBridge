@@ -2712,6 +2712,17 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         }
     }
 
+    public static bool EhJogadorRainbowRegistrado(PlayerControl jogador)
+    {
+        if (jogador == null) return false;
+        byte id = jogador.PlayerId;
+        // O nome/cor salvo também é evidência do estado Rainbow caso a lista ativa
+        // e o registro visual tenham ficado dessincronizados.
+        return JogadoresRainbowAtivos.Contains(id) ||
+               NomesOriginaisRainbow.ContainsKey(id) ||
+               IndicesCorRainbowPorJogador.ContainsKey(id);
+    }
+
     private static string ObterNomeBaseRainbow(PlayerControl jogador)
     {
         if (jogador == null) return string.Empty;
@@ -2728,10 +2739,16 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             return true;
 
         byte id = shapeshifter.PlayerId;
-        bool eraRainbow = JogadoresRainbowAtivos.Contains(id);
-        bool alvoRainbow = JogadoresRainbowAtivos.Contains(alvo.PlayerId);
+        bool eraRainbow = EhJogadorRainbowRegistrado(shapeshifter);
+        bool alvoRainbow = EhJogadorRainbowRegistrado(alvo);
+        Instance?.Log.LogInfo(
+            $"Shapeshift diagnóstico: Prefix interceptado; host={EhHost()}, jogador={id}, alvo={alvo.PlayerId}, jogadorRainbow={eraRainbow}, alvoRainbow={alvoRainbow}, ativos=[{string.Join(",", JogadoresRainbowAtivos)}], nomesSalvos=[{string.Join(",", NomesOriginaisRainbow.Keys)}].");
         if (!eraRainbow && !alvoRainbow)
+        {
+            Instance?.Log.LogInfo(
+                $"Shapeshift: RPC normal liberado; nenhum dos jogadores está registrado como Rainbow (jogador={id}, alvo={alvo.PlayerId}).");
             return true;
+        }
 
         if (!EstadosShapeshiftRainbow.ContainsKey(id))
         {
@@ -3396,7 +3413,7 @@ public static class YouTubeVoteShapeshiftCheckPatch
         }
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"Shapeshift detectado via CheckShapeshift (padrão EHR): PlayerId={__instance.PlayerId}, alvo={target.PlayerId}.");
+            $"Shapeshift diagnóstico: CheckShapeshift executou; host={YouTubeVoteBridgePlugin.EhHost()}, PlayerId={__instance.PlayerId}, alvo={target.PlayerId}, jogadorRainbow={YouTubeVoteBridgePlugin.EhJogadorRainbowRegistrado(__instance)}, alvoRainbow={YouTubeVoteBridgePlugin.EhJogadorRainbowRegistrado(target)}.");
         YouTubeVoteBridgePlugin.RegistrarTarefasAntesDoShapeshift(__instance, target);
     }
 }
@@ -3464,6 +3481,9 @@ public static class YouTubeVoteRainbowShapeshiftPatch
     {
         if (__instance == null || target == null)
             return true;
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"Shapeshift diagnóstico: RpcShapeshift Prefix executou; host={YouTubeVoteBridgePlugin.EhHost()}, jogador={__instance.PlayerId}, alvo={target.PlayerId}, reenviando={YouTubeVoteBridgePlugin.ReenviandoRpcShapeshiftPreparado}, bloqueado={YouTubeVoteBridgePlugin.BloqueioCompletoShapeshift}.");
 
         // O bloqueio de evento tem prioridade até sobre uma retransmissão preparada.
         if (YouTubeVoteBridgePlugin.BloqueioCompletoShapeshift)
