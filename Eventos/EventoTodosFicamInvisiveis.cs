@@ -33,34 +33,34 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         {
             if (jogador == null || jogador.Data == null || jogador.Data.Disconnected || jogador.Data.IsDead)
                 continue;
-            if (InvocarMetodoVisibilidade(jogador, "RpcMakeInvisible")) sucesso++;
+            if (InvocarMetodoVisibilidade(jogador, true)) sucesso++;
         }
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             $"[Invisibilidade] Evento ativado: invisibilidade solicitada para {sucesso} jogador(es), até a próxima reunião.");
     }
 
-    private static bool InvocarMetodoVisibilidade(PlayerControl jogador, string nomeMetodo)
+    private static bool InvocarMetodoVisibilidade(PlayerControl jogador, bool invisivel)
     {
         if (jogador == null) return false;
         try
         {
             MethodInfo metodo = jogador.GetType().GetMethods(
                     BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-                .FirstOrDefault(m => string.Equals(m.Name, nomeMetodo, StringComparison.OrdinalIgnoreCase)
-                    && m.GetParameters().Length == 0);
+                .FirstOrDefault(m => string.Equals(m.Name, "SetRoleInvisibility", StringComparison.OrdinalIgnoreCase)
+                    && m.GetParameters().Length == 3 && m.GetParameters()[0].ParameterType == typeof(bool));
             if (metodo == null)
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    $"[Invisibilidade] Método {nomeMetodo}() não encontrado para PlayerId={jogador.PlayerId}.");
+                    $"[Invisibilidade] Método SetRoleInvisibility(bool, bool, bool) não encontrado para PlayerId={jogador.PlayerId}.");
                 return false;
             }
-            metodo.Invoke(jogador, null);
+            metodo.Invoke(jogador, new object[] { invisivel, false, true });
             return true;
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                $"[Invisibilidade] Falha em {nomeMetodo} para PlayerId={jogador.PlayerId}: {ex.GetBaseException().Message}");
+                $"[Invisibilidade] Falha ao alterar visibilidade de PlayerId={jogador.PlayerId}: {ex.GetBaseException().Message}");
             return false;
         }
     }
@@ -76,7 +76,7 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
             {
                 if (jogador == null || jogador.Data == null || jogador.Data.Disconnected || jogador.Data.IsDead)
                     continue;
-                InvocarMetodoVisibilidade(jogador, "RpcMakeVisible");
+                InvocarMetodoVisibilidade(jogador, false);
             }
         }
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
