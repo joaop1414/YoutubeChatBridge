@@ -1384,10 +1384,12 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             try
             {
                 ExecutarEventoPartida(eventoVencedor.Nome);
+                string estadoEvento = ShipStatus.Instance != null
+                    ? "Ele já foi aplicado nesta partida."
+                    : "Ele será aplicado quando a partida começar.";
                 AnunciarEventoLobby(
                     "<color=#66CCFF>[F7]</color> Evento escolhido: <color=yellow>" +
-                    eventoVencedor.Nome +
-                    "</color>. Ele será ativado quando a partida começar.");
+                    eventoVencedor.Nome + "</color>. " + estadoEvento);
                 Instance?.Log.LogInfo("[F7] Evento guardado para o início da partida: " + eventoVencedor.Nome);
             }
             catch (Exception ex)
