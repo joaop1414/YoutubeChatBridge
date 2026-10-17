@@ -2635,6 +2635,11 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             return;
 
         byte id = shapeshifter.PlayerId;
+        // Se o jogador está temporariamente copiando um alvo Rainbow, o efeito
+        // precisa continuar ativo durante a transformação. Não o pause/remova.
+        if (NomesRainbowTemporariosPorShapeshift.ContainsKey(id))
+            return;
+
         // Só pausamos a lista persistente quando o jogador realmente fazia parte
         // do rainbow. Os dados originais ficam guardados para retomar depois.
         if (!JogadoresRainbowAtivos.Contains(id))
@@ -3491,16 +3496,25 @@ public static class YouTubeVoteShapeshiftCheckPatch
             return;
         }
 
-        RainbowColorTransition.DefinirMetamorfoTransformado(__instance.PlayerId, true);
+        bool alvoRainbow = YouTubeVoteBridgePlugin.EhJogadorRainbowRegistrado(target);
         bool jogadorRainbow = YouTubeVoteBridgePlugin.EhJogadorRainbowRegistrado(__instance);
-        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"Shapeshift diagnóstico: CheckShapeshift executou; host={YouTubeVoteBridgePlugin.EhHost()}, PlayerId={__instance.PlayerId}, alvo={target.PlayerId}, jogadorRainbow={jogadorRainbow}, alvoRainbow={YouTubeVoteBridgePlugin.EhJogadorRainbowRegistrado(target)}.");
 
-        // Fallback: CheckShapeshift é observado mesmo quando RpcShapeshift não
-        // aparece no diagnóstico do Harmony. Pausa antes da cópia visual para que
-        // o ciclo não volte a aplicar cor/nome rainbow sobre a aparência copiada.
-        if (jogadorRainbow)
-            YouTubeVoteBridgePlugin.PausarRainbowDuranteShapeshift(__instance);
+        // Quando o alvo é Rainbow, o shapeshifter deve receber temporariamente
+        // o efeito Rainbow copiado; não suspenda a transição nesse caso.
+        // A suspensão só vale para uma transformação comum de um jogador Rainbow.
+        if (alvoRainbow)
+        {
+            RainbowColorTransition.DefinirMetamorfoTransformado(__instance.PlayerId, false);
+        }
+        else
+        {
+            RainbowColorTransition.DefinirMetamorfoTransformado(__instance.PlayerId, true);
+            if (jogadorRainbow)
+                YouTubeVoteBridgePlugin.PausarRainbowDuranteShapeshift(__instance);
+        }
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"Shapeshift diagnóstico: CheckShapeshift executou; host={YouTubeVoteBridgePlugin.EhHost()}, PlayerId={__instance.PlayerId}, alvo={target.PlayerId}, jogadorRainbow={jogadorRainbow}, alvoRainbow={alvoRainbow}.");
 
         YouTubeVoteBridgePlugin.RegistrarTarefasAntesDoShapeshift(__instance, target);
     }
