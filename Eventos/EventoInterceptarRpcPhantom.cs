@@ -15,8 +15,11 @@ internal static class EventoInterceptarRpcPhantom
     {
         return typeof(PlayerControl).GetMethods(
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-            .Where(m => m.Name.StartsWith("Rpc", StringComparison.OrdinalIgnoreCase) &&
-                        m.Name.IndexOf("Invisib", StringComparison.OrdinalIgnoreCase) >= 0)
+            .Where(m =>
+                (m.Name.StartsWith("Rpc", StringComparison.OrdinalIgnoreCase) &&
+                 (m.Name.IndexOf("Invisib", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                  m.Name.IndexOf("Vanish", StringComparison.OrdinalIgnoreCase) >= 0)) ||
+                string.Equals(m.Name, "SetRoleInvisibility", StringComparison.OrdinalIgnoreCase))
             .Where(m =>
             {
                 ParameterInfo[] p = m.GetParameters();
