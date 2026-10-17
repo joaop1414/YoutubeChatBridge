@@ -678,76 +678,11 @@ internal sealed class EventoTesteMenu : MonoBehaviour
         if (!ValidarHostEPartida())
             return;
 
-        try
-        {
-            // Nas versões atuais de Among Us, RpcEndGame pertence ao GameManager,
-            // não ao ShipStatus.
-            object gerenciador = GameManager.Instance;
-            if (gerenciador == null)
-            {
-                MostrarMensagem("GameManager ainda não está disponível.");
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "[Menu de teste] Não foi possível encerrar: GameManager.Instance é nulo.");
-                return;
-            }
-
-            Type tipo = gerenciador.GetType();
-            MethodInfo metodo = null;
-            foreach (MethodInfo candidato in tipo.GetMethods(
-                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
-            {
-                if (candidato.Name != "RpcEndGame")
-                    continue;
-
-                ParameterInfo[] parametros = candidato.GetParameters();
-                if (parametros.Length == 2 &&
-                    parametros[0].ParameterType.IsEnum &&
-                    parametros[1].ParameterType == typeof(bool))
-                {
-                    metodo = candidato;
-                    break;
-                }
-            }
-
-            if (metodo == null)
-            {
-                MostrarMensagem("Não encontrei GameManager.RpcEndGame compatível.");
-                YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                    "[Menu de teste] GameManager.RpcEndGame não encontrado.");
-                return;
-            }
-
-            Type tipoMotivo = metodo.GetParameters()[0].ParameterType;
-            object motivo;
-            if (!Enum.TryParse(tipoMotivo, nomeMotivo, true, out motivo))
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    $"[Menu de teste] Motivo '{nomeMotivo}' não existe em {tipoMotivo.Name}; usando HumansByVote.");
-                if (!Enum.TryParse(tipoMotivo, "HumansByVote", true, out motivo))
-                    motivo = Enum.ToObject(tipoMotivo, 0);
-            }
-
-            // O Harmony bloqueia o fim original quando Sem fim de jogo está ativo.
-            // Este sinalizador permite somente esta chamada solicitada pelo próprio mod.
-            ControleFimDeJogo.PermitirFimDoMod = true;
-            try
-            {
-                metodo.Invoke(gerenciador, new[] { motivo, (object)false });
-            }
-            finally
-            {
-                ControleFimDeJogo.PermitirFimDoMod = false;
-            }
-            MostrarMensagem("Comando de encerramento enviado.");
-            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                " [Menu de teste] GameManager.RpcEndGame invocado. Motivo=" + motivo + ".");
-        }
-        catch (Exception ex)
-        {
-            MostrarMensagem("Erro ao encerrar: " + (ex.InnerException ?? ex).Message);
-            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[Menu de teste] Falha ao encerrar partida: " + ex);
-        }
+        MostrarMensagem("Enviando RPC de encerramento...");
+        bool enviado = ControleFimDeJogo.EncerrarPartidaPeloMod(nomeMotivo, false);
+        MostrarMensagem(enviado ? "Comando de encerramento enviado." : "Não foi possível enviar o RPC de encerramento.");
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            "[Menu de teste] Encerramento pelo controlador compartilhado; motivo=" + nomeMotivo + ", enviado=" + enviado + ".");
     }
 
     private static void MostrarMensagem(string texto)
