@@ -2682,11 +2682,14 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             NomesRainbowTemporariosPorShapeshift.Remove(id);
             if (tinhaEstado && !estado.EraRainbow)
             {
+                // O efeito Rainbow era temporário: o Shapeshifter recebeu a aparência
+                // rainbow do alvo, mas precisa voltar ao estado visual normal ao reverter.
                 JogadoresRainbowAtivos.Remove(id);
                 NotificarEstadoRainbowVisual(id, false);
                 CoresOriginaisRainbow.Remove(id);
                 NomesOriginaisRainbow.Remove(id);
                 IndicesCorRainbowPorJogador.Remove(id);
+                RainbowColorTransition.ReiniciarTransicao(id);
             }
 
             int corOriginal = tinhaEstado
@@ -2720,8 +2723,13 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             // Reaplicamos depois do RPC: isso mantém a cor de dados e a cor
             // realmente exibida consistentes no host, sem mudar o fluxo vanilla.
             shapeshifter.RpcSetColor((byte)Math.Clamp(corOriginal, 0, 255));
+
+            // O host reutiliza o renderer do corpo durante a animação de retorno.
+            // Reinicializar a interpolação força a transição a ler a cor real atual
+            // depois que o jogo termina de trocar a aparência do Shapeshifter.
+            RainbowColorTransition.ReiniciarTransicao(id);
             Instance?.Log.LogInfo(
-                $"Shapeshift: destransformação reenviada e cor original reaplicada após RPC; PlayerId={id}, cor={corOriginal}, estadoRainbowAnterior={(tinhaEstado ? estado.EraRainbow : rainbowAtivo)}.");
+                $"Shapeshift: destransformação reenviada; cor original reaplicada e transição visual reiniciada; PlayerId={id}, cor={corOriginal}, estadoRainbowAnterior={(tinhaEstado ? estado.EraRainbow : rainbowAtivo)}.");
             return false;
         }
         catch (Exception ex)
