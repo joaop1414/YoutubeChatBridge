@@ -1313,7 +1313,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         {
             string lista = string.Join(" | ", Opcoes.Select((o, i) => (i + 1) + ") " + o.Nome));
             AnunciarEventoLobby(
-                "<color=#66CCFF>[F7]</color> Votação no lobby! Vote na live: " + lista);
+                "Votação no lobby! Vote na live: " + lista);
             Instance?.Log.LogInfo("[F7] Votação iniciada no lobby: " + lista);
         }
         else
@@ -1414,7 +1414,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 Instance?.Log.LogInfo("[F7] Evento guardado para ativação no início da partida: " + EventoF7Pendente);
                 string estadoEvento = "Ele será ativado quando a partida começar.";
                 AnunciarEventoLobby(
-                    "<color=#66CCFF>[F7]</color> Evento escolhido: <color=yellow>" +
+                    "Evento escolhido: <color=yellow>" +
                     eventoVencedor.Nome + "</color>. " + estadoEvento);
                 Instance?.Log.LogInfo("[F7] Evento guardado para o início da partida: " + eventoVencedor.Nome);
             }
@@ -1422,7 +1422,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             {
                 Instance?.Log.LogError("[F7] Falha ao guardar evento " + eventoVencedor.Nome + ": " + ex);
                 AnunciarEventoLobby(
-                    "<color=#66CCFF>[F7]</color> Não foi possível guardar o evento: " + eventoVencedor.Nome);
+                    "Não foi possível guardar o evento: " + eventoVencedor.Nome);
             }
         }
         else
