@@ -57,15 +57,6 @@ internal static class EventoPartidaUltimoSuspiroPatch
     }
 }
 
-[HarmonyPatch(typeof(PlayerPhysics), nameof(PlayerPhysics.RpcEnterVent))]
-internal static class EventoPartidaDutosInstaveisPatch
-{
-    private static void Postfix(PlayerPhysics __instance, [HarmonyArgument(0)] Vent vent)
-    {
-        EventoDutosInstaveis.AoEntrarNoDuto(__instance, vent);
-    }
-}
-
 [HarmonyPatch(typeof(AmongUsClient), nameof(AmongUsClient.OnGameEnd))]
 internal static class EventosPartidaFimPatch
 {
