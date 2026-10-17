@@ -142,7 +142,8 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         writer.StartMessage(2);
         writer.WritePacked(alvo.NetTransform.NetId);
         writer.Write((byte)RpcCalls.SnapTo);
-        writer.WriteVector2(pos);
+        writer.Write(pos.x);
+        writer.Write(pos.y);
         writer.Write(sequence);
         writer.EndMessage();
     }
