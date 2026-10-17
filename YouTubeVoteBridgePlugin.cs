@@ -3219,6 +3219,7 @@ public static class YouTubeVoteCancelMeetingPatch
         EventoTarefaMataJogador.Desativar();
         EventoTarefaSuicidio.Desativar();
         EventoTeletransportarAlvoParaMetamorfo.Desativar();
+        EventoTeletransportarJogadorAoCompletarTarefa.Desativar("reunião iniciada");
         // Deixa a chamada original continuar depois de restaurar os nomes.
         // Retornar false aqui cancelava a reunião e não havia um segundo RPC.
         return true;
@@ -3244,7 +3245,6 @@ public static class YouTubeVoteUpdatePatch
     {
         LobbyTagManager.Update();
         EventoTestarRastreadorComFantasma.Atualizar();
-        EventoOportunista.Atualizar();
         EventoAdicionarTarefas.AtualizarRestauracoesAgendadas();
 
         DiagnosticoPlayerReal.Atualizar();
@@ -3358,6 +3358,9 @@ public static class YouTubeVoteResetTaskEventsOnStartPatch
         EventoTarefaMataJogador.Desativar();
         EventoTarefaSuicidio.Desativar();
         EventoTeletransportarAlvoParaMetamorfo.Desativar();
+        EventoTeletransportarAlvoParaMetamorfoPartida.Resetar();
+        EventoTeletransportarJogadorAoCompletarTarefa.Desativar("início de nova partida");
+        EventoTeletransportarAleatorioParaPhantom.Resetar();
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             "Eventos de tarefa resetados no início da partida.");
     }
@@ -3374,6 +3377,9 @@ public static class YouTubeVoteResetTaskEventsOnEndPatch
         EventoTarefaMataJogador.Desativar();
         EventoTarefaSuicidio.Desativar();
         EventoTeletransportarAlvoParaMetamorfo.Desativar();
+        EventoTeletransportarAlvoParaMetamorfoPartida.Resetar();
+        EventoTeletransportarJogadorAoCompletarTarefa.Desativar("fim da partida");
+        EventoTeletransportarAleatorioParaPhantom.Resetar();
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             "Eventos de tarefa desativados ao terminar a partida, mesmo sem reunião.");
     }
@@ -3386,6 +3392,7 @@ public static class YouTubeVoteShapeshiftTaskCompletionPatch
     public static void Postfix(PlayerControl pc, uint taskId)
     {
         YouTubeVoteBridgePlugin.RegistrarTarefaConcluida(pc, taskId);
+        EventoTeletransportarJogadorAoCompletarTarefa.AoCompletarTarefa(pc);
     }
 }
 
@@ -3499,10 +3506,14 @@ public static class YouTubeVoteShapeshiftCheckPatch
         // antes que o jogo emita/processa o RPC visual que inicia o ovo/bolha.
         // Não bloquear HandleRpc depois que a transformação já começou evita travar o estado.
         if (YouTubeVoteBridgePlugin.EhHost() &&
-            EventoTeletransportarAlvoParaMetamorfo.EstaAtivo &&
+            (EventoTeletransportarAlvoParaMetamorfo.EstaAtivo ||
+             EventoTeletransportarAlvoParaMetamorfoPartida.EstaAtivo) &&
             __instance.PlayerId != target.PlayerId)
         {
-            EventoTeletransportarAlvoParaMetamorfo.AoTentarMetamorfosear(__instance, target);
+            if (EventoTeletransportarAlvoParaMetamorfo.EstaAtivo)
+                EventoTeletransportarAlvoParaMetamorfo.AoTentarMetamorfosear(__instance, target);
+            else
+                EventoTeletransportarAlvoParaMetamorfoPartida.AoTentarMetamorfosear(__instance, target);
 
             // Mesmo padrão do EHR: rejeitar explicitamente a habilidade para o
             // cliente limpar o estado/ovo, em vez de engolir o RPC de shapeshift.
@@ -3677,15 +3688,10 @@ internal static class YouTubeVoteBridgeBloquearFimDeJogoOriginalPatch
 
         bool bloqueadoPelaConfiguracao =
             YouTubeVoteBridgePlugin.SemFimDeJogo?.Value == true;
-        bool bloqueadoPeloOportunista =
-            EventoOportunista.DeveBloquearFimDeJogoOriginal;
-
-        if (!bloqueadoPelaConfiguracao && !bloqueadoPeloOportunista)
+        if (!bloqueadoPelaConfiguracao)
             return true;
 
-        string motivo = bloqueadoPelaConfiguracao
-            ? "configuração 'Sem fim de jogo'"
-            : "controle de encerramento do evento Oportunista";
+        string motivo = "configuração 'Sem fim de jogo'";
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             "[Fim de jogo] Encerramento original bloqueado por " + motivo +
