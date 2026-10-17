@@ -2830,6 +2830,9 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             DefinirNomeRainbowNosClientesComMod(shapeshifter, CriarNomeRainbow(ObterNomeBaseRainbow(alvo), indice));
             int corAtual = indice % Math.Max(1, Palette.ColorNames?.Length ?? 1);
             try { shapeshifter.RpcSetColor((byte)corAtual); } catch { }
+            // O corpo local pode ter sido reutilizado durante a animação de transformação.
+            // Reinicia a interpolação para o efeito rainbow acompanhar o novo corpo.
+            RainbowColorTransition.ReiniciarTransicao(id);
             ShapeshiftersRainbowTransformados.Remove(id);
         }
 
