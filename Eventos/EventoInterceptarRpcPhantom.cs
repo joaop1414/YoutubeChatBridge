@@ -38,11 +38,6 @@ internal static class EventoInterceptarRpcPhantom
 
     private static bool Prefix(PlayerControl __instance, object[] __args, MethodBase __originalMethod)
     {
-        // O evento global precisa usar o mecanismo nativo em todos os jogadores;
-        // somente chamadas normais da habilidade do Phantom devem ser bloqueadas.
-        if (EventoTodosFicamInvisiveis.AplicandoEvento)
-            return true;
-
         if (__instance == null || __args == null || __args.Length == 0 ||
             __originalMethod == null ||
             !string.Equals(__originalMethod.Name, "SetRoleInvisibility", StringComparison.OrdinalIgnoreCase) ||
