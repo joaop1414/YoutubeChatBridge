@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using AmongUs.GameOptions;
 using Hazel;
+using Il2CppInterop.Runtime;
 using UnityEngine;
 
 namespace YouTubeVoteBridge;
@@ -41,7 +42,7 @@ internal sealed class EventoTestarRastreadorComFantasma : EventoVotacao
             $"Teste EHR canOverride: jogador escolhido: {alvo.Data.PlayerName} (PlayerId={alvo.PlayerId}).");
 
         // PlayerControl, assim como no EHR, inicia a coroutine de sequência.
-        alvo.StartCoroutine(TestarSequencia(alvo));
+        alvo.StartCoroutine(TestarSequencia(alvo).WrapToIl2Cpp());
     }
 
     private static IEnumerator TestarSequencia(PlayerControl alvo)
