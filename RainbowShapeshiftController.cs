@@ -100,3 +100,21 @@ internal static class RainbowShapeshiftControllerPatch
         RainbowShapeshiftController.Atualizar(__instance);
     }
 }
+
+[HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.StartMeeting))]
+internal static class RainbowShapeshiftMeetingCleanupPatch
+{
+    private static void Prefix()
+    {
+        RainbowShapeshiftController.EncerrarTodos();
+    }
+}
+
+[HarmonyPatch(typeof(AmongUsClient), nameof(AmongUsClient.OnGameEnd))]
+internal static class RainbowShapeshiftGameEndCleanupPatch
+{
+    private static void Prefix()
+    {
+        RainbowShapeshiftController.EncerrarTodos();
+    }
+}
