@@ -26,6 +26,7 @@ internal static class EventosPartidaAtualizarPatch
     private static void Postfix()
     {
         EventoTrocaDeDestinos.Atualizar();
+        EventoDutosInstaveis.Atualizar();
     }
 }
 
