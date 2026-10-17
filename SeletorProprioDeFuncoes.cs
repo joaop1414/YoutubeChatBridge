@@ -19,6 +19,12 @@ internal static class SeletorProprioDeFuncoesPatch
 {
     private static readonly System.Random Sorteador = new();
 
+    // Limpa o estado anterior antes de uma nova seleção.
+    public static void Prefix()
+    {
+        SeletorProprioDeFuncoes.Resetar();
+    }
+
     // Mantém a seleção original do jogo e aplica a seleção do mod logo depois.
     public static void Postfix()
     {
@@ -216,9 +222,7 @@ internal static class SeletorProprioDeFuncoes
     {
         public static void Postfix()
         {
-            // Apenas um jogador local por frame dispara o temporizador no host.
-            if (PlayerControl.LocalPlayer == null ||
-                PlayerControl.LocalPlayer.PlayerId != PlayerControl.LocalPlayer.Data?.PlayerId)
+            if (AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost)
                 return;
 
             AtualizarReenvio();
