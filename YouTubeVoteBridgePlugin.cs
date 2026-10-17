@@ -3188,10 +3188,11 @@ public static class YouTubeVoteCancelMeetingPatch
 {
     public static bool Prefix()
     {
+        // Executa também nos clientes com mod: a pausa da transição é local.
+        YouTubeVoteBridgePlugin.RetomarRainbowPausadosNaReuniao();
         if (!YouTubeVoteBridgePlugin.EhHost())
             return true;
         EventoTsunami.PrepararAntesDaReuniao();
-        YouTubeVoteBridgePlugin.RetomarRainbowPausadosNaReuniao();
         YouTubeVoteBridgePlugin.CancelarReuniaoSolicitada();
         EventoTarefaMataJogador.Desativar();
         EventoTarefaSuicidio.Desativar();
