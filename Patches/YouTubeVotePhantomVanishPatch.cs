@@ -2,53 +2,118 @@ using System;
 using AmongUs.GameOptions;
 using HarmonyLib;
 using Hazel;
+using UnityEngine;
 
 namespace YouTubeVoteBridge;
 
-// Bloqueia o início da habilidade nos clientes que possuem o mod.
-// O host também precisa corrigir jogadores vanilla, que não executam estes patches.
+// Bloqueio centralizado: eventos e outras partes do mod podem ativar/desativar
+// o bloqueio do desaparecimento sem criar patches duplicados.
+public static class PhantomVanishAPI
+{
+    private static readonly System.Collections.Generic.HashSet<string> Bloqueios =
+        new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    // Mantém o comportamento atual: o desaparecimento fica bloqueado por padrão.
+    public static bool BloqueioGlobalAtivo { get; private set; } = true;
+
+    public static void DefinirBloqueioGlobal(bool ativo)
+    {
+        BloqueioGlobalAtivo = ativo;
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"[PhantomAPI] Bloqueio global {(ativo ? "ativado" : "desativado")}.");
+    }
+
+    public static void Bloquear(string origem)
+    {
+        if (string.IsNullOrWhiteSpace(origem)) return;
+        Bloqueios.Add(origem);
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"[PhantomAPI] Bloqueio adicionado: {origem}.");
+    }
+
+    public static void Desbloquear(string origem)
+    {
+        if (string.IsNullOrWhiteSpace(origem)) return;
+        Bloqueios.Remove(origem);
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"[PhantomAPI] Bloqueio removido: {origem}.");
+    }
+
+    public static bool EstaBloqueado =>
+        BloqueioGlobalAtivo || Bloqueios.Count > 0;
+}
+
+// Impede que a habilidade inicie uma animação de desaparecimento que o host
+// vai rejeitar. Se já estiver invisível, deixa a habilidade tentar reaparecer.
 [HarmonyPatch(typeof(PhantomRole), nameof(PhantomRole.UseAbility))]
 internal static class YouTubeVotePhantomUseAbilityPatch
 {
     private static bool Prefix(PhantomRole __instance)
     {
-        if (AmongUsClient.Instance == null || PlayerControl.LocalPlayer == null)
+        if (AmongUsClient.Instance == null || PlayerControl.LocalPlayer == null ||
+            !PhantomVanishAPI.EstaBloqueado)
             return true;
 
-        // A habilidade do Phantom também é usada para reaparecer. Não bloqueie
-        // esse caminho se o jogador já estiver invisível.
         if (__instance != null && __instance.isInvisible)
             return true;
 
+        RestaurarInterfaceLocal(__instance);
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"[Phantom] UseAbility bloqueado localmente para PlayerId={__instance?.Player?.PlayerId}.");
+            $"[Phantom] UseAbility cancelado pela API para PlayerId={__instance?.Player?.PlayerId}.");
         return false;
+    }
+
+    internal static void RestaurarInterfaceLocal(PhantomRole role)
+    {
+        try
+        {
+            if (role?.Player == null || !role.Player.AmOwner ||
+                !HudManager.InstanceExists || HudManager.Instance.AbilityButton == null)
+                return;
+
+            // Recria o botão usando a configuração nativa da habilidade.
+            HudManager.Instance.AbilityButton.SetFromSettings(role.Player.Data.Role.Ability);
+            HudManager.Instance.AbilityButton.SetCooldown(0f, 0f);
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[Phantom] Não foi possível restaurar o botão local: " + ex.Message);
+        }
     }
 }
 
-// Evita que outros caminhos do jogo iniciem o desaparecimento em clientes com mod.
+// Evita que outros caminhos iniciem o desaparecimento em clientes com o mod.
 [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.CmdCheckVanish))]
 internal static class YouTubeVotePhantomCmdCheckVanishPatch
 {
     private static bool Prefix(PlayerControl __instance)
     {
-        if (AmongUsClient.Instance == null || PlayerControl.LocalPlayer == null)
+        if (AmongUsClient.Instance == null || PlayerControl.LocalPlayer == null ||
+            !PhantomVanishAPI.EstaBloqueado)
             return true;
 
+        if (__instance != null && __instance.AmOwner &&
+            HudManager.InstanceExists && HudManager.Instance.AbilityButton != null)
+        {
+            try { HudManager.Instance.AbilityButton.SetFromSettings(__instance.Data.Role.Ability); }
+            catch { }
+        }
+
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"[Phantom] CmdCheckVanish bloqueado para PlayerId={__instance?.PlayerId}.");
+            $"[Phantom] CmdCheckVanish cancelado pela API para PlayerId={__instance?.PlayerId}.");
         return false;
     }
 }
 
-// No host, não deixa o RPC executar o CheckVanish nativo. Para jogadores vanilla,
-// o HandleRpc postfix abaixo envia a correção diretamente ao cliente dono.
+// No host, rejeita a execução nativa do CheckVanish quando o bloqueio está ativo.
 [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.CheckVanish))]
 internal static class YouTubeVotePhantomCheckVanishPatch
 {
     private static bool Prefix(PlayerControl __instance)
     {
-        if (AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost)
+        if (AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost ||
+            !PhantomVanishAPI.EstaBloqueado)
             return true;
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
@@ -57,17 +122,15 @@ internal static class YouTubeVotePhantomCheckVanishPatch
     }
 }
 
-// EHR também verifica o RPC recebido no HandleRpc: nem todos os clientes chamam
-// CheckVanish no host da mesma forma. Reaplicamos o estado do Phantom e usamos
-// ProtectPlayer direcionado ao dono para desfazer a invisibilidade local/cooldown.
+// Rejeita o pedido vindo inclusive de clientes vanilla e corrige o estado no dono.
 [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.HandleRpc))]
 internal static class YouTubeVotePhantomHandleRpcPatch
 {
     private static void Postfix(PlayerControl __instance, byte callId)
     {
         if (AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost ||
-            __instance == null || __instance.Data == null ||
-            callId != (byte)RpcCalls.CheckVanish)
+            !PhantomVanishAPI.EstaBloqueado || __instance == null ||
+            __instance.Data == null || callId != (byte)RpcCalls.CheckVanish)
             return;
 
         int ownerId = __instance.OwnerId;
@@ -76,32 +139,29 @@ internal static class YouTubeVotePhantomHandleRpcPatch
 
         try
         {
-            // O pacote é enviado somente ao cliente que controla o Phantom.
             MessageWriter roleWriter = AmongUsClient.Instance.StartRpcImmediately(
-                __instance.NetId,
-                (byte)RpcCalls.SetRole,
-                SendOption.Reliable,
-                ownerId);
+                __instance.NetId, (byte)RpcCalls.SetRole, SendOption.Reliable, ownerId);
             roleWriter.Write((ushort)RoleTypes.Phantom);
             roleWriter.Write(true);
             AmongUsClient.Instance.FinishRpcImmediately(roleWriter);
 
             MessageWriter protectWriter = AmongUsClient.Instance.StartRpcImmediately(
-                __instance.NetId,
-                (byte)RpcCalls.ProtectPlayer,
-                SendOption.Reliable,
-                ownerId);
+                __instance.NetId, (byte)RpcCalls.ProtectPlayer, SendOption.Reliable, ownerId);
             protectWriter.WritePacked(__instance.NetId);
             protectWriter.Write(0);
             AmongUsClient.Instance.FinishRpcImmediately(protectWriter);
 
+            // O EHR também restaura a recarga de morte depois de cancelar o vanish.
+            // O ajuste pequeno evita que a habilidade deixe o botão de kill preso.
+            __instance.SetKillCooldown(0.001f);
+
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                $"[Phantom] Solicitação de invisibilidade rejeitada e correção enviada ao dono: PlayerId={__instance.PlayerId}, OwnerId={ownerId}.");
+                $"[Phantom] Vanish rejeitado; SetRole, ProtectPlayer e restauração do cooldown enviados/aplicados. PlayerId={__instance.PlayerId}, OwnerId={ownerId}.");
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                $"[Phantom] Falha ao corrigir invisibilidade de PlayerId={__instance.PlayerId}: {ex}");
+                $"[Phantom] Falha ao restaurar o estado de PlayerId={__instance.PlayerId}: {ex}");
         }
     }
 }
