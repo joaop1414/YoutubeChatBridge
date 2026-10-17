@@ -3485,15 +3485,23 @@ public static class YouTubeVoteAdicionarTarefasRestauracaoPatch
 [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.CheckShapeshift))]
 public static class YouTubeVoteShapeshiftCheckPatch
 {
-    public static void Prefix(PlayerControl __instance, [HarmonyArgument(0)] PlayerControl target)
+    public static bool Prefix(PlayerControl __instance, [HarmonyArgument(0)] PlayerControl target)
     {
         if (__instance == null || target == null)
-            return;
+            return true;
 
-        // O evento move o alvo para a posição do metamorfo uma única vez por tentativa.
-        // A transformação original continua normalmente; o efeito termina na próxima reunião.
-        if (__instance.PlayerId != target.PlayerId)
+        // Seguindo o fluxo do EHR: cancelar a solicitação em CheckShapeshift,
+        // antes que o jogo emita/processa o RPC visual que inicia o ovo/bolha.
+        // Não bloquear HandleRpc depois que a transformação já começou evita travar o estado.
+        if (YouTubeVoteBridgePlugin.EhHost() &&
+            EventoTeletransportarAlvoParaMetamorfo.EstaAtivo &&
+            __instance.PlayerId != target.PlayerId)
+        {
             EventoTeletransportarAlvoParaMetamorfo.AoTentarMetamorfosear(__instance, target);
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                $"Evento metamorfose: tentativa cancelada em CheckShapeshift antes do RPC visual; metamorfo={__instance.PlayerId}, alvo={target.PlayerId}.");
+            return false;
+        }
 
         // O log do próprio jogo confirma que CheckShapeshift é chamado com
         // target == jogador quando a habilidade está revertendo.
@@ -3505,7 +3513,7 @@ public static class YouTubeVoteShapeshiftCheckPatch
                 $"Shapeshift: CheckShapeshift detectou DEStransformação para PlayerId={__instance.PlayerId}; retomando rainbow e aguardando RpcShapeshift/SetTasks para restaurar tarefas.");
             YouTubeVoteBridgePlugin.RetomarRainbowDepoisDoShapeshift(__instance);
             YouTubeVoteBridgePlugin.RegistrarDestransformacaoShapeshifter(__instance);
-            return;
+            return true;
         }
 
         bool alvoRainbow = YouTubeVoteBridgePlugin.EhJogadorRainbowRegistrado(target);
@@ -3533,6 +3541,7 @@ public static class YouTubeVoteShapeshiftCheckPatch
             $"Shapeshift diagnóstico: CheckShapeshift executou; host={YouTubeVoteBridgePlugin.EhHost()}, PlayerId={__instance.PlayerId}, alvo={target.PlayerId}, jogadorRainbow={jogadorRainbow}, alvoRainbow={alvoRainbow}.");
 
         YouTubeVoteBridgePlugin.RegistrarTarefasAntesDoShapeshift(__instance, target);
+        return true;
     }
 }
 
@@ -3586,64 +3595,9 @@ internal static class YouTubeVoteBridgeBloquearFimDeJogoOriginalPatch
 }
 
 
-// O evento precisa barrar a solicitação recebida pelo host, não apenas a chamada
-// local RpcShapeshift. CheckShapeshift é a solicitação inicial do cliente;
-// Shapeshift é o RPC visual/confirmado. Retornar false impede o jogo de processá-los.
-[HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.HandleRpc))]
-public static class YouTubeVoteBlockIncomingShapeshiftPatch
-{
-    public static bool Prefix(
-        PlayerControl __instance,
-        [HarmonyArgument(0)] byte callId,
-        [HarmonyArgument(1)] MessageReader reader)
-    {
-        if (!YouTubeVoteBridgePlugin.EhHost() ||
-            !EventoTeletransportarAlvoParaMetamorfo.EstaAtivo ||
-            __instance == null ||
-            reader == null)
-            return true;
-
-        bool pedidoShapeshift =
-            callId == (byte)RpcCalls.CheckShapeshift ||
-            callId == (byte)RpcCalls.Shapeshift;
-
-        if (!pedidoShapeshift)
-            return true;
-
-        MessageReader copia = null;
-        PlayerControl alvo = null;
-
-        try
-        {
-            // Nunca consumimos o reader original: o jogo espera receber sua posição intacta.
-            copia = MessageReader.Get(reader);
-            alvo = copia.ReadNetObject<PlayerControl>();
-        }
-        catch (Exception ex)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                $"Evento metamorfose: não foi possível ler o alvo do RPC {(RpcCalls)callId}; o host vai ignorá-lo mesmo assim. {ex.Message}");
-        }
-        finally
-        {
-            if (copia != null)
-            {
-                try { copia.Recycle(); } catch { }
-            }
-        }
-
-        // Só existe alvo a teleportar numa transformação real, não numa destransformação.
-        if (alvo != null && alvo.PlayerId != __instance.PlayerId)
-            EventoTeletransportarAlvoParaMetamorfo.AoTentarMetamorfosear(__instance, alvo);
-
-        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"Evento metamorfose: host ignorou RPC recebido {(RpcCalls)callId} do PlayerId={__instance.PlayerId}, alvo={(alvo == null ? "não identificado" : alvo.PlayerId.ToString())}.");
-
-        // Não processar nem retransmitir a tentativa enquanto o evento estiver ativo.
-        return false;
-    }
-}
-
+// Não interceptamos HandleRpc para bloquear Shapeshift depois do envio:
+// isso pode deixar o estado de transformação preso. A tentativa é cancelada
+// anteriormente em CheckShapeshift, como no fluxo do EHR.
 // EHR detecta o estado no Postfix de RpcShapeshift: alvo != jogador = shift;
 // alvo == jogador = revert. Durante o evento de teleporte, o patch acima intercepta
 // os RPCs recebidos pelo host antes do processamento original.
