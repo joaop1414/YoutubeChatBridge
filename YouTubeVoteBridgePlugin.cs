@@ -3465,17 +3465,17 @@ public static class YouTubeVoteRainbowShapeshiftPatch
         if (__instance == null || target == null)
             return true;
 
-        // Chamadas internas preparadas são liberadas uma única vez. Isso permite
-        // cancelar o RPC inicial e reenviá-lo sem entrar em recursão.
-        if (YouTubeVoteBridgePlugin.ReenviandoRpcShapeshiftPreparado)
-            return true;
-
+        // O bloqueio de evento tem prioridade até sobre uma retransmissão preparada.
         if (YouTubeVoteBridgePlugin.BloqueioCompletoShapeshift)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 $"Shapeshift: RPC bloqueado pelo bloqueio global; PlayerId={__instance.PlayerId}, alvo={target.PlayerId}.");
             return false;
         }
+
+        // Chamadas internas preparadas são liberadas uma única vez, sem recursão.
+        if (YouTubeVoteBridgePlugin.ReenviandoRpcShapeshiftPreparado)
+            return true;
 
         if (__instance.PlayerId == target.PlayerId)
         {
