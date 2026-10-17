@@ -93,12 +93,14 @@ internal sealed class EventoTesteMenu : MonoBehaviour
         threadJanela.Start();
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            "[Menu de teste] Inicializado. Pressione F6 para abrir a janela nativa.");
+            "[Menu de teste] Inicializado. F6: eventos tradicionais; F7: eventos de partida inteira.");
     }
 
     public static void VerificarTecla()
     {
-        if (!Input.GetKeyDown(KeyCode.F6))
+        bool teclaF6 = Input.GetKeyDown(KeyCode.F6);
+        bool teclaF7 = Input.GetKeyDown(KeyCode.F7);
+        if (!teclaF6 && !teclaF7)
             return;
 
         IntPtr hwnd = janela;
@@ -109,9 +111,15 @@ internal sealed class EventoTesteMenu : MonoBehaviour
             return;
         }
 
+        if (teclaF7)
+            PostMessageW(hwnd, WM_APP_MODO_EVENTOS, new IntPtr(1), IntPtr.Zero);
+        else
+            PostMessageW(hwnd, WM_APP_MODO_EVENTOS, IntPtr.Zero, IntPtr.Zero);
+
         PostMessageW(hwnd, WM_APP_TOGGLE, IntPtr.Zero, IntPtr.Zero);
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            "[Menu de teste] F6 detectado; alternando a janela nativa.");
+            teclaF7 ? "[Menu de teste] F7 detectado; abrindo eventos de partida inteira." :
+            "[Menu de teste] F6 detectado; abrindo eventos tradicionais.");
     }
 
     // Descarta qualquer ação/temporizador que tenha ficado pendente ao trocar
@@ -268,6 +276,19 @@ internal sealed class EventoTesteMenu : MonoBehaviour
                         ShowWindow(hwnd, SW_RESTORE);
                         SetForegroundWindow(hwnd);
                     }
+                    return IntPtr.Zero;
+
+                case WM_APP_MODO_EVENTOS:
+                    modoEventosPartida = wParam != IntPtr.Zero;
+                    eventos = modoEventosPartida ? eventosPartida : eventosTradicionais;
+                    IntPtr filho;
+                    while ((filho = FindWindowExW(hwnd, IntPtr.Zero, null, null)) != IntPtr.Zero)
+                        DestroyWindow(filho);
+                    textoStatus = IntPtr.Zero;
+                    SetWindowTextW(hwnd, modoEventosPartida
+                        ? "YouTubeChatBridge - Eventos de partida inteira"
+                        : "YouTubeChatBridge - Teste de eventos tradicionais");
+                    CriarControles(hwnd);
                     return IntPtr.Zero;
 
                 case WM_APP_STATUS:
@@ -806,6 +827,12 @@ internal sealed class EventoTesteMenu : MonoBehaviour
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "LoadCursorW", SetLastError = true)]
     private static extern IntPtr LoadCursorW(IntPtr hInstance, IntPtr lpCursorName);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "FindWindowExW", SetLastError = true)]
+    private static extern IntPtr FindWindowExW(IntPtr parent, IntPtr childAfter, string className, string windowName);
+
+    [DllImport("user32.dll", EntryPoint = "DestroyWindow", SetLastError = true)]
+    private static extern bool DestroyWindow(IntPtr hwnd);
 
     [DllImport("user32.dll", EntryPoint = "ShowWindow")]
     private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
