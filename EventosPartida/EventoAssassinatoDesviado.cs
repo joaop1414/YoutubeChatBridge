@@ -14,7 +14,7 @@ internal sealed class EventoAssassinatoDesviado : EventoVotacao
     {
         if (!YouTubeVoteBridgePlugin.EhHost()) return;
         armado = true;
-        if (ShipStatus.Instance != null) ativo = true;
+        if (LobbyTagManager.PartidaIniciada()) ativo = true;
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo("[F7/Assassinato desviado] Evento armado para o início da partida.");
     }
 
