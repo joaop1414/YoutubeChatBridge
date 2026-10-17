@@ -3645,8 +3645,8 @@ public static class YouTubeVoteBlockIncomingShapeshiftPatch
 }
 
 // EHR detecta o estado no Postfix de RpcShapeshift: alvo != jogador = shift;
-// alvo == jogador = revert. Não reinterceptamos HandleRpc, pois isso pode impedir
-// o jogo de processar o evento original.
+// alvo == jogador = revert. Durante o evento de teleporte, o patch acima intercepta
+// os RPCs recebidos pelo host antes do processamento original.
 [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.RpcShapeshift))]
 public static class YouTubeVoteRainbowShapeshiftPatch
 {
