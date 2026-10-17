@@ -639,6 +639,21 @@ internal sealed class EventoTesteMenu : MonoBehaviour
             pai, id, instancia, IntPtr.Zero);
     }
 
+    private static void AnunciarEventoNoChat(string texto)
+    {
+        if (!YouTubeVoteBridgePlugin.EhHost() || PlayerControl.AllPlayerControls == null)
+            return;
+
+        foreach (PlayerControl destinatario in PlayerControl.AllPlayerControls)
+        {
+            if (destinatario == null || destinatario.Data == null ||
+                destinatario.Data.Disconnected || destinatario.notRealPlayer)
+                continue;
+
+            YouTubeVoteBridgePlugin.EnviarMensagemIndividual(destinatario, texto);
+        }
+    }
+
     private static void ExecutarEvento(EventoVotacao evento)
     {
         if (evento == null)
@@ -646,13 +661,23 @@ internal sealed class EventoTesteMenu : MonoBehaviour
 
         if (AmongUsClient.Instance == null || PlayerControl.LocalPlayer == null)
         {
-            MostrarMensagem("Entre em uma partida antes de executar eventos.");
+            MostrarMensagem("Entre em uma sala antes de selecionar eventos.");
             return;
         }
 
         if (!YouTubeVoteBridgePlugin.EhHost())
         {
-            MostrarMensagem("Entre como host para testar os eventos.");
+            MostrarMensagem("Entre como host para selecionar eventos.");
+            return;
+        }
+
+        // F7 é uma seleção pré-partida: o evento fica armado e sua mensagem
+        // vai para o chat, sem usar o nome de nenhum jogador como painel.
+        if (modoEventosPartida && ShipStatus.Instance != null)
+        {
+            const string aviso = "<color=red>Os eventos F7 só podem ser selecionados no lobby.</color>";
+            AnunciarEventoNoChat(aviso);
+            MostrarMensagem("Volte ao lobby para selecionar eventos F7.");
             return;
         }
 
@@ -667,9 +692,20 @@ internal sealed class EventoTesteMenu : MonoBehaviour
             if (executar != null)
             {
                 executar.Invoke(evento, null);
-                MostrarMensagem("Evento executado: " + evento.Nome);
+                if (modoEventosPartida)
+                {
+                    string aviso = "<color=#66CCFF>[F7]</color> Evento guardado: <color=yellow>" +
+                        evento.Nome + "</color>. Será aplicado quando a partida começar.";
+                    AnunciarEventoNoChat(aviso);
+                    MostrarMensagem("Evento guardado para o início da partida: " + evento.Nome);
+                }
+                else
+                {
+                    MostrarMensagem("Evento executado: " + evento.Nome);
+                }
+
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "[Menu de teste] Executado: " + evento.Nome);
+                    "[Menu de teste] " + (modoEventosPartida ? "Guardado para a partida: " : "Executado: ") + evento.Nome);
                 return;
             }
 
@@ -681,9 +717,19 @@ internal sealed class EventoTesteMenu : MonoBehaviour
             if (ativar != null)
             {
                 ativar.Invoke(null, null);
-                MostrarMensagem("Evento ativado: " + evento.Nome);
+                if (modoEventosPartida)
+                {
+                    AnunciarEventoNoChat("<color=#66CCFF>[F7]</color> Evento guardado: <color=yellow>" +
+                        evento.Nome + "</color>. Será aplicado quando a partida começar.");
+                    MostrarMensagem("Evento guardado para o início da partida: " + evento.Nome);
+                }
+                else
+                {
+                    MostrarMensagem("Evento ativado: " + evento.Nome);
+                }
+
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "[Menu de teste] Ativado: " + evento.Nome);
+                    "[Menu de teste] " + (modoEventosPartida ? "Guardado para a partida: " : "Ativado: ") + evento.Nome);
                 return;
             }
 
