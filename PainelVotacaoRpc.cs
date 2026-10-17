@@ -17,6 +17,7 @@ internal static class PainelVotacaoRpc
     private static int rodada;
     private static int segundos;
     private static bool ativo;
+    private static bool votacaoLobby;
     private static int tempoConfig = 40;
     private static int intervaloConfig = 15;
     private static int preparacaoConfig = 10;
@@ -26,6 +27,7 @@ internal static class PainelVotacaoRpc
     private static bool overlayCriado;
 
     internal static bool Ativo => ativo;
+    internal static bool VotacaoLobby => votacaoLobby;
     internal static int Rodada => rodada;
     internal static int Segundos => segundos;
     internal static string[] Eventos => eventos;
@@ -57,7 +59,7 @@ internal static class PainelVotacaoRpc
     }
 
     public static void Publicar(int numeroRodada, bool rodadaAtiva, int tempo,
-        string[] nomesEventos, int[] contagem)
+        string[] nomesEventos, int[] contagem, bool modoLobby = false)
     {
         if (AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost ||
             PlayerControl.LocalPlayer == null)
@@ -65,6 +67,7 @@ internal static class PainelVotacaoRpc
 
         rodada = numeroRodada;
         ativo = rodadaAtiva;
+        votacaoLobby = modoLobby;
         segundos = Math.Max(0, tempo);
         eventos = nomesEventos ?? Array.Empty<string>();
         votos = contagem ?? new int[4];
@@ -95,30 +98,11 @@ internal static class PainelVotacaoRpc
     private static void EnviarEstadoParaClientes()
     {
         if (AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost ||
-            PlayerControl.LocalPlayer == null)
+            PlayerControl.LocalPlayer == null || PlayerControl.AllPlayerControls == null)
             return;
 
-        // RPC 250 é personalizado e não deve ser transmitido em salas vanilla.
-        // Só sincroniza o painel quando existe pelo menos um cliente remoto e
-        // todos os jogadores remotos já sinalizaram que possuem o YouTubeVoteBridge.
-        bool encontrouClienteRemoto = false;
-        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
-        {
-            if (jogador == null || jogador.Data == null ||
-                jogador.OwnerId < 0 ||
-                jogador.OwnerId == AmongUsClient.Instance.ClientId)
-                continue;
-
-            encontrouClienteRemoto = true;
-            if (!YouTubeVoteBridgePlugin.ClienteTemMod(jogador.OwnerId))
-                return;
-        }
-
-        // Não envia RPC personalizado para o servidor quando a sala está vazia
-        // de clientes remotos ou enquanto algum cliente ainda não foi identificado.
-        if (!encontrouClienteRemoto)
-            return;
-
+        // O painel usa RPC personalizado; envie-o individualmente apenas aos clientes
+        // que confirmaram ter o mod. Assim, jogadores vanilla não recebem o RPC 250.
         try
         {
             string listaEventos = string.Join(",", eventos.Select(x =>
@@ -127,20 +111,48 @@ internal static class PainelVotacaoRpc
             string payload = string.Join("|", new[]
             {
                 rodada.ToString(), ativo ? "1" : "0", segundos.ToString(),
-                listaEventos, listaVotos, tempoConfig.ToString(),
-                intervaloConfig.ToString(), preparacaoConfig.ToString()
+                votacaoLobby ? "1" : "0", listaEventos, listaVotos,
+                tempoConfig.ToString(), intervaloConfig.ToString(), preparacaoConfig.ToString()
             });
 
-            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
-                PlayerControl.LocalPlayer.NetId, RpcPainelVotacao,
-                SendOption.Reliable, -1);
-            writer.Write(payload);
-            AmongUsClient.Instance.FinishRpcImmediately(writer);
+            foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+            {
+                if (jogador == null || jogador.Data == null || jogador.Data.Disconnected ||
+                    jogador.OwnerId < 0 ||
+                    jogador.OwnerId == AmongUsClient.Instance.ClientId ||
+                    !YouTubeVoteBridgePlugin.ClienteTemMod(jogador.OwnerId))
+                    continue;
+
+                MessageWriter writer = null;
+                try
+                {
+                    writer = MessageWriter.Get(SendOption.Reliable);
+                    writer.StartMessage(6); // GameDataTo
+                    writer.Write(AmongUsClient.Instance.GameId);
+                    writer.WritePacked(jogador.OwnerId);
+
+                    writer.StartMessage(2); // RPC direcionado ao PlayerControl do host
+                    writer.WritePacked(PlayerControl.LocalPlayer.NetId);
+                    writer.Write(RpcPainelVotacao);
+                    writer.Write(payload);
+                    writer.EndMessage();
+
+                    writer.EndMessage();
+                    AmongUsClient.Instance.SendOrDisconnect(writer);
+                }
+                finally
+                {
+                    if (writer != null)
+                    {
+                        try { writer.Recycle(); } catch { }
+                    }
+                }
+            }
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "Falha ao sincronizar painel com clientes: " + ex.Message);
+                "Falha ao sincronizar painel com clientes modificados: " + ex.Message);
         }
     }
 
@@ -170,17 +182,18 @@ internal static class PainelVotacaoRpc
         try
         {
             string[] p = payload.Split('|');
-            if (p.Length != 8) return;
+            if (p.Length != 9) return;
             rodada = int.Parse(p[0]);
             ativo = p[1] == "1";
             segundos = Math.Max(0, int.Parse(p[2]));
-            eventos = p[3].Length == 0 ? Array.Empty<string>() :
-                p[3].Split(',').Select(x =>
+            votacaoLobby = p[3] == "1";
+            eventos = p[4].Length == 0 ? Array.Empty<string>() :
+                p[4].Split(',').Select(x =>
                     Encoding.UTF8.GetString(Convert.FromBase64String(x))).ToArray();
-            votos = p[4].Length == 0 ? new int[4] : p[4].Split(',').Select(int.Parse).ToArray();
-            tempoConfig = int.Parse(p[5]);
-            intervaloConfig = int.Parse(p[6]);
-            preparacaoConfig = int.Parse(p[7]);
+            votos = p[5].Length == 0 ? new int[4] : p[5].Split(',').Select(int.Parse).ToArray();
+            tempoConfig = int.Parse(p[6]);
+            intervaloConfig = int.Parse(p[7]);
+            preparacaoConfig = int.Parse(p[8]);
             configuracaoRecebida = true;
         }
         catch (Exception ex)
@@ -395,7 +408,10 @@ internal sealed class PainelVotacaoOverlay : MonoBehaviour
         }
 
         GUI.Label(new Rect(dentroX, atualY, larguraInterna, 20f * escala),
-            $"RODADA #{PainelVotacaoRpc.Rodada}     ● AO VIVO", estiloSubtitulo);
+            PainelVotacaoRpc.VotacaoLobby
+                ? $"F7 • VOTAÇÃO NO LOBBY  #{PainelVotacaoRpc.Rodada}"
+                : $"F6 • VOTAÇÃO NA PARTIDA  #{PainelVotacaoRpc.Rodada}",
+            estiloSubtitulo);
         atualY += 25f * escala;
         GUI.color = new Color(0.20f, 0.29f, 0.40f, 1f);
         GUI.Box(new Rect(dentroX, atualY, larguraInterna, 2f * escala),
