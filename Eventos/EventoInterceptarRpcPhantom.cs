@@ -6,8 +6,7 @@ using HarmonyLib;
 
 namespace YouTubeVoteBridge;
 
-// O nome exato do RPC mudou entre builds; encontra dinamicamente os RPCs
-// de invisibilidade com um único bool, sem depender de um nome hardcoded.
+// O EHR usa RpcMakeInvisible() sem argumento para ativar a invisibilidade.
 [HarmonyPatch]
 internal static class EventoInterceptarRpcPhantom
 {
@@ -15,48 +14,33 @@ internal static class EventoInterceptarRpcPhantom
     {
         MethodBase[] metodos = typeof(PlayerControl).GetMethods(
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-            .Where(m =>
-                (m.Name.StartsWith("Rpc", StringComparison.OrdinalIgnoreCase) &&
-                 (m.Name.IndexOf("Invisib", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                  m.Name.IndexOf("Vanish", StringComparison.OrdinalIgnoreCase) >= 0)) ||
-                string.Equals(m.Name, "SetRoleInvisibility", StringComparison.OrdinalIgnoreCase))
-            .Where(m =>
-            {
-                ParameterInfo[] p = m.GetParameters();
-                return p.Length == 1 && p[0].ParameterType == typeof(bool);
-            })
-            .OrderByDescending(m => m.Name.StartsWith("Rpc", StringComparison.OrdinalIgnoreCase))
+            .Where(m => m.GetParameters().Length == 0 &&
+                (m.Name.IndexOf("MakeInvisible", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                 m.Name.IndexOf("Invisib", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                 m.Name.IndexOf("Vanish", StringComparison.OrdinalIgnoreCase) >= 0))
+            .OrderByDescending(m => m.Name.IndexOf("Rpc", StringComparison.OrdinalIgnoreCase) >= 0)
             .ToArray();
+        if (metodos.Length > 0) return metodos;
 
-        if (metodos.Length > 0)
-            return metodos;
-
-        // Algumas versões do Among Us não expõem o RPC de invisibilidade como
-        // método de PlayerControl. Harmony exige pelo menos um alvo válido:
-        // usa CheckShapeshift como fallback inofensivo para não impedir o mod
-        // inteiro de carregar. O Prefix ignora chamadas sem argumento bool.
-        MethodBase fallback = AccessTools.Method(
-            typeof(PlayerControl), nameof(PlayerControl.CheckShapeshift));
-
+        MethodBase fallback = AccessTools.Method(typeof(PlayerControl), nameof(PlayerControl.CheckShapeshift));
         if (fallback != null)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "[Phantom/teleporte] Nenhum método RPC de invisibilidade foi encontrado; usando fallback seguro. O gatilho do Phantom precisa ser identificado para esta versão do jogo.");
+                "[Phantom/teleporte] RpcMakeInvisible() não foi encontrado em PlayerControl; o teleporte não poderá disparar até identificarmos o método real.");
             return new[] { fallback };
         }
-
         YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-            "[Phantom/teleporte] Não foi encontrado RPC de invisibilidade nem CheckShapeshift para fallback.");
+            "[Phantom/teleporte] Não foi encontrado método de invisibilidade nem CheckShapeshift para fallback.");
         return Array.Empty<MethodBase>();
     }
 
-    private static void Prefix(PlayerControl __instance, object[] __args)
+    private static void Prefix(PlayerControl __instance, MethodBase __originalMethod)
     {
-        if (__instance == null || __args == null || __args.Length != 1 ||
-            __args[0] is not bool invisivel || !invisivel ||
+        if (__instance == null || __originalMethod == null ||
+            (!__originalMethod.Name.Contains("Invisib", StringComparison.OrdinalIgnoreCase) &&
+             !__originalMethod.Name.Contains("Vanish", StringComparison.OrdinalIgnoreCase)) ||
             !YouTubeVoteBridgePlugin.EhHost())
             return;
-
         EventoTeletransportarAleatorioParaPhantom.AoAtivarInvisibilidade(__instance);
     }
 }
