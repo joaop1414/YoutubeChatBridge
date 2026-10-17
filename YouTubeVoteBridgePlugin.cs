@@ -3442,6 +3442,7 @@ public static class YouTubeVoteShapeshiftCheckPatch
         // target == jogador quando a habilidade está revertendo.
         if (__instance.PlayerId == target.PlayerId)
         {
+            RainbowColorTransition.DefinirMetamorfoTransformado(__instance.PlayerId, false);
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 $"Shapeshift: CheckShapeshift detectou DEStransformação para PlayerId={__instance.PlayerId}; retomando rainbow e aguardando RpcShapeshift/SetTasks para restaurar tarefas.");
             YouTubeVoteBridgePlugin.RetomarRainbowDepoisDoShapeshift(__instance);
@@ -3449,6 +3450,7 @@ public static class YouTubeVoteShapeshiftCheckPatch
             return;
         }
 
+        RainbowColorTransition.DefinirMetamorfoTransformado(__instance.PlayerId, true);
         bool jogadorRainbow = YouTubeVoteBridgePlugin.EhJogadorRainbowRegistrado(__instance);
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             $"Shapeshift diagnóstico: CheckShapeshift executou; host={YouTubeVoteBridgePlugin.EhHost()}, PlayerId={__instance.PlayerId}, alvo={target.PlayerId}, jogadorRainbow={jogadorRainbow}, alvoRainbow={YouTubeVoteBridgePlugin.EhJogadorRainbowRegistrado(target)}.");
