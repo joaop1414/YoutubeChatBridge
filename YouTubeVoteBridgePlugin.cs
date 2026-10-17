@@ -3586,6 +3586,64 @@ internal static class YouTubeVoteBridgeBloquearFimDeJogoOriginalPatch
 }
 
 
+// O evento precisa barrar a solicitação recebida pelo host, não apenas a chamada
+// local RpcShapeshift. CheckShapeshift é a solicitação inicial do cliente;
+// Shapeshift é o RPC visual/confirmado. Retornar false impede o jogo de processá-los.
+[HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.HandleRpc))]
+public static class YouTubeVoteBlockIncomingShapeshiftPatch
+{
+    public static bool Prefix(
+        PlayerControl __instance,
+        [HarmonyArgument(0)] byte callId,
+        [HarmonyArgument(1)] MessageReader reader)
+    {
+        if (!YouTubeVoteBridgePlugin.EhHost() ||
+            !EventoTeletransportarAlvoParaMetamorfo.EstaAtivo ||
+            __instance == null ||
+            reader == null)
+            return true;
+
+        bool pedidoShapeshift =
+            callId == (byte)RpcCalls.CheckShapeshift ||
+            callId == (byte)RpcCalls.Shapeshift;
+
+        if (!pedidoShapeshift)
+            return true;
+
+        MessageReader copia = null;
+        PlayerControl alvo = null;
+
+        try
+        {
+            // Nunca consumimos o reader original: o jogo espera receber sua posição intacta.
+            copia = MessageReader.Get(reader);
+            alvo = copia.ReadNetObject<PlayerControl>();
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                $"Evento metamorfose: não foi possível ler o alvo do RPC {(RpcCalls)callId}; o host vai ignorá-lo mesmo assim. {ex.Message}");
+        }
+        finally
+        {
+            if (copia != null)
+            {
+                try { copia.Recycle(); } catch { }
+            }
+        }
+
+        // Só existe alvo a teleportar numa transformação real, não numa destransformação.
+        if (alvo != null && alvo.PlayerId != __instance.PlayerId)
+            EventoTeletransportarAlvoParaMetamorfo.AoTentarMetamorfosear(__instance, alvo);
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"Evento metamorfose: host ignorou RPC recebido {(RpcCalls)callId} do PlayerId={__instance.PlayerId}, alvo={(alvo == null ? "não identificado" : alvo.PlayerId.ToString())}.");
+
+        // Não processar nem retransmitir a tentativa enquanto o evento estiver ativo.
+        return false;
+    }
+}
+
 // EHR detecta o estado no Postfix de RpcShapeshift: alvo != jogador = shift;
 // alvo == jogador = revert. Não reinterceptamos HandleRpc, pois isso pode impedir
 // o jogo de processar o evento original.
