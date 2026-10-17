@@ -914,6 +914,13 @@ internal sealed class EventoTesteMenu : MonoBehaviour
         if (!ValidarHostEPartida())
             return;
 
+        foreach (PlayerControl listado in PlayerControl.AllPlayerControls)
+        {
+            if (listado != null && listado.Data != null)
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    $"[Menu de teste][JOGADORES] PlayerId={listado.PlayerId}, nome={listado.Data.PlayerName}, OwnerId={listado.OwnerId}, desconectado={listado.Data.Disconnected}.");
+        }
+
         PlayerControl jogador = null;
         if (playerIdAlvo.HasValue)
         {
