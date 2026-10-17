@@ -1802,7 +1802,26 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     // do ciclo até que o host processe e replique a destransformação.
     private static readonly HashSet<byte> ShapeshiftersRainbowTransformados = new();
     private static readonly HashSet<byte> CoresRainbowRestauradasPorDestransformacao = new();
+    private static readonly Dictionary<byte, string> NomesRainbowTemporariosPorShapeshift = new();
+    private sealed class EstadoShapeshiftRainbow
+    {
+        public int CorOriginal;
+        public string NomeOriginal;
+        public bool EraRainbow;
+        public bool AlvoEraRainbow;
+    }
+    private static readonly Dictionary<byte, EstadoShapeshiftRainbow> EstadosShapeshiftRainbow = new();
     private static bool EnviandoRpcDestransformacaoRainbow;
+    private static bool ReenviandoRpcShapeshiftPreparado;
+    private static bool BloqueioCompletoShapeshift;
+
+    // API pública para eventos: true bloqueia completamente transformações e destransformações.
+    public static bool ShapeshiftBloqueado => BloqueioCompletoShapeshift;
+    public static void DefinirBloqueioCompletoShapeshift(bool bloquear)
+    {
+        BloqueioCompletoShapeshift = bloquear;
+        Instance?.Log.LogInfo("Shapeshift: bloqueio completo " + (bloquear ? "ATIVADO" : "desativado") + ".");
+    }
     private static readonly string[] CoresTextoRainbow =
     {
         "#FF4040", "#FF9A32", "#FFE64A", "#55E66A", "#42D9E8",
@@ -1959,6 +1978,8 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         CoresRainbowRestauradasPorDestransformacao.Remove(playerId);
         IndicesCorRainbowPorJogador.Remove(playerId);
         ShapeshiftersRainbowTransformados.Remove(playerId);
+        NomesRainbowTemporariosPorShapeshift.Remove(playerId);
+        EstadosShapeshiftRainbow.Remove(playerId);
     }
 
     private static void EncerrarRainbowGlobal()
@@ -1979,7 +2000,10 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         NomesOriginaisRainbow.Clear();
         CoresRainbowRestauradasPorDestransformacao.Clear();
         ShapeshiftersRainbowTransformados.Clear();
+        NomesRainbowTemporariosPorShapeshift.Clear();
+        EstadosShapeshiftRainbow.Clear();
         IndicesCorRainbowPorJogador.Clear();
+        BloqueioCompletoShapeshift = false;
         ProximaTrocaCorRainbow = 0f;
         Instance?.Log.LogInfo("Rainbow encerrado; cores e nomes originais restaurados.");
     }
@@ -2489,9 +2513,11 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                     jogador.RpcSetColor((byte)indiceJogador);
                 }
 
-                string nomeOriginal = NomesOriginaisRainbow.TryGetValue(playerId, out string salvo)
-                    ? salvo
-                    : (jogador.Data.PlayerName ?? string.Empty);
+                string nomeOriginal = NomesRainbowTemporariosPorShapeshift.TryGetValue(playerId, out string nomeTemporario)
+                    ? nomeTemporario
+                    : (NomesOriginaisRainbow.TryGetValue(playerId, out string salvo)
+                        ? salvo
+                        : (jogador.Data.PlayerName ?? string.Empty));
 
                 // O Rainbow não pode sobrescrever o nome temporário da ejeção.
                 if (PlayerIdNaEjecao.HasValue && PlayerIdNaEjecao.Value == playerId)
@@ -2620,49 +2646,144 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         bool shouldAnimate)
     {
         if (EnviandoRpcDestransformacaoRainbow ||
-            !RainbowGlobalAtivo ||
             shapeshifter == null ||
             alvo == null ||
-            shapeshifter.PlayerId != alvo.PlayerId ||
-            !JogadoresRainbowAtivos.Contains(shapeshifter.PlayerId))
+            shapeshifter.PlayerId != alvo.PlayerId)
+            return true;
+
+        byte id = shapeshifter.PlayerId;
+        bool tinhaEstado = EstadosShapeshiftRainbow.TryGetValue(id, out EstadoShapeshiftRainbow estado);
+        bool rainbowAtivo = JogadoresRainbowAtivos.Contains(id);
+        if (!tinhaEstado && !rainbowAtivo)
             return true;
 
         try
         {
-            int corOriginal = CoresOriginaisRainbow.TryGetValue(
-                shapeshifter.PlayerId, out int salva)
-                ? salva
-                : (int)shapeshifter.Data?.DefaultOutfit.ColorId;
-
-            // A transformação terminou: retirar a pausa antes do próximo ciclo.
-            bool estavaPausado = ShapeshiftersRainbowTransformados.Remove(shapeshifter.PlayerId);
-            CoresRainbowRestauradasPorDestransformacao.Add(shapeshifter.PlayerId);
-            shapeshifter.RpcSetColor((byte)Math.Clamp(corOriginal, 0, 255));
-            if (estavaPausado)
+            // Primeiro restaura a identidade que existia antes da transformação.
+            ShapeshiftersRainbowTransformados.Remove(id);
+            NomesRainbowTemporariosPorShapeshift.Remove(id);
+            if (tinhaEstado && !estado.EraRainbow)
             {
-                Instance?.Log.LogInfo(
-                    $"Rainbow: pausa encerrada para Shapeshifter PlayerId={shapeshifter.PlayerId}; a troca de cores será retomada.");
+                JogadoresRainbowAtivos.Remove(id);
+                NotificarEstadoRainbowVisual(id, false);
+                CoresOriginaisRainbow.Remove(id);
+                NomesOriginaisRainbow.Remove(id);
+                IndicesCorRainbowPorJogador.Remove(id);
             }
 
-            // O guard evita que o RPC reenviado seja interceptado novamente.
-            EnviandoRpcDestransformacaoRainbow = true;
-            shapeshifter.RpcShapeshift(shapeshifter, shouldAnimate);
+            int corOriginal = tinhaEstado
+                ? estado.CorOriginal
+                : (CoresOriginaisRainbow.TryGetValue(id, out int salva)
+                    ? salva
+                    : (int)(shapeshifter.Data?.DefaultOutfit.ColorId ?? 0));
+            string nomeOriginal = tinhaEstado
+                ? estado.NomeOriginal
+                : (NomesOriginaisRainbow.TryGetValue(id, out string salvoNome)
+                    ? salvoNome
+                    : (shapeshifter.Data?.PlayerName ?? string.Empty));
 
-            Instance?.Log.LogInfo(
-                $"Rainbow: destransformação do Shapeshifter PlayerId={shapeshifter.PlayerId} interceptada; cor original restaurada e RPC reenviado.");
+            // O nome/cor são preparados antes do RPC de reversão.
+            if (tinhaEstado && estado.EraRainbow)
+            {
+                JogadoresRainbowAtivos.Add(id);
+                CoresOriginaisRainbow[id] = corOriginal;
+                NomesOriginaisRainbow[id] = nomeOriginal;
+                NotificarEstadoRainbowVisual(id, true);
+            }
+            shapeshifter.RpcSetColor((byte)Math.Clamp(corOriginal, 0, 255));
+            DefinirNomeRainbowNosClientesComMod(shapeshifter, nomeOriginal);
+
+            EnviandoRpcDestransformacaoRainbow = true;
+            ReenviandoRpcShapeshiftPreparado = true;
+            shapeshifter.RpcShapeshift(shapeshifter, shouldAnimate);
+            Instance?.Log.LogInfo($"Shapeshift: destransformação interceptada e reenviada; PlayerId={id}, estadoRainbowAnterior={(tinhaEstado ? estado.EraRainbow : rainbowAtivo)}.");
+            return false;
         }
         catch (Exception ex)
         {
-            Instance?.Log.LogError(
-                "Rainbow: erro ao restaurar cor/reenviar destransformação: " + ex);
+            Instance?.Log.LogError("Shapeshift: falha ao preparar/retransmitir destransformação: " + ex);
             return true;
         }
         finally
         {
+            ReenviandoRpcShapeshiftPreparado = false;
             EnviandoRpcDestransformacaoRainbow = false;
+            EstadosShapeshiftRainbow.Remove(id);
+        }
+    }
+
+    private static string ObterNomeBaseRainbow(PlayerControl jogador)
+    {
+        if (jogador == null) return string.Empty;
+        if (NomesOriginaisRainbow.TryGetValue(jogador.PlayerId, out string salvo))
+            return salvo;
+        return jogador.Data?.PlayerName ?? string.Empty;
+    }
+
+    private static bool PrepararEReenviarShapeshift(PlayerControl shapeshifter, PlayerControl alvo, bool shouldAnimate)
+    {
+        if (shapeshifter == null || alvo == null || shapeshifter.PlayerId == alvo.PlayerId)
+            return true;
+        if (!EhHost())
+            return true;
+
+        byte id = shapeshifter.PlayerId;
+        bool eraRainbow = JogadoresRainbowAtivos.Contains(id);
+        bool alvoRainbow = JogadoresRainbowAtivos.Contains(alvo.PlayerId);
+        if (!eraRainbow && !alvoRainbow)
+            return true;
+
+        if (!EstadosShapeshiftRainbow.ContainsKey(id))
+        {
+            string nomeBase = eraRainbow ? ObterNomeBaseRainbow(shapeshifter) : (shapeshifter.Data?.PlayerName ?? string.Empty);
+            int corBase = eraRainbow && CoresOriginaisRainbow.TryGetValue(id, out int salva)
+                ? salva : (int)(shapeshifter.Data?.DefaultOutfit.ColorId ?? 0);
+            EstadosShapeshiftRainbow[id] = new EstadoShapeshiftRainbow {
+                CorOriginal = corBase, NomeOriginal = nomeBase, EraRainbow = eraRainbow, AlvoEraRainbow = alvoRainbow
+            };
         }
 
-        // Cancela o RPC original; o RPC reenviado acima é o que deve chegar a todos.
+        // Se o próprio Shapeshifter é rainbow, pause o ciclo antes do RPC que copia a aparência.
+        if (eraRainbow)
+            PausarRainbowDuranteShapeshift(shapeshifter);
+
+        if (alvoRainbow)
+        {
+            string nomeAlvo = ObterNomeBaseRainbow(alvo);
+            if (!eraRainbow)
+            {
+                CoresOriginaisRainbow[id] = shapeshifter.Data?.DefaultOutfit.ColorId ?? 0;
+                NomesOriginaisRainbow[id] = shapeshifter.Data?.PlayerName ?? string.Empty;
+                JogadoresRainbowAtivos.Add(id);
+                if (!IndicesCorRainbowPorJogador.ContainsKey(id))
+                    IndicesCorRainbowPorJogador[id] = UnityEngine.Random.Range(0, Math.Max(1, Palette.ColorNames?.Length ?? 1));
+                NotificarEstadoRainbowVisual(id, true);
+            }
+            NomesRainbowTemporariosPorShapeshift[id] = nomeAlvo;
+            ShapeshiftersRainbowTransformados.Remove(id);
+        }
+
+        try
+        {
+            ReenviandoRpcShapeshiftPreparado = true;
+            shapeshifter.RpcShapeshift(alvo, shouldAnimate);
+        }
+        finally
+        {
+            ReenviandoRpcShapeshiftPreparado = false;
+        }
+
+        if (alvoRainbow)
+        {
+            // Aplica o nome com o prefixo Arco-íris + o nome/tag original do alvo.
+            int indice = IndicesCorRainbowPorJogador.TryGetValue(id, out int idx) ? idx : 0;
+            DefinirNomeRainbowNosClientesComMod(shapeshifter, CriarNomeRainbow(ObterNomeBaseRainbow(alvo), indice));
+            int corAtual = indice % Math.Max(1, Palette.ColorNames?.Length ?? 1);
+            try { shapeshifter.RpcSetColor((byte)corAtual); } catch { }
+            ShapeshiftersRainbowTransformados.Remove(id);
+        }
+
+        Instance?.Log.LogInfo($"Shapeshift: RPC preparado e reenviado; jogador={id}, alvo={alvo.PlayerId}, shapeshifterRainbow={eraRainbow}, alvoRainbow={alvoRainbow}.");
         return false;
     }
 
@@ -3344,22 +3465,30 @@ public static class YouTubeVoteRainbowShapeshiftPatch
         if (__instance == null || target == null)
             return true;
 
+        // Chamadas internas preparadas são liberadas uma única vez. Isso permite
+        // cancelar o RPC inicial e reenviá-lo sem entrar em recursão.
+        if (YouTubeVoteBridgePlugin.ReenviandoRpcShapeshiftPreparado)
+            return true;
+
+        if (YouTubeVoteBridgePlugin.BloqueioCompletoShapeshift)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                $"Shapeshift: RPC bloqueado pelo bloqueio global; PlayerId={__instance.PlayerId}, alvo={target.PlayerId}.");
+            return false;
+        }
+
         if (__instance.PlayerId == target.PlayerId)
         {
-            // alvo == próprio jogador representa a destransformação.
             YouTubeVoteBridgePlugin.RegistrarDestransformacaoShapeshifter(__instance);
-
-            // Cancela o RPC original, restaura a cor original antes da destransformação
-            // e retransmite um RPC novo para que todos os clientes recebam a sequência.
             return YouTubeVoteBridgePlugin.InterceptarDestransformacaoRainbow(
                 __instance, target, shouldAnimate);
         }
 
-        // Pausa o ciclo antes que o RPC de transformação copie a aparência do alvo.
-        // Assim, o arco-íris do Shapeshifter não sobrescreve a cor copiada.
-        YouTubeVoteBridgePlugin.PausarRainbowDuranteShapeshift(__instance);
         YouTubeVoteBridgePlugin.RegistrarTarefasAntesDoShapeshift(__instance, target);
-        return true;
+        // Se o próprio Shapeshifter ou o alvo for rainbow, cancelar a chamada
+        // original, preparar o estado e então emitir um novo RPC com a preparação pronta.
+        return YouTubeVoteBridgePlugin.PrepararEReenviarShapeshift(
+            __instance, target, shouldAnimate);
     }
 
     public static void Postfix(
@@ -3368,29 +3497,16 @@ public static class YouTubeVoteRainbowShapeshiftPatch
         [HarmonyArgument(1)] bool shouldAnimate)
     {
         if (__instance == null || target == null)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "Shapeshift: RpcShapeshift executou, mas instance ou target é null.");
             return;
-        }
 
         if (__instance.PlayerId == target.PlayerId)
-        {
-            // Segunda tentativa: alguns builds atualizam myTasks dentro do RPC,
-            // antes de executar o Postfix. Se SetTasks rodar depois, o patch da lista
-            // fará outra tentativa, pois o estado aguardando restauração permanece.
             YouTubeVoteBridgePlugin.RestaurarTarefasDepoisDeAtualizar(__instance);
-        }
 
-        bool rainbow = YouTubeVoteBridgePlugin.JogadorTemRainbowParaDestransformacao(__instance);
-        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"Rainbow diagnóstico: RpcShapeshift executou; PlayerId={__instance.PlayerId}, alvo={target.PlayerId}, shouldAnimate={shouldAnimate}, rainbowAtivo={rainbow}.");
-
-        if (!rainbow)
-            return;
-
-        YouTubeVoteBridgePlugin.DefinirEstadoShapeshiftRainbow(
-            __instance, __instance.PlayerId != target.PlayerId, target, shouldAnimate);
+        // O Prefix preparou o estado antes do RPC retransmitido. O ciclo Rainbow
+        // cuida de manter a cor/nome do alvo se aplicável.
+        if (YouTubeVoteBridgePlugin.JogadorTemRainbowParaDestransformacao(__instance))
+            YouTubeVoteBridgePlugin.DefinirEstadoShapeshiftRainbow(
+                __instance, __instance.PlayerId != target.PlayerId, target, shouldAnimate);
     }
 }
 
