@@ -73,7 +73,6 @@ internal static class YouTubeVotePhantomUseAbilityPatch
 
             // Recria o botão usando a configuração nativa da habilidade.
             HudManager.Instance.AbilityButton.SetFromSettings(role.Player.Data.Role.Ability);
-            HudManager.Instance.AbilityButton.SetCooldown(0f, 0f);
         }
         catch (Exception ex)
         {
