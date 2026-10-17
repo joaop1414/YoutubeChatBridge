@@ -7,6 +7,7 @@ namespace YouTubeVoteBridge;
 internal sealed class EventoTeletransportarAleatorioParaPhantom : EventoVotacao
 {
     private static bool ativo;
+    private static bool armado;
 
     public override string Nome => "Ao ficar invisível, o Phantom teleporta um jogador aleatório até ele";
     internal static bool EstaAtivo => ativo;
@@ -14,7 +15,8 @@ internal sealed class EventoTeletransportarAleatorioParaPhantom : EventoVotacao
     public void Executar()
     {
         if (!YouTubeVoteBridgePlugin.EhHost()) return;
-        ativo = true;
+        armado = true;
+        if (ShipStatus.Instance != null) ativo = true;
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             "[Phantom/teleporte] Ativado: quando um Phantom iniciar a invisibilidade, um jogador aleatório será teleportado até ele.");
     }
@@ -58,5 +60,14 @@ internal sealed class EventoTeletransportarAleatorioParaPhantom : EventoVotacao
         }
     }
 
-    internal static void Resetar() => ativo = false;
+    internal static void IniciarPartida()
+    {
+        if (armado) ativo = true;
+    }
+
+    internal static void Resetar()
+    {
+        ativo = false;
+        armado = false;
+    }
 }
