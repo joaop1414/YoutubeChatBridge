@@ -3601,13 +3601,25 @@ internal static class YouTubeVoteBridgeBloquearFimDeJogoOriginalPatch
 
     private static bool Prefix(MethodBase __originalMethod)
     {
-        if (YouTubeVoteBridgePlugin.SemFimDeJogo?.Value != true ||
-            ControleFimDeJogo.PermitirFimDoMod)
+        // O mod pode autorizar explicitamente seu próprio encerramento.
+        if (ControleFimDeJogo.PermitirFimDoMod)
             return true;
 
+        bool bloqueadoPelaConfiguracao =
+            YouTubeVoteBridgePlugin.SemFimDeJogo?.Value == true;
+        bool bloqueadoPeloOportunista =
+            EventoOportunista.DeveBloquearFimDeJogoOriginal;
+
+        if (!bloqueadoPelaConfiguracao && !bloqueadoPeloOportunista)
+            return true;
+
+        string motivo = bloqueadoPelaConfiguracao
+            ? "configuração 'Sem fim de jogo'"
+            : "controle de encerramento do evento Oportunista";
+
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            "[Fim de jogo] Encerramento original bloqueado pela configuração 'Sem fim de jogo' (" +
-            __originalMethod.Name + ").");
+            "[Fim de jogo] Encerramento original bloqueado por " + motivo +
+            " (" + __originalMethod.Name + ").");
         return false;
     }
 }
