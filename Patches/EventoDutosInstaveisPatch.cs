@@ -1,16 +1,15 @@
 using System;
 using HarmonyLib;
-using UnityEngine;
 
 namespace YouTubeVoteBridge;
 
-// Detecta a entrada efetiva no duto, inclusive quando o jogo processa a entrada
-// recebida de outro cliente. RpcEnterVent sozinho só cobre a solicitação local.
-[HarmonyPatch(typeof(PlayerPhysics), "EnterVent")]
+// Usa RpcEnterVent, método que o projeto já chama diretamente, em vez de
+// "EnterVent", que não existe com esse nome nesta versão do jogo.
+[HarmonyPatch(typeof(PlayerPhysics), nameof(PlayerPhysics.RpcEnterVent))]
 internal static class EventoDutosInstaveisPatch
 {
     [HarmonyPostfix]
-    private static void Postfix(PlayerPhysics __instance, int id)
+    private static void Postfix(PlayerPhysics __instance, int ventId)
     {
         try
         {
@@ -20,7 +19,7 @@ internal static class EventoDutosInstaveisPatch
             Vent duto = null;
             foreach (Vent candidato in ShipStatus.Instance.AllVents)
             {
-                if (candidato != null && candidato.Id == id)
+                if (candidato != null && candidato.Id == ventId)
                 {
                     duto = candidato;
                     break;
