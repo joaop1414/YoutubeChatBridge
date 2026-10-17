@@ -13,8 +13,9 @@ public static class PhantomVanishAPI
     private static readonly System.Collections.Generic.HashSet<string> Bloqueios =
         new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-    // Mantém o comportamento atual: o desaparecimento fica bloqueado por padrão.
-    public static bool BloqueioGlobalAtivo { get; private set; } = true;
+    // A habilidade do Espectro fica liberada por padrão. Eventos que realmente
+    // precisarem bloquear o desaparecimento devem ativar o bloqueio explicitamente.
+    public static bool BloqueioGlobalAtivo { get; private set; } = false;
 
     public static void DefinirBloqueioGlobal(bool ativo)
     {
