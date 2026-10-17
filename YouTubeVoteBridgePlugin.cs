@@ -58,11 +58,14 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     private static readonly Dictionary<string, int> Votos = new(StringComparer.OrdinalIgnoreCase);
     private static readonly List<Evento> Opcoes = new();
     private static readonly System.Random Sorteador = new();
-    private static readonly List<Evento> Catalogo = RegistroEventos.ObterTodos()
-        .Concat(RegistroEventosPartida.ObterTodos())
+    private static readonly List<Evento> CatalogoF6 = RegistroEventos.ObterTodos()
+        .Select(evento => new Evento(evento.Nome))
+        .ToList();
+    private static readonly List<Evento> CatalogoF7 = RegistroEventosPartida.ObterTodos()
         .Select(evento => new Evento(evento.Nome))
         .ToList();
     private static bool RodadaAtiva;
+    private static bool RodadaModoLobby;
     private static float FimRodada;
     private static int NumeroRodada;
 
@@ -1237,10 +1240,25 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         NomesOriginaisPainel.Clear();
     }
 
+    private static void AnunciarEventoLobby(string texto)
+    {
+        if (!EhHost() || string.IsNullOrWhiteSpace(texto) ||
+            PlayerControl.AllPlayerControls == null)
+            return;
+
+        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+        {
+            if (jogador == null || jogador.Data == null || jogador.Data.Disconnected ||
+                jogador.OwnerId < 0)
+                continue;
+
+            EnviarMensagemIndividual(jogador, texto);
+        }
+    }
+
     private static void AtualizarPainelVotacao()
     {
-        if (!RodadaAtiva) return;
-        if (Time.realtimeSinceStartup < ProximaAtualizacaoPainel) return;
+        if (!RodadaAtiva || Time.realtimeSinceStartup < ProximaAtualizacaoPainel) return;
 
         ProximaAtualizacaoPainel = Time.realtimeSinceStartup + 1f;
         PainelVotacaoRpc.Publicar(
@@ -1248,149 +1266,139 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             true,
             Math.Max(0, (int)Math.Ceiling(FimRodada - Time.realtimeSinceStartup)),
             Opcoes.Select(o => o.Nome).ToArray(),
-            ContarVotos()
+            ContarVotos(),
+            RodadaModoLobby
         );
-        AtualizarPlacarNoNick();
+
+        // O nome/placar dos jogadores é usado somente na votação F6 durante a partida.
+        if (!RodadaModoLobby)
+            AtualizarPlacarNoNick();
     }
 
     private static void EncerrarRodada()
     {
-        RestaurarPlacarNoNick();
-        RestaurarNomesPainel();
+        if (!RodadaModoLobby)
+        {
+            RestaurarPlacarNoNick();
+            RestaurarNomesPainel();
+        }
+
+        bool eraVotacaoLobby = RodadaModoLobby;
         RodadaAtiva = false;
-        PainelVotacaoRpc.Publicar(NumeroRodada, false, 0, Array.Empty<string>(), new int[4]);
+        PainelVotacaoRpc.Publicar(
+            NumeroRodada, false, 0, Array.Empty<string>(), new int[4], eraVotacaoLobby);
         Votos.Clear();
         Opcoes.Clear();
+        RodadaModoLobby = false;
         UltimoTotalVotos = -1;
         while (FilaVotos.TryDequeue(out _)) { }
     }
 
-    private static void IniciarRodada()
+    private static void IniciarRodada(bool modoLobby)
     {
-        if (Catalogo.Count < 4) return;
+        List<Evento> catalogo = modoLobby ? CatalogoF7 : CatalogoF6;
+        if (catalogo.Count < 4) return;
+
         EncerrarRodada();
         while (FilaVotos.TryDequeue(out _)) { }
-        Opcoes.AddRange(Catalogo.OrderBy(_ => Sorteador.Next()).Take(4));
+        Opcoes.AddRange(catalogo.OrderBy(_ => Sorteador.Next()).Take(4));
         NumeroRodada++;
         FimRodada = Time.realtimeSinceStartup + Math.Max(5, TempoVotacao.Value);
         ProximaAtualizacaoPainel = 0f;
+        RodadaModoLobby = modoLobby;
         RodadaAtiva = true;
-        
-        
+
+        if (modoLobby)
+        {
+            string lista = string.Join(" | ", Opcoes.Select((o, i) => (i + 1) + ") " + o.Nome));
+            AnunciarEventoLobby(
+                "<color=#66CCFF>[F7]</color> Votação no lobby! Vote na live: " + lista);
+            Instance?.Log.LogInfo("[F7] Votação iniciada no lobby: " + lista);
+        }
+        else
+        {
+            Instance?.Log.LogInfo("[F6] Votação de eventos tradicionais iniciada.");
+        }
     }
 
-    public static void AtualizarVotacao()
+    private static void ExecutarEventoPartida(string nome)
     {
-        if (!EhHost())
-            return;
-
-        // A votação do YouTube só pode iniciar eventos durante uma partida.
-        // Em lobby, descarta votos acumulados sem interromper os leitores da live.
-        if (!LobbyTagManager.PartidaIniciada())
+        EventoVotacao evento = RegistroEventosPartida.ObterTodos()
+            .FirstOrDefault(e => string.Equals(e.Nome, nome, StringComparison.Ordinal));
+        if (evento == null)
         {
-            if (RodadaAtiva)
-                EncerrarRodada();
-
-            while (FilaVotos.TryDequeue(out _)) { }
+            Instance?.Log.LogWarning("[F7] Evento vencedor não encontrado: " + nome);
             return;
         }
 
-        if (MeetingHud.Instance != null)
+        Type tipo = evento.GetType();
+        MethodInfo executar = tipo.GetMethod(
+            "Executar", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+            null, Type.EmptyTypes, null);
+        if (executar != null)
         {
-            float pausa = Math.Max(0f, Time.deltaTime);
-            if (RodadaAtiva) FimRodada += pausa;
-            ProximaRodadaPermitida += pausa;
-            EventoCongelarJogador.PausarDuranteReuniao();
+            executar.Invoke(evento, null);
+            return;
+        }
+
+        MethodInfo ativar = tipo.GetMethod(
+            "Ativar", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic,
+            null, Type.EmptyTypes, null);
+        if (ativar != null)
+        {
+            ativar.Invoke(null, null);
+            return;
+        }
+
+        Instance?.Log.LogWarning("[F7] O evento não tem método Executar/Ativar: " + nome);
+    }
+
+    private static void FinalizarRodada()
+    {
+        if (!RodadaAtiva || Opcoes.Count == 0) return;
+
+        bool eraVotacaoLobby = RodadaModoLobby;
+        int[] contagem = ContarVotos();
+        int maior = contagem.Max();
+        List<int> empatadas = Enumerable.Range(1, Opcoes.Count)
+            .Where(n => contagem[n - 1] == maior)
+            .ToList();
+
+        // Sem votos, todos têm zero e o sorteio escolhe uma opção aleatória.
+        // Com empate, o sorteio fica restrito às opções empatadas.
+        int vencedora = empatadas[Sorteador.Next(empatadas.Count)];
+        Evento eventoVencedor = Opcoes[vencedora - 1];
+
+        if (!eraVotacaoLobby)
+        {
             RestaurarNomesPainel();
             RestaurarPlacarNoNick();
-            return;
         }
 
-        // Enquanto o tsunami estiver ativo, não inicia nem processa outra votação/evento.
-        if (EventoTsunami.Ativo)
-        {
-            if (RodadaAtiva)
-            {
-                RestaurarNomesPainel();
-                RestaurarPlacarNoNick();
-                RodadaAtiva = false;
-                Votos.Clear();
-                Opcoes.Clear();
-                while (FilaVotos.TryDequeue(out _)) { }
-            }
-            return;
-        }
-
-        EventoCongelarJogador.Atualizar();
-
-        if (VotacaoAtiva == null || !VotacaoAtiva.Value || !ChatEmLeitura)
-        {
-            if (RodadaAtiva) EncerrarRodada();
-            LeitorConectado = false;
-            PreparacaoIniciada = false;
-            PreparacaoConcluida = false;
-            while (FilaVotos.TryDequeue(out _)) { }
-            return;
-        }
-
-        // Aguarda o leitor conectar e descarta votos do buffer/histórico antigo.
-        if (!PreparacaoConcluida)
-        {
-            while (FilaVotos.TryDequeue(out _)) { }
-
-            if (!LeitorConectado)
-                return;
-
-            if (!PreparacaoIniciada)
-            {
-                PreparacaoIniciada = true;
-                FimPreparacaoChat = Time.realtimeSinceStartup +
-                    Math.Clamp(PreparacaoChat.Value, 0, 120);
-                Instance.Log.LogInfo(
-                    "Preparação do chat iniciada por " + PreparacaoChat.Value + " segundo(s)."
-                );
-            }
-
-            if (Time.realtimeSinceStartup < FimPreparacaoChat)
-                return;
-
-            PreparacaoConcluida = true;
-            ProximaRodadaPermitida = Time.realtimeSinceStartup;
-            while (FilaVotos.TryDequeue(out _)) { }
-            
-        }
-
-        while (FilaVotos.TryDequeue(out VotoRecebido voto))
-        {
-            if (RodadaAtiva && !string.IsNullOrWhiteSpace(voto.Autor))
-                Votos[voto.Autor.Trim()] = voto.Opcao;
-        }
-
-        if (!RodadaAtiva)
-        {
-            if (Time.realtimeSinceStartup < ProximaRodadaPermitida)
-                return;
-            IniciarRodada();
-            return;
-        }
-        AtualizarPainelVotacao();
-        if (Time.realtimeSinceStartup < FimRodada) return;
-
-        RestaurarNomesPainel();
-        RestaurarPlacarNoNick();
         RodadaAtiva = false;
-        PainelVotacaoRpc.Publicar(NumeroRodada, false, 0, Array.Empty<string>(), new int[4]);
-        int[] contagem = ContarVotos();
-        
-        
+        PainelVotacaoRpc.Publicar(
+            NumeroRodada, false, 0, Array.Empty<string>(), new int[4], eraVotacaoLobby);
 
-        if (Votos.Count > 0)
+        if (eraVotacaoLobby)
         {
-            int maior = contagem.Max();
-            List<int> empatadas = Enumerable.Range(1, 4).Where(n => contagem[n - 1] == maior).ToList();
-            int vencedora = empatadas[Sorteador.Next(empatadas.Count)];
-            Evento eventoVencedor = Opcoes[vencedora - 1];
-            
+            try
+            {
+                ExecutarEventoPartida(eventoVencedor.Nome);
+                AnunciarEventoLobby(
+                    "<color=#66CCFF>[F7]</color> Evento escolhido: <color=yellow>" +
+                    eventoVencedor.Nome +
+                    "</color>. Ele será ativado quando a partida começar.");
+                Instance?.Log.LogInfo("[F7] Evento guardado para o início da partida: " + eventoVencedor.Nome);
+            }
+            catch (Exception ex)
+            {
+                Instance?.Log.LogError("[F7] Falha ao guardar evento " + eventoVencedor.Nome + ": " + ex);
+                AnunciarEventoLobby(
+                    "<color=#66CCFF>[F7]</color> Não foi possível guardar o evento: " + eventoVencedor.Nome);
+            }
+        }
+        else
+        {
             switch (eventoVencedor.Nome)
             {
                 case "Escudo temporário":
@@ -1445,12 +1453,6 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                     break;
                 case "Todos ficam invisíveis":
                     new EventoTodosFicamInvisiveis().Executar();
-                    break;
-                case "Ao concluir uma tarefa, um jogador aleatório é teleportado até você":
-                    new EventoTeletransportarJogadorAoCompletarTarefa().Executar();
-                    break;
-                case "Alvo da metamorfose é teleportado para o metamorfo (partida inteira)":
-                    new EventoTeletransportarAlvoParaMetamorfoPartida().Executar();
                     break;
                 case "Um jogador aleatório comete suicídio":
                     new EventoSuicidioAleatorio().Executar();
@@ -1508,14 +1510,109 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                     break;
             }
         }
-        
+
         Votos.Clear();
         Opcoes.Clear();
+        RodadaModoLobby = false;
         ProximaRodadaPermitida = Time.realtimeSinceStartup +
             Math.Clamp(IntervaloRodadas.Value, 0, 600);
-        Instance.Log.LogInfo(
-            "Próxima votação liberada em " + IntervaloRodadas.Value + " segundo(s)."
-        );
+        Instance?.Log.LogInfo(
+            "Próxima votação liberada em " + IntervaloRodadas.Value + " segundo(s).");
+    }
+
+    public static void AtualizarVotacao()
+    {
+        if (!EhHost())
+            return;
+
+        bool modoLobby = !LobbyTagManager.PartidaIniciada();
+
+        // Ao iniciar a partida, conclui imediatamente a última rodada F7 do lobby.
+        // Ao voltar ao lobby, cancela uma eventual rodada F6 que ficou ativa.
+        if (RodadaAtiva && RodadaModoLobby && !modoLobby)
+        {
+            FinalizarRodada();
+            return;
+        }
+        if (RodadaAtiva && !RodadaModoLobby && modoLobby)
+        {
+            EncerrarRodada();
+            ProximaRodadaPermitida = Time.realtimeSinceStartup;
+        }
+
+        if (!modoLobby && MeetingHud.Instance != null)
+        {
+            float pausa = Math.Max(0f, Time.deltaTime);
+            if (RodadaAtiva) FimRodada += pausa;
+            ProximaRodadaPermitida += pausa;
+            EventoCongelarJogador.PausarDuranteReuniao();
+            RestaurarNomesPainel();
+            RestaurarPlacarNoNick();
+            return;
+        }
+
+        // O tsunami pausa apenas a votação F6 que acontece durante a partida.
+        if (!modoLobby && EventoTsunami.Ativo)
+        {
+            if (RodadaAtiva)
+                EncerrarRodada();
+            return;
+        }
+
+        if (!modoLobby)
+            EventoCongelarJogador.Atualizar();
+
+        if (VotacaoAtiva == null || !VotacaoAtiva.Value || !ChatEmLeitura)
+        {
+            if (RodadaAtiva) EncerrarRodada();
+            LeitorConectado = false;
+            PreparacaoIniciada = false;
+            PreparacaoConcluida = false;
+            while (FilaVotos.TryDequeue(out _)) { }
+            return;
+        }
+
+        // Aguarda o leitor conectar e descarta votos do buffer/histórico antigo.
+        if (!PreparacaoConcluida)
+        {
+            while (FilaVotos.TryDequeue(out _)) { }
+            if (!LeitorConectado)
+                return;
+
+            if (!PreparacaoIniciada)
+            {
+                PreparacaoIniciada = true;
+                FimPreparacaoChat = Time.realtimeSinceStartup +
+                    Math.Clamp(PreparacaoChat.Value, 0, 120);
+                Instance.Log.LogInfo(
+                    "Preparação do chat iniciada por " + PreparacaoChat.Value + " segundo(s).");
+            }
+
+            if (Time.realtimeSinceStartup < FimPreparacaoChat)
+                return;
+
+            PreparacaoConcluida = true;
+            ProximaRodadaPermitida = Time.realtimeSinceStartup;
+            while (FilaVotos.TryDequeue(out _)) { }
+        }
+
+        while (FilaVotos.TryDequeue(out VotoRecebido voto))
+        {
+            if (RodadaAtiva && !string.IsNullOrWhiteSpace(voto.Autor))
+                Votos[voto.Autor.Trim()] = voto.Opcao;
+        }
+
+        if (!RodadaAtiva)
+        {
+            if (Time.realtimeSinceStartup < ProximaRodadaPermitida)
+                return;
+            IniciarRodada(modoLobby);
+            return;
+        }
+
+        AtualizarPainelVotacao();
+        if (Time.realtimeSinceStartup >= FimRodada)
+            FinalizarRodada();
     }
 
     // ========================================================
