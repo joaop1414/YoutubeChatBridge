@@ -15,6 +15,11 @@ internal static class YouTubeVotePhantomUseAbilityPatch
         if (AmongUsClient.Instance == null || PlayerControl.LocalPlayer == null)
             return true;
 
+        // A habilidade do Phantom também é usada para reaparecer. Não bloqueie
+        // esse caminho se o jogador já estiver invisível.
+        if (__instance != null && __instance.isInvisible)
+            return true;
+
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             $"[Phantom] UseAbility bloqueado localmente para PlayerId={__instance?.Player?.PlayerId}.");
         return false;
