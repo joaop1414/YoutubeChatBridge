@@ -24,7 +24,8 @@ internal static class EventoInterceptarRpcPhantom
             {
                 ParameterInfo[] p = m.GetParameters();
                 return p.Length == 1 && p[0].ParameterType == typeof(bool);
-            });
+            })
+            .OrderByDescending(m => m.Name.StartsWith("Rpc", StringComparison.OrdinalIgnoreCase));
     }
 
     private static void Prefix(PlayerControl __instance, object[] __args)
