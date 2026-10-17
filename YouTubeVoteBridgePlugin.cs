@@ -3498,8 +3498,21 @@ public static class YouTubeVoteShapeshiftCheckPatch
             __instance.PlayerId != target.PlayerId)
         {
             EventoTeletransportarAlvoParaMetamorfo.AoTentarMetamorfosear(__instance, target);
+
+            // Mesmo padrão do EHR: rejeitar explicitamente a habilidade para o
+            // cliente limpar o estado/ovo, em vez de engolir o RPC de shapeshift.
+            try
+            {
+                __instance.RpcRejectShapeshift();
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "Evento metamorfose: falha ao enviar RpcRejectShapeshift: " + ex.Message);
+            }
+
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                $"Evento metamorfose: tentativa cancelada em CheckShapeshift antes do RPC visual; metamorfo={__instance.PlayerId}, alvo={target.PlayerId}.");
+                $"Evento metamorfose: tentativa rejeitada em CheckShapeshift; metamorfo={__instance.PlayerId}, alvo={target.PlayerId}.");
             return false;
         }
 
@@ -3615,13 +3628,9 @@ public static class YouTubeVoteRainbowShapeshiftPatch
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             $"Shapeshift diagnóstico: RpcShapeshift Prefix executou; host={YouTubeVoteBridgePlugin.EhHost()}, jogador={__instance.PlayerId}, alvo={target.PlayerId}, reenviando={YouTubeVoteBridgePlugin.ReenviandoRpcShapeshiftPreparado}, bloqueado={YouTubeVoteBridgePlugin.BloqueioCompletoShapeshift}.");
 
-        // O bloqueio de evento tem prioridade até sobre uma retransmissão preparada.
-        if (YouTubeVoteBridgePlugin.BloqueioCompletoShapeshift)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                $"Shapeshift: RPC bloqueado pelo bloqueio global; PlayerId={__instance.PlayerId}, alvo={target.PlayerId}.");
-            return false;
-        }
+        // O evento rejeita a tentativa antes do RPC em CheckShapeshift.
+        // Não bloquear aqui: engolir RpcShapeshift pode deixar o jogador travado
+        // porque o cliente nunca recebe a resposta de rejeição do jogo.
 
         // Chamadas internas preparadas são liberadas uma única vez, sem recursão.
         if (YouTubeVoteBridgePlugin.ReenviandoRpcShapeshiftPreparado)
