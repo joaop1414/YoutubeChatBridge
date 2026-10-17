@@ -54,12 +54,30 @@ internal static class YouTubeVotePhantomUseAbilityPatch
             !PhantomVanishAPI.EstaBloqueado)
             return true;
 
+        // EHR corrige o Phantom do próprio host chamando MakePlayerVisible()
+        // diretamente. Deixar UseAbility seguir o fluxo vanilla pode manter o
+        // botão/animação no estado de desaparecimento quando o vanish é bloqueado.
         if (__instance != null && __instance.isInvisible)
-            return true;
+        {
+            try
+            {
+                __instance.MakePlayerVisible();
+                RestaurarInterfaceLocal(__instance);
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    $"[Phantom] MakePlayerVisible executado para cancelar invisibilidade; PlayerId={__instance.Player?.PlayerId}.");
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[Phantom] Falha em MakePlayerVisible: " + ex.Message);
+            }
+
+            return false;
+        }
 
         RestaurarInterfaceLocal(__instance);
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"[Phantom] UseAbility cancelado pela API para PlayerId={__instance?.Player?.PlayerId}.");
+            $"[Phantom] UseAbility cancelado pela API; botão restaurado para PlayerId={__instance?.Player?.PlayerId}.");
         return false;
     }
 
