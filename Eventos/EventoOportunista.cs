@@ -80,7 +80,8 @@ internal sealed class EventoOportunista : EventoVotacao
 
         if (ShipStatus.Instance == null)
         {
-            if (ativo || armado)
+            // Se foi escolhido no lobby, preservar o evento armado até o mapa iniciar.
+            if (ativo)
                 Resetar();
             return;
         }
