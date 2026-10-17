@@ -2671,6 +2671,17 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     {
         // A reunião é um limite seguro para limpar pausas que não receberam
         // o callback de destransformação, evitando jogadores presos fora da lista.
+        // Limpa também a suspensão visual local em todos os metamorfo detectados,
+        // inclusive aqueles que não estavam na lista persistente de rainbow.
+        if (PlayerControl.AllPlayerControls != null)
+        {
+            foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+            {
+                if (jogador != null)
+                    RainbowColorTransition.DefinirMetamorfoTransformado(jogador.PlayerId, false);
+            }
+        }
+
         foreach (byte id in ShapeshiftersRainbowTransformados.ToArray())
         {
             ShapeshiftersRainbowTransformados.Remove(id);
