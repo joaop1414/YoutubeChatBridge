@@ -71,6 +71,7 @@ internal static class EventosPartidaFimPatch
 {
     private static void Postfix()
     {
+        YouTubeVoteBridgePlugin.LimparEventoF7Pendente();
         EventoTeletransportarAlvoParaMetamorfoPartida.Resetar();
         EventoTeletransportarJogadorAoCompletarTarefa.Desativar("fim da partida");
         EventoTarefaMortal.Resetar();
