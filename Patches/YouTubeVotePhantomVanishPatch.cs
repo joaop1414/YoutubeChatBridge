@@ -143,7 +143,8 @@ internal static class YouTubeVotePhantomCheckVanishPatch
                     __instance.Data?.Role?.Ability != null)
                     HudManager.Instance.AbilityButton.SetFromSettings(__instance.Data.Role.Ability);
 
-                __instance.RpcResetAbilityCooldown();
+                // Esta versão do Among Us não expõe RpcResetAbilityCooldown em PlayerControl.
+                // O botão é restaurado acima; não chamamos um RPC inexistente.
             }
             else if (__instance.OwnerId >= 0)
             {
