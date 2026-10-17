@@ -13,7 +13,7 @@ internal static class EventoInterceptarRpcPhantom
 {
     private static IEnumerable<MethodBase> TargetMethods()
     {
-        return typeof(PlayerControl).GetMethods(
+        MethodBase[] metodos = typeof(PlayerControl).GetMethods(
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
             .Where(m =>
                 (m.Name.StartsWith("Rpc", StringComparison.OrdinalIgnoreCase) &&
@@ -25,7 +25,29 @@ internal static class EventoInterceptarRpcPhantom
                 ParameterInfo[] p = m.GetParameters();
                 return p.Length == 1 && p[0].ParameterType == typeof(bool);
             })
-            .OrderByDescending(m => m.Name.StartsWith("Rpc", StringComparison.OrdinalIgnoreCase));
+            .OrderByDescending(m => m.Name.StartsWith("Rpc", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+        if (metodos.Length > 0)
+            return metodos;
+
+        // Algumas versões do Among Us não expõem o RPC de invisibilidade como
+        // método de PlayerControl. Harmony exige pelo menos um alvo válido:
+        // usa CheckShapeshift como fallback inofensivo para não impedir o mod
+        // inteiro de carregar. O Prefix ignora chamadas sem argumento bool.
+        MethodBase fallback = AccessTools.Method(
+            typeof(PlayerControl), nameof(PlayerControl.CheckShapeshift));
+
+        if (fallback != null)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[Phantom/teleporte] Nenhum método RPC de invisibilidade foi encontrado; usando fallback seguro. O gatilho do Phantom precisa ser identificado para esta versão do jogo.");
+            return new[] { fallback };
+        }
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+            "[Phantom/teleporte] Não foi encontrado RPC de invisibilidade nem CheckShapeshift para fallback.");
+        return Array.Empty<MethodBase>();
     }
 
     private static void Prefix(PlayerControl __instance, object[] __args)
