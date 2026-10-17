@@ -39,6 +39,28 @@ internal static class RainbowColorTransition
     private static readonly HashSet<byte> PendenteRestaurarVisual = new();
     private static readonly Dictionary<byte, Estado> Estados = new();
 
+    // IDs de jogadores que estão transformados. Durante esse período não
+    // interpolamos o material: mantemos a cor exata que o jogo registrou.
+    private static readonly HashSet<byte> MetamorfosTransformados = new();
+
+    internal static void DefinirMetamorfoTransformado(byte playerId, bool transformado)
+    {
+        if (transformado)
+        {
+            MetamorfosTransformados.Add(playerId);
+            Estado estado = ObterEstado(playerId);
+            estado.CorAlvo = -1;
+            estado.Inicializado = false;
+            estado.UltimaCorObservada = -1;
+            estado.MudancasRegulares = 0;
+        }
+        else
+        {
+            MetamorfosTransformados.Remove(playerId);
+            ReiniciarTransicao(playerId);
+        }
+    }
+
     internal static void DefinirAtivo(byte playerId, bool ativo)
     {
         if (ativo)
@@ -176,6 +198,24 @@ internal static class RainbowColorTransition
                 Estado estado = ObterEstado(playerId);
                 Color corRede = Palette.PlayerColors[idCor];
                 Color sombraRede = Palette.ShadowColors[idCor];
+
+                // Enquanto transformado, o jogo pode copiar a cor do alvo e
+                // reutilizar o renderer. Corrige o material para a cor oficial
+                // atual e suspende a interpolação até a destransformação.
+                if (MetamorfosTransformados.Contains(playerId))
+                {
+                    renderer.material.SetColor(BODY_COLOR, corRede);
+                    renderer.material.SetColor(BACK_COLOR, sombraRede);
+                    estado.CorAlvo = idCor;
+                    estado.CorAtual = corRede;
+                    estado.CorInicial = corRede;
+                    estado.CorDestino = corRede;
+                    estado.SombraAtual = sombraRede;
+                    estado.SombraInicial = sombraRede;
+                    estado.SombraDestino = sombraRede;
+                    estado.Inicializado = false;
+                    continue;
+                }
 
                 if (!estado.Inicializado)
                 {
