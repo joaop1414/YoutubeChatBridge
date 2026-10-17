@@ -79,6 +79,10 @@ internal sealed class EventoOportunista : EventoVotacao
             $"[Oportunista] Escolhido {escolhido.Data.PlayerName} (PlayerId={escolhido.PlayerId}).");
     }
 
+    // Enquanto o evento estiver ativo, o fim de jogo vanilla fica sob
+    // controle do mod, sem precisar ativar a opção global "Sem fim de jogo".
+    internal static bool DeveBloquearFimDeJogoOriginal => ativo;
+
     public static void Atualizar()
     {
         if (!YouTubeVoteBridgePlugin.EhHost())
