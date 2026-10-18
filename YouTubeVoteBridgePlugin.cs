@@ -46,7 +46,6 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     private static float FimPreparacaoChat;
     private static float ProximaRodadaPermitida;
 
-    private const string PREFIXO = "[YouTubeVoteBridge] ";
     private const string TITULO_SISTEMA =
         "<color=blue>YouTubeChatBridge</color>";
 
@@ -1120,7 +1119,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     {
         if (PlayerControl.LocalPlayer != null && HudManager.InstanceExists &&
             HudManager.Instance.Chat != null)
-            HudManager.Instance.Chat.AddChat(PlayerControl.LocalPlayer, PREFIXO + texto, false);
+            HudManager.Instance.Chat.AddChat(PlayerControl.LocalPlayer, texto, false);
     }
 
     private static int[] ContarVotos()
