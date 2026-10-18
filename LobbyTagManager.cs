@@ -341,6 +341,31 @@ public static class LobbyTagManager
         return resultado;
     }
 
+    // Retorna o nome original antes da tag aplicada no lobby, quando conhecido.
+    // O Rainbow usa isso para não carregar a tag do lobby para dentro da partida.
+    public static string ObterNomeOriginalSemTag(PlayerControl jogador)
+    {
+        if (jogador == null || jogador.Data == null)
+            return string.Empty;
+
+        if (NomesOriginais.TryGetValue(jogador.PlayerId, out string original) &&
+            !string.IsNullOrWhiteSpace(original))
+            return original;
+
+        string nome = jogador.Data.PlayerName ?? string.Empty;
+        string friendCode = NormalizarFriendCode(jogador.Data.FriendCode);
+        if (Tags.TryGetValue(friendCode, out TagConfig config) &&
+            !string.IsNullOrWhiteSpace(config.Tag))
+        {
+            string textoTag = Regex.Replace(config.Tag, "<.*?>", string.Empty).Trim();
+            string tagPrefixo = textoTag + " - ";
+            if (nome.StartsWith(tagPrefixo, StringComparison.OrdinalIgnoreCase))
+                nome = nome.Substring(tagPrefixo.Length);
+        }
+
+        return nome;
+    }
+
     // Retorna true apenas para Friend Codes presentes no tags.json remoto/local.
     public static bool TemTag(PlayerControl jogador)
     {
