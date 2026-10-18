@@ -30,8 +30,29 @@ internal sealed class EventoTeleporteAleatorio : EventoVotacao
                 jogador.inMovingPlat || jogador.onLadder)
                 continue;
 
-            Component sala = salas[Sorteador.Next(salas.Count)];
-            Vector2 destino = EscolherPontoNaSala(sala);
+            Vector2 destino = Vector2.zero;
+            bool encontrouDestino = false;
+
+            // Só usa destinos dentro da área caminhável e sem colisores sólidos.
+            for (int tentativa = 0; tentativa < Math.Min(40, salas.Count * 3); tentativa++)
+            {
+                Component sala = salas[Sorteador.Next(salas.Count)];
+                Collider2D area = ObterAreaDaSala(sala);
+                if (PosicaoSeguraMapa.TentarObterPontoSeguro(area, Vector2.zero, out destino))
+                {
+                    encontrouDestino = true;
+                    break;
+                }
+            }
+
+            if (!encontrouDestino)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "Teleporte aleatório: nenhum ponto seguro encontrado para " +
+                    jogador.Data.PlayerName + "; jogador mantido na posição atual.");
+                continue;
+            }
+
             try
             {
                 jogador.NetTransform.RpcSnapTo(destino);
@@ -95,32 +116,20 @@ internal sealed class EventoTeleporteAleatorio : EventoVotacao
         if (!resultado.Contains(sala)) resultado.Add(sala);
     }
 
-    private static Vector2 EscolherPontoNaSala(Component sala)
+    private static Collider2D ObterAreaDaSala(Component sala)
     {
-        Collider2D area = null;
         try
         {
             object areaObj =
                 sala.GetType().GetProperty("roomArea", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?.GetValue(sala) ??
                 sala.GetType().GetField("roomArea", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?.GetValue(sala);
-            area = areaObj as Collider2D;
-            if (area == null) area = sala.GetComponentInChildren<Collider2D>();
+            if (areaObj is Collider2D area)
+                return area;
+            return sala.GetComponentInChildren<Collider2D>();
         }
-        catch { }
-
-        if (area != null)
+        catch
         {
-            Bounds limites = area.bounds;
-            for (int tentativa = 0; tentativa < 40; tentativa++)
-            {
-                Vector2 ponto = new(
-                    UnityEngine.Random.Range(limites.min.x, limites.max.x),
-                    UnityEngine.Random.Range(limites.min.y, limites.max.y));
-                if (area.OverlapPoint(ponto))
-                    return ponto;
-            }
+            return null;
         }
-
-        return sala.transform.position;
     }
 }
