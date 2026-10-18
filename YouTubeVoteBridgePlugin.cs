@@ -196,8 +196,18 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     // RESPOSTAS NO CHAT DO JOGO
     // ========================================================
 
+    private static string RemoverPrefixosAtalho(string mensagem)
+    {
+        if (string.IsNullOrEmpty(mensagem))
+            return mensagem;
+
+        // F6/F7 são atalhos internos; nunca devem aparecer no texto visível do chat.
+        return Regex.Replace(mensagem, @"\[F[67]\]\s*", "", RegexOptions.IgnoreCase);
+    }
+
     public static void Responder(ChatController chat, string mensagem)
     {
+        mensagem = RemoverPrefixosAtalho(mensagem);
         PlayerControl remetente = PlayerControl.LocalPlayer;
         if (chat == null || remetente == null || string.IsNullOrWhiteSpace(mensagem))
             return;
@@ -254,6 +264,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         PlayerControl destinatario,
         string mensagem)
     {
+        mensagem = RemoverPrefixosAtalho(mensagem);
         if (destinatario == null ||
             destinatario.Data == null ||
             AmongUsClient.Instance == null ||
@@ -1117,6 +1128,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
     internal static void Anunciar(string texto)
     {
+        texto = RemoverPrefixosAtalho(texto);
         if (PlayerControl.LocalPlayer != null && HudManager.InstanceExists &&
             HudManager.Instance.Chat != null)
             HudManager.Instance.Chat.AddChat(PlayerControl.LocalPlayer, texto, false);
