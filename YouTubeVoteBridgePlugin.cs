@@ -2086,7 +2086,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         if (!JogadoresRainbowAtivos.Contains(playerId))
         {
             CoresOriginaisRainbow[playerId] = jogador.Data.DefaultOutfit.ColorId;
-            NomesOriginaisRainbow[playerId] = jogador.Data.PlayerName ?? string.Empty;
+            NomesOriginaisRainbow[playerId] = LobbyTagManager.ObterNomeOriginalSemTag(jogador);
             JogadoresRainbowAtivos.Add(playerId);
         }
 
@@ -2671,7 +2671,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                     ? nomeTemporario
                     : (NomesOriginaisRainbow.TryGetValue(playerId, out string salvo)
                         ? salvo
-                        : (jogador.Data.PlayerName ?? string.Empty));
+                        : LobbyTagManager.ObterNomeOriginalSemTag(jogador));
 
                 // O Rainbow não pode sobrescrever o nome temporário da ejeção.
                 if (PlayerIdNaEjecao.HasValue && PlayerIdNaEjecao.Value == playerId)
@@ -3728,3 +3728,43 @@ public static class YouTubeVoteShapeshiftCheckPatch
 // CONTROLE DO FIM DE JOGO
 // ============================================================
 // Quando a opção está ativa, bloqueia chamadas normais do jogo para
+
+// Corrige a revelação da função na tela de ejeção. O método já existia,
+// mas precisava ser conectado ao ciclo de vida real do ExileController.
+[HarmonyPatch]
+public static class YouTubeVoteExileNamePatch
+{
+    private static MethodBase TargetMethod()
+    {
+        return AccessTools.Method(typeof(ExileController), "Begin");
+    }
+
+    public static void Prefix(object[] __args)
+    {
+        if (__args == null)
+            return;
+
+        foreach (object argumento in __args)
+        {
+            if (argumento == null)
+                continue;
+
+            YouTubeVoteBridgePlugin.PrepararNomeGlobalDeEjecao(argumento);
+            break;
+        }
+    }
+}
+
+[HarmonyPatch]
+public static class YouTubeVoteRestoreExileNamePatch
+{
+    private static MethodBase TargetMethod()
+    {
+        return AccessTools.Method(typeof(ExileController), "WrapUp");
+    }
+
+    public static void Postfix()
+    {
+        YouTubeVoteBridgePlugin.RestaurarNomeGlobalDeEjecao();
+    }
+}
