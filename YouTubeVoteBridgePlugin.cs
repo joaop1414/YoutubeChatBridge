@@ -65,6 +65,8 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         .ToList();
     private static bool RodadaAtiva;
     private static bool RodadaModoLobby;
+    // Limita a votação F7 a uma rodada por visita ao lobby; é liberada no fim da partida.
+    private static bool VotacaoLobbyRealizada;
     private static string EventoF7Pendente;
     private static float FimRodada;
     private static int NumeroRodada;
@@ -1319,6 +1321,8 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         ProximaAtualizacaoPainel = 0f;
         RodadaModoLobby = modoLobby;
         RodadaAtiva = true;
+        if (modoLobby)
+            VotacaoLobbyRealizada = true;
 
         if (modoLobby)
         {
@@ -1559,6 +1563,13 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             "Próxima votação liberada em " + IntervaloRodadas.Value + " segundo(s).");
     }
 
+    public static void ResetarVotacaoLobbyFimDePartida()
+    {
+        VotacaoLobbyRealizada = false;
+        EventoF7Pendente = null;
+        Instance?.Log.LogInfo("Votação do lobby liberada novamente após o fim da partida.");
+    }
+
     public static void AtualizarVotacao()
     {
         if (!EhHost())
@@ -1645,6 +1656,9 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             if (RodadaAtiva && !string.IsNullOrWhiteSpace(voto.Autor))
                 Votos[voto.Autor.Trim()] = voto.Opcao;
         }
+
+        if (modoLobby && VotacaoLobbyRealizada && !RodadaAtiva)
+            return;
 
         if (!RodadaAtiva)
         {
@@ -3514,6 +3528,7 @@ public static class YouTubeVoteResetTaskEventsOnEndPatch
 {
     public static void Postfix()
     {
+        YouTubeVoteBridgePlugin.ResetarVotacaoLobbyFimDePartida();
         EventoTesteMenu.ResetarEstadoPartida("fim de partida");
         YouTubeVoteBridgePlugin.LimparRegistroTarefasShapeshift();
         YouTubeVoteBridgePlugin.ResetarRainbowFimDePartida();
