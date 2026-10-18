@@ -108,12 +108,35 @@ internal sealed class EventoCriarCorpoFalso : EventoVotacao
             }
 
             PlayerControl modelo = candidatos[Sorteador.Next(candidatos.Count)];
-            PlainShipRoom salaEscolhida = salas[Sorteador.Next(salas.Count)];
-
-            // Usa o centro da área da sala escolhida, em vez da posição de um jogador.
-            Vector2 centroSala = salaEscolhida.roomArea.bounds.center;
-            Vector3 posicao = new(centroSala.x, centroSala.y, centroSala.y / 1000f);
             Vector3 deslocamento = modelo.KillAnimations[0].BodyOffset;
+
+            // Usa o mesmo validador do teleporte e verifica também a posição
+            // final do corpo depois de aplicar BodyOffset.
+            PlainShipRoom salaEscolhida = null;
+            Vector2 pontoJogador = Vector2.zero;
+            bool encontrouPosicaoSegura = false;
+
+            for (int tentativa = 0; tentativa < Math.Max(20, salas.Count * 4); tentativa++)
+            {
+                PlainShipRoom salaTentativa = salas[Sorteador.Next(salas.Count)];
+                if (PosicaoSeguraMapa.TentarObterPontoSeguro(
+                    salaTentativa.roomArea, new Vector2(deslocamento.x, deslocamento.y),
+                    out pontoJogador))
+                {
+                    salaEscolhida = salaTentativa;
+                    encontrouPosicaoSegura = true;
+                    break;
+                }
+            }
+
+            if (!encontrouPosicaoSegura || salaEscolhida == null)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "Corpo falso cancelado: não foi encontrado um ponto seguro livre de colisões.");
+                return;
+            }
+
+            Vector3 posicao = new(pontoJogador.x, pontoJogador.y, pontoJogador.y / 1000f);
             Vector3 posicaoCorpo = posicao + deslocamento;
             posicaoCorpo.z = posicaoCorpo.y / 1000f;
 
