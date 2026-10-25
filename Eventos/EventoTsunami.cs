@@ -674,18 +674,23 @@ internal sealed class EventoTsunami : EventoVotacao
 
             try
             {
-                // Replica o RpcExiled() do EHR sem depender da extensão
-                // privada do EHR: aplica o exílio local e envia o RPC nativo.
-                // RpcSetRole para Ghost não é um fluxo de morte vanilla.
-                jogador.Exiled();
-                MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
-                    jogador.NetId, (byte)RpcCalls.Exiled, SendOption.Reliable);
-                AmongUsClient.Instance.FinishRpcImmediately(writer);
+                // Exiled é um RPC de exílio/reunião, não uma morte normal:
+                // enviá-lo durante a partida pode forçar uma transição de exílio.
+                // Use o RPC de assassinato vanilla do host para eliminar a vítima.
+                PlayerControl assassino = PlayerControl.LocalPlayer;
+                if (assassino == null || assassino.Data == null || assassino.Data.IsDead)
+                    throw new InvalidOperationException(
+                        "Não foi possível eliminar pelo Tsunami: host inválido ou morto.");
+
+                assassino.RpcMurderPlayer(jogador, true);
                 jogador.Data.IsDead = true;
-                mortosPeloTsunami.Add(id);
+
+                // O RPC de assassinato já cria o corpo vanilla. Não registrar
+                // para criação posterior de corpo falso, evitando duplicatas.
+                mortosPeloTsunami.Remove(id);
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                     "Tsunami: atraso concluído; PlayerId=" + id +
-                    " eliminado usando o RPC Exiled nativo (fluxo do EHR).");
+                    " eliminado pelo RPC vanilla RpcMurderPlayer.");
             }
             catch (Exception ex)
             {
