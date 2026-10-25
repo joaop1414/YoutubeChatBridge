@@ -38,6 +38,9 @@ internal sealed class EventoTsunami : EventoVotacao
     // Inicialização de rede do indicador em etapas, como no NPC seguidor/EHR.
     private static int etapaInicializacaoIndicador;
     private static float proximaEtapaInicializacaoIndicador;
+    private static string nomeHostAntesSpawn;
+    private static string nomeOutfitHostAntesSpawn;
+    private static string textoNomeHostAntesSpawn;
     private static float proximaSabotagem;
     private static float repararReatorAte;
     private static bool reparoPendente;
@@ -85,9 +88,9 @@ internal sealed class EventoTsunami : EventoVotacao
             dutosProtegidos.Clear();
             fimProtecao = 0f;
             posicao = ObterInicio();
-            // O indicador nasce bem fora da área visível. Primeiro alteramos
-            // o nome do jogador local, criamos/enviamos o NPC e restauramos o
-            // nome; só depois o indicador será movido para o início da onda.
+            // O indicador nasce fora da área visível. A troca do nome do host
+            // fica ativa até a próxima atualização, para que não seja revertida
+            // no mesmo frame antes do envio do spawn.
             Vector2 posicaoOculta = posicao + new Vector2(-1000f, 0f);
             indicador = UnityEngine.Object.Instantiate(
                 AmongUsClient.Instance.PlayerPrefab, posicaoOculta, Quaternion.identity);
@@ -99,56 +102,26 @@ internal sealed class EventoTsunami : EventoVotacao
             PlayerControl jogadorLocal = PlayerControl.LocalPlayer;
             var outfitLocal = jogadorLocal?.Data?.Outfits[PlayerOutfitType.Default];
             var outfitIndicador = indicador?.Data?.Outfits[PlayerOutfitType.Default];
-            string nomeLocalOriginal = jogadorLocal?.Data?.PlayerName ?? outfitLocal?.PlayerName ?? string.Empty;
-            string nomeOutfitLocalOriginal = outfitLocal?.PlayerName;
-            string nomeIndicadorOriginal = outfitIndicador?.PlayerName;
-            string textoNomeLocalOriginal = null;
-            try
+            nomeHostAntesSpawn = jogadorLocal?.Data?.PlayerName ?? outfitLocal?.PlayerName ?? string.Empty;
+            nomeOutfitHostAntesSpawn = outfitLocal?.PlayerName;
+            textoNomeHostAntesSpawn = null;
+            try { textoNomeHostAntesSpawn = jogadorLocal?.cosmetics?.nameText?.text; } catch { }
+
+            if (jogadorLocal != null)
             {
-                try { textoNomeLocalOriginal = jogadorLocal?.cosmetics?.nameText?.text; } catch { }
-
-                // Atualiza também o estado e o texto local, não apenas o outfit
-                // que será serializado. A mudança é temporária e não usa RPC SetName.
-                if (jogadorLocal != null)
-                {
-                    jogadorLocal.SetName(NomeOnda);
-                    if (jogadorLocal.cosmetics?.nameText != null)
-                        jogadorLocal.cosmetics.nameText.text = NomeOnda;
-                }
-                if (outfitLocal != null)
-                    outfitLocal.PlayerName = NomeOnda;
-                if (outfitIndicador != null)
-                    outfitIndicador.PlayerName = NomeOnda;
-
-                CustomNetObject.EnviarSpawn(indicador);
+                jogadorLocal.SetName(NomeOnda);
+                if (jogadorLocal.cosmetics?.nameText != null)
+                    jogadorLocal.cosmetics.nameText.text = NomeOnda;
             }
-            finally
-            {
-                if (jogadorLocal != null)
-                {
-                    try { jogadorLocal.SetName(nomeLocalOriginal); } catch { }
-                    try
-                    {
-                        if (jogadorLocal.cosmetics?.nameText != null)
-                            jogadorLocal.cosmetics.nameText.text =
-                                textoNomeLocalOriginal ?? nomeLocalOriginal;
-                    }
-                    catch { }
-                }
-                if (outfitLocal != null)
-                    outfitLocal.PlayerName = nomeOutfitLocalOriginal;
-                if (outfitIndicador != null)
-                    outfitIndicador.PlayerName = nomeIndicadorOriginal;
-            }
+            if (outfitLocal != null)
+                outfitLocal.PlayerName = NomeOnda;
+            if (outfitIndicador != null)
+                outfitIndicador.PlayerName = NomeOnda;
 
-            if (PlayerControl.AllPlayerControls.Contains(indicador))
-                PlayerControl.AllPlayerControls.Remove(indicador);
-
-            // Espera o spawn chegar aos clientes antes de associar o PlayerId falso.
-            // A aparência será publicada numa etapa posterior, após outra pequena pausa.
-            etapaInicializacaoIndicador = 1;
-            proximaEtapaInicializacaoIndicador = Time.realtimeSinceStartup + 0.1f;
-            AplicarAvisoNomes();
+            // Etapa -1: no próximo Update, enviaremos o spawn enquanto o nome
+            // temporário ainda está aplicado; em seguida o nome será restaurado.
+            etapaInicializacaoIndicador = -1;
+            proximaEtapaInicializacaoIndicador = Time.realtimeSinceStartup + 0.05f;
 
             ativo = true;
             proximaAtualizacaoAvisoRede = 0f;
@@ -199,6 +172,9 @@ internal sealed class EventoTsunami : EventoVotacao
             // aplica-o ao NPC por Shapeshift e restaura o outfit original do host.
             // O nome visual da onda é parte do sprite, não o nome de rede do NPC.
             CustomNetObject.EnviarAparenciaSprite(indicador, NomeOnda, out _);
+            // Shapeshift pode sobrescrever o nome do NPC com o outfit do host;
+            // reenvia SetName depois dele para que o nome da onda prevaleça.
+            CustomNetObject.EnviarSetName(indicador, NomeOnda);
             CustomNetObject.EnviarPosicao(indicador, posicao);
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 $"Tsunami: nome aplicado diretamente ao NPC; NetId={indicador.NetId}, PlayerId={indicador.PlayerId}.");
@@ -227,6 +203,32 @@ internal sealed class EventoTsunami : EventoVotacao
         }
     }
 
+    private static void RestaurarNomeHostAntesSpawn()
+    {
+        PlayerControl jogadorLocal = PlayerControl.LocalPlayer;
+        if (jogadorLocal != null)
+        {
+            try { jogadorLocal.SetName(nomeHostAntesSpawn ?? string.Empty); } catch { }
+            try
+            {
+                if (jogadorLocal.cosmetics?.nameText != null)
+                    jogadorLocal.cosmetics.nameText.text =
+                        textoNomeHostAntesSpawn ?? nomeHostAntesSpawn ?? string.Empty;
+            }
+            catch { }
+            try
+            {
+                var outfit = jogadorLocal.Data?.Outfits[PlayerOutfitType.Default];
+                if (outfit != null)
+                    outfit.PlayerName = nomeOutfitHostAntesSpawn;
+            }
+            catch { }
+        }
+        nomeHostAntesSpawn = null;
+        nomeOutfitHostAntesSpawn = null;
+        textoNomeHostAntesSpawn = null;
+    }
+
     private static bool avisoLocalAtivo;
     private static float proximaAtualizacaoAvisoRede;
 
@@ -239,6 +241,35 @@ internal sealed class EventoTsunami : EventoVotacao
         {
             AtualizarAvisoNomesCliente();
             return;
+        }
+
+        // O nome temporário do host dura até este Update: enviamos o spawn
+        // agora e restauramos o nome original logo depois, antes do aviso.
+        if (indicador != null && etapaInicializacaoIndicador == -1 &&
+            Time.realtimeSinceStartup >= proximaEtapaInicializacaoIndicador)
+        {
+            try
+            {
+                var outfitIndicador = indicador.Data?.Outfits[PlayerOutfitType.Default];
+                if (outfitIndicador != null)
+                    outfitIndicador.PlayerName = NomeOnda;
+                CustomNetObject.EnviarSpawn(indicador);
+                if (PlayerControl.AllPlayerControls.Contains(indicador))
+                    PlayerControl.AllPlayerControls.Remove(indicador);
+                RestaurarNomeHostAntesSpawn();
+                etapaInicializacaoIndicador = 1;
+                proximaEtapaInicializacaoIndicador = Time.realtimeSinceStartup + 0.1f;
+                AplicarAvisoNomes();
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "Tsunami: spawn oculto enviado com nome temporário; nome do host restaurado.");
+            }
+            catch (Exception ex)
+            {
+                RestaurarNomeHostAntesSpawn();
+                etapaInicializacaoIndicador = 0;
+                YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                    "Tsunami: falha ao enviar spawn oculto: " + ex);
+            }
         }
 
         // O jogo pode recalcular o nome do indicador durante Update; reafirma
@@ -1154,6 +1185,8 @@ internal sealed class EventoTsunami : EventoVotacao
 
     private static void LimparLocal()
     {
+        // Também restaura o nome se o evento for interrompido entre as etapas.
+        RestaurarNomeHostAntesSpawn();
         if (indicador != null)
         {
             try
