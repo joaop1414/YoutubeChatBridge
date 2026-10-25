@@ -937,8 +937,20 @@ internal sealed class EventoTesteMenu : MonoBehaviour
 
                     object motivo = ObterMotivoFimDeJogo(parametros[0].ParameterType, nomeMotivo);
 
-                    metodo.Invoke(gerente, new object[] { motivo, false });
-                    enviado = true;
+                    // A opção "Sem fim de jogo" bloqueia o RpcEndGame normal.
+                    // Esta ação foi solicitada manualmente pelo botão F6, então
+                    // libera o RPC apenas durante esta chamada.
+                    bool permissaoAnterior = YouTubeVoteBridgePlugin.PermitirFimDeJogoForcado;
+                    try
+                    {
+                        YouTubeVoteBridgePlugin.PermitirFimDeJogoForcado = true;
+                        metodo.Invoke(gerente, new object[] { motivo, false });
+                        enviado = true;
+                    }
+                    finally
+                    {
+                        YouTubeVoteBridgePlugin.PermitirFimDeJogoForcado = permissaoAnterior;
+                    }
                     break;
                 }
             }
