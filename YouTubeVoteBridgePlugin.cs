@@ -2275,7 +2275,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             case "detective": return "Detetive";
             case "viper": return "Víbora";
             case "impostorghost": return "Fantasma Impostor";
-            case "crewmateg​​host": return "Fantasma Tripulante";
+            case "crewmateghost": return "Fantasma Tripulante";
             default: return nomeFuncao;
         }
     }
