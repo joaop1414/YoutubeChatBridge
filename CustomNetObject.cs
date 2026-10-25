@@ -58,22 +58,58 @@ namespace MoreGamemodes
         {
             if (jogador == null || AmongUsClient.Instance == null) return 0;
 
+            // O cliente vanilla não aceita a associação direta isolada em GameData.
+            // Reproduz a sequência usada pelo MoreGamemodes/EHR: associa temporariamente
+            // o NetId ao PlayerId de um jogador real, envia um MurderPlayer que falha
+            // deliberadamente e, por fim, aplica o PlayerId reservado ao objeto falso.
             int enviados = 0;
-            foreach (ClientData cliente in AmongUsClient.Instance.allClients.ToArray())
+            foreach (PlayerControl jogadorReal in PlayerControl.AllPlayerControls.ToArray())
             {
-                if (cliente == null || cliente.Id == AmongUsClient.Instance.ClientId) continue;
+                if (jogadorReal == null || jogadorReal.AmOwner) continue;
+
+                int clienteId;
+                try
+                {
+                    var cliente = AmongUsClient.Instance.allClients.ToArray()
+                        .FirstOrDefault(cd => cd != null && cd.Character != null &&
+                            cd.Character.PlayerId == jogadorReal.PlayerId);
+                    if (cliente == null) continue;
+                    clienteId = cliente.Id;
+                }
+                catch
+                {
+                    continue;
+                }
 
                 MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
                 try
                 {
-                    // Envia GameDataTo apenas ao cliente que precisa associar o PlayerId.
+                    // GameDataTo para o cliente específico.
                     writer.StartMessage(6);
                     writer.Write(AmongUsClient.Instance.GameId);
-                    writer.WritePacked(cliente.Id);
+                    writer.WritePacked(clienteId);
+
+                    // Associação temporária com um PlayerId que o cliente já conhece.
+                    writer.StartMessage(1);
+                    writer.WritePacked(jogador.NetId);
+                    writer.Write(jogadorReal.PlayerId);
+                    writer.EndMessage();
+
+                    // RPC intencionalmente inválido: força o cliente a materializar
+                    // o PlayerControl antes de receber o PlayerId reservado.
+                    writer.StartMessage(2);
+                    writer.WritePacked(jogador.NetId);
+                    writer.Write((byte)RpcCalls.MurderPlayer);
+                    writer.WriteNetObject(jogador);
+                    writer.Write((int)MurderResultFlags.FailedError);
+                    writer.EndMessage();
+
+                    // Troca para o ID final que o mod reservou para este objeto.
                     writer.StartMessage(1);
                     writer.WritePacked(jogador.NetId);
                     writer.Write(playerId);
                     writer.EndMessage();
+
                     writer.EndMessage();
                     AmongUsClient.Instance.SendOrDisconnect(writer);
                     enviados++;
@@ -83,6 +119,7 @@ namespace MoreGamemodes
                     writer.Recycle();
                 }
             }
+
             return enviados;
         }
 
