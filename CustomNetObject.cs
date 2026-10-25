@@ -21,21 +21,31 @@ namespace MoreGamemodes
 
             // Atribui um NetId novo antes de serializar o spawn.
             AmongUsClient.Instance.NetIdCnt += 1U;
-            MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
-            try
+            // Envia o spawn individualmente para cada cliente remoto.
+            // O objeto é o mesmo (NetId único), mas cada destinatário recebe
+            // a sua própria mensagem GameDataTo, sem depender do broadcast.
+            foreach (ClientData cliente in AmongUsClient.Instance.allClients.ToArray())
             {
-                writer.StartMessage(5);
-                writer.Write(AmongUsClient.Instance.GameId);
-                writer.StartMessage(4);
-                SpawnGameDataMessage spawn = AmongUsClient.Instance.CreateSpawnMessage(jogador, -2, SpawnFlags.None);
-                spawn.SerializeValues(writer);
-                writer.EndMessage();
-                writer.EndMessage();
-                AmongUsClient.Instance.SendOrDisconnect(writer);
-            }
-            finally
-            {
-                writer.Recycle();
+                if (cliente == null || cliente.Id == AmongUsClient.Instance.ClientId)
+                    continue;
+
+                MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
+                try
+                {
+                    writer.StartMessage(6);
+                    writer.Write(AmongUsClient.Instance.GameId);
+                    writer.WritePacked(cliente.Id);
+                    writer.StartMessage(4);
+                    SpawnGameDataMessage spawn = AmongUsClient.Instance.CreateSpawnMessage(jogador, -2, SpawnFlags.None);
+                    spawn.SerializeValues(writer);
+                    writer.EndMessage();
+                    writer.EndMessage();
+                    AmongUsClient.Instance.SendOrDisconnect(writer);
+                }
+                finally
+                {
+                    writer.Recycle();
+                }
             }
 
             if (ocultarVisual)
@@ -297,11 +307,20 @@ namespace MoreGamemodes
             ushort sequencia = (ushort)(jogador.NetTransform.lastSequenceId + 1);
             jogador.NetTransform.SnapTo(posicao, sequencia);
 
-            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
-                jogador.NetTransform.NetId, (byte)RpcCalls.SnapTo, SendOption.Reliable, -1);
-            NetHelpers.WriteVector2(posicao, writer);
-            writer.Write(sequencia);
-            AmongUsClient.Instance.FinishRpcImmediately(writer);
+            // O host atualiza a sua cópia e manda SnapTo em mensagens
+            // individuais para cada cliente remoto.
+            foreach (ClientData cliente in AmongUsClient.Instance.allClients.ToArray())
+            {
+                if (cliente == null || cliente.Id == AmongUsClient.Instance.ClientId)
+                    continue;
+
+                MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
+                    jogador.NetTransform.NetId, (byte)RpcCalls.SnapTo,
+                    SendOption.Reliable, cliente.Id);
+                NetHelpers.WriteVector2(posicao, writer);
+                writer.Write(sequencia);
+                AmongUsClient.Instance.FinishRpcImmediately(writer);
+            }
         }
     }
 }
