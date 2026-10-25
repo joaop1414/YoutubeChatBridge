@@ -66,6 +66,8 @@ namespace YouTubeVoteBridge
                             if (!existentes.Any(x => x.name == PREFIX + "SEMFIM"))
                                 CriarControle(__instance, modeloExistente, "Sem fim de jogo", PREFIX + "SEMFIM", yExistente);
 
+                            if (!existentes.Any(x => x.name == PREFIX + "SEMFIM"))
+                                CriarControle(__instance, modeloExistente, "Sem fim de jogo", PREFIX + "SEMFIM", yExistente);
                             if (!existentes.Any(x => x.name == PREFIX + "JUIZ"))
                                 CriarControle(__instance, modeloExistente,
                                     "Pular fase de votos quando o juiz usa sua habilidade",
@@ -114,6 +116,8 @@ namespace YouTubeVoteBridge
                 CriarControle(__instance, modelo, "Intervalo entre rodadas", PREFIX + "INTERVALO", y);
                 y -= 0.52f;
                 CriarControle(__instance, modelo, "Preparação do chat", PREFIX + "PREPARACAO", y);
+                y -= 0.52f;
+                CriarControle(__instance, modelo, "Sem fim de jogo", PREFIX + "SEMFIM", y);
                 y -= 0.52f;
                 CriarControle(__instance, modelo,
                     "Pular fase de votos quando o juiz usa sua habilidade",
@@ -188,7 +192,8 @@ namespace YouTubeVoteBridge
                 YouTubeVoteBridgePlugin.TempoVotacao == null ||
                 YouTubeVoteBridgePlugin.IntervaloRodadas == null ||
                 YouTubeVoteBridgePlugin.PreparacaoChat == null ||
-                YouTubeVoteBridgePlugin.PularFaseVotosJuiz == null)
+                YouTubeVoteBridgePlugin.PularFaseVotosJuiz == null ||
+                YouTubeVoteBridgePlugin.SemFimDeJogo == null)
                 return;
 
             if (option.name == PREFIX + "TEMPO")
@@ -202,6 +207,8 @@ namespace YouTubeVoteBridge
                     YouTubeVoteBridgePlugin.PreparacaoChat.Value + delta * 5, 0, 120);
             else if (option.name == PREFIX + "JUIZ")
                 YouTubeVoteBridgePlugin.PularFaseVotosJuiz.Value = delta > 0;
+            else if (option.name == PREFIX + "SEMFIM")
+                YouTubeVoteBridgePlugin.SemFimDeJogo.Value = delta > 0;
             else
                 return;
 
@@ -230,9 +237,8 @@ namespace YouTubeVoteBridge
                 if (!EhControle(option))
                     continue;
 
-                option.gameObject.SetActive(host && option.name != PREFIX + "SEMFIM");
-                if (option.name != PREFIX + "SEMFIM")
-                    AtualizarUmControle(option);
+                option.gameObject.SetActive(host);
+                AtualizarUmControle(option);
             }
         }
 
@@ -266,6 +272,16 @@ namespace YouTubeVoteBridge
                 bool ativado = YouTubeVoteBridgePlugin.PularFaseVotosJuiz != null &&
                     YouTubeVoteBridgePlugin.PularFaseVotosJuiz.Value;
                 option.TitleText.text = "Pular fase de votos quando o juiz usa sua habilidade";
+                option.Value = ativado ? 1 : 0;
+                option.oldValue = ativado ? 1 : 0;
+                option.ValueText.text = ativado ? "Ativado" : "Desativado";
+                return;
+            }
+            else if (option.name == PREFIX + "SEMFIM")
+            {
+                bool ativado = YouTubeVoteBridgePlugin.SemFimDeJogo != null &&
+                    YouTubeVoteBridgePlugin.SemFimDeJogo.Value;
+                option.TitleText.text = "Sem fim de jogo";
                 option.Value = ativado ? 1 : 0;
                 option.oldValue = ativado ? 1 : 0;
                 option.ValueText.text = ativado ? "Ativado" : "Desativado";
