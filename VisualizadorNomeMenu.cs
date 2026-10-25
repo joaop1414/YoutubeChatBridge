@@ -11,7 +11,7 @@ namespace YouTubeVoteBridge;
 
 /// <summary>
 /// Editor de texto F8. Permite colar tags do TMP e visualizar o resultado
-/// dentro do jogo, usando TextMeshProUGUI para interpretar a formatação.
+/// como UI 2D posicionada acima do jogador local.
 /// </summary>
 internal sealed class VisualizadorNomeMenu : MonoBehaviour
 {
@@ -47,8 +47,10 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
     private GUIStyle estiloCampo;
     private bool estilosProntos;
 
+    private GameObject previewCanvasObject;
     private GameObject previewTextoObject;
-    private TextMeshPro previewText;
+    private Canvas previewCanvas;
+    private TextMeshProUGUI previewText;
 
     public static void Inicializar()
     {
@@ -130,10 +132,19 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
             PlayerControl jogador = PlayerControl.LocalPlayer;
             if (jogador != null && instancia.previewTextoObject != null)
             {
-                instancia.previewTextoObject.transform.position = jogador.transform.position + Vector3.up * 0.85f;
                 Camera camera = Camera.main;
                 if (camera != null)
-                    instancia.previewTextoObject.transform.rotation = camera.transform.rotation;
+                {
+                    Vector3 posicaoTela = camera.WorldToScreenPoint(
+                        jogador.transform.position + Vector3.up * 0.85f);
+                    bool naFrenteDaCamera = posicaoTela.z > 0f;
+                    if (instancia.previewTextoObject.activeSelf != (previewVisivel && naFrenteDaCamera))
+                        instancia.previewTextoObject.SetActive(previewVisivel && naFrenteDaCamera);
+
+                    if (naFrenteDaCamera)
+                        instancia.previewTextoObject.transform.position =
+                            new Vector3(posicaoTela.x, posicaoTela.y, 0f);
+                }
             }
         }
         catch (Exception ex)
@@ -146,16 +157,29 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
     {
         try
         {
-            previewTextoObject = new GameObject("YouTubeVoteBridge_NomePreviewWorld");
-            UnityEngine.Object.DontDestroyOnLoad(previewTextoObject);
+            // UI 2D em Screen Space Overlay; convertemos a posição do jogador para a tela.
+            previewCanvasObject = new GameObject("YouTubeVoteBridge_NomePreviewCanvas");
+            UnityEngine.Object.DontDestroyOnLoad(previewCanvasObject);
+            previewCanvas = previewCanvasObject.AddComponent<Canvas>();
+            previewCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            previewCanvas.sortingOrder = 32767;
 
-            previewText = previewTextoObject.AddComponent<TextMeshPro>();
+            previewTextoObject = new GameObject("YouTubeVoteBridge_NomePreviewScreen");
+            previewTextoObject.transform.SetParent(previewCanvasObject.transform, false);
+            previewText = previewTextoObject.AddComponent<TextMeshProUGUI>();
             if (TMP_Settings.defaultFontAsset != null)
                 previewText.font = TMP_Settings.defaultFontAsset;
 
+            RectTransform rect = previewTextoObject.GetComponent<RectTransform>();
+            rect.anchorMin = new Vector2(0.5f, 0.5f);
+            rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.sizeDelta = new Vector2(900f, 120f);
+            rect.position = Vector3.zero;
+
             previewText.text = "";
             previewText.richText = true;
-            previewText.fontSize = 2.2f;
+            previewText.fontSize = 36f;
             previewText.alignment = TextAlignmentOptions.Center;
             previewText.enableWordWrapping = false;
             previewText.overflowMode = TextOverflowModes.Overflow;
@@ -163,15 +187,15 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
             previewText.outlineWidth = 0.15f;
             previewText.outlineColor = Color.black;
             previewTextoObject.SetActive(false);
-            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo("[Visualizador F8] Prévia 3D criada; será posicionada acima do jogador local.");
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[Visualizador F8] Prévia UI 2D criada; será posicionada na tela acima do jogador local.");
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[Visualizador F8] Não foi possível criar a prévia TextMeshPro: " + ex);
+                "[Visualizador F8] Não foi possível criar a prévia UI: " + ex);
         }
     }
-
 
     private static void CriarJanelaNativa()
     {
