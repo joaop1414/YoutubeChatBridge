@@ -169,25 +169,31 @@ namespace MoreGamemodes
         // Publica sprites/textos customizados pelo mesmo fluxo de Shapeshift
         // usado pelo EHR/MoreGamemodes. Separado de EnviarAparencia para não
         // alterar a aparência normal dos NPCs criados pela FakePlayerAPI.
-        public static void EnviarAparenciaSprite(PlayerControl jogador, string sprite)
+        public static PlayerControl EnviarAparenciaSprite(PlayerControl jogador, string sprite, out string nomeOriginal)
         {
+            nomeOriginal = null;
             PlayerControl host = PlayerControl.LocalPlayer;
             if (jogador == null || host?.Data == null || jogador.Data == null ||
-                AmongUsClient.Instance == null) return;
+                AmongUsClient.Instance == null) return null;
 
-            // MoreGamemodes usa um jogador real como origem da aparência, em vez
-            // de sempre usar o host. O nome temporário precisa estar nos dados
-            // do alvo ANTES do Shapeshift para os clientes receberem o sprite.
+            // Usa um jogador real como origem do Shapeshift, mas altera também o
+            // PlayerName real (não apenas outfit.PlayerName). SetName é enviado
+            // num pacote separado para chegar antes do Shapeshift aos clientes vanilla.
             PlayerControl alvo = PlayerControl.AllPlayerControls.ToArray()
                 .Where(p => p != null && p != jogador && p.Data != null &&
                     !p.Data.Disconnected && !p.inVent && !p.walkingToVent)
                 .OrderBy(p => p.PlayerId)
                 .FirstOrDefault();
             if (alvo == null) alvo = host;
-            if (alvo?.Data == null) return;
+            if (alvo?.Data == null) return null;
+
+            nomeOriginal = alvo.Data.PlayerName ?? string.Empty;
+            string nomeTemporario = "<size=14><br></size>" + (sprite ?? string.Empty);
+
+            EnviarSetName(alvo, nomeTemporario);
 
             var outfit = alvo.Data.Outfits[PlayerOutfitType.Default];
-            string nomeAnterior = outfit.PlayerName;
+            string nomeOutfitAnterior = outfit.PlayerName;
             var corAnterior = outfit.ColorId;
             string chapeuAnterior = outfit.HatId;
             string roupaAnterior = outfit.SkinId;
@@ -201,8 +207,7 @@ namespace MoreGamemodes
                 writer.StartMessage(5);
                 writer.Write(AmongUsClient.Instance.GameId);
 
-                // Primeiro publica o nome do sprite no jogador-alvo.
-                outfit.PlayerName = "<size=14><br></size>" + (sprite ?? string.Empty);
+                outfit.PlayerName = nomeTemporario;
                 outfit.ColorId = 0;
                 outfit.HatId = string.Empty;
                 outfit.SkinId = string.Empty;
@@ -214,7 +219,6 @@ namespace MoreGamemodes
                 alvo.Data.Serialize(writer, false);
                 writer.EndMessage();
 
-                // Só depois da publicação do outfit envia o Shapeshift ao objeto.
                 try { jogador.Shapeshift(alvo, false); }
                 catch { }
 
@@ -225,8 +229,7 @@ namespace MoreGamemodes
                 writer.Write(false);
                 writer.EndMessage();
 
-                // Restaura o jogador real e publica seus dados originais no mesmo pacote.
-                outfit.PlayerName = nomeAnterior;
+                outfit.PlayerName = nomeOutfitAnterior;
                 outfit.ColorId = corAnterior;
                 outfit.HatId = chapeuAnterior;
                 outfit.SkinId = roupaAnterior;
@@ -246,7 +249,7 @@ namespace MoreGamemodes
             {
                 if (!outfitRestaurado)
                 {
-                    outfit.PlayerName = nomeAnterior;
+                    outfit.PlayerName = nomeOutfitAnterior;
                     outfit.ColorId = corAnterior;
                     outfit.HatId = chapeuAnterior;
                     outfit.SkinId = roupaAnterior;
@@ -254,6 +257,43 @@ namespace MoreGamemodes
                     outfit.VisorId = visorAnterior;
                 }
                 writer.Recycle();
+            }
+
+            return alvo;
+        }
+
+        // Mesmo formato vanilla usado pelo LobbyTagManager para SetName.
+        // É separado do pacote de Shapeshift para preservar a ordem de chegada.
+        public static void EnviarSetName(PlayerControl jogador, string nome)
+        {
+            if (jogador == null || jogador.Data == null || AmongUsClient.Instance == null)
+                return;
+
+            MessageWriter writer = null;
+            try
+            {
+                writer = MessageWriter.Get(SendOption.Reliable);
+                writer.StartMessage(5);
+                writer.Write(AmongUsClient.Instance.GameId);
+                writer.StartMessage(2);
+                writer.WritePacked(jogador.NetId);
+                writer.Write((byte)RpcCalls.SetName);
+                writer.Write(jogador.Data.NetId);
+                writer.Write(nome ?? string.Empty);
+                writer.EndMessage();
+                writer.EndMessage();
+                AmongUsClient.Instance.SendOrDisconnect(writer);
+                writer.Recycle();
+                writer = null;
+
+                jogador.SetName(nome ?? string.Empty);
+            }
+            finally
+            {
+                if (writer != null)
+                {
+                    try { writer.Recycle(); } catch { }
+                }
             }
         }
 
