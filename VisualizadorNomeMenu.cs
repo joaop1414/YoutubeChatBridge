@@ -5,6 +5,7 @@ using System.Threading;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
+using AmongUs.GameOptions;
 using Il2CppInterop.Runtime.Injection;
 
 namespace YouTubeVoteBridge;
@@ -47,10 +48,9 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
     private GUIStyle estiloCampo;
     private bool estilosProntos;
 
-    private GameObject previewCanvasObject;
-    private GameObject previewTextoObject;
-    private Canvas previewCanvas;
-    private TextMeshProUGUI previewText;
+    // Indicador PlayerControl local, seguindo a técnica visual do EventoTsunami.
+    // Não é enviado pela rede e nunca reutiliza o PlayerControl real do host.
+    private PlayerControl previewIndicador;
 
     public static void Inicializar()
     {
@@ -65,7 +65,6 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
         var objeto = new GameObject("YouTubeVoteBridge_VisualizadorNome");
         UnityEngine.Object.DontDestroyOnLoad(objeto);
         instancia = objeto.AddComponent<VisualizadorNomeMenu>();
-        instancia.CriarPreview();
         threadJanela = new Thread(CriarJanelaNativa) { IsBackground = true, Name = "YouTubeVoteBridge Visualizador F8" };
         threadJanela.Start();
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo("[Visualizador F8] Janela nativa inicializada (padrão F6/F7).");
@@ -121,79 +120,109 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
         if (novaVisibilidade.HasValue)
             previewVisivel = novaVisibilidade.Value;
 
-        if (instancia.previewText != null && instancia.previewText.text != textoAplicado)
-            instancia.previewText.text = textoAplicado;
-        if (instancia.previewTextoObject != null && instancia.previewTextoObject.activeSelf != previewVisivel)
-            instancia.previewTextoObject.SetActive(previewVisivel);
-
-        // A prévia acompanha o jogador local e fica acima da cabeça dele.
         try
         {
             PlayerControl jogador = PlayerControl.LocalPlayer;
-            if (jogador != null && instancia.previewTextoObject != null)
+            if (!previewVisivel || string.IsNullOrWhiteSpace(textoAplicado) ||
+                jogador == null || AmongUsClient.Instance == null)
             {
-                Camera camera = Camera.main;
-                if (camera != null)
-                {
-                    Vector3 posicaoTela = camera.WorldToScreenPoint(
-                        jogador.transform.position + Vector3.up * 0.85f);
-                    bool naFrenteDaCamera = posicaoTela.z > 0f;
-                    if (instancia.previewTextoObject.activeSelf != (previewVisivel && naFrenteDaCamera))
-                        instancia.previewTextoObject.SetActive(previewVisivel && naFrenteDaCamera);
+                if (instancia.previewIndicador != null &&
+                    instancia.previewIndicador.gameObject.activeSelf)
+                    instancia.previewIndicador.gameObject.SetActive(false);
+                return;
+            }
 
-                    if (naFrenteDaCamera)
-                        instancia.previewTextoObject.transform.position =
-                            new Vector3(posicaoTela.x, posicaoTela.y, 0f);
+            if (instancia.previewIndicador == null)
+            {
+                // Igual ao Tsunami: usar um PlayerControl separado para aproveitar
+                // o nameText nativo do jogo, sem modificar o nome do host.
+                instancia.previewIndicador = UnityEngine.Object.Instantiate(
+                    AmongUsClient.Instance.PlayerPrefab,
+                    jogador.transform.position + new Vector3(0f, 0.65f, 0f),
+                    Quaternion.identity);
+
+                if (instancia.previewIndicador == null)
+                {
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                        "[Visualizador F8] Instantiate do indicador retornou null.");
+                    return;
+                }
+
+                instancia.previewIndicador.isNew = false;
+                instancia.previewIndicador.notRealPlayer = true;
+
+                try
+                {
+                    // O indicador só é visual; não deve entrar na lista de jogadores.
+                    if (PlayerControl.AllPlayerControls.Contains(instancia.previewIndicador))
+                        PlayerControl.AllPlayerControls.Remove(instancia.previewIndicador);
+                }
+                catch (Exception ex)
+                {
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogDebug(
+                        "[Visualizador F8] Não foi possível remover indicador da lista: " + ex.Message);
+                }
+
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[Visualizador F8] Indicador PlayerControl local criado (sem spawn/RPC de rede).");
+            }
+
+            PlayerControl indicador = instancia.previewIndicador;
+            if (indicador == null) return;
+
+            Vector3 posicao = jogador.transform.position + new Vector3(0f, 0.65f, 0f);
+            indicador.transform.position = posicao;
+            try { indicador.NetTransform?.SnapTo(posicao); } catch { }
+
+            // O Tsunami deixa invisível o boneco e usa apenas cosmetics.nameText.
+            try
+            {
+                var body = indicador.cosmetics?.currentBodySprite?.BodySprite;
+                if (body != null)
+                {
+                    body.color = Color.clear;
+                    body.enabled = true;
+                }
+
+                var textoCor = indicador.cosmetics?.colorBlindText;
+                if (textoCor != null)
+                    textoCor.color = Color.clear;
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogDebug(
+                    "[Visualizador F8] Falha ao ocultar corpo do indicador: " + ex.Message);
+            }
+
+            try
+            {
+                var nome = indicador.cosmetics?.nameText;
+                if (nome != null)
+                {
+                    if (nome.text != textoAplicado)
+                        nome.text = textoAplicado;
+                    if (!nome.gameObject.activeSelf)
+                        nome.gameObject.SetActive(true);
+                }
+                else
+                {
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogDebug(
+                        "[Visualizador F8] cosmetics.nameText ainda não está pronto.");
                 }
             }
-        }
-        catch (Exception ex)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogDebug("[Visualizador F8] Não foi possível posicionar a prévia: " + ex.Message);
-        }
-    }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[Visualizador F8] Não foi possível aplicar texto no nameText: " + ex.Message);
+            }
 
-    private void CriarPreview()
-    {
-        try
-        {
-            // UI 2D em Screen Space Overlay; convertemos a posição do jogador para a tela.
-            previewCanvasObject = new GameObject("YouTubeVoteBridge_NomePreviewCanvas");
-            UnityEngine.Object.DontDestroyOnLoad(previewCanvasObject);
-            previewCanvas = previewCanvasObject.AddComponent<Canvas>();
-            previewCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            previewCanvas.sortingOrder = 32767;
-
-            previewTextoObject = new GameObject("YouTubeVoteBridge_NomePreviewScreen");
-            previewTextoObject.transform.SetParent(previewCanvasObject.transform, false);
-            previewText = previewTextoObject.AddComponent<TextMeshProUGUI>();
-            if (TMP_Settings.defaultFontAsset != null)
-                previewText.font = TMP_Settings.defaultFontAsset;
-
-            RectTransform rect = previewTextoObject.GetComponent<RectTransform>();
-            rect.anchorMin = new Vector2(0.5f, 0.5f);
-            rect.anchorMax = new Vector2(0.5f, 0.5f);
-            rect.pivot = new Vector2(0.5f, 0.5f);
-            rect.sizeDelta = new Vector2(900f, 120f);
-            rect.position = Vector3.zero;
-
-            previewText.text = "";
-            previewText.richText = true;
-            previewText.fontSize = 36f;
-            previewText.alignment = TextAlignmentOptions.Center;
-            previewText.enableWordWrapping = false;
-            previewText.overflowMode = TextOverflowModes.Overflow;
-            previewText.color = Color.white;
-            previewText.outlineWidth = 0.15f;
-            previewText.outlineColor = Color.black;
-            previewTextoObject.SetActive(false);
-            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[Visualizador F8] Prévia UI 2D criada; será posicionada na tela acima do jogador local.");
+            if (!indicador.gameObject.activeSelf)
+                indicador.gameObject.SetActive(true);
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[Visualizador F8] Não foi possível criar a prévia UI: " + ex);
+                "[Visualizador F8] Falha ao atualizar indicador: " + ex);
         }
     }
 
