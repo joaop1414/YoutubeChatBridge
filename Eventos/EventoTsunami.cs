@@ -769,8 +769,23 @@ internal sealed class EventoTsunami : EventoVotacao
         try
         {
             PlayerControl jogador = local;
-            string nomeOriginal = jogador.cosmetics.nameText.text ?? jogador.Data.PlayerName ?? "";
-            nomesOriginais[jogador.PlayerId] = nomeOriginal;
+
+            // Nunca sobrescreve um nome original já guardado com o texto visual:
+            // nameText pode já conter o aviso do tsunami, causando restauração do próprio aviso.
+            if (!nomesOriginais.ContainsKey(jogador.PlayerId))
+            {
+                string nomeOriginal = jogador.Data.Outfits[PlayerOutfitType.Default].PlayerName;
+                if (string.IsNullOrEmpty(nomeOriginal))
+                    nomeOriginal = jogador.Data.PlayerName ?? string.Empty;
+
+                // Evita registrar o aviso como nome original se outro Update já o aplicou.
+                if (nomeOriginal.Contains("Um tsunami está vindo") ||
+                    nomeOriginal.Contains("Vá para o duto mais próximo"))
+                    nomeOriginal = jogador.Data.PlayerName ?? string.Empty;
+
+                nomesOriginais[jogador.PlayerId] = nomeOriginal;
+            }
+
             AtualizarNomeLocal(jogador, Time.realtimeSinceStartup);
         }
         catch (Exception ex)
