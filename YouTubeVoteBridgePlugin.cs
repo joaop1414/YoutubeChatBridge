@@ -3957,7 +3957,7 @@ internal static class YouTubeVoteJudgeTranslation
                     continue;
 
                 texto.text = Regex.Replace(
-                    texto.text, @"\\bJudge\\b", "Juiz",
+                    texto.text, @"\bJudge\b", "Juiz",
                     RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
             }
         }
@@ -3987,9 +3987,9 @@ public static class YouTubeVoteTranslateJudgeEjectionWrapUpPatch
     private static MethodBase TargetMethod() =>
         AccessTools.Method(typeof(ExileController), "WrapUp");
 
-    public static void Postfix(ExileController __instance)
+    public static void Postfix(object[] __args)
     {
-        YouTubeVoteJudgeTranslation.TraduzirTela(__instance);
+        YouTubeVoteJudgeTranslation.TraduzirTela(__args);
     }
 }
 
