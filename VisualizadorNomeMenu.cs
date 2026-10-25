@@ -53,7 +53,7 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
     public static void VerificarTecla()
     {
         if (instancia == null) return;
-        if (Input.GetKeyDown(KeyCode.F5))
+        if (Input.GetKeyDown(KeyCode.F8))
         {
             menuAberto = !menuAberto;
             if (!menuAberto && previewVisivel)
@@ -86,7 +86,7 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
             ID_JANELA,
             janela,
             (GUI.WindowFunction)DesenharJanela,
-            "YouTubeChatBridge — Visualizador de Nome (F5)"
+            "YouTubeChatBridge — Visualizador de Nome (F8)"
         );
     }
 
@@ -123,7 +123,7 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
             textoEntrada = "";
             scrollTexto = Vector2.zero;
         }
-        if (GUILayout.Button("Fechar (F5)", estiloBotao, GUILayout.Height(28)))
+        if (GUILayout.Button("Fechar (F8)", estiloBotao, GUILayout.Height(28)))
         {
             menuAberto = false;
         }
