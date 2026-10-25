@@ -186,17 +186,15 @@ namespace MoreGamemodes
             if (jogador == null || host?.Data == null || jogador.Data == null ||
                 AmongUsClient.Instance == null) return null;
 
-            // Replica a técnica usada pelo EHR: o host é a origem do Shapeshift.
-            // O nome temporário existe apenas no outfit serializado; não enviamos
-            // SetName separado, pois isso pode alterar o nome real do jogador.
+            // Replica a técnica do EHR usada nas mensagens de lobby/chat:
+            // SetName temporário -> ação -> SetName original, no mesmo pacote.
+            // Teste experimental: o nome temporário é curto para evitar serializar
+            // o texto longo da onda nos dados do host.
             PlayerControl alvo = host;
             if (alvo?.Data == null) return null;
 
             nomeOriginal = alvo.Data.Outfits[PlayerOutfitType.Default].PlayerName ?? string.Empty;
-            // Nunca altere o nome do host nem temporariamente no outfit serializado.
-            // Alguns sistemas vanilla (por exemplo, o menu do Metamorfo) podem capturar
-            // o nome intermediário antes que o pacote de restauração seja processado.
-            // O texto visual da onda é enviado separadamente ao indicador via SetName.
+            const string nomeTemporario = "<size=14><br></size>TSUNAMI";
 
             var outfit = alvo.Data.Outfits[PlayerOutfitType.Default];
             string nomeOutfitAnterior = outfit.PlayerName;
@@ -213,7 +211,17 @@ namespace MoreGamemodes
                 writer.StartMessage(5);
                 writer.Write(AmongUsClient.Instance.GameId);
 
-                // Preserva outfit.PlayerName: somente os cosméticos são temporários.
+                // 1. O nome curto temporário é aplicado somente nos clientes remotos.
+                // Igual ao fluxo da mensagem de lobby, ainda não chamamos SetName localmente.
+                writer.StartMessage(2);
+                writer.WritePacked(alvo.NetId);
+                writer.Write((byte)RpcCalls.SetName);
+                writer.Write(alvo.Data.NetId);
+                writer.Write(nomeTemporario);
+                writer.EndMessage();
+
+                // 2. Serializa o host com nome/cosméticos temporários para a transformação.
+                outfit.PlayerName = nomeTemporario;
                 outfit.ColorId = 0;
                 outfit.HatId = string.Empty;
                 outfit.SkinId = string.Empty;
@@ -243,6 +251,15 @@ namespace MoreGamemodes
                 outfit.VisorId = visorAnterior;
                 outfitRestaurado = true;
 
+                // 3. Restaura o nome original após o Shapeshift, no mesmo pacote.
+                writer.StartMessage(2);
+                writer.WritePacked(alvo.NetId);
+                writer.Write((byte)RpcCalls.SetName);
+                writer.Write(alvo.Data.NetId);
+                writer.Write(nomeOriginal);
+                writer.EndMessage();
+
+                // 4. Reenvia os dados originais do host.
                 writer.StartMessage(1);
                 writer.WritePacked(alvo.Data.NetId);
                 alvo.Data.Serialize(writer, false);
