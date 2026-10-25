@@ -39,6 +39,27 @@ namespace MoreGamemodes
                     SpawnGameDataMessage spawn = AmongUsClient.Instance.CreateSpawnMessage(jogador, -2, SpawnFlags.None);
                     spawn.SerializeValues(writer);
                     writer.EndMessage();
+
+                    // O EHR confirmou que servidores vanilla precisam receber três
+                    // mensagens Spawn vazias depois do objeto customizado. Sem esse
+                    // preenchimento, clientes vanilla podem descartar/ignorar o objeto
+                    // de rede e a onda do Tsunami não aparece.
+                    if (EhRegiaoVanilla())
+                    {
+                        for (uint i = 1; i <= 3; i++)
+                        {
+                            writer.StartMessage(4);
+                            writer.WritePacked(2U);
+                            writer.WritePacked(-2);
+                            writer.Write((byte)SpawnFlags.None);
+                            writer.WritePacked(1);
+                            writer.WritePacked(AmongUsClient.Instance.NetIdCnt - i);
+                            writer.StartMessage(1);
+                            writer.EndMessage();
+                            writer.EndMessage();
+                        }
+                    }
+
                     writer.EndMessage();
                     AmongUsClient.Instance.SendOrDisconnect(writer);
                 }
@@ -62,6 +83,34 @@ namespace MoreGamemodes
 
             if (removerDaLista && PlayerControl.AllPlayerControls.Contains(jogador))
                 PlayerControl.AllPlayerControls.Remove(jogador);
+        }
+
+        // O EHR aplica o padding de Spawn somente nas regiões vanilla (NA/EU/AS).
+        // A leitura por reflexão evita depender de variações da API de região entre versões.
+        private static bool EhRegiaoVanilla()
+        {
+            try
+            {
+                object manager = ServerManager.Instance;
+                if (manager == null) return false;
+
+                var propRegiao = manager.GetType().GetProperty("CurrentRegion");
+                object regiao = propRegiao?.GetValue(manager);
+                if (regiao == null) return false;
+
+                var propNome = regiao.GetType().GetProperty("Name");
+                string nome = propNome?.GetValue(regiao)?.ToString() ?? string.Empty;
+                nome = nome.Trim().ToLowerInvariant();
+
+                return nome == "na" || nome == "eu" || nome == "as" ||
+                       nome.Contains("north america") ||
+                       nome.Contains("europe") ||
+                       nome == "asia" || nome.Contains("asia ");
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         public static int AssociarClientes(PlayerControl jogador, byte playerId)
