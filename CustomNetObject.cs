@@ -193,7 +193,9 @@ namespace MoreGamemodes
             if (alvo?.Data == null) return null;
 
             nomeOriginal = alvo.Data.Outfits[PlayerOutfitType.Default].PlayerName ?? string.Empty;
-            string nomeTemporario = "<size=14><br></size>" + (sprite ?? string.Empty);
+            // Mantém o texto serializado curto: o sprite/markup completo é enviado depois por SetName.
+            // Serializar o nome formatado dentro de NetworkedPlayerInfo pode disparar erro no Hazel.
+            string nomeTemporario = "<size=14><br></size>TSUNAMI";
 
             var outfit = alvo.Data.Outfits[PlayerOutfitType.Default];
             string nomeOutfitAnterior = outfit.PlayerName;
