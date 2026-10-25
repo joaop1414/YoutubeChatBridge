@@ -674,15 +674,13 @@ internal sealed class EventoTsunami : EventoVotacao
 
             try
             {
-                // Teste de morte sem corpo: Vote pertence ao enum de estado do EHR,
-                // não ao DeathReason nativo. RpcExileV2 é o RPC nativo de expulsão,
-                // usado aqui para verificar se o jogador some sem gerar DeadBody.
-                jogador.RpcExileV2();
+                // Teste de morte sem corpo usando Die com DeathReason.Vote.
+                jogador.Die(DeathReason.Vote, true);
 
                 mortosPeloTsunami.Remove(id);
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                     "Tsunami: atraso concluído; PlayerId=" + id +
-                    " recebeu RpcExileV2 para testar morte sem corpo.");
+                    " recebeu Die(DeathReason.Vote, true) para testar morte sem corpo.");
             }
             catch (Exception ex)
             {
