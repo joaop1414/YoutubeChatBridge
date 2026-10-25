@@ -1,343 +1,437 @@
-using System;
-using System.Collections.Generic;
-using Hazel;
+using UnityEngine;
 using InnerNet;
+using Hazel;
+using System.Collections.Generic;
+using System.Linq;
+using AmongUs.GameOptions;
+using AmongUs.InnerNet.GameDataMessages;
 
-namespace YouTubeVoteBridge;
-
-/// <summary>
-/// Porta para o YouTubeVoteBridge o procedimento de associação de PlayerControl
-/// falso usado pelo CustomNetObject do EHR para clientes vanilla.
-/// </summary>
-internal static class CustomNetObject
+namespace MoreGamemodes
 {
-    private const int TamanhoMaximoLote = 500;
-
-
-    /// <summary>
-    /// Envia a criação de um PlayerControl falso no formato usado pelo EHR.
-    /// O objeto deve ter sido instanciado, configurado com PlayerId/isNew/notRealPlayer
-    /// e posicionado pelo chamador antes desta chamada.
-    /// </summary>
-    public static void EnviarSpawn(PlayerControl objeto) =>
-        EnviarSpawn(objeto, ocultarVisual: true, removerDaLista: true);
-
-    /// <summary>
-    /// Variante experimental: permite manter o corpo visível e o PlayerControl
-    /// em AllPlayerControls para testar um spawn com aparência de jogador normal.
-    /// Isso não cria um cliente/proprietário de rede real.
-    /// </summary>
-    public static void EnviarSpawn(
-        PlayerControl objeto, bool ocultarVisual, bool removerDaLista)
+    public class CustomNetObject
     {
-        if (objeto == null || AmongUsClient.Instance == null ||
-            PlayerControl.LocalPlayer == null || !AmongUsClient.Instance.AmHost)
-            throw new InvalidOperationException("Não é possível criar o PlayerControl falso fora do host.");
-
-        // O EHR não nasce o objeto na posição visível. Ele o cria fora da área
-        // jogável e só o move depois que os clientes vanilla o associaram.
-        // Isso evita o frame em que o prefab aparece como um crewmate normal.
-        try { objeto.NetTransform.SnapTo(new UnityEngine.Vector2(50f, 50f)); }
-        catch (Exception ex)
+        public void RpcChangeSprite(string sprite)
         {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "CustomNetObject: falha ao posicionar o objeto fora da tela antes do spawn: " + ex.Message);
+            Sprite = sprite;
+            var player = PlayerControl.AllPlayerControls.ToArray().OrderBy(x => x.PlayerId).Where(x => !x.inVent && !x.walkingToVent).FirstOrDefault();
+            if (player == null) player = PlayerControl.LocalPlayer;
+            var name = player.Data.Outfits[PlayerOutfitType.Default].PlayerName;
+            var colorId = player.Data.Outfits[PlayerOutfitType.Default].ColorId;
+            var hatId = player.Data.Outfits[PlayerOutfitType.Default].HatId;
+            var skinId = player.Data.Outfits[PlayerOutfitType.Default].SkinId;
+            var petId = player.Data.Outfits[PlayerOutfitType.Default].PetId;
+            var visorId = player.Data.Outfits[PlayerOutfitType.Default].VisorId;
+            CustomRpcSender sender = CustomRpcSender.Create(SendOption.Reliable);
+            MessageWriter writer = sender.stream;
+            sender.StartMessage(-1);
+            player.Data.Outfits[PlayerOutfitType.Default].PlayerName = $"<size={14 + PlayerControlOffset * 25.574f}>\n</size>" + sprite;
+            player.Data.Outfits[PlayerOutfitType.Default].ColorId = 0;
+            player.Data.Outfits[PlayerOutfitType.Default].HatId = "";
+            player.Data.Outfits[PlayerOutfitType.Default].SkinId = "";
+            player.Data.Outfits[PlayerOutfitType.Default].PetId = "";
+            player.Data.Outfits[PlayerOutfitType.Default].VisorId = "";
+            writer.StartMessage(1);
+            {
+                writer.WritePacked(player.Data.NetId);
+                player.Data.Serialize(writer, false);
+            }
+            writer.EndMessage();
+            playerControl.Shapeshift(player, false);
+            sender.StartRpc(playerControl.NetId, (byte)RpcCalls.Shapeshift)
+                .WriteNetObject(player)
+                .Write(false)
+                .EndRpc();
+            player.Data.Outfits[PlayerOutfitType.Default].PlayerName = name;
+            player.Data.Outfits[PlayerOutfitType.Default].ColorId = colorId;
+            player.Data.Outfits[PlayerOutfitType.Default].HatId = hatId;
+            player.Data.Outfits[PlayerOutfitType.Default].SkinId = skinId;
+            player.Data.Outfits[PlayerOutfitType.Default].PetId = petId;
+            player.Data.Outfits[PlayerOutfitType.Default].VisorId = visorId;
+            writer.StartMessage(1);
+            {
+                writer.WritePacked(player.Data.NetId);
+                player.Data.Serialize(writer, false);
+            }
+            writer.EndMessage();
+            sender.EndMessage();
+            sender.SendMessage();
         }
 
-        // Reprodução do EHR: o contador avança exatamente uma posição.
-        // O Instantiate já registra os NetObjects do prefab; reservar +7 faz os
-        // três spawns auxiliares usarem IDs incorretos e gera colisões.
-        uint contadorAntes = AmongUsClient.Instance.NetIdCnt;
-        AmongUsClient.Instance.NetIdCnt += 1U;
-
-        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"CustomNetObject: preparando spawn falso; NetId do PlayerControl={objeto.NetId}, " +
-            $"NetIdCnt {contadorAntes} -> {AmongUsClient.Instance.NetIdCnt}; " +
-            $"NetIds auxiliares={AmongUsClient.Instance.NetIdCnt - 1U}," +
-            $"{AmongUsClient.Instance.NetIdCnt - 2U},{AmongUsClient.Instance.NetIdCnt - 3U}.");
-
-        MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
-
-        try
+        public void RpcTeleport(Vector2 position)
         {
+            if (lastOffset == 0f) return;
+            if (PlayerControlOffset != lastOffset)
+            {
+                lastOffset = PlayerControlOffset;
+                var player = PlayerControl.AllPlayerControls.ToArray().OrderBy(x => x.PlayerId).Where(x => !x.inVent && !x.walkingToVent).FirstOrDefault();
+                if (player == null) player = PlayerControl.LocalPlayer;
+                var name = player.Data.Outfits[PlayerOutfitType.Default].PlayerName;
+                var colorId = player.Data.Outfits[PlayerOutfitType.Default].ColorId;
+                var hatId = player.Data.Outfits[PlayerOutfitType.Default].HatId;
+                var skinId = player.Data.Outfits[PlayerOutfitType.Default].SkinId;
+                var petId = player.Data.Outfits[PlayerOutfitType.Default].PetId;
+                var visorId = player.Data.Outfits[PlayerOutfitType.Default].VisorId;
+                CustomRpcSender sender = CustomRpcSender.Create(SendOption.Reliable);
+                MessageWriter writer = sender.stream;
+                sender.StartMessage(-1);
+                player.Data.Outfits[PlayerOutfitType.Default].PlayerName = $"<size={14 + PlayerControlOffset * 25.574f}>\n</size>" + Sprite;
+                player.Data.Outfits[PlayerOutfitType.Default].ColorId = 0;
+                player.Data.Outfits[PlayerOutfitType.Default].HatId = "";
+                player.Data.Outfits[PlayerOutfitType.Default].SkinId = "";
+                player.Data.Outfits[PlayerOutfitType.Default].PetId = "";
+                player.Data.Outfits[PlayerOutfitType.Default].VisorId = "";
+                writer.StartMessage(1);
+                {
+                    writer.WritePacked(player.Data.NetId);
+                    player.Data.Serialize(writer, false);
+                }
+                writer.EndMessage();
+                playerControl.Shapeshift(player, false);
+                sender.StartRpc(playerControl.NetId, (byte)RpcCalls.Shapeshift)
+                    .WriteNetObject(player)
+                    .Write(false)
+                    .EndRpc();
+                player.Data.Outfits[PlayerOutfitType.Default].PlayerName = name;
+                player.Data.Outfits[PlayerOutfitType.Default].ColorId = colorId;
+                player.Data.Outfits[PlayerOutfitType.Default].HatId = hatId;
+                player.Data.Outfits[PlayerOutfitType.Default].SkinId = skinId;
+                player.Data.Outfits[PlayerOutfitType.Default].PetId = petId;
+                player.Data.Outfits[PlayerOutfitType.Default].VisorId = visorId;
+                writer.StartMessage(1);
+                {
+                    writer.WritePacked(player.Data.NetId);
+                    player.Data.Serialize(writer, false);
+                }
+                writer.EndMessage();
+                sender.StartRpc(playerControl.NetTransform.NetId, (byte)RpcCalls.SnapTo)
+                    .WriteVector2(position + Vector2.up * PlayerControlOffset)
+                    .Write(playerControl.NetTransform.lastSequenceId)
+                    .EndRpc();
+                sender.EndMessage();
+                sender.SendMessage();
+                return;
+            }
+            Position = position;
+        }
+
+        public void Despawn()
+        {
+            if (playerControl != null)
+            {
+                MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
+                writer.StartMessage(5);
+                writer.Write(AmongUsClient.Instance.GameId);
+                writer.StartMessage(5);
+                writer.WritePacked(playerControl.NetId);
+                writer.EndMessage();
+                writer.EndMessage();
+                AmongUsClient.Instance.SendOrDisconnect(writer);
+                writer.Recycle();
+                AmongUsClient.Instance.RemoveNetObject(playerControl);
+                Object.Destroy(playerControl.gameObject);
+            }
+            if (CustomObjects.Contains(this))
+                CustomObjects.Remove(this);
+        }
+        
+        public void Hide(PlayerControl player)
+        {
+            if (player.AmOwner)
+            {
+                playerControl.Visible = false;
+                return;
+            }
+            MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
+            writer.StartMessage(6);
+            writer.Write(AmongUsClient.Instance.GameId);
+            writer.WritePacked(player.GetClientId());
             writer.StartMessage(5);
-            writer.Write(AmongUsClient.Instance.GameId);
-
-            writer.StartMessage(4);
-            var spawn = AmongUsClient.Instance.CreateSpawnMessage(
-                objeto, -2, SpawnFlags.None);
-            spawn.SerializeValues(writer);
+            writer.WritePacked(playerControl.NetId);
             writer.EndMessage();
-
-            // Não enviar os três LobbyBehaviour auxiliares do EHR nesta build:
-            // no Among Us 19.0.0 eles colidem com NetIds já registrados pelo
-            // PlayerPrefab (28/27/26 nos logs). O EHR condiciona esse workaround
-            // ao tipo de servidor; sem a mesma detecção, enviar sempre é incorreto.
-
             writer.EndMessage();
             AmongUsClient.Instance.SendOrDisconnect(writer);
-            writer = null;
-        }
-        finally
-        {
-            writer?.Recycle();
+            writer.Recycle();
         }
 
-        if (removerDaLista && PlayerControl.AllPlayerControls.Contains(objeto))
-            PlayerControl.AllPlayerControls.Remove(objeto);
-
-        if (ocultarVisual)
+        public virtual void OnFixedUpdate()
         {
-            // Comportamento padrão para os objetos artificiais atuais:
-            // corpo e texto de daltônico ficam invisíveis.
-            try
-            {
-                var corpo = objeto.cosmetics?.currentBodySprite?.BodySprite;
-                if (corpo != null)
-                    corpo.color = UnityEngine.Color.clear;
-            }
-            catch (Exception ex)
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "CustomNetObject: não foi possível ocultar o corpo do objeto: " + ex.Message);
-            }
-
-            try
-            {
-                var texto = objeto.cosmetics?.colorBlindText;
-                if (texto != null)
-                    texto.color = UnityEngine.Color.clear;
-            }
-            catch (Exception ex)
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "CustomNetObject: não foi possível ocultar o texto de cor: " + ex.Message);
-            }
-        }
-    }
-
-    /// <summary>
-    /// Envia nome e cor para clientes vanilla depois da associação do PlayerControl.
-    /// </summary>
-    public static void EnviarAparencia(PlayerControl objeto, string nome, byte corId)
-    {
-        if (objeto == null || objeto.Data == null ||
-            AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost ||
-            PlayerControl.LocalPlayer?.Data == null)
-            throw new InvalidOperationException("Não é possível sincronizar a aparência do PlayerControl falso.");
-
-        // Reproduz o fluxo do EHR: o nome do sprite é local no objeto falso,
-        // mas a aparência que o cliente vanilla renderiza vem do outfit temporário
-        // do host + Shapeshift, enviado num GameData global (mensagem 5).
-        objeto.RawSetName(nome);
-
-        var hostData = PlayerControl.LocalPlayer.Data;
-        var outfit = hostData.Outfits[PlayerOutfitType.Default];
-        string nomeOriginal = outfit.PlayerName;
-        int corOriginal = outfit.ColorId;
-        string chapeuOriginal = outfit.HatId;
-        string skinOriginal = outfit.SkinId;
-        string petOriginal = outfit.PetId;
-        string visorOriginal = outfit.VisorId;
-
-        MessageWriter writer = null;
-        try
-        {
-            writer = MessageWriter.Get(SendOption.Reliable);
-            writer.StartMessage(5); // GameData, como no EHR
-            writer.Write(AmongUsClient.Instance.GameId);
-
-            outfit.PlayerName = "<size=14><br></size>" + nome;
-            outfit.ColorId = 255;
-            outfit.HatId = "";
-            outfit.SkinId = "";
-            outfit.PetId = "";
-            outfit.VisorId = "";
-
-            writer.StartMessage(1);
-            writer.WritePacked(hostData.NetId);
-            hostData.Serialize(writer, false);
-            writer.EndMessage();
-
-            writer.StartMessage(2);
-            writer.WritePacked(objeto.NetId);
-            writer.Write((byte)RpcCalls.Shapeshift);
-            writer.WriteNetObject(PlayerControl.LocalPlayer);
-            writer.Write(false);
-            writer.EndMessage();
-
-            // Fundamental: o EHR serializa o outfit original novamente no mesmo
-            // lote, depois do Shapeshift, para todos os clientes receberem a
-            // alteração temporária e a restauração na ordem correta.
-            outfit.PlayerName = nomeOriginal;
-            outfit.ColorId = corOriginal;
-            outfit.HatId = chapeuOriginal;
-            outfit.SkinId = skinOriginal;
-            outfit.PetId = petOriginal;
-            outfit.VisorId = visorOriginal;
-
-            writer.StartMessage(1);
-            writer.WritePacked(hostData.NetId);
-            hostData.Serialize(writer, false);
-            writer.EndMessage();
-
-            writer.EndMessage();
-            AmongUsClient.Instance.SendOrDisconnect(writer);
-            writer = null;
-        }
-        finally
-        {
-            writer?.Recycle();
-            outfit.PlayerName = nomeOriginal;
-            outfit.ColorId = corOriginal;
-            outfit.HatId = chapeuOriginal;
-            outfit.SkinId = skinOriginal;
-            outfit.PetId = petOriginal;
-            outfit.VisorId = visorOriginal;
-        }
-
-        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"CustomNetObject: aparência enviada pelo fluxo global do EHR; " +
-            $"NetId={objeto.NetId}, PlayerId={objeto.PlayerId}, nome='{nome}', cor solicitada={corId}.");
-    }
-
-    /// <summary>
-    /// Replica a atualização de posição no padrão usado pelo CustomNetObject do EHR.
-    /// </summary>
-    public static void EnviarPosicao(PlayerControl objeto, UnityEngine.Vector2 posicao)
-    {
-        if (objeto == null || objeto.NetTransform == null ||
-            AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost)
-            return;
-
-        try
-        {
-            objeto.NetTransform.SnapTo(
-                posicao, (ushort)(objeto.NetTransform.lastSequenceId + 1U));
-            ushort sequencia = (ushort)(objeto.NetTransform.lastSequenceId + 2U);
-            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
-                objeto.NetTransform.NetId, (byte)RpcCalls.SnapTo, SendOption.None);
-            NetHelpers.WriteVector2(posicao, writer);
-            writer.Write(sequencia);
+            playerControl.NetTransform.SnapTo(Position + Vector2.up * PlayerControlOffset, (ushort)(playerControl.NetTransform.lastSequenceId + 1));
+            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(playerControl.NetTransform.NetId, (byte)RpcCalls.SnapTo, SendOption.None, -1);
+		    NetHelpers.WriteVector2(Position + Vector2.up * PlayerControlOffset, writer);
+		    writer.Write(playerControl.NetTransform.lastSequenceId);
             AmongUsClient.Instance.FinishRpcImmediately(writer);
         }
-        catch (Exception ex)
+
+        public virtual void OnMeeting()
         {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "CustomNetObject: falha ao sincronizar posição: " + ex.Message);
-        }
-    }
-
-    public static int AssociarClientes(PlayerControl objeto, byte playerIdReservado)
-    {
-        if (objeto == null || AmongUsClient.Instance == null ||
-            PlayerControl.LocalPlayer == null || !AmongUsClient.Instance.AmHost)
-            return 0;
-
-        var destinatarios = new List<PlayerControl>();
-        var proprietariosIncluidos = new HashSet<int>();
-        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
-        {
-            if (!CompatibilidadeClientes.ClienteRemotoElegivel(
-                    jogador, objeto, proprietariosIncluidos))
-                continue;
-
-            destinatarios.Add(jogador);
-        }
-
-        if (destinatarios.Count == 0)
-        {
-            objeto.CachedPlayerData = PlayerControl.LocalPlayer.Data;
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "CustomNetObject: nenhum cliente remoto elegível para associação.");
-            return 0;
-        }
-
-        int enviados = 0;
-        int mensagensNoLote = 0;
-        MessageWriter writer = null;
-
-        try
-        {
-            writer = NovoLote();
-
-            foreach (PlayerControl jogador in destinatarios)
+            MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
+            writer.StartMessage(5);
+            writer.Write(AmongUsClient.Instance.GameId);
+			writer.StartMessage(5);
+			writer.WritePacked(playerControl.NetId);
+			writer.EndMessage();
+            writer.EndMessage();
+            AmongUsClient.Instance.SendOrDisconnect(writer);
+            writer.Recycle();
+            new LateTask(() =>
             {
-                // O EHR coloca as mensagens direcionadas (6) dentro de uma
-                // mensagem GameData (26); não envia a mensagem 6 isoladamente.
-                if (mensagensNoLote > 0 && writer.Length > TamanhoMaximoLote)
+                AmongUsClient.Instance.RemoveNetObject(playerControl);
+                Object.Destroy(playerControl.gameObject);
+                playerControl = Object.Instantiate(AmongUsClient.Instance.PlayerPrefab, Vector2.zero, Quaternion.identity);
+                playerControl.PlayerId = 254;
+                playerControl.isNew = false;
+                playerControl.notRealPlayer = true;
+                playerControl.NetTransform.SnapTo(new Vector2(50f, 50f));
+                AmongUsClient.Instance.NetIdCnt += 1U;
+                MessageWriter msg = MessageWriter.Get(SendOption.Reliable);
+                msg.StartMessage(5);
+                msg.Write(AmongUsClient.Instance.GameId);
+                msg.StartMessage(4);
+                SpawnGameDataMessage item = AmongUsClient.Instance.CreateSpawnMessage(playerControl, -2, SpawnFlags.None);
+                item.SerializeValues(msg);
+                msg.EndMessage();
+                if (Utils.IsVanillaServer())
                 {
-                    FecharEnviarLote(writer);
-                    writer = NovoLote();
-                    mensagensNoLote = 0;
+                    for (uint i = 1; i <= 3; ++i)
+                    {
+                        msg.StartMessage(4);
+                        msg.WritePacked(2U);
+                        msg.WritePacked(-2);
+                        msg.Write((byte)SpawnFlags.None);
+                        msg.WritePacked(1);
+                        msg.WritePacked(AmongUsClient.Instance.NetIdCnt - i);
+                        msg.StartMessage(1);
+                        msg.EndMessage();
+                        msg.EndMessage();
+                    }
                 }
-
-                writer.StartMessage(6);
-                writer.Write(AmongUsClient.Instance.GameId);
-                writer.WritePacked(jogador.OwnerId);
-
-                // Temporariamente associa o objeto falso ao PlayerId do cliente.
+                msg.EndMessage();
+                AmongUsClient.Instance.SendOrDisconnect(msg);
+                msg.Recycle();
+                if (PlayerControl.AllPlayerControls.Contains(playerControl))
+                    PlayerControl.AllPlayerControls.Remove(playerControl);
+                playerControl.cosmetics.currentBodySprite.BodySprite.color = Color.clear;
+                playerControl.cosmetics.colorBlindText.color = Color.clear;
+            }, 5f);
+            new LateTask(() => {
+                foreach (var pc in PlayerControl.AllPlayerControls)
+                {
+                    if (pc.AmOwner) continue;
+                    CustomRpcSender sender = CustomRpcSender.Create(SendOption.Reliable);
+                    MessageWriter writer = sender.stream;
+                    sender.StartMessage(pc.GetClientId());
+                    writer.StartMessage(1);
+                    {
+                        writer.WritePacked(playerControl.NetId);
+                        writer.Write(pc.PlayerId);
+                    }
+                    writer.EndMessage();
+                    sender.StartRpc(playerControl.NetId, (byte)RpcCalls.MurderPlayer)
+                        .WriteNetObject(playerControl)
+                        .Write((int)MurderResultFlags.FailedError)
+                        .EndRpc();
+                    writer.StartMessage(1);
+                    {
+                        writer.WritePacked(playerControl.NetId);
+                        writer.Write((byte)254);
+                    }
+                    writer.EndMessage();
+                    sender.EndMessage();
+                    sender.SendMessage();
+                }
+                playerControl.CachedPlayerData = PlayerControl.LocalPlayer.Data;
+            }, 5.1f);
+            new LateTask(() => {
+                var player = PlayerControl.AllPlayerControls.ToArray().OrderBy(x => x.PlayerId).Where(x => !x.inVent && !x.walkingToVent).FirstOrDefault();
+                if (player == null) player = PlayerControl.LocalPlayer;
+                var name = player.Data.Outfits[PlayerOutfitType.Default].PlayerName;
+                var colorId = player.Data.Outfits[PlayerOutfitType.Default].ColorId;
+                var hatId = player.Data.Outfits[PlayerOutfitType.Default].HatId;
+                var skinId = player.Data.Outfits[PlayerOutfitType.Default].SkinId;
+                var petId = player.Data.Outfits[PlayerOutfitType.Default].PetId;
+                var visorId = player.Data.Outfits[PlayerOutfitType.Default].VisorId;
+                CustomRpcSender sender = CustomRpcSender.Create(SendOption.Reliable);
+                MessageWriter writer = sender.stream;
+                sender.StartMessage(-1);
+                player.Data.Outfits[PlayerOutfitType.Default].PlayerName = $"<size={14 + PlayerControlOffset * 25.574f}>\n</size>" + Sprite;
+                player.Data.Outfits[PlayerOutfitType.Default].ColorId = 0;
+                player.Data.Outfits[PlayerOutfitType.Default].HatId = "";
+                player.Data.Outfits[PlayerOutfitType.Default].SkinId = "";
+                player.Data.Outfits[PlayerOutfitType.Default].PetId = "";
+                player.Data.Outfits[PlayerOutfitType.Default].VisorId = "";
                 writer.StartMessage(1);
-                writer.WritePacked(objeto.NetId);
-                writer.Write(jogador.PlayerId);
+                {
+                    writer.WritePacked(player.Data.NetId);
+                    player.Data.Serialize(writer, false);
+                }
                 writer.EndMessage();
-
-                // Sequência do EHR: MurderPlayer com FailedError inicializa
-                // o PlayerControl remoto sem efetivamente matar o objeto.
-                writer.StartMessage(2);
-                writer.WritePacked(objeto.NetId);
-                writer.Write((byte)RpcCalls.MurderPlayer);
-                writer.WriteNetObject(objeto);
-                writer.Write((int)MurderResultFlags.FailedError);
-                writer.EndMessage();
-
-                // Restaura o PlayerId reservado para o objeto falso.
+                playerControl.Shapeshift(player, false);
+                sender.StartRpc(playerControl.NetId, (byte)RpcCalls.Shapeshift)
+                    .WriteNetObject(player)
+                    .Write(false)
+                    .EndRpc();
+                player.Data.Outfits[PlayerOutfitType.Default].PlayerName = name;
+                player.Data.Outfits[PlayerOutfitType.Default].ColorId = colorId;
+                player.Data.Outfits[PlayerOutfitType.Default].HatId = hatId;
+                player.Data.Outfits[PlayerOutfitType.Default].SkinId = skinId;
+                player.Data.Outfits[PlayerOutfitType.Default].PetId = petId;
+                player.Data.Outfits[PlayerOutfitType.Default].VisorId = visorId;
                 writer.StartMessage(1);
-                writer.WritePacked(objeto.NetId);
-                writer.Write(playerIdReservado);
+                {
+                    writer.WritePacked(player.Data.NetId);
+                    player.Data.Serialize(writer, false);
+                }
                 writer.EndMessage();
+                playerControl.NetTransform.SnapTo(Position + Vector2.up * PlayerControlOffset);
+                sender.StartRpc(playerControl.NetTransform.NetId, (byte)RpcCalls.SnapTo)
+                    .WriteVector2(Position + Vector2.up * PlayerControlOffset)
+                    .Write(playerControl.NetTransform.lastSequenceId)
+                    .EndRpc();
+                sender.EndMessage();
+                sender.SendMessage();
+            }, 5.2f);
+        }
 
-                writer.EndMessage();
-                mensagensNoLote++;
-                enviados++;
-            }
+        private float PlayerControlOffset => (MapNames)Main.RealOptions.GetByte(ByteOptionNames.MapId) switch
+        {
+            MapNames.Skeld => 37.5f,
+            MapNames.MiraHQ => Position.y > 10f ? 20f : 40f,
+            MapNames.Polus => 40f,
+            MapNames.Dleks => 37.5f,
+            MapNames.Airship => Position.y > 0f ? 25f : 50f,
+            MapNames.Fungle => Position.y > 0f ? 25f : 50f,
+            _ => 0f,
+        };
 
-            if (mensagensNoLote > 0)
+        public void CreateNetObject(string sprite, Vector2 position)
+        {
+            playerControl = Object.Instantiate(AmongUsClient.Instance.PlayerPrefab, Vector2.zero, Quaternion.identity);
+            playerControl.PlayerId = 254;
+            playerControl.isNew = false;
+            playerControl.notRealPlayer = true;
+            playerControl.NetTransform.SnapTo(new Vector2(50f, 50f));
+            AmongUsClient.Instance.NetIdCnt += 1U;
+            MessageWriter msg = MessageWriter.Get(SendOption.Reliable);
+			msg.StartMessage(5);
+			msg.Write(AmongUsClient.Instance.GameId);
+            msg.StartMessage(4);
+			SpawnGameDataMessage item = AmongUsClient.Instance.CreateSpawnMessage(playerControl, -2, SpawnFlags.None);
+            item.SerializeValues(msg);
+            msg.EndMessage();
+            if (Utils.IsVanillaServer())
             {
-                FecharEnviarLote(writer);
-                writer = null;
+                for (uint i = 1; i <= 3; ++i)
+                {
+                    msg.StartMessage(4);
+                    msg.WritePacked(2U);
+                    msg.WritePacked(-2);
+                    msg.Write((byte)SpawnFlags.None);
+                    msg.WritePacked(1);
+                    msg.WritePacked(AmongUsClient.Instance.NetIdCnt - i);
+                    msg.StartMessage(1);
+                    msg.EndMessage();
+                    msg.EndMessage();
+                }
             }
-
-            objeto.CachedPlayerData = PlayerControl.LocalPlayer.Data;
-            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                $"Compatibilidade: associação do fake NetId={objeto.NetId}, PlayerId={objeto.PlayerId}, " +
-                $"enviada individualmente para {enviados} cliente(s) remoto(s) elegível(is).");
-            return enviados;
+            msg.EndMessage();
+            AmongUsClient.Instance.SendOrDisconnect(msg);
+			msg.Recycle();
+            if (PlayerControl.AllPlayerControls.Contains(playerControl))
+                PlayerControl.AllPlayerControls.Remove(playerControl);
+            new LateTask(() => {
+                var player = PlayerControl.AllPlayerControls.ToArray().OrderBy(x => x.PlayerId).Where(x => !x.inVent && !x.walkingToVent).FirstOrDefault();
+                if (player == null) player = PlayerControl.LocalPlayer;
+                var name = player.Data.Outfits[PlayerOutfitType.Default].PlayerName;
+                var colorId = player.Data.Outfits[PlayerOutfitType.Default].ColorId;
+                var hatId = player.Data.Outfits[PlayerOutfitType.Default].HatId;
+                var skinId = player.Data.Outfits[PlayerOutfitType.Default].SkinId;
+                var petId = player.Data.Outfits[PlayerOutfitType.Default].PetId;
+                var visorId = player.Data.Outfits[PlayerOutfitType.Default].VisorId;
+                CustomRpcSender sender = CustomRpcSender.Create(SendOption.Reliable);
+                MessageWriter writer = sender.stream;
+                sender.StartMessage(-1);
+                player.Data.Outfits[PlayerOutfitType.Default].PlayerName = $"<size={14 + PlayerControlOffset * 25.574f}>\n</size>" + sprite;
+                player.Data.Outfits[PlayerOutfitType.Default].ColorId = 0;
+                player.Data.Outfits[PlayerOutfitType.Default].HatId = "";
+                player.Data.Outfits[PlayerOutfitType.Default].SkinId = "";
+                player.Data.Outfits[PlayerOutfitType.Default].PetId = "";
+                player.Data.Outfits[PlayerOutfitType.Default].VisorId = "";
+                writer.StartMessage(1);
+                {
+                    writer.WritePacked(player.Data.NetId);
+                    player.Data.Serialize(writer, false);
+                }
+                writer.EndMessage();
+                playerControl.Shapeshift(player, false);
+                sender.StartRpc(playerControl.NetId, (byte)RpcCalls.Shapeshift)
+                    .WriteNetObject(player)
+                    .Write(false)
+                    .EndRpc();
+                player.Data.Outfits[PlayerOutfitType.Default].PlayerName = name;
+                player.Data.Outfits[PlayerOutfitType.Default].ColorId = colorId;
+                player.Data.Outfits[PlayerOutfitType.Default].HatId = hatId;
+                player.Data.Outfits[PlayerOutfitType.Default].SkinId = skinId;
+                player.Data.Outfits[PlayerOutfitType.Default].PetId = petId;
+                player.Data.Outfits[PlayerOutfitType.Default].VisorId = visorId;
+                writer.StartMessage(1);
+                {
+                    writer.WritePacked(player.Data.NetId);
+                    player.Data.Serialize(writer, false);
+                }
+                writer.EndMessage();
+                playerControl.NetTransform.SnapTo(Position + Vector2.up * PlayerControlOffset);
+                lastOffset = PlayerControlOffset;
+                sender.StartRpc(playerControl.NetTransform.NetId, (byte)RpcCalls.SnapTo)
+                    .WriteVector2(Position + Vector2.up * PlayerControlOffset)
+                    .Write(playerControl.NetTransform.lastSequenceId)
+                    .EndRpc();
+                sender.EndMessage();
+                sender.SendMessage();
+            }, 0.2f);
+            Position = position;
+            playerControl.cosmetics.currentBodySprite.BodySprite.color = Color.clear;
+            playerControl.cosmetics.colorBlindText.color = Color.clear;
+            Sprite = sprite;
+            ++MaxId;
+            Id = MaxId;
+            lastOffset = 0f;
+            CustomObjects.Add(this);
+            new LateTask(() => {
+                foreach (var pc in PlayerControl.AllPlayerControls)
+                {
+                    if (pc.AmOwner) continue;
+                    CustomRpcSender sender = CustomRpcSender.Create(SendOption.Reliable);
+                    MessageWriter writer = sender.stream;
+                    sender.StartMessage(pc.GetClientId());
+                    writer.StartMessage(1);
+                    {
+                        writer.WritePacked(playerControl.NetId);
+                        writer.Write(pc.PlayerId);
+                    }
+                    writer.EndMessage();
+                    sender.StartRpc(playerControl.NetId, (byte)RpcCalls.MurderPlayer)
+                        .WriteNetObject(playerControl)
+                        .Write((int)MurderResultFlags.FailedError)
+                        .EndRpc();
+                    writer.StartMessage(1);
+                    {
+                        writer.WritePacked(playerControl.NetId);
+                        writer.Write((byte)254);
+                    }
+                    writer.EndMessage();
+                    sender.EndMessage();
+                    sender.SendMessage();
+                }
+                playerControl.CachedPlayerData = PlayerControl.LocalPlayer.Data;
+            }, 0.1f);
         }
-        catch (Exception ex)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "CustomNetObject: falha ao enviar associação no formato EHR: " + ex);
-            return enviados;
-        }
-        finally
-        {
-            writer?.Recycle();
-        }
-    }
 
-    private static MessageWriter NovoLote()
-    {
-        MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
-        writer.StartMessage(26);
-        writer.WritePacked(AmongUsClient.Instance.GameId);
-        return writer;
-    }
-
-    private static void FecharEnviarLote(MessageWriter writer)
-    {
-        writer.EndMessage();
-        AmongUsClient.Instance.SendOrDisconnect(writer);
-        writer.Recycle();
+        public static List<CustomNetObject> CustomObjects;
+        public static int MaxId = -1;
+        public PlayerControl playerControl;
+        public string Sprite;
+        public int Id;
+        public Vector2 Position;
+        private float lastOffset;
     }
 }
