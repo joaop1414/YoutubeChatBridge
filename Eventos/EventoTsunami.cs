@@ -674,16 +674,15 @@ internal sealed class EventoTsunami : EventoVotacao
 
             try
             {
-                // Usa o mesmo padrão dos eventos de suicídio já existentes:
-                // a própria vítima é o assassino e o alvo do RPC.
-                jogador.RpcMurderPlayer(jogador, true);
+                // Teste de morte sem corpo: Vote pertence ao enum de estado do EHR,
+                // não ao DeathReason nativo. RpcExileV2 é o RPC nativo de expulsão,
+                // usado aqui para verificar se o jogador some sem gerar DeadBody.
+                jogador.RpcExileV2();
 
-                // O RPC de assassinato já cria o corpo vanilla. Não registrar
-                // para criação posterior de corpo falso, evitando duplicatas.
                 mortosPeloTsunami.Remove(id);
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                     "Tsunami: atraso concluído; PlayerId=" + id +
-                    " tentou cometer suicídio com RpcMurderPlayer sobre si mesma.");
+                    " recebeu RpcExileV2 para testar morte sem corpo.");
             }
             catch (Exception ex)
             {
