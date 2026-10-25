@@ -9,6 +9,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using TMPro;
 
 using BepInEx;
 using BepInEx.Configuration;
@@ -40,6 +41,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     public static ConfigEntry<int> IntervaloRodadas;
     public static ConfigEntry<int> PreparacaoChat;
     public static ConfigEntry<bool> PularFaseVotosJuiz;
+    public static ConfigEntry<bool> SemFimDeJogo;
 
     private static bool LeitorConectado;
     private static bool PreparacaoIniciada;
@@ -205,6 +207,13 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             "Pular fase de votos quando o juiz usa sua habilidade",
             false,
             "Quando ativado, encerra a votação após o Juiz usar a habilidade, contando os votos já registrados."
+        );
+
+        SemFimDeJogo = Config.Bind(
+            "Configurações do Mod",
+            "Sem fim de jogo",
+            false,
+            "Quando ativado, impede que a partida termine pelas condições normais de vitória."
         );
 
         LobbyTagManager.Initialize();
@@ -3438,6 +3447,31 @@ public static class YouTubeVoteMinimumPlayersPatch
     }
 }
 
+
+// Impede os critérios normais de vitória quando a opção "Sem fim de jogo" está ativa.
+// O comportamento padrão do jogo continua intacto quando a opção está desativada.
+[HarmonyPatch(typeof(LogicGameFlowNormal), nameof(LogicGameFlowNormal.CheckEndCriteria))]
+public static class YouTubeVoteSemFimDeJogoCriteriaPatch
+{
+    public static bool Prefix()
+    {
+        return YouTubeVoteBridgePlugin.SemFimDeJogo == null ||
+               !YouTubeVoteBridgePlugin.SemFimDeJogo.Value;
+    }
+}
+
+// Também bloqueia um RPC de fim de jogo iniciado por outra rotina enquanto a opção
+// estiver ativa. Quando desativada, o método original é executado normalmente.
+[HarmonyPatch(typeof(GameManager), nameof(GameManager.RpcEndGame))]
+public static class YouTubeVoteSemFimDeJogoRpcPatch
+{
+    public static bool Prefix()
+    {
+        return YouTubeVoteBridgePlugin.SemFimDeJogo == null ||
+               !YouTubeVoteBridgePlugin.SemFimDeJogo.Value;
+    }
+}
+
 // ============================================================
 // AVISO PRIVADO QUANDO UM JOGADOR ENTRA
 // ============================================================
@@ -3887,6 +3921,59 @@ public static class YouTubeVoteRestoreExileNamePatch
     }
 }
 
+
+
+// Corrige o nome da função Judge na tela de ejeção quando o jogo devolve
+// o identificador em inglês em vez do texto localizado.
+internal static class YouTubeVoteJudgeTranslation
+{
+    internal static void TraduzirTela(ExileController exile)
+    {
+        if (exile == null)
+            return;
+
+        try
+        {
+            foreach (TMP_Text texto in exile.GetComponentsInChildren<TMP_Text>(true))
+            {
+                if (texto == null || string.IsNullOrEmpty(texto.text))
+                    continue;
+
+                if (string.Equals(texto.text.Trim(), "Judge", StringComparison.OrdinalIgnoreCase))
+                    texto.text = "Juiz";
+            }
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogDebug(
+                "Tradução de Judge na tela de ejeção não aplicada: " + ex.Message);
+        }
+    }
+}
+
+[HarmonyPatch]
+public static class YouTubeVoteTranslateJudgeEjectionBeginPatch
+{
+    private static MethodBase TargetMethod() =>
+        AccessTools.Method(typeof(ExileController), "Begin");
+
+    public static void Postfix(ExileController __instance)
+    {
+        YouTubeVoteJudgeTranslation.TraduzirTela(__instance);
+    }
+}
+
+[HarmonyPatch]
+public static class YouTubeVoteTranslateJudgeEjectionWrapUpPatch
+{
+    private static MethodBase TargetMethod() =>
+        AccessTools.Method(typeof(ExileController), "WrapUp");
+
+    public static void Postfix(ExileController __instance)
+    {
+        YouTubeVoteJudgeTranslation.TraduzirTela(__instance);
+    }
+}
 
 // ============================================================
 // ENCERRAR A VOTAÇÃO QUANDO O JUIZ VANILLA USA A HABILIDADE
