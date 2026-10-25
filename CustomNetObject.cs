@@ -90,7 +90,7 @@ namespace MoreGamemodes
 
             var outfit = jogador.Data.Outfits[PlayerOutfitType.Default];
             string nomeAnterior = outfit.PlayerName;
-            int corAnterior = outfit.ColorId;
+            var corAnterior = outfit.ColorId;
             string chapeuAnterior = outfit.HatId;
             string roupaAnterior = outfit.SkinId;
             string petAnterior = outfit.PetId;
