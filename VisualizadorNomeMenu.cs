@@ -7,7 +7,7 @@ using Il2CppInterop.Runtime.Injection;
 namespace YouTubeVoteBridge;
 
 /// <summary>
-/// Editor de texto F5. Permite colar tags do TMP e visualizar o resultado
+/// Editor de texto F8. Permite colar tags do TMP e visualizar o resultado
 /// dentro do jogo, usando TextMeshProUGUI para interpretar a formatação.
 /// </summary>
 internal sealed class VisualizadorNomeMenu : MonoBehaviour
@@ -73,7 +73,7 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
 
     private void Update()
     {
-        // Mantém o painel visível durante mudanças de cena; F5 é tratado pelo
+        // Mantém o painel visível durante mudanças de cena; F8 é tratado pelo
         // patch de Update já usado pelo mod, para seguir o mesmo fluxo dos atalhos.
     }
 
@@ -234,7 +234,7 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[Visualizador F5] Não foi possível criar a prévia TextMeshPro: " + ex);
+                "[Visualizador F8] Não foi possível criar a prévia TextMeshPro: " + ex);
         }
     }
 
