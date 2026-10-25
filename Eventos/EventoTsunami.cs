@@ -149,13 +149,10 @@ internal sealed class EventoTsunami : EventoVotacao
 
         try
         {
-            // Usa a técnica de sprite do EHR/MoreGamemodes: outfit temporário
-            // do host, Shapeshift no indicador e restauração do outfit do host.
-            // O método é exclusivo para sprites e não muda a aparência dos NPCs normais.
-            // Agora o nome é aplicado ao próprio NPC indicador, não ao jogador
-            // usado como origem do Shapeshift.
-            CustomNetObject.EnviarAparencia(indicador, NomeOnda, 0);
-            CustomNetObject.EnviarSetName(indicador, NomeOnda);
+            // Usa a técnica de sprite do EHR: publica o outfit temporário do host,
+            // aplica-o ao NPC por Shapeshift e restaura o outfit original do host.
+            // O nome visual da onda é parte do sprite, não o nome de rede do NPC.
+            CustomNetObject.EnviarAparenciaSprite(indicador, NomeOnda, out _);
             CustomNetObject.EnviarPosicao(indicador, posicao);
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 $"Tsunami: nome aplicado diretamente ao NPC; NetId={indicador.NetId}, PlayerId={indicador.PlayerId}.");
