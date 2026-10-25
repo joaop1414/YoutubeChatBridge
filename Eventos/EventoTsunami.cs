@@ -92,8 +92,32 @@ internal sealed class EventoTsunami : EventoVotacao
             indicador.notRealPlayer = true;
             indicador.NetTransform.SnapTo(posicao);
 
-            // Criação de rede centralizada no helper portado do EHR.
-            CustomNetObject.EnviarSpawn(indicador);
+            // Teste alternativo para clientes vanilla: durante a serialização do
+            // spawn, usa temporariamente o nome da onda no jogador local e no
+            // outfit do indicador. Restaura ambos imediatamente após o envio,
+            // inclusive se a criação de rede lançar uma exceção.
+            PlayerControl jogadorLocal = PlayerControl.LocalPlayer;
+            var outfitLocal = jogadorLocal?.Data?.Outfits[PlayerOutfitType.Default];
+            var outfitIndicador = indicador?.Data?.Outfits[PlayerOutfitType.Default];
+            string nomeLocalOriginal = outfitLocal?.PlayerName;
+            string nomeIndicadorOriginal = outfitIndicador?.PlayerName;
+            try
+            {
+                if (outfitLocal != null)
+                    outfitLocal.PlayerName = NomeOnda;
+                if (outfitIndicador != null)
+                    outfitIndicador.PlayerName = NomeOnda;
+
+                // O spawn é criado enquanto o nome temporário está aplicado.
+                CustomNetObject.EnviarSpawn(indicador);
+            }
+            finally
+            {
+                if (outfitLocal != null)
+                    outfitLocal.PlayerName = nomeLocalOriginal;
+                if (outfitIndicador != null)
+                    outfitIndicador.PlayerName = nomeIndicadorOriginal;
+            }
 
             if (PlayerControl.AllPlayerControls.Contains(indicador))
                 PlayerControl.AllPlayerControls.Remove(indicador);
