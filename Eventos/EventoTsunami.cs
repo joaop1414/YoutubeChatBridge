@@ -674,13 +674,14 @@ internal sealed class EventoTsunami : EventoVotacao
 
             try
             {
-                // Teste de morte sem corpo usando Die com DeathReason.Vote.
-                jogador.Die(DeathReason.Vote, true);
+                // DeathReason.Vote não existe no enum nativo desta versão.
+                // Exile é o motivo nativo usado para a expulsão, sem simular um assassinato.
+                jogador.Die(DeathReason.Exile, true);
 
                 mortosPeloTsunami.Remove(id);
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                     "Tsunami: atraso concluído; PlayerId=" + id +
-                    " recebeu Die(DeathReason.Vote, true) para testar morte sem corpo.");
+                    " recebeu Die(DeathReason.Exile, true) para testar morte sem corpo.");
             }
             catch (Exception ex)
             {
