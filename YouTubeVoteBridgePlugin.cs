@@ -2242,6 +2242,44 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         return LerMembro(objeto, nomes);
     }
 
+    private static bool EhFuncaoDaEquipeImpostora(string nomeFuncao)
+    {
+        if (string.IsNullOrWhiteSpace(nomeFuncao))
+            return false;
+
+        // Comparação por nome do enum vanilla, sem depender do idioma da interface.
+        string nome = nomeFuncao.Trim();
+        return nome.Equals("Impostor", StringComparison.OrdinalIgnoreCase) ||
+               nome.Equals("Shapeshifter", StringComparison.OrdinalIgnoreCase) ||
+               nome.Equals("Phantom", StringComparison.OrdinalIgnoreCase) ||
+               nome.Equals("Viper", StringComparison.OrdinalIgnoreCase) ||
+               nome.Equals("ImpostorGhost", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string TraduzirNomeFuncaoVanilla(string nomeFuncao)
+    {
+        if (string.IsNullOrWhiteSpace(nomeFuncao))
+            return "Tripulante";
+
+        switch (nomeFuncao.Trim().ToLowerInvariant())
+        {
+            case "crewmate": return "Tripulante";
+            case "impostor": return "Impostor";
+            case "scientist": return "Cientista";
+            case "engineer": return "Engenheiro";
+            case "guardianangel": return "Anjo da Guarda";
+            case "shapeshifter": return "Metamorfo";
+            case "noisemaker": return "Fazedor de Ruído";
+            case "tracker": return "Rastreador";
+            case "phantom": return "Fantasma";
+            case "detective": return "Detetive";
+            case "viper": return "Víbora";
+            case "impostorghost": return "Fantasma Impostor";
+            case "crewmateg​​host": return "Fantasma Tripulante";
+            default: return nomeFuncao;
+        }
+    }
+
     public static void PrepararNomeGlobalDeEjecao(object playerInfo)
     {
         if (!EhHost() || playerInfo == null) return;
@@ -2299,14 +2337,16 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             if (role == null)
                 role = LerMembro(jogador, "Role", "role");
             object roleDetalhe = LerMembro(role, "Role", "role", "RoleType", "roleType");
-            string nomeFuncao = roleDetalhe?.ToString();
-            if (string.IsNullOrWhiteSpace(nomeFuncao))
-                nomeFuncao = role?.ToString();
-            if (string.IsNullOrWhiteSpace(nomeFuncao) || nomeFuncao == "None")
-                nomeFuncao = "Crewmate";
-            bool impostor = nomeFuncao.IndexOf("Impostor", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                            nomeFuncao.IndexOf("Shapeshifter", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                            nomeFuncao.IndexOf("Phantom", StringComparison.OrdinalIgnoreCase) >= 0;
+            string nomeFuncaoInterno = roleDetalhe?.ToString();
+            if (string.IsNullOrWhiteSpace(nomeFuncaoInterno))
+                nomeFuncaoInterno = role?.ToString();
+            if (string.IsNullOrWhiteSpace(nomeFuncaoInterno) || nomeFuncaoInterno == "None")
+                nomeFuncaoInterno = "Crewmate";
+
+            // A Víbora e outras funções impostoras vanilla precisam ser identificadas
+            // pelo tipo real da função, não apenas pela palavra "Impostor" no nome.
+            bool impostor = EhFuncaoDaEquipeImpostora(nomeFuncaoInterno);
+            string nomeFuncao = TraduzirNomeFuncaoVanilla(nomeFuncaoInterno);
             string cor = impostor ? "red" : "#00fffb";
 
             string nomeOriginal = NomesOriginaisRainbow.TryGetValue(id, out string nomeRainbow)
