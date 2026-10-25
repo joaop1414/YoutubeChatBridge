@@ -2,10 +2,7 @@ using System;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
-using TMPro;
 using UnityEngine;
-using UnityEngine.UI;
-using AmongUs.GameOptions;
 using Il2CppInterop.Runtime.Injection;
 
 namespace YouTubeVoteBridge;
@@ -48,9 +45,10 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
     private GUIStyle estiloCampo;
     private bool estilosProntos;
 
-    // Indicador PlayerControl local, seguindo a técnica visual do EventoTsunami.
-    // Não é enviado pela rede e nunca reutiliza o PlayerControl real do host.
-    private PlayerControl previewIndicador;
+    // Prévia local no TextMeshPro já inicializado do jogador. O nome de rede/dados não é alterado.
+    private static PlayerControl jogadorComPreview;
+    private static string nomeOriginalRenderizado;
+    private static bool substituindoNomeRenderizado;
 
     public static void Inicializar()
     {
@@ -123,106 +121,52 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
         try
         {
             PlayerControl jogador = PlayerControl.LocalPlayer;
-            if (!previewVisivel || string.IsNullOrWhiteSpace(textoAplicado) ||
-                jogador == null || AmongUsClient.Instance == null)
+            bool deveMostrar = previewVisivel &&
+                !string.IsNullOrWhiteSpace(textoAplicado) &&
+                jogador != null && jogador.cosmetics?.nameText != null;
+
+            // Se o jogador local mudou ou a prévia foi ocultada, restaura o texto anterior.
+            if (substituindoNomeRenderizado &&
+                (jogadorComPreview != jogador || !deveMostrar))
             {
-                if (instancia.previewIndicador != null &&
-                    instancia.previewIndicador.gameObject.activeSelf)
-                    instancia.previewIndicador.gameObject.SetActive(false);
-                return;
-            }
-
-            if (instancia.previewIndicador == null)
-            {
-                // Igual ao Tsunami: usar um PlayerControl separado para aproveitar
-                // o nameText nativo do jogo, sem modificar o nome do host.
-                instancia.previewIndicador = UnityEngine.Object.Instantiate(
-                    AmongUsClient.Instance.PlayerPrefab,
-                    jogador.transform.position + new Vector3(0f, 0.65f, 0f),
-                    Quaternion.identity);
-
-                if (instancia.previewIndicador == null)
-                {
-                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                        "[Visualizador F8] Instantiate do indicador retornou null.");
-                    return;
-                }
-
-                instancia.previewIndicador.isNew = false;
-                instancia.previewIndicador.notRealPlayer = true;
-
                 try
                 {
-                    // O indicador só é visual; não deve entrar na lista de jogadores.
-                    if (PlayerControl.AllPlayerControls.Contains(instancia.previewIndicador))
-                        PlayerControl.AllPlayerControls.Remove(instancia.previewIndicador);
+                    var nomeAnterior = jogadorComPreview?.cosmetics?.nameText;
+                    if (nomeAnterior != null)
+                        nomeAnterior.text = nomeOriginalRenderizado ?? string.Empty;
                 }
                 catch (Exception ex)
                 {
                     YouTubeVoteBridgePlugin.Instance?.Log.LogDebug(
-                        "[Visualizador F8] Não foi possível remover indicador da lista: " + ex.Message);
+                        "[Visualizador F8] Não foi possível restaurar o texto original: " + ex.Message);
                 }
 
+                jogadorComPreview = null;
+                nomeOriginalRenderizado = null;
+                substituindoNomeRenderizado = false;
+            }
+
+            if (!deveMostrar)
+                return;
+
+            var nome = jogador.cosmetics.nameText;
+            if (!substituindoNomeRenderizado)
+            {
+                jogadorComPreview = jogador;
+                nomeOriginalRenderizado = nome.text;
+                substituindoNomeRenderizado = true;
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "[Visualizador F8] Indicador PlayerControl local criado (sem spawn/RPC de rede).");
+                    "[Visualizador F8] Prévia vinculada ao nameText do jogador local.");
             }
 
-            PlayerControl indicador = instancia.previewIndicador;
-            if (indicador == null) return;
-
-            Vector3 posicao = jogador.transform.position + new Vector3(0f, 0.65f, 0f);
-            indicador.transform.position = posicao;
-            try { indicador.NetTransform?.SnapTo(posicao); } catch { }
-
-            // O Tsunami deixa invisível o boneco e usa apenas cosmetics.nameText.
-            try
-            {
-                var body = indicador.cosmetics?.currentBodySprite?.BodySprite;
-                if (body != null)
-                {
-                    body.color = Color.clear;
-                    body.enabled = true;
-                }
-
-                var textoCor = indicador.cosmetics?.colorBlindText;
-                if (textoCor != null)
-                    textoCor.color = Color.clear;
-            }
-            catch (Exception ex)
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogDebug(
-                    "[Visualizador F8] Falha ao ocultar corpo do indicador: " + ex.Message);
-            }
-
-            try
-            {
-                var nome = indicador.cosmetics?.nameText;
-                if (nome != null)
-                {
-                    if (nome.text != textoAplicado)
-                        nome.text = textoAplicado;
-                    if (!nome.gameObject.activeSelf)
-                        nome.gameObject.SetActive(true);
-                }
-                else
-                {
-                    YouTubeVoteBridgePlugin.Instance?.Log.LogDebug(
-                        "[Visualizador F8] cosmetics.nameText ainda não está pronto.");
-                }
-            }
-            catch (Exception ex)
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "[Visualizador F8] Não foi possível aplicar texto no nameText: " + ex.Message);
-            }
-
-            if (!indicador.gameObject.activeSelf)
-                indicador.gameObject.SetActive(true);
+            // Altera somente o TMP local; não chama SetName nem altera PlayerName/Data.
+            if (nome.text != textoAplicado)
+                nome.text = textoAplicado;
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[Visualizador F8] Falha ao atualizar indicador: " + ex);
+                "[Visualizador F8] Falha ao atualizar a prévia local: " + ex);
         }
     }
 
