@@ -43,6 +43,10 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     public static ConfigEntry<bool> PularFaseVotosJuiz;
     public static ConfigEntry<bool> SemFimDeJogo;
 
+    // Permite que a ação manual "Encerrar partida" do menu F6 passe pelo bloqueio
+    // de fim de jogo, mesmo quando a opção "Sem fim de jogo" está ativada.
+    public static bool PermitirFimDeJogoForcado { get; set; }
+
     private static bool LeitorConectado;
     private static bool PreparacaoIniciada;
     private static bool PreparacaoConcluida;
@@ -3455,7 +3459,8 @@ public static class YouTubeVoteSemFimDeJogoCriteriaPatch
 {
     public static bool Prefix()
     {
-        return YouTubeVoteBridgePlugin.SemFimDeJogo == null ||
+        return YouTubeVoteBridgePlugin.PermitirFimDeJogoForcado ||
+               YouTubeVoteBridgePlugin.SemFimDeJogo == null ||
                !YouTubeVoteBridgePlugin.SemFimDeJogo.Value;
     }
 }
