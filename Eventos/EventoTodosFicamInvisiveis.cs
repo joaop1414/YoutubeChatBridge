@@ -58,6 +58,13 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
             }
 
             dutosForcados[jogador.PlayerId] = duto.Id;
+
+            // Sincroniza a posição real do jogador com o centro do duto antes
+            // de anunciar EnterVent aos clientes. Sem este SnapTo, alguns clientes
+            // recebem o estado de duto enquanto o jogador ainda está fora dele.
+            if (jogador.NetTransform != null)
+                jogador.NetTransform.RpcSnapTo((Vector2)duto.transform.position);
+
             EnviarRpcDutoParaEspectadores(jogador, duto.Id, entrar: true);
 
             // O host não pode enviar um RPC direcionado a si mesmo. Se o host for
