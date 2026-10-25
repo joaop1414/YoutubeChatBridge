@@ -3927,8 +3927,25 @@ public static class YouTubeVoteRestoreExileNamePatch
 // o identificador em inglês em vez do texto localizado.
 internal static class YouTubeVoteJudgeTranslation
 {
-    internal static void TraduzirTela(ExileController exile)
+    internal static void TraduzirTela(object[] argumentos)
     {
+        ExileController exile = null;
+        if (argumentos != null)
+        {
+            foreach (object argumento in argumentos)
+            {
+                if (argumento is ExileController encontrado)
+                {
+                    exile = encontrado;
+                    break;
+                }
+            }
+        }
+
+        // Begin/WrapUp podem receber a instância como argumento estático,
+        // dependendo da versão do jogo; se não vier nos argumentos, localize-a.
+        if (exile == null)
+            exile = UnityEngine.Object.FindObjectOfType<ExileController>();
         if (exile == null)
             return;
 
@@ -3939,8 +3956,9 @@ internal static class YouTubeVoteJudgeTranslation
                 if (texto == null || string.IsNullOrEmpty(texto.text))
                     continue;
 
-                if (string.Equals(texto.text.Trim(), "Judge", StringComparison.OrdinalIgnoreCase))
-                    texto.text = "Juiz";
+                texto.text = Regex.Replace(
+                    texto.text, @"\\bJudge\\b", "Juiz",
+                    RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
             }
         }
         catch (Exception ex)
@@ -3957,9 +3975,9 @@ public static class YouTubeVoteTranslateJudgeEjectionBeginPatch
     private static MethodBase TargetMethod() =>
         AccessTools.Method(typeof(ExileController), "Begin");
 
-    public static void Postfix(ExileController __instance)
+    public static void Postfix(object[] __args)
     {
-        YouTubeVoteJudgeTranslation.TraduzirTela(__instance);
+        YouTubeVoteJudgeTranslation.TraduzirTela(__args);
     }
 }
 
