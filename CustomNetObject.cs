@@ -166,6 +166,86 @@ namespace MoreGamemodes
             }
         }
 
+        // Publica sprites/textos customizados pelo mesmo fluxo de Shapeshift
+        // usado pelo EHR/MoreGamemodes. Separado de EnviarAparencia para não
+        // alterar a aparência normal dos NPCs criados pela FakePlayerAPI.
+        public static void EnviarAparenciaSprite(PlayerControl jogador, string sprite)
+        {
+            PlayerControl host = PlayerControl.LocalPlayer;
+            if (jogador == null || host?.Data == null || jogador.Data == null ||
+                AmongUsClient.Instance == null) return;
+
+            var outfit = host.Data.Outfits[PlayerOutfitType.Default];
+            string nomeAnterior = outfit.PlayerName;
+            var corAnterior = outfit.ColorId;
+            string chapeuAnterior = outfit.HatId;
+            string roupaAnterior = outfit.SkinId;
+            string petAnterior = outfit.PetId;
+            string visorAnterior = outfit.VisorId;
+
+            MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
+            bool outfitRestaurado = false;
+            try
+            {
+                writer.StartMessage(5);
+                writer.Write(AmongUsClient.Instance.GameId);
+
+                // O texto/sprite é temporariamente transportado no outfit do host.
+                outfit.PlayerName = "<size=14><br></size>" + (sprite ?? string.Empty);
+                outfit.ColorId = 0;
+                outfit.HatId = string.Empty;
+                outfit.SkinId = string.Empty;
+                outfit.PetId = string.Empty;
+                outfit.VisorId = string.Empty;
+
+                writer.StartMessage(1);
+                writer.WritePacked(host.Data.NetId);
+                host.Data.Serialize(writer, false);
+                writer.EndMessage();
+
+                // Atualiza a representação local e envia o Shapeshift para o objeto falso.
+                try { jogador.Shapeshift(host, false); }
+                catch { }
+
+                writer.StartMessage(2);
+                writer.WritePacked(jogador.NetId);
+                writer.Write((byte)RpcCalls.Shapeshift);
+                writer.WriteNetObject(host);
+                writer.Write(false);
+                writer.EndMessage();
+
+                // Restaura o jogador real antes de serializar seu outfit normal novamente.
+                outfit.PlayerName = nomeAnterior;
+                outfit.ColorId = corAnterior;
+                outfit.HatId = chapeuAnterior;
+                outfit.SkinId = roupaAnterior;
+                outfit.PetId = petAnterior;
+                outfit.VisorId = visorAnterior;
+                outfitRestaurado = true;
+
+                writer.StartMessage(1);
+                writer.WritePacked(host.Data.NetId);
+                host.Data.Serialize(writer, false);
+                writer.EndMessage();
+
+                writer.EndMessage();
+                AmongUsClient.Instance.SendOrDisconnect(writer);
+            }
+            finally
+            {
+                if (!outfitRestaurado)
+                {
+                    outfit.PlayerName = nomeAnterior;
+                    outfit.ColorId = corAnterior;
+                    outfit.HatId = chapeuAnterior;
+                    outfit.SkinId = roupaAnterior;
+                    outfit.PetId = petAnterior;
+                    outfit.VisorId = visorAnterior;
+                }
+                writer.Recycle();
+            }
+        }
+
         public static void EnviarPosicao(PlayerControl jogador, Vector2 posicao)
         {
             if (jogador?.NetTransform == null || AmongUsClient.Instance == null) return;
