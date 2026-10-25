@@ -3545,8 +3545,6 @@ public static class YouTubeVoteUpdatePatch
         LobbyTagManager.Update();
         EventoAdicionarTarefas.AtualizarRestauracoesAgendadas();
 
-        DiagnosticoPlayerReal.Atualizar();
-        JogadorRealExperimental.Atualizar();
         EventoTesteMenu.VerificarTecla();
         VisualizadorNomeMenu.VerificarTecla();
         VisualizadorNomeMenu.AtualizarPreview();
