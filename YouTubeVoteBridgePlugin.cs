@@ -2269,13 +2269,14 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             case "engineer": return "Engenheiro";
             case "guardianangel": return "Anjo da Guarda";
             case "shapeshifter": return "Metamorfo";
-            case "noisemaker": return "Fazedor de Ruído";
+            case "noisemaker": return "Sirene";
             case "tracker": return "Rastreador";
             case "phantom": return "Fantasma";
             case "detective": return "Detetive";
             case "viper": return "Víbora";
             case "impostorghost": return "Fantasma Impostor";
             case "crewmateghost": return "Fantasma Tripulante";
+            case "influencer": return "Influencer"
             default: return nomeFuncao;
         }
     }
