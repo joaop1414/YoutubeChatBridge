@@ -674,16 +674,18 @@ internal sealed class EventoTsunami : EventoVotacao
 
             try
             {
-                // Segue o fluxo usado pelo /exe do EHR: envia o RPC de exílio
-                // nativo do jogo e marca o jogador como morto. RpcSetRole para
-                // CrewmateGhost/ImpostorGhost não é um fluxo de morte vanilla e
-                // pode fazer clientes sem o mod rejeitarem a sincronização.
-                jogador.RpcExiled();
+                // Replica o RpcExiled() do EHR sem depender da extensão
+                // privada do EHR: aplica o exílio local e envia o RPC nativo.
+                // RpcSetRole para Ghost não é um fluxo de morte vanilla.
+                jogador.Exiled();
+                MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
+                    jogador.NetId, (byte)RpcCalls.Exiled, SendOption.Reliable);
+                AmongUsClient.Instance.FinishRpcImmediately(writer);
                 jogador.Data.IsDead = true;
                 mortosPeloTsunami.Add(id);
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                     "Tsunami: atraso concluído; PlayerId=" + id +
-                    " eliminado pelo RPC nativo RpcExiled (fluxo compatível com vanilla/EHR).");
+                    " eliminado usando o RPC Exiled nativo (fluxo do EHR).");
             }
             catch (Exception ex)
             {
