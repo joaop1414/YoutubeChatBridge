@@ -155,6 +155,19 @@ internal sealed class EventoTsunami : EventoVotacao
             CustomNetObject.EnviarAparenciaSprite(indicador, NomeOnda);
             CustomNetObject.EnviarPosicao(indicador, posicao);
 
+            // No host, não dependemos do nome propagado pelo Shapeshift:
+            // desenhamos a onda diretamente no TextMeshPro do nome do indicador.
+            try
+            {
+                if (indicador.cosmetics?.nameText != null)
+                    indicador.cosmetics.nameText.text = NomeOnda;
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "Tsunami: não foi possível definir o texto local da onda: " + ex.Message);
+            }
+
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 $"Tsunami: aparência compatível enviada pelo CustomNetObject; NetId={indicador.NetId}, " +
                 $"PlayerId={indicador.PlayerId}, nomeSprite={NomeOnda.Length} caracteres.");
@@ -178,6 +191,18 @@ internal sealed class EventoTsunami : EventoVotacao
         {
             AtualizarAvisoNomesCliente();
             return;
+        }
+
+        // O jogo pode recalcular o nome do indicador durante Update; reafirma
+        // o TextMeshPro local do host sem depender da aparência do boneco.
+        if (indicador != null)
+        {
+            try
+            {
+                if (indicador.cosmetics?.nameText != null)
+                    indicador.cosmetics.nameText.text = NomeOnda;
+            }
+            catch { }
         }
 
         // A sequência é deliberadamente dividida em duas atualizações:
