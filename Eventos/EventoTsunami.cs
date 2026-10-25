@@ -674,15 +674,16 @@ internal sealed class EventoTsunami : EventoVotacao
 
             try
             {
-                bool eraImpostor = jogador.Data.Role != null && jogador.Data.Role.IsImpostor;
-                jogador.RpcSetRole(
-                    eraImpostor ? RoleTypes.ImpostorGhost : RoleTypes.CrewmateGhost,
-                    true);
+                // Segue o fluxo usado pelo /exe do EHR: envia o RPC de exílio
+                // nativo do jogo e marca o jogador como morto. RpcSetRole para
+                // CrewmateGhost/ImpostorGhost não é um fluxo de morte vanilla e
+                // pode fazer clientes sem o mod rejeitarem a sincronização.
+                jogador.RpcExiled();
+                jogador.Data.IsDead = true;
                 mortosPeloTsunami.Add(id);
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                     "Tsunami: atraso concluído; PlayerId=" + id +
-                    " trocado para " + (eraImpostor ? "ImpostorGhost" : "CrewmateGhost") +
-                    ". Não é enviado MurderPlayer para evitar deixar corpo real.");
+                    " eliminado pelo RPC nativo RpcExiled (fluxo compatível com vanilla/EHR).");
             }
             catch (Exception ex)
             {
