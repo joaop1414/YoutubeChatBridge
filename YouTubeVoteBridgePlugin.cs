@@ -69,6 +69,26 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     // Limita a votação F7 a uma rodada por visita ao lobby; é liberada no fim da partida.
     private static bool VotacaoLobbyRealizada;
     private static string EventoF7Pendente;
+    private static readonly List<string> EventosF7SelecionadosNaPartida = new();
+    public static void RegistrarEventoF7Selecionado(string nome)
+    {
+        if (string.IsNullOrWhiteSpace(nome))
+            return;
+        if (!EventosF7SelecionadosNaPartida.Contains(nome, StringComparer.OrdinalIgnoreCase))
+            EventosF7SelecionadosNaPartida.Add(nome);
+        Instance?.Log.LogInfo("[F7] Evento registrado para a partida atual: " + nome);
+    }
+    public static string ObterResumoEventosF7()
+    {
+        if (EventosF7SelecionadosNaPartida.Count == 0)
+            return "Nenhum evento F7 foi selecionado para esta partida.";
+        return "Eventos F7 da partida atual: " +
+            string.Join(" | ", EventosF7SelecionadosNaPartida);
+    }
+    public static void LimparEventosF7Selecionados()
+    {
+        EventosF7SelecionadosNaPartida.Clear();
+    }
     private static float FimRodada;
     private static int NumeroRodada;
 
@@ -1434,6 +1454,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             try
             {
                 EventoF7Pendente = eventoVencedor.Nome;
+                RegistrarEventoF7Selecionado(eventoVencedor.Nome);
                 Instance?.Log.LogInfo("[F7] Evento guardado para ativação no início da partida: " + EventoF7Pendente);
                 string estadoEvento = "Ele será ativado quando a partida começar.";
                 AnunciarEventoLobby(
@@ -1575,6 +1596,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     {
         VotacaoLobbyRealizada = false;
         EventoF7Pendente = null;
+        LimparEventosF7Selecionados();
         Instance?.Log.LogInfo("Votação do lobby liberada novamente após o fim da partida.");
     }
 
@@ -3338,10 +3360,23 @@ public static class YouTubeVoteChatPatch
             return false;
         }
 
+        if (mensagem.Equals("/evento", StringComparison.OrdinalIgnoreCase) ||
+            mensagem.Equals("/eventof7", StringComparison.OrdinalIgnoreCase) ||
+            mensagem.Equals("/eventosf7", StringComparison.OrdinalIgnoreCase))
+        {
+            if (host && ehLocal)
+                YouTubeVoteBridgePlugin.Responder(__instance, YouTubeVoteBridgePlugin.ObterResumoEventosF7());
+            else if (host)
+                YouTubeVoteBridgePlugin.EnviarMensagemIndividual(sourcePlayer, YouTubeVoteBridgePlugin.ObterResumoEventosF7());
+            else if (ehLocal)
+                YouTubeVoteBridgePlugin.Responder(__instance, "O comando /evento está disponível na sala do host.");
+            return false;
+        }
+
         if (mensagem.Equals("/help", StringComparison.OrdinalIgnoreCase) ||
             mensagem.Equals("/ajuda", StringComparison.OrdinalIgnoreCase))
         {
-            const string ajuda = "Comandos: /color (id/nome/rainbow) | /help | /ytconfig (ver configurações) | /youtube (...) e /tag update (somente host).";
+            const string ajuda = "Comandos: /color (id/nome/rainbow) | /evento (eventos F7 da partida) | /help | /ytconfig (ver configurações) | /youtube (...) e /tag update (somente host).";
             if (ehLocal)
                 YouTubeVoteBridgePlugin.Responder(__instance, ajuda);
             else if (host)
@@ -3384,6 +3419,25 @@ public static class YouTubeVoteChatPatch
         return false;
     }
 }
+
+// Permite ao host iniciar a partida com apenas o próprio jogador na sala.
+// Segue o comportamento do EHR: MinPlayers é reduzido para 1 no ciclo do lobby.
+[HarmonyPatch(typeof(GameStartManager), nameof(GameStartManager.Update))]
+public static class YouTubeVoteMinimumPlayersPatch
+{
+    public static void Prefix(GameStartManager __instance)
+    {
+        if (__instance == null || AmongUsClient.Instance == null ||
+            !AmongUsClient.Instance.AmHost)
+            return;
+
+        __instance.MinPlayers = 1;
+        if (__instance.StartButton != null)
+            __instance.StartButton.SetButtonEnableState(
+                GameData.Instance != null && GameData.Instance.PlayerCount >= 1);
+    }
+}
+
 // ============================================================
 // AVISO PRIVADO QUANDO UM JOGADOR ENTRA
 // ============================================================
