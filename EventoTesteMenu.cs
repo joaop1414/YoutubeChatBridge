@@ -700,6 +700,7 @@ internal sealed class EventoTesteMenu : MonoBehaviour
                 executar.Invoke(evento, null);
                 if (modoEventosPartida)
                 {
+                    YouTubeVoteBridgePlugin.RegistrarEventoF7Selecionado(evento.Nome);
                     string aviso = "<color=#66CCFF>[F7]</color> Evento guardado: <color=yellow>" +
                         evento.Nome + "</color>. Será aplicado quando a partida começar.";
                     AnunciarEventoNoChat(aviso);
@@ -725,6 +726,7 @@ internal sealed class EventoTesteMenu : MonoBehaviour
                 ativar.Invoke(null, null);
                 if (modoEventosPartida)
                 {
+                    YouTubeVoteBridgePlugin.RegistrarEventoF7Selecionado(evento.Nome);
                     AnunciarEventoNoChat("<color=#66CCFF>[F7]</color> Evento guardado: <color=yellow>" +
                         evento.Nome + "</color>. Será aplicado quando a partida começar.");
                     MostrarMensagem("Evento guardado para o início da partida: " + evento.Nome);
