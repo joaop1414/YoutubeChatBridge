@@ -39,6 +39,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     public static ConfigEntry<int> TempoVotacao;
     public static ConfigEntry<int> IntervaloRodadas;
     public static ConfigEntry<int> PreparacaoChat;
+    public static ConfigEntry<bool> PularFaseVotosJuiz;
 
     private static bool LeitorConectado;
     private static bool PreparacaoIniciada;
@@ -177,6 +178,13 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         PreparacaoChat = Config.Bind(
             "Configurações do Mod", "PreparacaoChat", 10,
             "Tempo de preparação do chat ao conectar. Votos antigos recebidos durante esse período são descartados."
+        );
+
+        PularFaseVotosJuiz = Config.Bind(
+            "Configurações do Mod",
+            "Pular fase de votos quando o juiz usa sua habilidade",
+            false,
+            "Quando ativado, encerra a votação após o Juiz usar a habilidade, contando os votos já registrados."
         );
 
         LobbyTagManager.Initialize();
@@ -2276,7 +2284,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             case "viper": return "Víbora";
             case "impostorghost": return "Fantasma Impostor";
             case "crewmateghost": return "Fantasma Tripulante";
-            case "influencer": return "Influencer"
+            case "influencer": return "Influencer";
             default: return nomeFuncao;
         }
     }
@@ -3822,5 +3830,53 @@ public static class YouTubeVoteRestoreExileNamePatch
     public static void Postfix()
     {
         YouTubeVoteBridgePlugin.RestaurarNomeGlobalDeEjecao();
+    }
+}
+
+
+// ============================================================
+// ENCERRAR A VOTAÇÃO QUANDO O JUIZ VANILLA USA A HABILIDADE
+// ============================================================
+// CmdQueueOverruleVotes é o fluxo vanilla acionado pela habilidade do Juiz.
+// Depois que o jogo processa a habilidade, completamos votos ausentes como skip
+// e chamamos CheckForEndVoting para calcular os votos já registrados.
+[HarmonyPatch(typeof(MeetingHud), "CmdQueueOverruleVotes")]
+public static class YouTubeVotePularVotacaoJuizPatch
+{
+    public static void Postfix(MeetingHud __instance)
+    {
+        if (!YouTubeVoteBridgePlugin.EhHost() ||
+            YouTubeVoteBridgePlugin.PularFaseVotosJuiz == null ||
+            !YouTubeVoteBridgePlugin.PularFaseVotosJuiz.Value ||
+            __instance == null)
+            return;
+
+        // Não repetir a conclusão caso o próprio jogo já tenha encerrado a votação.
+        if (__instance.state == MeetingHud.MeetingStates.Results ||
+            __instance.state == MeetingHud.MeetingStates.Proceeding)
+            return;
+
+        try
+        {
+            foreach (PlayerVoteArea area in __instance.playerStates)
+            {
+                if (area == null || area.DidVote)
+                    continue;
+
+                // 253 é o valor vanilla para pular; 255 significa que ainda não votou.
+                area.VotedForId = 253;
+            }
+
+            // O host calcula e transmite o resultado usando os votos já registrados.
+            __instance.CheckForEndVoting();
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "Opção do Juiz: fase de votação encerrada após uso da habilidade vanilla.");
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "Falha ao encerrar a votação após a habilidade do Juiz: " + ex);
+        }
     }
 }
