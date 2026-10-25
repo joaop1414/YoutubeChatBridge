@@ -38,6 +38,11 @@ internal sealed class EventoTsunami : EventoVotacao
     // Inicialização de rede do indicador em etapas, como no NPC seguidor/EHR.
     private static int etapaInicializacaoIndicador;
     private static float proximaEtapaInicializacaoIndicador;
+    // O nome vanilla da origem do Shapeshift fica temporário até os clientes
+    // processarem a aparência; depois é restaurado pelo RPC SetName.
+    private static PlayerControl alvoNomeTemporario;
+    private static string nomeOriginalAlvoTemporario;
+    private static float restaurarNomeAlvoEm;
     private static float proximaSabotagem;
     private static float repararReatorAte;
     private static bool reparoPendente;
@@ -152,7 +157,14 @@ internal sealed class EventoTsunami : EventoVotacao
             // Usa a técnica de sprite do EHR/MoreGamemodes: outfit temporário
             // do host, Shapeshift no indicador e restauração do outfit do host.
             // O método é exclusivo para sprites e não muda a aparência dos NPCs normais.
-            CustomNetObject.EnviarAparenciaSprite(indicador, NomeOnda);
+            alvoNomeTemporario = CustomNetObject.EnviarAparenciaSprite(
+                indicador, NomeOnda, out nomeOriginalAlvoTemporario);
+            restaurarNomeAlvoEm = alvoNomeTemporario != null
+                ? Time.realtimeSinceStartup + 0.5f
+                : 0f;
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "Tsunami: nome temporário enviado para origem do Shapeshift; alvo=" +
+                (alvoNomeTemporario?.PlayerId.ToString() ?? "null") + ".");
             CustomNetObject.EnviarPosicao(indicador, posicao);
 
             // No host, não dependemos do nome propagado pelo Shapeshift:
@@ -191,6 +203,26 @@ internal sealed class EventoTsunami : EventoVotacao
         {
             AtualizarAvisoNomesCliente();
             return;
+        }
+
+        // Deixa o nome real temporariamente alterado durante meio segundo para
+        // que os clientes vanilla processem o SetName antes/depois do Shapeshift.
+        if (alvoNomeTemporario != null && Time.realtimeSinceStartup >= restaurarNomeAlvoEm)
+        {
+            try
+            {
+                CustomNetObject.EnviarSetName(alvoNomeTemporario, nomeOriginalAlvoTemporario);
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "Tsunami: nome original restaurado no alvo do Shapeshift.");
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "Tsunami: falha ao restaurar nome temporário: " + ex.Message);
+            }
+            alvoNomeTemporario = null;
+            nomeOriginalAlvoTemporario = null;
+            restaurarNomeAlvoEm = 0f;
         }
 
         // O jogo pode recalcular o nome do indicador durante Update; reafirma
@@ -1106,6 +1138,18 @@ internal sealed class EventoTsunami : EventoVotacao
 
     private static void LimparLocal()
     {
+        if (alvoNomeTemporario != null)
+        {
+            try
+            {
+                CustomNetObject.EnviarSetName(alvoNomeTemporario, nomeOriginalAlvoTemporario);
+            }
+            catch { }
+        }
+        alvoNomeTemporario = null;
+        nomeOriginalAlvoTemporario = null;
+        restaurarNomeAlvoEm = 0f;
+
         if (indicador != null)
         {
             try
