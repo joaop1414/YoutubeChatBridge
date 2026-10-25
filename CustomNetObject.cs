@@ -193,9 +193,10 @@ namespace MoreGamemodes
             if (alvo?.Data == null) return null;
 
             nomeOriginal = alvo.Data.Outfits[PlayerOutfitType.Default].PlayerName ?? string.Empty;
-            // Mantém o texto serializado curto: o sprite/markup completo é enviado depois por SetName.
-            // Serializar o nome formatado dentro de NetworkedPlayerInfo pode disparar erro no Hazel.
-            string nomeTemporario = "<size=14><br></size>TSUNAMI";
+            // Nunca altere o nome do host nem temporariamente no outfit serializado.
+            // Alguns sistemas vanilla (por exemplo, o menu do Metamorfo) podem capturar
+            // o nome intermediário antes que o pacote de restauração seja processado.
+            // O texto visual da onda é enviado separadamente ao indicador via SetName.
 
             var outfit = alvo.Data.Outfits[PlayerOutfitType.Default];
             string nomeOutfitAnterior = outfit.PlayerName;
@@ -212,7 +213,7 @@ namespace MoreGamemodes
                 writer.StartMessage(5);
                 writer.Write(AmongUsClient.Instance.GameId);
 
-                outfit.PlayerName = nomeTemporario;
+                // Preserva outfit.PlayerName: somente os cosméticos são temporários.
                 outfit.ColorId = 0;
                 outfit.HatId = string.Empty;
                 outfit.SkinId = string.Empty;
