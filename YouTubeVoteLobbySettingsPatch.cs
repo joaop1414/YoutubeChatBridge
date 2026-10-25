@@ -51,8 +51,7 @@ namespace YouTubeVoteBridge
 
                     // Atualiza menus já criados em versões anteriores do mod,
                     // adicionando o novo controle sem exigir reiniciar o jogo.
-                    if (YouTubeVoteBridgePlugin.EhHost() &&
-                        !existentes.Any(x => x.name == PREFIX + "SEMFIM"))
+                    if (YouTubeVoteBridgePlugin.EhHost())
                     {
                         StringOption modeloExistente = __instance.GetComponentsInChildren<StringOption>(true)
                             .FirstOrDefault(x => x != null && x.gameObject != null &&
@@ -63,9 +62,17 @@ namespace YouTubeVoteBridge
                                 .Where(x => x != null && x.gameObject != null)
                                 .Select(x => x.transform.localPosition.y)
                                 .DefaultIfEmpty(-2f).Min() - 0.52f;
-                            CriarControle(__instance, modeloExistente, "Sem fim de jogo", PREFIX + "SEMFIM", yExistente);
+
+                            if (!existentes.Any(x => x.name == PREFIX + "SEMFIM"))
+                                CriarControle(__instance, modeloExistente, "Sem fim de jogo", PREFIX + "SEMFIM", yExistente);
+
+                            if (!existentes.Any(x => x.name == PREFIX + "JUIZ"))
+                                CriarControle(__instance, modeloExistente,
+                                    "Pular fase de votos quando o juiz usa sua habilidade",
+                                    PREFIX + "JUIZ", yExistente - 0.52f);
+
                             if (__instance.scrollBar != null)
-                                __instance.scrollBar.SetYBoundsMax(Math.Max(6f, -yExistente + 2f));
+                                __instance.scrollBar.SetYBoundsMax(Math.Max(6f, -yExistente + 2.6f));
                         }
                     }
 
@@ -107,6 +114,10 @@ namespace YouTubeVoteBridge
                 CriarControle(__instance, modelo, "Intervalo entre rodadas", PREFIX + "INTERVALO", y);
                 y -= 0.52f;
                 CriarControle(__instance, modelo, "Preparação do chat", PREFIX + "PREPARACAO", y);
+                y -= 0.52f;
+                CriarControle(__instance, modelo,
+                    "Pular fase de votos quando o juiz usa sua habilidade",
+                    PREFIX + "JUIZ", y);
                 y -= 0.52f;
 
                 AtualizarControles(__instance);
@@ -176,7 +187,8 @@ namespace YouTubeVoteBridge
                 !YouTubeVoteBridgePlugin.EhHost() ||
                 YouTubeVoteBridgePlugin.TempoVotacao == null ||
                 YouTubeVoteBridgePlugin.IntervaloRodadas == null ||
-                YouTubeVoteBridgePlugin.PreparacaoChat == null)
+                YouTubeVoteBridgePlugin.PreparacaoChat == null ||
+                YouTubeVoteBridgePlugin.PularFaseVotosJuiz == null)
                 return;
 
             if (option.name == PREFIX + "TEMPO")
@@ -188,6 +200,8 @@ namespace YouTubeVoteBridge
             else if (option.name == PREFIX + "PREPARACAO")
                 YouTubeVoteBridgePlugin.PreparacaoChat.Value = Mathf.Clamp(
                     YouTubeVoteBridgePlugin.PreparacaoChat.Value + delta * 5, 0, 120);
+            else if (option.name == PREFIX + "JUIZ")
+                YouTubeVoteBridgePlugin.PularFaseVotosJuiz.Value = delta > 0;
             else
                 return;
 
@@ -242,6 +256,20 @@ namespace YouTubeVoteBridge
             {
                 valor = YouTubeVoteBridgePlugin.PreparacaoChat.Value;
                 option.TitleText.text = "Preparação do chat";
+                option.Value = valor;
+                option.oldValue = valor;
+                option.ValueText.text = valor + " s";
+                return;
+            }
+            else if (option.name == PREFIX + "JUIZ")
+            {
+                bool ativado = YouTubeVoteBridgePlugin.PularFaseVotosJuiz != null &&
+                    YouTubeVoteBridgePlugin.PularFaseVotosJuiz.Value;
+                option.TitleText.text = "Pular fase de votos quando o juiz usa sua habilidade";
+                option.Value = ativado ? 1 : 0;
+                option.oldValue = ativado ? 1 : 0;
+                option.ValueText.text = ativado ? "Ativado" : "Desativado";
+                return;
             }
             else
             {
