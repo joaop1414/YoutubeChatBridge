@@ -34,6 +34,7 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
     private static bool menuAberto;
     private static bool f8FisicoAnterior;
     private static bool previewVisivel;
+    private static bool? visibilidadePendente;
     private static string textoEntrada = "";
     private static string textoAplicado = "";
 
@@ -46,9 +47,8 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
     private GUIStyle estiloCampo;
     private bool estilosProntos;
 
-    private GameObject previewCanvasObject;
-    private GameObject previewPanelObject;
-    private TextMeshProUGUI previewText;
+    private GameObject previewTextoObject;
+    private TextMeshPro previewText;
 
     public static void Inicializar()
     {
@@ -97,73 +97,73 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
     public static void AtualizarPreview()
     {
         if (instancia == null) return;
+
         string novoTexto = null;
+        bool? novaVisibilidade;
         lock (travaTexto)
         {
-            if (aplicarTextoPendente) { novoTexto = textoPendente; aplicarTextoPendente = false; }
+            if (aplicarTextoPendente)
+            {
+                novoTexto = textoPendente;
+                aplicarTextoPendente = false;
+            }
+            novaVisibilidade = visibilidadePendente;
+            visibilidadePendente = null;
         }
-        if (novoTexto != null) { textoAplicado = novoTexto; previewVisivel = true; }
+
+        if (novoTexto != null)
+        {
+            textoAplicado = novoTexto;
+            previewVisivel = !string.IsNullOrWhiteSpace(novoTexto);
+        }
+        if (novaVisibilidade.HasValue)
+            previewVisivel = novaVisibilidade.Value;
+
         if (instancia.previewText != null && instancia.previewText.text != textoAplicado)
             instancia.previewText.text = textoAplicado;
-        if (instancia.previewCanvasObject != null && instancia.previewCanvasObject.activeSelf != previewVisivel)
-            instancia.previewCanvasObject.SetActive(previewVisivel);
+        if (instancia.previewTextoObject != null && instancia.previewTextoObject.activeSelf != previewVisivel)
+            instancia.previewTextoObject.SetActive(previewVisivel);
+
+        // A prévia acompanha o jogador local e fica acima da cabeça dele.
+        try
+        {
+            PlayerControl jogador = PlayerControl.LocalPlayer;
+            if (jogador != null && instancia.previewTextoObject != null)
+            {
+                instancia.previewTextoObject.transform.position = jogador.transform.position + Vector3.up * 0.85f;
+                Camera camera = Camera.main;
+                if (camera != null)
+                    instancia.previewTextoObject.transform.rotation = camera.transform.rotation;
+            }
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogDebug("[Visualizador F8] Não foi possível posicionar a prévia: " + ex.Message);
+        }
     }
 
     private void CriarPreview()
     {
         try
         {
-            previewCanvasObject = new GameObject("YouTubeVoteBridge_NomePreviewCanvas");
-            UnityEngine.Object.DontDestroyOnLoad(previewCanvasObject);
+            previewTextoObject = new GameObject("YouTubeVoteBridge_NomePreviewWorld");
+            UnityEngine.Object.DontDestroyOnLoad(previewTextoObject);
 
-            var canvas = previewCanvasObject.AddComponent<Canvas>();
-            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            canvas.sortingOrder = 32000;
-
-            var scaler = previewCanvasObject.AddComponent<CanvasScaler>();
-            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-            scaler.referenceResolution = new Vector2(1920, 1080);
-            scaler.matchWidthOrHeight = 0.5f;
-
-            previewCanvasObject.AddComponent<GraphicRaycaster>();
-
-            previewPanelObject = new GameObject("PainelPreview");
-            previewPanelObject.transform.SetParent(previewCanvasObject.transform, false);
-
-            var panelRect = previewPanelObject.AddComponent<RectTransform>();
-            panelRect.anchorMin = new Vector2(0.5f, 0.5f);
-            panelRect.anchorMax = new Vector2(0.5f, 0.5f);
-            panelRect.pivot = new Vector2(0.5f, 0.5f);
-            panelRect.anchoredPosition = Vector2.zero;
-            panelRect.sizeDelta = new Vector2(1100, 700);
-
-            var background = previewPanelObject.AddComponent<Image>();
-            background.color = new Color(0.035f, 0.045f, 0.065f, 0.94f);
-            background.raycastTarget = false;
-
-            var textObject = new GameObject("TextoTMP");
-            textObject.transform.SetParent(previewPanelObject.transform, false);
-
-            var textRect = textObject.AddComponent<RectTransform>();
-            textRect.anchorMin = new Vector2(0.03f, 0.04f);
-            textRect.anchorMax = new Vector2(0.97f, 0.96f);
-            textRect.offsetMin = Vector2.zero;
-            textRect.offsetMax = Vector2.zero;
-
-            previewText = textObject.AddComponent<TextMeshProUGUI>();
+            previewText = previewTextoObject.AddComponent<TextMeshPro>();
             if (TMP_Settings.defaultFontAsset != null)
                 previewText.font = TMP_Settings.defaultFontAsset;
 
             previewText.text = "";
             previewText.richText = true;
-            previewText.fontSize = 24;
+            previewText.fontSize = 2.2f;
             previewText.alignment = TextAlignmentOptions.Center;
             previewText.enableWordWrapping = false;
             previewText.overflowMode = TextOverflowModes.Overflow;
             previewText.color = Color.white;
-            previewText.raycastTarget = false;
-
-            previewCanvasObject.SetActive(false);
+            previewText.outlineWidth = 0.15f;
+            previewText.outlineColor = Color.black;
+            previewTextoObject.SetActive(false);
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo("[Visualizador F8] Prévia 3D criada; será posicionada acima do jogador local.");
         }
         catch (Exception ex)
         {
@@ -171,7 +171,6 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
                 "[Visualizador F8] Não foi possível criar a prévia TextMeshPro: " + ex);
         }
     }
-
 
 
     private static void CriarJanelaNativa()
@@ -231,13 +230,33 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
                         int n = Math.Max(0, GetWindowTextLengthW(campoNativo));
                         StringBuilder sb = new StringBuilder(n + 1);
                         GetWindowTextW(campoNativo, sb, sb.Capacity);
-                        lock (travaTexto) { textoPendente = sb.ToString(); aplicarTextoPendente = true; }
+                        lock (travaTexto)
+                        {
+                            textoPendente = sb.ToString();
+                            aplicarTextoPendente = true;
+                            visibilidadePendente = true;
+                        }
+                        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo("[Visualizador F8] Botão Visualizar acionado; texto enviado para a prévia.");
                     }
-                    else if (id == ID_OCULTAR) previewVisivel = false;
+                    else if (id == ID_OCULTAR)
+                    {
+                        lock (travaTexto) { visibilidadePendente = false; }
+                        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo("[Visualizador F8] Botão Ocultar prévia acionado.");
+                    }
                     else if (id == ID_LIMPAR)
                     {
                         SetWindowTextW(campoNativo, "");
-                        lock (travaTexto) { textoPendente = ""; aplicarTextoPendente = true; }
+                        lock (travaTexto)
+                        {
+                            textoPendente = "";
+                            aplicarTextoPendente = true;
+                            visibilidadePendente = false;
+                        }
+                        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo("[Visualizador F8] Botão Limpar texto acionado.");
+                    }
+                    else
+                    {
+                        YouTubeVoteBridgePlugin.Instance?.Log.LogWarning("[Visualizador F8] WM_COMMAND recebido com ID inesperado: " + id);
                     }
                     return IntPtr.Zero;
                 case WM_CLOSE: ShowWindow(hwnd, SW_HIDE); return IntPtr.Zero;
