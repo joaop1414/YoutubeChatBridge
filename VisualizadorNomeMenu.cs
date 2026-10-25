@@ -50,15 +50,14 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
         instancia.CriarPreview();
     }
 
-    public static void VerificarTecla()
+    private void AlternarMenu()
     {
-        if (instancia == null) return;
-        if (Input.GetKeyDown(KeyCode.F8))
-        {
-            menuAberto = !menuAberto;
-            if (!menuAberto && previewVisivel)
-                instancia.DefinirPreviewVisivel(true);
-        }
+        menuAberto = !menuAberto;
+        if (!menuAberto && previewVisivel)
+            DefinirPreviewVisivel(true);
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            "[Visualizador F8] Menu " + (menuAberto ? "aberto" : "fechado") + ".");
     }
 
     public static void AtualizarPreview()
@@ -73,8 +72,13 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
 
     private void Update()
     {
-        // Mantém o painel visível durante mudanças de cena; F8 é tratado pelo
-        // patch de Update já usado pelo mod, para seguir o mesmo fluxo dos atalhos.
+        // Ler a tecla no próprio MonoBehaviour evita depender do Harmony Postfix
+        // de AmongUsClient.Update para abrir a interface.
+        if (Input.GetKeyDown(KeyCode.F8))
+            AlternarMenu();
+
+        if (previewCanvasObject != null && previewCanvasObject.activeSelf != previewVisivel)
+            previewCanvasObject.SetActive(previewVisivel);
     }
 
     private void OnGUI()
