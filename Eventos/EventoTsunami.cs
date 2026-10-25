@@ -85,36 +85,58 @@ internal sealed class EventoTsunami : EventoVotacao
             dutosProtegidos.Clear();
             fimProtecao = 0f;
             posicao = ObterInicio();
+            // O indicador nasce bem fora da área visível. Primeiro alteramos
+            // o nome do jogador local, criamos/enviamos o NPC e restauramos o
+            // nome; só depois o indicador será movido para o início da onda.
+            Vector2 posicaoOculta = posicao + new Vector2(-1000f, 0f);
             indicador = UnityEngine.Object.Instantiate(
-                AmongUsClient.Instance.PlayerPrefab, posicao, Quaternion.identity);
+                AmongUsClient.Instance.PlayerPrefab, posicaoOculta, Quaternion.identity);
             indicador.PlayerId = PlayerIdIndicador;
             indicador.isNew = false;
             indicador.notRealPlayer = true;
-            indicador.NetTransform.SnapTo(posicao);
+            indicador.NetTransform.SnapTo(posicaoOculta);
 
-            // Teste alternativo para clientes vanilla: durante a serialização do
-            // spawn, usa temporariamente o nome da onda no jogador local e no
-            // outfit do indicador. Restaura ambos imediatamente após o envio,
-            // inclusive se a criação de rede lançar uma exceção.
             PlayerControl jogadorLocal = PlayerControl.LocalPlayer;
             var outfitLocal = jogadorLocal?.Data?.Outfits[PlayerOutfitType.Default];
             var outfitIndicador = indicador?.Data?.Outfits[PlayerOutfitType.Default];
-            string nomeLocalOriginal = outfitLocal?.PlayerName;
+            string nomeLocalOriginal = jogadorLocal?.Data?.PlayerName ?? outfitLocal?.PlayerName ?? string.Empty;
+            string nomeOutfitLocalOriginal = outfitLocal?.PlayerName;
             string nomeIndicadorOriginal = outfitIndicador?.PlayerName;
+            string textoNomeLocalOriginal = null;
             try
             {
+                try { textoNomeLocalOriginal = jogadorLocal?.cosmetics?.nameText?.text; } catch { }
+
+                // Atualiza também o estado e o texto local, não apenas o outfit
+                // que será serializado. A mudança é temporária e não usa RPC SetName.
+                if (jogadorLocal != null)
+                {
+                    jogadorLocal.SetName(NomeOnda);
+                    if (jogadorLocal.cosmetics?.nameText != null)
+                        jogadorLocal.cosmetics.nameText.text = NomeOnda;
+                }
                 if (outfitLocal != null)
                     outfitLocal.PlayerName = NomeOnda;
                 if (outfitIndicador != null)
                     outfitIndicador.PlayerName = NomeOnda;
 
-                // O spawn é criado enquanto o nome temporário está aplicado.
                 CustomNetObject.EnviarSpawn(indicador);
             }
             finally
             {
+                if (jogadorLocal != null)
+                {
+                    try { jogadorLocal.SetName(nomeLocalOriginal); } catch { }
+                    try
+                    {
+                        if (jogadorLocal.cosmetics?.nameText != null)
+                            jogadorLocal.cosmetics.nameText.text =
+                                textoNomeLocalOriginal ?? nomeLocalOriginal;
+                    }
+                    catch { }
+                }
                 if (outfitLocal != null)
-                    outfitLocal.PlayerName = nomeLocalOriginal;
+                    outfitLocal.PlayerName = nomeOutfitLocalOriginal;
                 if (outfitIndicador != null)
                     outfitIndicador.PlayerName = nomeIndicadorOriginal;
             }
