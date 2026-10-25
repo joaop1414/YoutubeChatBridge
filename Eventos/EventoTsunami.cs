@@ -39,6 +39,10 @@ internal sealed class EventoTsunami : EventoVotacao
     // Inicialização de rede do indicador em etapas, como no NPC seguidor/EHR.
     private static int etapaInicializacaoIndicador;
     private static float proximaEtapaInicializacaoIndicador;
+    // Mantém o SetName temporário por um curto intervalo para dar tempo ao cliente vanilla de processá-lo.
+    private const float DuracaoNomeTemporarioTsunami = 0.75f;
+    private static float restaurarNomesTemporariosEm;
+    private static readonly List<KeyValuePair<PlayerControl, string>> nomesTemporariosPendentes = new();
     private static float proximaSabotagem;
     private static float repararReatorAte;
     private static bool reparoPendente;
@@ -202,6 +206,17 @@ internal sealed class EventoTsunami : EventoVotacao
             return;
         }
 
+        // Restaura os nomes apenas depois de mantê-los ativos por 0,75 s.
+        // O RPC é direcionado ao proprietário; o nome do host nunca é alterado.
+        if (nomesTemporariosPendentes.Count > 0 &&
+            Time.realtimeSinceStartup >= restaurarNomesTemporariosEm)
+        {
+            foreach (var item in nomesTemporariosPendentes)
+                DefinirNomeLocalParaCliente(item.Key, item.Value);
+            nomesTemporariosPendentes.Clear();
+            restaurarNomesTemporariosEm = 0f;
+        }
+
         // Usa o mecanismo já existente do mod: o SetName é direcionado apenas
         // ao cliente proprietário de cada jogador vanilla. O host não tem seu
         // próprio nome/outfit modificado nem serializado com o texto da onda.
@@ -233,10 +248,11 @@ internal sealed class EventoTsunami : EventoVotacao
                 if (PlayerControl.AllPlayerControls.Contains(indicador))
                     PlayerControl.AllPlayerControls.Remove(indicador);
 
-                // Restaura cada nome no mesmo fluxo direcionado. Como os pacotes
-                // são confiáveis e enviados em ordem, só o cliente dono vê a troca.
-                foreach (var item in nomesTemporariosClientes)
-                    DefinirNomeLocalParaCliente(item.Key, item.Value);
+                // Não restaura no mesmo Update: deixa o nome do tsunami visível
+                // por 0,75 s para o cliente vanilla processar e renderizar o SetName.
+                nomesTemporariosPendentes.Clear();
+                nomesTemporariosPendentes.AddRange(nomesTemporariosClientes);
+                restaurarNomesTemporariosEm = Time.realtimeSinceStartup + DuracaoNomeTemporarioTsunami;
 
                 etapaInicializacaoIndicador = 1;
                 proximaEtapaInicializacaoIndicador = Time.realtimeSinceStartup + 0.1f;
@@ -248,6 +264,8 @@ internal sealed class EventoTsunami : EventoVotacao
             {
                 foreach (var item in nomesTemporariosClientes)
                     DefinirNomeLocalParaCliente(item.Key, item.Value);
+                nomesTemporariosPendentes.Clear();
+                restaurarNomesTemporariosEm = 0f;
                 etapaInicializacaoIndicador = 0;
                 YouTubeVoteBridgePlugin.Instance?.Log.LogError(
                     "Tsunami: falha ao enviar spawn oculto: " + ex);
