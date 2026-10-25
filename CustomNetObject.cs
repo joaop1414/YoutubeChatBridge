@@ -19,6 +19,8 @@ namespace MoreGamemodes
         {
             if (jogador == null || AmongUsClient.Instance == null) return;
 
+            // Atribui um NetId novo antes de serializar o spawn.
+            AmongUsClient.Instance.NetIdCnt += 1U;
             MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
             try
             {
