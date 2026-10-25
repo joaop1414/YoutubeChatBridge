@@ -32,6 +32,7 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
     private static bool aplicarTextoPendente;
     private static readonly WndProcDelegate procedimentoJanela = ProcedimentoJanela;
     private static bool menuAberto;
+    private static bool f8FisicoAnterior;
     private static bool previewVisivel;
     private static string textoEntrada = "";
     private static string textoAplicado = "";
@@ -70,14 +71,27 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
 
     public static void VerificarTecla()
     {
-        if (!Input.GetKeyDown(KeyCode.F8)) return;
-        if (janelaNativa == IntPtr.Zero)
+        // Unity input (mesmo caminho do F6/F7) + leitura física do Windows.
+        bool f8Fisico = (GetAsyncKeyState(0x77) & 0x8000) != 0; // VK_F8
+        bool pressionouF8 = Input.GetKeyDown(KeyCode.F8) || (f8Fisico && !f8FisicoAnterior);
+        f8FisicoAnterior = f8Fisico;
+        if (!pressionouF8) return;
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo("[Visualizador F8] Tecla F8 detectada.");
+        IntPtr hwnd = janelaNativa;
+        if (hwnd == IntPtr.Zero)
         {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning("[Visualizador F8] Tecla detectada, mas a janela nativa ainda não está pronta.");
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[Visualizador F8] F8 detectado, mas a janela ainda não foi criada. Confira os erros de inicialização acima.");
             return;
         }
-        PostMessageW(janelaNativa, WM_APP_TOGGLE, IntPtr.Zero, IntPtr.Zero);
-        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo("[Visualizador F8] Atalho detectado.");
+
+        bool enviado = PostMessageW(hwnd, WM_APP_TOGGLE, IntPtr.Zero, IntPtr.Zero);
+        if (enviado)
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo("[Visualizador F8] Pedido para abrir/ocultar janela enviado.");
+        else
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "[Visualizador F8] PostMessage falhou. Código Win32: " + Marshal.GetLastWin32Error());
     }
 
     public static void AtualizarPreview()
@@ -182,6 +196,8 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
             }
             janelaNativa = hwnd;
             ShowWindow(hwnd, SW_HIDE);
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[Visualizador F8] Janela do editor criada com sucesso (HWND=" + hwnd + ").");
             MSG msg;
             while (GetMessageW(out msg, IntPtr.Zero, 0, 0) > 0) { TranslateMessage(ref msg); DispatchMessageW(ref msg); }
         }
@@ -265,6 +281,7 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
     [DllImport("user32.dll", EntryPoint = "GetWindowTextLengthW", SetLastError = true)] private static extern int GetWindowTextLengthW(IntPtr hwnd);
     [DllImport("user32.dll", EntryPoint = "SendMessageW")] private static extern IntPtr SendMessageW(IntPtr hwnd, uint msg, IntPtr wp, IntPtr lp);
     [DllImport("user32.dll", EntryPoint = "PostMessageW", SetLastError = true)] private static extern bool PostMessageW(IntPtr hwnd, uint msg, IntPtr wp, IntPtr lp);
+    [DllImport("user32.dll", EntryPoint = "GetAsyncKeyState")] private static extern short GetAsyncKeyState(int virtualKey);
     [DllImport("user32.dll", EntryPoint = "GetMessageW", SetLastError = true)] private static extern int GetMessageW(out MSG msg, IntPtr hwnd, uint min, uint max);
     [DllImport("user32.dll", EntryPoint = "TranslateMessage")] private static extern bool TranslateMessage(ref MSG msg);
     [DllImport("user32.dll", EntryPoint = "DispatchMessageW")] private static extern IntPtr DispatchMessageW(ref MSG msg);
