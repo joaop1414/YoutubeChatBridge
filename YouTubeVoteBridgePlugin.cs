@@ -3837,46 +3837,79 @@ public static class YouTubeVoteRestoreExileNamePatch
 // ============================================================
 // ENCERRAR A VOTAÇÃO QUANDO O JUIZ VANILLA USA A HABILIDADE
 // ============================================================
-// CmdQueueOverruleVotes é o fluxo vanilla acionado pela habilidade do Juiz.
-// Depois que o jogo processa a habilidade, completamos votos ausentes como skip
-// e chamamos CheckForEndVoting para calcular os votos já registrados.
-[HarmonyPatch(typeof(MeetingHud), "CmdQueueOverruleVotes")]
-public static class YouTubeVotePularVotacaoJuizPatch
+// A chamada local CmdQueueOverruleVotes cobre o host-Juiz. O RPC
+// QueueOverruleVotes cobre também um Juiz que seja cliente vanilla.
+// O host completa apenas os votos pendentes como skip e deixa o jogo
+// calcular/transmitir o resultado normal, preservando os votos existentes.
+public static class YouTubeVotePularVotacaoJuizHelper
 {
-    public static void Postfix(MeetingHud __instance)
+    public static void TentarEncerrar(MeetingHud meeting)
     {
         if (!YouTubeVoteBridgePlugin.EhHost() ||
             YouTubeVoteBridgePlugin.PularFaseVotosJuiz == null ||
             !YouTubeVoteBridgePlugin.PularFaseVotosJuiz.Value ||
-            __instance == null)
+            meeting == null ||
+            meeting.playerStates == null)
             return;
 
-        // Não repetir a conclusão caso o próprio jogo já tenha encerrado a votação.
-        if (__instance.state == MeetingHud.MeetingStates.Results ||
-            __instance.state == MeetingHud.MeetingStates.Proceeding)
+        if (meeting.state == MeetingHud.MeetingStates.Results ||
+            meeting.state == MeetingHud.MeetingStates.Proceeding)
             return;
 
         try
         {
-            foreach (PlayerVoteArea area in __instance.playerStates)
+            foreach (PlayerVoteArea area in meeting.playerStates)
             {
                 if (area == null || area.DidVote)
                     continue;
 
-                // 253 é o valor vanilla para pular; 255 significa que ainda não votou.
+                // 253 é skip. Também é necessário marcar DidVote:
+                // só preencher VotedForId não satisfaz a condição de fim da votação.
                 area.VotedForId = 253;
+                area.DidVote = true;
             }
 
-            // O host calcula e transmite o resultado usando os votos já registrados.
-            __instance.CheckForEndVoting();
-
+            meeting.CheckForEndVoting();
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "Opção do Juiz: fase de votação encerrada após uso da habilidade vanilla.");
+                "Opção do Juiz: solicitação para encerrar a fase de votação processada.");
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
                 "Falha ao encerrar a votação após a habilidade do Juiz: " + ex);
         }
+    }
+}
+
+[HarmonyPatch(typeof(MeetingHud), nameof(MeetingHud.CmdQueueOverruleVotes))]
+public static class YouTubeVotePularVotacaoJuizPatch
+{
+    public static void Postfix(MeetingHud __instance)
+    {
+        YouTubeVotePularVotacaoJuizHelper.TentarEncerrar(__instance);
+    }
+}
+
+// CmdQueueOverruleVotes é chamado no cliente que usa a habilidade. Quando
+// esse cliente é vanilla, o host recebe o RPC QueueOverruleVotes em HandleRpc.
+// O postfix roda depois que o jogo processa esse RPC e registra a habilidade.
+[HarmonyPatch(typeof(MeetingHud), nameof(MeetingHud.HandleRpc))]
+public static class YouTubeVotePularVotacaoJuizRpcPatch
+{
+    public static bool Prefix(
+        [HarmonyArgument(0)] byte callId,
+        out bool __state)
+    {
+        __state = callId == (byte)RpcCalls.QueueOverruleVotes &&
+            YouTubeVoteBridgePlugin.EhHost() &&
+            YouTubeVoteBridgePlugin.PularFaseVotosJuiz != null &&
+            YouTubeVoteBridgePlugin.PularFaseVotosJuiz.Value;
+        return true;
+    }
+
+    public static void Postfix(bool __state)
+    {
+        if (__state)
+            YouTubeVotePularVotacaoJuizHelper.TentarEncerrar(MeetingHud.Instance);
     }
 }
