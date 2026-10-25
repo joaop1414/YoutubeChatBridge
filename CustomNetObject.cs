@@ -176,21 +176,14 @@ namespace MoreGamemodes
             if (jogador == null || host?.Data == null || jogador.Data == null ||
                 AmongUsClient.Instance == null) return null;
 
-            // Usa um jogador real como origem do Shapeshift, mas altera também o
-            // PlayerName real (não apenas outfit.PlayerName). SetName é enviado
-            // num pacote separado para chegar antes do Shapeshift aos clientes vanilla.
-            PlayerControl alvo = PlayerControl.AllPlayerControls.ToArray()
-                .Where(p => p != null && p != jogador && p.Data != null &&
-                    !p.Data.Disconnected && !p.inVent && !p.walkingToVent)
-                .OrderBy(p => p.PlayerId)
-                .FirstOrDefault();
-            if (alvo == null) alvo = host;
+            // Replica a técnica usada pelo EHR: o host é a origem do Shapeshift.
+            // O nome temporário existe apenas no outfit serializado; não enviamos
+            // SetName separado, pois isso pode alterar o nome real do jogador.
+            PlayerControl alvo = host;
             if (alvo?.Data == null) return null;
 
-            nomeOriginal = alvo.Data.PlayerName ?? string.Empty;
+            nomeOriginal = alvo.Data.Outfits[PlayerOutfitType.Default].PlayerName ?? string.Empty;
             string nomeTemporario = "<size=14><br></size>" + (sprite ?? string.Empty);
-
-            EnviarSetName(alvo, nomeTemporario);
 
             var outfit = alvo.Data.Outfits[PlayerOutfitType.Default];
             string nomeOutfitAnterior = outfit.PlayerName;
