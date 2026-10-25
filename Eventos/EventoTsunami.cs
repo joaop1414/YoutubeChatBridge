@@ -149,11 +149,10 @@ internal sealed class EventoTsunami : EventoVotacao
 
         try
         {
-            // Usa o helper centralizado, que replica o fluxo do EHR:
-            // nome do sprite no outfit temporário + Shapeshift + restauração,
-            // tudo no mesmo pacote GameData. Não executar Shapeshift local aqui,
-            // pois isso pode fazer o vanilla receber o indicador como ???.
-            CustomNetObject.EnviarAparencia(indicador, NomeOnda, 255);
+            // Usa a técnica de sprite do EHR/MoreGamemodes: outfit temporário
+            // do host, Shapeshift no indicador e restauração do outfit do host.
+            // O método é exclusivo para sprites e não muda a aparência dos NPCs normais.
+            CustomNetObject.EnviarAparenciaSprite(indicador, NomeOnda);
             CustomNetObject.EnviarPosicao(indicador, posicao);
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
