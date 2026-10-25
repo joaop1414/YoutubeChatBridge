@@ -234,7 +234,12 @@ internal sealed class EventoTsunami : EventoVotacao
                         YouTubeVoteBridgePlugin.ClienteTemMod(jogador.OwnerId))
                         continue;
 
+                    // Guarda o nome real antes de enviar o SetName temporário.
+                    // O texto visual (nameText) pode já conter o aviso/onda e não é uma fonte segura.
                     string nomeOriginal = jogador.Data.PlayerName ?? string.Empty;
+                    if (!nomesOriginais.ContainsKey(jogador.PlayerId))
+                        nomesOriginais[jogador.PlayerId] = nomeOriginal;
+
                     if (DefinirNomeLocalParaCliente(jogador, NomeOnda))
                         nomesTemporariosClientes.Add(
                             new KeyValuePair<PlayerControl, string>(jogador, nomeOriginal));
@@ -358,12 +363,10 @@ internal sealed class EventoTsunami : EventoVotacao
                 continue;
             if (!nomesOriginais.ContainsKey(jogador.PlayerId))
             {
-                try
-                {
-                    nomesOriginais[jogador.PlayerId] =
-                        jogador.cosmetics.nameText.text ?? jogador.Data.PlayerName ?? "";
-                }
-                catch { nomesOriginais[jogador.PlayerId] = jogador.Data.PlayerName ?? ""; }
+                // Prefere o nome de rede original; o texto visual pode já ter
+                // recebido o aviso em uma atualização anterior.
+                nomesOriginais[jogador.PlayerId] = jogador.Data.PlayerName ??
+                    jogador.cosmetics?.nameText?.text ?? "";
             }
             AtualizarNomeLocal(jogador, agora);
         }
@@ -731,15 +734,20 @@ internal sealed class EventoTsunami : EventoVotacao
                     jogador.Data.Disconnected)
                     continue;
 
+                // O SetName temporário da onda pode chegar antes do aviso.
+                // Não memorize esse texto como se fosse o nome real do jogador.
+                string nomeRede = jogador.Data.PlayerName ?? string.Empty;
+                string nomeVisual = jogador.cosmetics?.nameText?.text ?? string.Empty;
+                if (string.Equals(nomeRede, NomeOnda, StringComparison.Ordinal) ||
+                    string.Equals(nomeVisual, NomeOnda, StringComparison.Ordinal) ||
+                    nomeRede.Contains("<mark=#0099d1>") ||
+                    nomeVisual.Contains("<mark=#0099d1>"))
+                    continue;
+
                 if (!nomesOriginais.ContainsKey(jogador.PlayerId))
-                {
-                    try
-                    {
-                        nomesOriginais[jogador.PlayerId] =
-                            jogador.cosmetics.nameText.text ?? jogador.Data.PlayerName ?? "";
-                    }
-                    catch { nomesOriginais[jogador.PlayerId] = jogador.Data.PlayerName ?? ""; }
-                }
+                    nomesOriginais[jogador.PlayerId] = nomeRede.Length > 0
+                        ? nomeRede
+                        : nomeVisual;
                 AtualizarNomeLocal(jogador, agora);
             }
         }
@@ -753,7 +761,8 @@ internal sealed class EventoTsunami : EventoVotacao
     private static void AplicarAvisoNomes()
     {
         avisoLocalAtivo = true;
-        nomesOriginais.Clear();
+        // Não limpar nomesOriginais aqui: o estágio de spawn já salvou os nomes
+        // reais antes de enviar o SetName temporário aos clientes vanilla.
         PlayerControl local = PlayerControl.LocalPlayer;
         if (local == null || local.Data == null || local.Data.Disconnected)
             return;
