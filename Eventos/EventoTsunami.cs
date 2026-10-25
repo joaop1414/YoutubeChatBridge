@@ -674,23 +674,16 @@ internal sealed class EventoTsunami : EventoVotacao
 
             try
             {
-                // Exiled é um RPC de exílio/reunião, não uma morte normal:
-                // enviá-lo durante a partida pode forçar uma transição de exílio.
-                // Use o RPC de assassinato vanilla do host para eliminar a vítima.
-                PlayerControl assassino = PlayerControl.LocalPlayer;
-                if (assassino == null || assassino.Data == null || assassino.Data.IsDead)
-                    throw new InvalidOperationException(
-                        "Não foi possível eliminar pelo Tsunami: host inválido ou morto.");
-
-                assassino.RpcMurderPlayer(jogador, true);
-                jogador.Data.IsDead = true;
+                // Usa o mesmo padrão dos eventos de suicídio já existentes:
+                // a própria vítima é o assassino e o alvo do RPC.
+                jogador.RpcMurderPlayer(jogador, true);
 
                 // O RPC de assassinato já cria o corpo vanilla. Não registrar
                 // para criação posterior de corpo falso, evitando duplicatas.
                 mortosPeloTsunami.Remove(id);
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                     "Tsunami: atraso concluído; PlayerId=" + id +
-                    " eliminado pelo RPC vanilla RpcMurderPlayer.");
+                    " tentou cometer suicídio com RpcMurderPlayer sobre si mesma.");
             }
             catch (Exception ex)
             {
