@@ -175,7 +175,18 @@ namespace MoreGamemodes
             if (jogador == null || host?.Data == null || jogador.Data == null ||
                 AmongUsClient.Instance == null) return;
 
-            var outfit = host.Data.Outfits[PlayerOutfitType.Default];
+            // MoreGamemodes usa um jogador real como origem da aparência, em vez
+            // de sempre usar o host. O nome temporário precisa estar nos dados
+            // do alvo ANTES do Shapeshift para os clientes receberem o sprite.
+            PlayerControl alvo = PlayerControl.AllPlayerControls.ToArray()
+                .Where(p => p != null && p != jogador && p.Data != null &&
+                    !p.Data.Disconnected && !p.inVent && !p.walkingToVent)
+                .OrderBy(p => p.PlayerId)
+                .FirstOrDefault();
+            if (alvo == null) alvo = host;
+            if (alvo?.Data == null) return;
+
+            var outfit = alvo.Data.Outfits[PlayerOutfitType.Default];
             string nomeAnterior = outfit.PlayerName;
             var corAnterior = outfit.ColorId;
             string chapeuAnterior = outfit.HatId;
@@ -190,7 +201,7 @@ namespace MoreGamemodes
                 writer.StartMessage(5);
                 writer.Write(AmongUsClient.Instance.GameId);
 
-                // O texto/sprite é temporariamente transportado no outfit do host.
+                // Primeiro publica o nome do sprite no jogador-alvo.
                 outfit.PlayerName = "<size=14><br></size>" + (sprite ?? string.Empty);
                 outfit.ColorId = 0;
                 outfit.HatId = string.Empty;
@@ -199,22 +210,22 @@ namespace MoreGamemodes
                 outfit.VisorId = string.Empty;
 
                 writer.StartMessage(1);
-                writer.WritePacked(host.Data.NetId);
-                host.Data.Serialize(writer, false);
+                writer.WritePacked(alvo.Data.NetId);
+                alvo.Data.Serialize(writer, false);
                 writer.EndMessage();
 
-                // Atualiza a representação local e envia o Shapeshift para o objeto falso.
-                try { jogador.Shapeshift(host, false); }
+                // Só depois da publicação do outfit envia o Shapeshift ao objeto.
+                try { jogador.Shapeshift(alvo, false); }
                 catch { }
 
                 writer.StartMessage(2);
                 writer.WritePacked(jogador.NetId);
                 writer.Write((byte)RpcCalls.Shapeshift);
-                writer.WriteNetObject(host);
+                writer.WriteNetObject(alvo);
                 writer.Write(false);
                 writer.EndMessage();
 
-                // Restaura o jogador real antes de serializar seu outfit normal novamente.
+                // Restaura o jogador real e publica seus dados originais no mesmo pacote.
                 outfit.PlayerName = nomeAnterior;
                 outfit.ColorId = corAnterior;
                 outfit.HatId = chapeuAnterior;
@@ -224,8 +235,8 @@ namespace MoreGamemodes
                 outfitRestaurado = true;
 
                 writer.StartMessage(1);
-                writer.WritePacked(host.Data.NetId);
-                host.Data.Serialize(writer, false);
+                writer.WritePacked(alvo.Data.NetId);
+                alvo.Data.Serialize(writer, false);
                 writer.EndMessage();
 
                 writer.EndMessage();
