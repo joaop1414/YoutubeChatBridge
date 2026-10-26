@@ -265,10 +265,25 @@ namespace MoreGamemodes
                 outfit.PetId = string.Empty;
                 outfit.VisorId = string.Empty;
 
+                // O nome do desenho é colocado apenas no estado temporário
+                // serializado para os clientes. Restauramos o objeto local do
+                // host imediatamente após serializar, antes de atualizar a cena.
+                // Assim, o host não deve renderizar o próprio nome como o do NPC.
+                outfit.PlayerName = sprite ?? string.Empty;
                 writer.StartMessage(1);
                 writer.WritePacked(alvo.Data.NetId);
                 alvo.Data.Serialize(writer, false);
                 writer.EndMessage();
+
+                // Restaura o nome e os cosméticos locais antes de executar
+                // Shapeshift; a mensagem já contém a cópia temporária.
+                outfit.PlayerName = nomeOutfitAnterior;
+                outfit.ColorId = corAnterior;
+                outfit.HatId = chapeuAnterior;
+                outfit.SkinId = roupaAnterior;
+                outfit.PetId = petAnterior;
+                outfit.VisorId = visorAnterior;
+                outfitRestaurado = true;
 
                 try { jogador.Shapeshift(alvo, false); }
                 catch { }
@@ -280,15 +295,8 @@ namespace MoreGamemodes
                 writer.Write(false);
                 writer.EndMessage();
 
-                outfit.PlayerName = nomeOutfitAnterior;
-                outfit.ColorId = corAnterior;
-                outfit.HatId = chapeuAnterior;
-                outfit.SkinId = roupaAnterior;
-                outfit.PetId = petAnterior;
-                outfit.VisorId = visorAnterior;
-                outfitRestaurado = true;
-
-                // Reenvia os dados originais do host após restaurar os cosméticos.
+                // Reenvia os dados originais do host depois da transformação,
+                // para que os outros clientes não mantenham o nome temporário.
                 writer.StartMessage(1);
                 writer.WritePacked(alvo.Data.NetId);
                 alvo.Data.Serialize(writer, false);
