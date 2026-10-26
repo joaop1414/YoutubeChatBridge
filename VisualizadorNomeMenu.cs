@@ -173,6 +173,7 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
             writer.Write((byte)RpcCalls.SetName);
             writer.Write(jogador.Data.NetId);
             writer.Write(nome);
+            writer.Write(false); // Flag do SetName: não suprimir o nome para clientes modificados.
             writer.EndMessage();
             writer.EndMessage();
             AmongUsClient.Instance.SendOrDisconnect(writer);
