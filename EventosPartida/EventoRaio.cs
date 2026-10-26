@@ -408,16 +408,15 @@ internal sealed class EventoRaio : EventoVotacao
         }
     }
 
-    private static float proximoSomLocal;
+    private static bool somGlobalTocadoNestaDescarga;
 
     private static void AtualizarSomLocal()
     {
-        if (PlayerControl.LocalPlayer == null || fonteSom == null ||
-            Time.realtimeSinceStartup < proximoSomLocal)
-            return;
+        if (PlayerControl.LocalPlayer == null) return;
 
-        // Em clientes remotos, o boneco é recebido pela rede, mas o estado
-        // estático do evento pertence ao host. Localizamos o indicador replicado.
+        // O som é local em cada cliente com o mod, mas não é espacial:
+        // todos ouvem cada descarga independentemente da distância.
+        // O indicador de rede é a sincronização da descarga entre clientes.
         PlayerControl aviso = bonecoAviso;
         if (aviso == null || aviso.PlayerId != PlayerIdAviso)
         {
@@ -437,16 +436,26 @@ internal sealed class EventoRaio : EventoVotacao
         if (aviso == null) return;
 
         Vector2 posicaoAviso = aviso.transform.position;
-        if (posicaoAviso.x < -500f ||
-            Vector2.Distance((Vector2)PlayerControl.LocalPlayer.transform.position, posicaoAviso) > AlcanceSom)
+        bool visivel = posicaoAviso.x >= -500f;
+        if (!visivel)
+        {
+            somGlobalTocadoNestaDescarga = false;
+            return;
+        }
+
+        if (somGlobalTocadoNestaDescarga || fonteSom == null || somRaio == null)
             return;
 
         try
         {
             fonteSom.PlayOneShot(somRaio);
-            proximoSomLocal = Time.realtimeSinceStartup + 6f;
+            somGlobalTocadoNestaDescarga = true;
         }
-        catch { }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Raio] Falha ao tocar o som global: " + ex.Message);
+        }
     }
 
     internal static void Resetar()
@@ -456,6 +465,7 @@ internal sealed class EventoRaio : EventoVotacao
         descargaPendente = false;
         ocultarDepoisDoImpacto = false;
         alertaNoisemakerAtivo = false;
+        somGlobalTocadoNestaDescarga = false;
         etapaInicializacao = 0;
         proximoRaioEm = 0f;
         // Os objetos não são destruídos: apenas ficam fora da área visível.
