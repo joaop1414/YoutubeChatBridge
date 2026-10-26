@@ -252,7 +252,7 @@ namespace MoreGamemodes
             }
             catch (Exception ex)
             {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                UnityEngine.Debug.LogWarning(
                     "CustomNetObject: RPC SetName nativo do NPC falhou: " + ex.Message);
             }
         }
