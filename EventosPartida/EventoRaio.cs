@@ -36,6 +36,7 @@ internal sealed class EventoRaio : EventoVotacao
     private static float proximaEtapa;
     private static AudioClip somRaio;
     private static AudioSource fonteSom;
+    private static bool tentativaCriarSom;
     private static readonly System.Random Sorteador = new();
 
     // Cinco variações textuais provisórias. Podem ser trocadas pelos cinco
@@ -74,6 +75,17 @@ internal sealed class EventoRaio : EventoVotacao
         {
             ativo = true;
             descargaPendente = false;
+            if (bonecoAviso != null && bonecoRaio != null)
+            {
+                // Reutiliza os objetos já existentes, sem destruí-los nem
+                // executar novamente o fluxo de spawn/associação.
+                etapaInicializacao = 3;
+                OcultarBoneco(bonecoAviso);
+                OcultarBoneco(bonecoRaio);
+                CriarSomLocal();
+                AgendarProximoRaio();
+                return;
+            }
             etapaInicializacao = 0;
             CriarBonecosPersistentes();
             CriarSomLocal();
@@ -285,7 +297,8 @@ internal sealed class EventoRaio : EventoVotacao
 
     private static void CriarSomLocal()
     {
-        if (somRaio != null) return;
+        if (somRaio != null || tentativaCriarSom) return;
+        tentativaCriarSom = true;
         try
         {
             const int taxa = 22050;
