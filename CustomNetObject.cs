@@ -213,6 +213,38 @@ namespace MoreGamemodes
                 writer.EndMessage();
                 AmongUsClient.Instance.SendOrDisconnect(writer);
             }
+
+            // A serialização de NetworkedPlayerInfo nem sempre atualiza o rótulo
+            // do PlayerControl em clientes vanilla. Envia também o RPC nativo
+            // SetName diretamente para o personagem falso (não para LocalPlayer).
+            // O payload de SetName nesta versão contém apenas a string.
+            try
+            {
+                MessageWriter nomeWriter = MessageWriter.Get(SendOption.Reliable);
+                try
+                {
+                    nomeWriter.StartMessage(5);
+                    nomeWriter.Write(AmongUsClient.Instance.GameId);
+                    nomeWriter.StartMessage(2);
+                    nomeWriter.WritePacked(jogador.NetId);
+                    nomeWriter.Write((byte)RpcCalls.SetName);
+                    nomeWriter.Write(nome ?? string.Empty);
+                    nomeWriter.EndMessage();
+                    nomeWriter.EndMessage();
+                    AmongUsClient.Instance.SendOrDisconnect(nomeWriter);
+                }
+                finally
+                {
+                    nomeWriter.Recycle();
+                }
+
+                jogador.SetName(nome ?? string.Empty);
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "CustomNetObject: RPC SetName nativo do NPC falhou: " + ex.Message);
+            }
             finally
             {
                 outfit.PlayerName = nomeAnterior;
