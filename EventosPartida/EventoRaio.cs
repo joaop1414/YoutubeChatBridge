@@ -124,8 +124,9 @@ internal sealed class EventoRaio : EventoVotacao
     {
         if (AmongUsClient.Instance == null || ShipStatus.Instance == null) return;
 
-        // O áudio roda localmente em cada cliente com o mod; o controle do evento
-        // e das mortes continua exclusivo do host.
+        // O áudio é criado localmente em cada cliente com o mod; o controle do
+        // evento e das mortes continua exclusivo do host.
+        CriarSomLocal();
         AtualizarSomLocal();
         if (!YouTubeVoteBridgePlugin.EhHost() || !ativo) return;
 
