@@ -85,6 +85,11 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
 
     private static void AbrirPainel()
     {
+        // Carrega o texto atualmente copiado, usando o mesmo leitor do /youtube colar.
+        string copiado = YouTubeVoteBridgePlugin.LerAreaDeTransferencia();
+        if (!string.IsNullOrEmpty(copiado))
+            textoEditor = copiado;
+
         painelAberto = true;
         CriarPreviewTMP(null);
         if (textoPreview != null)
@@ -152,6 +157,16 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
 
             GUILayout.Space(8);
             GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Colar último texto copiado", GUILayout.Height(32)))
+            {
+                string copiado = YouTubeVoteBridgePlugin.LerAreaDeTransferencia();
+                if (!string.IsNullOrEmpty(copiado))
+                {
+                    textoEditor = copiado;
+                    if (textoPreview != null)
+                        textoPreview.text = textoEditor;
+                }
+            }
             if (GUILayout.Button("Atualizar prévia", GUILayout.Height(32)))
             {
                 if (textoPreview != null)
