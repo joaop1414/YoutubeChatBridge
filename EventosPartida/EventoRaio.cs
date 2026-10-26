@@ -148,6 +148,14 @@ internal sealed class EventoRaio : EventoVotacao
         }
         if (etapaInicializacao < 3 || MeetingHud.Instance != null) return;
 
+        if (ocultarDepoisDoImpacto && Time.realtimeSinceStartup >= proximoRaioEm)
+        {
+            ocultarDepoisDoImpacto = false;
+            OcultarBoneco(bonecoRaio);
+            AgendarProximoRaio();
+            return;
+        }
+
         if (descargaPendente)
         {
             if (Time.realtimeSinceStartup >= instanteImpacto)
@@ -308,17 +316,43 @@ internal sealed class EventoRaio : EventoVotacao
         }
     }
 
+    private static float proximoSomLocal;
+
     private static void AtualizarSomLocal()
     {
-        if (!ativo || PlayerControl.LocalPlayer == null || descargaPendente == false ||
-            somTocadoNestaDescarga || fonteSom == null)
+        if (PlayerControl.LocalPlayer == null || fonteSom == null ||
+            Time.realtimeSinceStartup < proximoSomLocal)
             return;
-        if (Vector2.Distance((Vector2)PlayerControl.LocalPlayer.transform.position, localDoRaio) > AlcanceSom)
+
+        // Em clientes remotos, o boneco é recebido pela rede, mas o estado
+        // estático do evento pertence ao host. Localizamos o indicador replicado.
+        PlayerControl aviso = bonecoAviso;
+        if (aviso == null || aviso.PlayerId != PlayerIdAviso)
+        {
+            try
+            {
+                foreach (PlayerControl candidato in UnityEngine.Object.FindObjectsOfType<PlayerControl>())
+                {
+                    if (candidato != null && candidato.PlayerId == PlayerIdAviso)
+                    {
+                        aviso = candidato;
+                        break;
+                    }
+                }
+            }
+            catch { }
+        }
+        if (aviso == null) return;
+
+        Vector2 posicaoAviso = aviso.transform.position;
+        if (posicaoAviso.x < -500f ||
+            Vector2.Distance((Vector2)PlayerControl.LocalPlayer.transform.position, posicaoAviso) > AlcanceSom)
             return;
+
         try
         {
             fonteSom.PlayOneShot(somRaio);
-            somTocadoNestaDescarga = true;
+            proximoSomLocal = Time.realtimeSinceStartup + 6f;
         }
         catch { }
     }
