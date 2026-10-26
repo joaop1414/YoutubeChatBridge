@@ -46,10 +46,11 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
     private GUIStyle estiloCampo;
     private bool estilosProntos;
 
-    // Texto TMP independente no mundo: não modifica o nome do jogador nem cria um PlayerControl falso.
-    private static GameObject objetoTextoMundo;
-    private static TextMeshPro textoMundo;
-    private static PlayerControl jogadorDoTexto;
+    // Substitui apenas o texto renderizado localmente no nome do jogador.
+    // Não altera DataManager.PlayerName nem envia RPCs.
+    private static TextMeshPro nomeTextoLocal;
+    private static PlayerControl jogadorDoNome;
+    private static string nomeOriginalLocal;
 
     public static void Inicializar()
     {
@@ -66,12 +67,11 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
         instancia = objeto.AddComponent<VisualizadorNomeMenu>();
         threadJanela = new Thread(CriarJanelaNativa) { IsBackground = true, Name = "YouTubeVoteBridge Visualizador F8" };
         threadJanela.Start();
-        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo("[Visualizador F8] Janela nativa inicializada (padrão F6/F7).");
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo("[Visualizador F8] Janela nativa inicializada.");
     }
 
     public static void VerificarTecla()
     {
-        // Unity input (mesmo caminho do F6/F7) + leitura física do Windows.
         bool f8Fisico = (GetAsyncKeyState(0x77) & 0x8000) != 0; // VK_F8
         bool pressionouF8 = Input.GetKeyDown(KeyCode.F8) || (f8Fisico && !f8FisicoAnterior);
         f8FisicoAnterior = f8Fisico;
@@ -122,73 +122,56 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
         try
         {
             PlayerControl jogador = PlayerControl.LocalPlayer;
-            bool deveMostrar = previewVisivel &&
-                !string.IsNullOrWhiteSpace(textoAplicado) &&
-                jogador != null;
-
-            if (!deveMostrar)
+            if (!previewVisivel || string.IsNullOrWhiteSpace(textoAplicado) || jogador == null)
             {
-                DestruirTextoMundo();
+                RestaurarNomeLocal();
                 return;
             }
 
-            // Recria se o jogador mudou ou se o objeto foi destruído durante uma troca de cena.
-            if (objetoTextoMundo == null || textoMundo == null || jogadorDoTexto != jogador)
+            if (jogadorDoNome != jogador || nomeTextoLocal == null)
             {
-                DestruirTextoMundo();
+                RestaurarNomeLocal();
 
-                objetoTextoMundo = new GameObject("YouTubeVoteBridge_F8_WorldText");
-                textoMundo = objetoTextoMundo.AddComponent<TextMeshPro>();
-                jogadorDoTexto = jogador;
-
-                // Usa a fonte TMP padrão do jogo quando disponível.
-                if (TMP_Settings.defaultFontAsset != null)
-                    textoMundo.font = TMP_Settings.defaultFontAsset;
-
-                textoMundo.richText = true;
-                textoMundo.alignment = TextAlignmentOptions.Center;
-                textoMundo.enableWordWrapping = false;
-                textoMundo.overflowMode = TextOverflowModes.Overflow;
-                textoMundo.fontSize = 3f;
-
-                MeshRenderer renderer = objetoTextoMundo.GetComponent<MeshRenderer>();
-                if (renderer != null)
+                if (jogador.cosmetics == null || jogador.cosmetics.nameText == null)
                 {
-                    try { renderer.sortingLayerName = "Players"; }
-                    catch { }
-                    renderer.sortingOrder = 10;
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                        "[Visualizador F8] O componente de nome do jogador ainda não está disponível.");
+                    return;
                 }
 
-                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "[Visualizador F8] Objeto TextMeshPro independente criado no mundo.");
+                jogadorDoNome = jogador;
+                nomeTextoLocal = jogador.cosmetics.nameText;
+                nomeOriginalLocal = nomeTextoLocal.text ?? "";
             }
 
-            if (textoMundo.text != textoAplicado)
-                textoMundo.text = textoAplicado;
-
-            // Segue o jogador local, sem alterar o nome real ou enviar RPCs.
-            Vector3 posicao = jogador.transform.position;
-            objetoTextoMundo.transform.position = new Vector3(posicao.x, posicao.y + 0.8f, posicao.z - 0.1f);
+            // Reaplica localmente a cada atualização para prevalecer sobre atualizações visuais do jogo.
+            // Isso altera somente o TextMeshPro desta instância local, não o nome de rede.
+            if (nomeTextoLocal != null && nomeTextoLocal.text != textoAplicado)
+                nomeTextoLocal.text = textoAplicado;
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[Visualizador F8] Falha ao atualizar texto TMP do mundo: " + ex);
+                "[Visualizador F8] Falha ao substituir o nome renderizado localmente: " + ex);
         }
     }
 
-    private static void DestruirTextoMundo()
+    private static void RestaurarNomeLocal()
     {
         try
         {
-            if (objetoTextoMundo != null)
-                UnityEngine.Object.Destroy(objetoTextoMundo);
+            if (nomeTextoLocal != null && nomeOriginalLocal != null)
+                nomeTextoLocal.text = nomeOriginalLocal;
         }
-        catch { }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[Visualizador F8] Não foi possível restaurar o nome original: " + ex.Message);
+        }
 
-        objetoTextoMundo = null;
-        textoMundo = null;
-        jogadorDoTexto = null;
+        nomeTextoLocal = null;
+        jogadorDoNome = null;
+        nomeOriginalLocal = null;
     }
 
     private static void CriarJanelaNativa()
