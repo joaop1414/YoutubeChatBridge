@@ -191,9 +191,7 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
                 return;
             }
 
-            painelInicial = GUI.Window(57341, painelInicial,
-                new GUI.WindowFunction((int id) => DesenharPainelInicial(id)),
-                "YouTubeChatBridge — Prévia TextMeshPro");
+            DesenharPainelInicial(57341);
         }
         catch (Exception ex)
         {
@@ -203,6 +201,13 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
 
     private void DesenharPainelInicial(int id)
     {
+        // Desenha manualmente em vez de GUI.Window: algumas versões dos bindings
+        // IL2CPP expõem o callback de GUI.Window como IntPtr, causando CS1660.
+        GUI.BeginGroup(painelInicial);
+        GUI.Box(new Rect(0, 0, painelInicial.width, painelInicial.height),
+            "YouTubeChatBridge — Prévia TextMeshPro");
+
+        GUILayout.BeginArea(new Rect(12, 32, painelInicial.width - 24, painelInicial.height - 44));
         GUILayout.Label("Digite ou cole texto com tags do TextMeshPro:");
         GUILayout.Space(5);
         textoEditor = GUILayout.TextArea(textoEditor ?? string.Empty, GUILayout.Height(170), GUILayout.ExpandWidth(true));
@@ -232,7 +237,8 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
 
         GUILayout.Space(6);
         GUILayout.Label("A prévia é local e não altera o nome do jogador.");
-        GUI.DragWindow(new Rect(0, 0, 10000, 25));
+        GUILayout.EndArea();
+        GUI.EndGroup();
     }
 
     private static void CriarJanelaNativa()
