@@ -79,7 +79,7 @@ internal sealed class EventoRaio : EventoVotacao
         ativo = true;
         descargaPendente = false;
         ocultarDepoisDoImpacto = false;
-        etapaInicializacao = (bonecoAviso != null && bonecoRaio != null) ? 3 : 0;
+        etapaInicializacao = (bonecoAviso != null && bonecoRaio != null) ? 4 : 0;
         CriarSomLocal();
         // Não inicia a contagem durante a animação de revelação de função.
         // O cronômetro começa somente quando IntroCutscene for encerrada.
@@ -151,25 +151,35 @@ internal sealed class EventoRaio : EventoVotacao
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 "[F7/Raio] Enviando spawn oculto dos dois indicadores; canto reservado X=" + OcultoX + ".");
-            InicializarBonecoRede(bonecoAviso);
-            InicializarBonecoRede(bonecoRaio);
+            EnviarSpawnBonecoRede(bonecoAviso);
+            EnviarSpawnBonecoRede(bonecoRaio);
             etapaInicializacao = 2;
-            proximaEtapa = Time.realtimeSinceStartup + 0.15f;
+            // O EHR espera cerca de 0,1 s após o Spawn antes de associar o
+            // NetId ao PlayerId em cada cliente vanilla.
+            proximaEtapa = Time.realtimeSinceStartup + 0.12f;
             return;
         }
         if (etapaInicializacao == 2 && Time.realtimeSinceStartup >= proximaEtapa)
+        {
+            AssociarBonecoRede(bonecoAviso);
+            AssociarBonecoRede(bonecoRaio);
+            etapaInicializacao = 3;
+            proximaEtapa = Time.realtimeSinceStartup + 0.15f;
+            return;
+        }
+        if (etapaInicializacao == 3 && Time.realtimeSinceStartup >= proximaEtapa)
         {
             PrepararBoneco(bonecoAviso, DesenhoAviso);
             PrepararBoneco(bonecoRaio, DesenhoRaio);
             OcultarBoneco(bonecoAviso);
             OcultarBoneco(bonecoRaio);
-            etapaInicializacao = 3;
+            etapaInicializacao = 4;
             return;
         }
         // A etapa 0 é o estado normal antes do primeiro raio ou após o
         // despawn. Não retornar sem chamar IniciarDescarga: ela cria os
         // indicadores sob demanda e inicia a sequência de spawn em etapas.
-        if (etapaInicializacao < 3)
+        if (etapaInicializacao < 4)
         {
             if (etapaInicializacao == 0 &&
                 !ocultarDepoisDoImpacto &&
@@ -206,13 +216,32 @@ internal sealed class EventoRaio : EventoVotacao
             IniciarDescarga();
     }
 
-    private static void InicializarBonecoRede(PlayerControl boneco)
+    private static void EnviarSpawnBonecoRede(PlayerControl boneco)
     {
         if (boneco == null) return;
         CustomNetObject.EnviarSpawn(boneco);
         if (PlayerControl.AllPlayerControls.Contains(boneco))
             PlayerControl.AllPlayerControls.Remove(boneco);
-        CustomNetObject.AssociarClientes(boneco, boneco.PlayerId);
+    }
+
+    private static void AssociarBonecoRede(PlayerControl boneco)
+    {
+        if (boneco == null) return;
+        int associados = CustomNetObject.AssociarClientes(boneco, boneco.PlayerId);
+        try
+        {
+            // O EHR faz isso após associar o NPC para que os fluxos de cosméticos
+            // e Shapeshift encontrem dados de jogador válidos no objeto artificial.
+            if (PlayerControl.LocalPlayer?.Data != null)
+                boneco.CachedPlayerData = PlayerControl.LocalPlayer.Data;
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Raio] Não foi possível configurar CachedPlayerData: " + ex.Message);
+        }
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"[F7/Raio] Associação do indicador concluída: PlayerId={boneco.PlayerId}, NetId={boneco.NetId}, clientes={associados}.");
     }
 
     private static void PrepararBoneco(PlayerControl boneco, string arte)
@@ -237,7 +266,7 @@ internal sealed class EventoRaio : EventoVotacao
         // Cada descarga cria objetos novos. Eles são destruídos ao final do efeito;
         // portanto, referências nulas significam que este raio precisa de novos NPCs.
         // A inicialização de rede acontece em etapas no Atualizar(), como no EHR.
-        if (bonecoAviso == null || bonecoRaio == null || etapaInicializacao < 3)
+        if (bonecoAviso == null || bonecoRaio == null || etapaInicializacao < 4)
         {
             try
             {
