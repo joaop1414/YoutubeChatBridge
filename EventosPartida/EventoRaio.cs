@@ -8,8 +8,8 @@ using UnityEngine;
 namespace YouTubeVoteBridge;
 
 /// <summary>
-/// Raios persistentes: dois indicadores de rede (aviso e descarga) são criados
-/// no início da partida e reutilizados/ocultados até o fim. O som é local,
+/// Raios: dois indicadores de rede (aviso e descarga) são criados sob demanda
+/// no primeiro disparo e reutilizados/ocultados até o fim da partida. O som é local,
 /// portanto só é reproduzido por clientes que possuem este mod.
 /// </summary>
 internal sealed class EventoRaio : EventoVotacao
@@ -34,10 +34,6 @@ internal sealed class EventoRaio : EventoVotacao
     private static PlayerControl bonecoRaio;
     private static int etapaInicializacao;
     private static float proximaEtapa;
-    private static bool inicializacaoPendente;
-    private static bool liberarInicializacaoAdiada;
-    private static float iniciarDepoisDe;
-    private const float AtrasoInicializacaoPartida = 2.5f;
     private static AudioClip somRaio;
     private static AudioSource fonteSom;
     private static bool tentativaCriarSom;
@@ -82,54 +78,18 @@ internal sealed class EventoRaio : EventoVotacao
             return;
         }
 
-        if (ativo && bonecoAviso != null && bonecoRaio != null) return;
+        if (ativo) return;
 
-        // ShipStatus.Start/CoStartGame ainda fazem parte da transição de cena.
-        // Não instanciar PlayerPrefab nesse momento: aguardar a partida estabilizar.
-        if (!liberarInicializacaoAdiada)
-        {
-            if (!inicializacaoPendente)
-            {
-                inicializacaoPendente = true;
-                iniciarDepoisDe = Time.realtimeSinceStartup + AtrasoInicializacaoPartida;
-                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "[F7/Raio] Inicialização adiada por " + AtrasoInicializacaoPartida +
-                    "s para evitar instanciar bonecos durante a transição/tela preta.");
-            }
-            return;
-        }
-
-        liberarInicializacaoAdiada = false;
-        inicializacaoPendente = false;
-
-        try
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[F7/Raio] A partida estabilizou; começando a criar os indicadores ocultos.");
-            ativo = true;
-            descargaPendente = false;
-            if (bonecoAviso != null && bonecoRaio != null)
-            {
-                // Reutiliza os objetos já existentes, sem destruí-los nem
-                // executar novamente o fluxo de spawn/associação.
-                etapaInicializacao = 3;
-                OcultarBoneco(bonecoAviso);
-                OcultarBoneco(bonecoRaio);
-                CriarSomLocal();
-                AgendarProximoRaio();
-                return;
-            }
-            etapaInicializacao = 0;
-            CriarBonecosPersistentes();
-            CriarSomLocal();
-            AgendarProximoRaio();
-            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[F7/Raio] Indicadores persistentes criados; serão reutilizados até o fim da partida.");
-        }
-        catch (Exception ex)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogError("[F7/Raio] Falha ao criar indicadores: " + ex);
-        }
+        // A ativação do evento não cria PlayerPrefab. Os indicadores só serão
+        // instanciados quando chegar a hora do primeiro raio.
+        ativo = true;
+        descargaPendente = false;
+        ocultarDepoisDoImpacto = false;
+        etapaInicializacao = (bonecoAviso != null && bonecoRaio != null) ? 3 : 0;
+        CriarSomLocal();
+        AgendarProximoRaio();
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            "[F7/Raio] Evento ativado; os indicadores só serão criados quando o primeiro raio for disparado.");
     }
 
     private static void CriarBonecosPersistentes()
@@ -174,15 +134,6 @@ internal sealed class EventoRaio : EventoVotacao
         CriarSomLocal();
         AtualizarSomLocal();
         AtualizarAlertaNoisemakerLocal();
-
-        // O adiamento é processado no Update, fora de ShipStatus.Start/CoStartGame.
-        if (YouTubeVoteBridgePlugin.EhHost() && armado && inicializacaoPendente &&
-            Time.realtimeSinceStartup >= iniciarDepoisDe &&
-            ShipStatus.Instance != null && MeetingHud.Instance == null)
-        {
-            liberarInicializacaoAdiada = true;
-            IniciarPartida();
-        }
 
         if (!YouTubeVoteBridgePlugin.EhHost() || !ativo) return;
 
@@ -254,6 +205,30 @@ internal sealed class EventoRaio : EventoVotacao
 
     private static void IniciarDescarga()
     {
+        // Spawn sob demanda: nenhum boneco existe enquanto não for necessário.
+        // A inicialização de rede acontece em etapas no Atualizar(), como no EHR.
+        if (bonecoAviso == null || bonecoRaio == null || etapaInicializacao < 3)
+        {
+            try
+            {
+                if (bonecoAviso == null || bonecoRaio == null)
+                {
+                    etapaInicializacao = 0;
+                    CriarBonecosPersistentes();
+                    proximoRaioEm = Time.realtimeSinceStartup;
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                        "[F7/Raio] Primeiro raio solicitado: criando indicadores agora, sob demanda.");
+                }
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                    "[F7/Raio] Falha ao criar indicadores sob demanda: " + ex);
+                AgendarProximoRaio();
+            }
+            return;
+        }
+
         List<PlayerControl> vivos = new();
         foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
             if (jogador != null && jogador != bonecoAviso && jogador != bonecoRaio &&
@@ -530,9 +505,6 @@ internal sealed class EventoRaio : EventoVotacao
         somGlobalTocadoNestaDescarga = false;
         somTocadoNestaDescarga = false;
         etapaInicializacao = 0;
-        inicializacaoPendente = false;
-        liberarInicializacaoAdiada = false;
-        iniciarDepoisDe = 0f;
         proximoRaioEm = 0f;
         instanteImpacto = 0f;
 
