@@ -18,7 +18,6 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
     private static VisualizadorNomeMenu instancia;
     private static bool registrado;
     private static bool painelAberto;
-    private static bool teclaAnterior;
     private static Canvas canvasPreview;
     private static TMP_Text textoPreview;
     private static string textoEditor = "<color=#ff4444>Teste</color> <b>TextMeshPro</b>";
@@ -90,13 +89,13 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
 
     private void Update()
     {
-        // F8 alterna o painel somente na tela inicial, fora de uma partida.
-        bool naTelaInicial = PlayerControl.LocalPlayer == null &&
-            AmongUsClient.Instance != null &&
-            AmongUsClient.Instance.GameState == AmongUsClient.GameStates.NotJoined;
+        // Não dependemos de GameState, pois o estado do cliente pode variar
+        // entre versões e impedir o atalho mesmo na tela inicial.
+        // Basta não existir um jogador local: assim o atalho não abre durante a partida.
+        if (PlayerControl.LocalPlayer != null)
+            return;
 
-        bool teclaAgora = Input.GetKey(KeyCode.F8);
-        if (naTelaInicial && teclaAgora && !teclaAnterior)
+        if (Input.GetKeyDown(KeyCode.F8))
         {
             if (painelAberto)
             {
@@ -106,11 +105,19 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
             }
             else
             {
-                AbrirPainel();
+                try
+                {
+                    AbrirPainel();
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                        "[Visualizador TMP] Atalho F8 detectado; painel aberto.");
+                }
+                catch (Exception ex)
+                {
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                        "[Visualizador TMP] Falha ao abrir painel: " + ex);
+                }
             }
         }
-
-        teclaAnterior = teclaAgora;
     }
 
     private void OnGUI()
