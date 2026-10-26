@@ -269,7 +269,7 @@ namespace MoreGamemodes
                 // serializado para os clientes. Restauramos o objeto local do
                 // host imediatamente após serializar, antes de atualizar a cena.
                 // Assim, o host não deve renderizar o próprio nome como o do NPC.
-                outfit.PlayerName = sprite ?? string.Empty;
+                outfit.PlayerName = "<size=14><br></size>" + (sprite ?? string.Empty);
                 writer.StartMessage(1);
                 writer.WritePacked(alvo.Data.NetId);
                 alvo.Data.Serialize(writer, false);
@@ -324,12 +324,15 @@ namespace MoreGamemodes
 
         // Mesmo formato vanilla usado pelo LobbyTagManager para SetName.
         // É separado do pacote de Shapeshift para preservar a ordem de chegada.
+        // SetName é um RPC do PlayerControl: o payload contém somente a string.
+        // Para sprites, o prefixo de linha é necessário para o layout usado pelo EHR.
         public static void EnviarSetName(PlayerControl jogador, string nome)
         {
             if (jogador == null || jogador.Data == null || AmongUsClient.Instance == null)
                 return;
 
             MessageWriter writer = null;
+            string texto = "<size=14><br></size>" + (nome ?? string.Empty);
             try
             {
                 writer = MessageWriter.Get(SendOption.Reliable);
@@ -338,15 +341,14 @@ namespace MoreGamemodes
                 writer.StartMessage(2);
                 writer.WritePacked(jogador.NetId);
                 writer.Write((byte)RpcCalls.SetName);
-                writer.Write(jogador.Data.NetId);
-                writer.Write(nome ?? string.Empty);
+                writer.Write(texto);
                 writer.EndMessage();
                 writer.EndMessage();
                 AmongUsClient.Instance.SendOrDisconnect(writer);
                 writer.Recycle();
                 writer = null;
 
-                jogador.SetName(nome ?? string.Empty);
+                jogador.SetName(texto);
             }
             finally
             {
