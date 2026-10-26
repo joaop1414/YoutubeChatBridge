@@ -260,7 +260,8 @@ internal sealed class EventoRaio : EventoVotacao
         try
         {
             CustomNetObject.EnviarAparenciaSprite(boneco, arte, out _);
-            CustomNetObject.EnviarSetName(boneco, arte);
+            // Não transmitir o desenho longo via RPC SetName: o sprite já é
+            // enviado pelo fluxo de aparência/Shapeshift usado pelo EHR.
             if (boneco.cosmetics?.nameText != null)
                 boneco.cosmetics.nameText.text = arte;
         }
@@ -313,10 +314,11 @@ internal sealed class EventoRaio : EventoVotacao
 
         desenhoAtualRaio = DesenhoRaio;
         PrepararBoneco(bonecoRaio, desenhoAtualRaio);
+        // Os desenhos foram transmitidos na preparação via aparência/Shapeshift.
+        // Aqui só movemos os indicadores; reenviar arte grande em SetName pode
+        // fazer clientes vanilla rejeitarem a mensagem e expulsarem o host.
         CustomNetObject.EnviarPosicao(bonecoAviso, localDoRaio);
-        CustomNetObject.EnviarSetName(bonecoAviso, DesenhoAviso);
         CustomNetObject.EnviarPosicao(bonecoRaio, localDoRaio);
-        CustomNetObject.EnviarSetName(bonecoRaio, DesenhoRaio);
         definirTextoLocal(bonecoAviso, DesenhoAviso);
         definirTextoLocal(bonecoRaio, DesenhoRaio);
         MostrarBoneco(bonecoAviso);
@@ -335,7 +337,7 @@ internal sealed class EventoRaio : EventoVotacao
         // de mover o indicador para a posição visível do impacto.
         try
         {
-            CustomNetObject.EnviarSetName(bonecoRaio, desenhoAtualRaio);
+            // O desenho já está aplicado no objeto; não precisa reenviar SetName.
             definirTextoLocal(bonecoRaio, desenhoAtualRaio);
         }
         catch (Exception ex)
@@ -388,9 +390,9 @@ internal sealed class EventoRaio : EventoVotacao
     private static void OcultarBoneco(PlayerControl boneco)
     {
         if (boneco == null) return;
-        try { CustomNetObject.EnviarSetName(boneco, "<color=#00000000>.</color>"); } catch { }
+        // Oculte movendo o indicador para fora do mapa. Não sobrescreva o sprite
+        // com SetName, pois o desenho é transportado pelo fluxo de aparência.
         try { CustomNetObject.EnviarPosicao(boneco, new Vector2(OcultoX, 0f)); } catch { }
-        definirTextoLocal(boneco, "<color=#00000000>.</color>");
     }
 
     private static void definirTextoLocal(PlayerControl boneco, string texto)
