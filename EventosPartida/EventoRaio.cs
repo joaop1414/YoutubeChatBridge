@@ -25,6 +25,7 @@ internal sealed class EventoRaio : EventoVotacao
 
     private static bool armado;
     private static bool ativo;
+    private static bool aguardandoFimRoleReveal;
     private static float proximoRaioEm;
     private static float instanteImpacto;
     private static Vector2 localDoRaio;
@@ -88,12 +89,25 @@ internal sealed class EventoRaio : EventoVotacao
         ocultarDepoisDoImpacto = false;
         etapaInicializacao = (bonecoAviso != null && bonecoRaio != null) ? 3 : 0;
         CriarSomLocal();
-        // O primeiro raio tem um atraso fixo de 5 segundos após a ativação.
-        // Os raios seguintes continuam usando o intervalo aleatório normal.
+        // Não inicia a contagem durante a animação de revelação de função.
+        // O cronômetro começa somente quando IntroCutscene for encerrada.
+        aguardandoFimRoleReveal = true;
+        proximoRaioEm = float.MaxValue;
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            "[F7/Raio] Evento preparado; aguardando o fim da revelação de função.");
+    }
+
+    internal static void AoSairDaRoleReveal()
+    {
+        if (!YouTubeVoteBridgePlugin.EhHost() || !armado ||
+            ShipStatus.Instance == null || !ativo || !aguardandoFimRoleReveal)
+            return;
+
+        aguardandoFimRoleReveal = false;
         proximoRaioEm = Time.realtimeSinceStartup + AtrasoPrimeiroRaio;
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            "[F7/Raio] Evento ativado; primeiro raio em " + AtrasoPrimeiroRaio +
-            " segundos. Os indicadores serão criados sob demanda.");
+            "[F7/Raio] Revelação de função encerrada; primeiro raio em " +
+            AtrasoPrimeiroRaio + " segundos.");
     }
 
     private static void CriarBonecosTemporarios()
@@ -536,6 +550,7 @@ internal sealed class EventoRaio : EventoVotacao
     {
         bool estavaArmado = armado;
         ativo = false;
+        aguardandoFimRoleReveal = false;
         armado = preservarArmado && estavaArmado;
         descargaPendente = false;
         ocultarDepoisDoImpacto = false;
