@@ -10,6 +10,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using TMPro;
+using AmongUs.Data;
 
 using BepInEx;
 using BepInEx.Configuration;
