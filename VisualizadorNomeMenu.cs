@@ -212,13 +212,13 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
             {
                 case 0x0001:
                     fonteNativa = CreateFontW(-16, 0, 0, 0, 400, false, false, false, 1, 0, 0, 5, 0, "Segoe UI");
-                    CriarControle("STATIC", "Cole o texto do W Paint ou texto com tags TextMeshPro:", WS_CHILD | WS_VISIBLE, 18, 15, 700, 26, hwnd, IntPtr.Zero);
+                    CriarControle("STATIC", "Digite ou cole o texto (aceita tags TextMeshPro):", WS_CHILD | WS_VISIBLE, 18, 15, 700, 26, hwnd, IntPtr.Zero);
                     campoNativo = CriarControle("EDIT", "", WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN,
                         18, 48, 708, 390, hwnd, new IntPtr(ID_CAMPO));
                     CriarControle("BUTTON", "Visualizar no jogo", WS_CHILD | WS_VISIBLE, 18, 455, 170, 36, hwnd, new IntPtr(ID_PREVIEW));
                     CriarControle("BUTTON", "Ocultar prévia", WS_CHILD | WS_VISIBLE, 198, 455, 150, 36, hwnd, new IntPtr(ID_OCULTAR));
                     CriarControle("BUTTON", "Limpar texto", WS_CHILD | WS_VISIBLE, 358, 455, 130, 36, hwnd, new IntPtr(ID_LIMPAR));
-                    CriarControle("STATIC", "A prévia aparece no jogo e não altera nomes de jogadores.", WS_CHILD | WS_VISIBLE, 18, 505, 700, 28, hwnd, IntPtr.Zero);
+                    CriarControle("STATIC", "Substitui apenas o nome exibido nesta tela; não altera o nome de rede.", WS_CHILD | WS_VISIBLE, 18, 505, 700, 28, hwnd, IntPtr.Zero);
                     return IntPtr.Zero;
                 case WM_APP_TOGGLE:
                     if (IsWindowVisible(hwnd)) ShowWindow(hwnd, SW_HIDE);
