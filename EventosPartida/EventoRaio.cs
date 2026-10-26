@@ -27,6 +27,7 @@ internal sealed class EventoRaio : EventoVotacao
     private static float proximoRaioEm;
     private static float instanteImpacto;
     private static Vector2 localDoRaio;
+    private static string desenhoAtualRaio = DesenhosRaio[0];
     private static bool descargaPendente;
     private static bool somTocadoNestaDescarga;
     private static PlayerControl bonecoAviso;
@@ -248,7 +249,8 @@ internal sealed class EventoRaio : EventoVotacao
             (float)(Sorteador.NextDouble() * 2.0 - 1.0));
 
         int variacao = Sorteador.Next(DesenhosRaio.Length);
-        PrepararBoneco(bonecoRaio, DesenhosRaio[variacao]);
+        desenhoAtualRaio = DesenhosRaio[variacao];
+        PrepararBoneco(bonecoRaio, desenhoAtualRaio);
         CustomNetObject.EnviarPosicao(bonecoAviso, localDoRaio);
         CustomNetObject.EnviarSetName(bonecoAviso, DesenhoAviso);
         CustomNetObject.EnviarPosicao(bonecoRaio, localDoRaio);
@@ -267,6 +269,18 @@ internal sealed class EventoRaio : EventoVotacao
 
     private static void AplicarImpacto()
     {
+        // OcultarBoneco torna o nome transparente; restauramos o desenho antes
+        // de mover o indicador para a posição visível do impacto.
+        try
+        {
+            CustomNetObject.EnviarSetName(bonecoRaio, desenhoAtualRaio);
+            definirTextoLocal(bonecoRaio, desenhoAtualRaio);
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Raio] Não foi possível restaurar o desenho do impacto: " + ex.Message);
+        }
         MostrarBoneco(bonecoRaio);
         OcultarBoneco(bonecoAviso);
         foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
