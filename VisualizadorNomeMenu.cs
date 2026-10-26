@@ -18,7 +18,6 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
     private static VisualizadorNomeMenu instancia;
     private static bool registrado;
     private static bool painelAberto;
-    private static PassiveButton botaoMenu;
     private static bool teclaAnterior;
     private static Canvas canvasPreview;
     private static TMP_Text textoPreview;
@@ -94,7 +93,7 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
         // F8 alterna o painel somente na tela inicial, fora de uma partida.
         bool naTelaInicial = PlayerControl.LocalPlayer == null &&
             AmongUsClient.Instance != null &&
-            AmongUsClient.Instance.GameState == InnerNetClient.GameStates.NotJoined;
+            AmongUsClient.Instance.GameState == AmongUsClient.GameStates.NotJoined;
 
         bool teclaAgora = Input.GetKey(KeyCode.F8);
         if (naTelaInicial && teclaAgora && !teclaAnterior)
