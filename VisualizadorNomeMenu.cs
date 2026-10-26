@@ -41,8 +41,6 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
         }
     }
 
-    [HarmonyPatch(typeof(MainMenuManager), nameof(MainMenuManager.Start))]
-    [HarmonyPostfix]
     public static void AoAbrirMenuPrincipal(MainMenuManager __instance)
     {
         try
@@ -176,5 +174,16 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError("[Visualizador TMP] Erro no painel: " + ex);
         }
+    }
+}
+
+
+[HarmonyPatch(typeof(MainMenuManager), nameof(MainMenuManager.Start))]
+internal static class VisualizadorNomeMenuPatch
+{
+    [HarmonyPostfix]
+    private static void Postfix(MainMenuManager __instance)
+    {
+        VisualizadorNomeMenu.AoAbrirMenuPrincipal(__instance);
     }
 }
