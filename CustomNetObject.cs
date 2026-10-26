@@ -228,7 +228,11 @@ namespace MoreGamemodes
                     nomeWriter.StartMessage(2);
                     nomeWriter.WritePacked(jogador.NetId);
                     nomeWriter.Write((byte)RpcCalls.SetName);
+                    // O payload nativo de SetName inclui o NetId do NetworkedPlayerInfo,
+                    // o texto e o indicador de nome falso (padrão EHR).
+                    nomeWriter.Write(jogador.Data.NetId);
                     nomeWriter.Write(nome ?? string.Empty);
+                    nomeWriter.Write(false);
                     nomeWriter.EndMessage();
                     nomeWriter.EndMessage();
                     AmongUsClient.Instance.SendOrDisconnect(nomeWriter);
@@ -363,7 +367,9 @@ namespace MoreGamemodes
                 writer.StartMessage(2);
                 writer.WritePacked(jogador.NetId);
                 writer.Write((byte)RpcCalls.SetName);
+                writer.Write(jogador.Data.NetId);
                 writer.Write(texto);
+                writer.Write(false);
                 writer.EndMessage();
                 writer.EndMessage();
                 AmongUsClient.Instance.SendOrDisconnect(writer);
