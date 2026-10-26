@@ -3569,6 +3569,16 @@ public static class YouTubeVoteUpdatePatch
 }
 
 
+// A revelação de função termina quando a IntroCutscene é destruída.
+[HarmonyPatch(typeof(IntroCutscene), nameof(IntroCutscene.OnDestroy))]
+public static class YouTubeVoteRaioAfterRoleRevealPatch
+{
+    public static void Postfix()
+    {
+        EventoRaio.AoSairDaRoleReveal();
+    }
+}
+
 [HarmonyPatch(typeof(ShipStatus), nameof(ShipStatus.Start))]
 public static class YouTubeVoteRestoreLobbyTagsBeforeMatchPatch
 {
