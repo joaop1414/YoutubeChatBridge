@@ -21,52 +21,42 @@ namespace MoreGamemodes
 
             // Atribui um NetId novo antes de serializar o spawn.
             AmongUsClient.Instance.NetIdCnt += 1U;
-            // Envia o spawn individualmente para cada cliente remoto.
-            // O objeto é o mesmo (NetId único), mas cada destinatário recebe
-            // a sua própria mensagem GameDataTo, sem depender do broadcast.
-            foreach (ClientData cliente in AmongUsClient.Instance.allClients.ToArray())
+            // Usa GameData em broadcast, seguindo o fluxo do EHR/MoreGamemodes.
+            // Alguns clientes vanilla não materializam corretamente este Spawn quando
+            // é encapsulado individualmente em GameDataTo.
+            MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
+            try
             {
-                if (cliente == null || cliente.Id == AmongUsClient.Instance.ClientId)
-                    continue;
+                writer.StartMessage(5);
+                writer.Write(AmongUsClient.Instance.GameId);
+                writer.StartMessage(4);
+                SpawnGameDataMessage spawn = AmongUsClient.Instance.CreateSpawnMessage(jogador, -2, SpawnFlags.None);
+                spawn.SerializeValues(writer);
+                writer.EndMessage();
 
-                MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
-                try
+                // Preenchimento exigido pelo protocolo vanilla para NPCs artificiais.
+                if (EhRegiaoVanilla())
                 {
-                    writer.StartMessage(6);
-                    writer.Write(AmongUsClient.Instance.GameId);
-                    writer.WritePacked(cliente.Id);
-                    writer.StartMessage(4);
-                    SpawnGameDataMessage spawn = AmongUsClient.Instance.CreateSpawnMessage(jogador, -2, SpawnFlags.None);
-                    spawn.SerializeValues(writer);
-                    writer.EndMessage();
-
-                    // O EHR confirmou que servidores vanilla precisam receber três
-                    // mensagens Spawn vazias depois do objeto customizado. Sem esse
-                    // preenchimento, clientes vanilla podem descartar/ignorar o objeto
-                    // de rede e a onda do Tsunami não aparece.
-                    if (EhRegiaoVanilla())
+                    for (uint i = 1; i <= 3; i++)
                     {
-                        for (uint i = 1; i <= 3; i++)
-                        {
-                            writer.StartMessage(4);
-                            writer.WritePacked(2U);
-                            writer.WritePacked(-2);
-                            writer.Write((byte)SpawnFlags.None);
-                            writer.WritePacked(1);
-                            writer.WritePacked(AmongUsClient.Instance.NetIdCnt - i);
-                            writer.StartMessage(1);
-                            writer.EndMessage();
-                            writer.EndMessage();
-                        }
+                        writer.StartMessage(4);
+                        writer.WritePacked(2U);
+                        writer.WritePacked(-2);
+                        writer.Write((byte)SpawnFlags.None);
+                        writer.WritePacked(1);
+                        writer.WritePacked(AmongUsClient.Instance.NetIdCnt - i);
+                        writer.StartMessage(1);
+                        writer.EndMessage();
+                        writer.EndMessage();
                     }
+                }
 
-                    writer.EndMessage();
-                    AmongUsClient.Instance.SendOrDisconnect(writer);
-                }
-                finally
-                {
-                    writer.Recycle();
-                }
+                writer.EndMessage();
+                AmongUsClient.Instance.SendOrDisconnect(writer);
+            }
+            finally
+            {
+                writer.Recycle();
             }
 
             if (ocultarVisual)
