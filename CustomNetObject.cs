@@ -349,6 +349,42 @@ namespace MoreGamemodes
             }
         }
 
+        // Remove o objeto customizado também nos clientes remotos. Destruir
+        // apenas o GameObject local deixaria o PlayerControl antigo nos clientes.
+        public static void Despawn(PlayerControl jogador)
+        {
+            if (jogador == null || AmongUsClient.Instance == null) return;
+
+            try
+            {
+                MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
+                try
+                {
+                    writer.StartMessage(5);
+                    writer.Write(AmongUsClient.Instance.GameId);
+                    writer.StartMessage(5);
+                    writer.WritePacked(jogador.NetId);
+                    writer.EndMessage();
+                    writer.EndMessage();
+                    AmongUsClient.Instance.SendOrDisconnect(writer);
+                }
+                finally
+                {
+                    writer.Recycle();
+                }
+            }
+            catch { }
+
+            try { AmongUsClient.Instance.RemoveNetObject(jogador); } catch { }
+            try
+            {
+                if (PlayerControl.AllPlayerControls.Contains(jogador))
+                    PlayerControl.AllPlayerControls.Remove(jogador);
+            }
+            catch { }
+            try { UnityEngine.Object.Destroy(jogador.gameObject); } catch { }
+        }
+
         public static void EnviarPosicao(PlayerControl jogador, Vector2 posicao)
         {
             if (jogador?.NetTransform == null || AmongUsClient.Instance == null) return;
