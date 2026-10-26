@@ -356,7 +356,14 @@ internal sealed class EventoRaio : EventoVotacao
 
     private static void definirTextoLocal(PlayerControl boneco, string texto)
     {
-        try { if (boneco?.cosmetics?.nameText != null) boneco.cosmetics.nameText.text = texto; } catch { }
+        try
+        {
+            if (boneco?.cosmetics?.nameText != null)
+                boneco.cosmetics.nameText.text = texto == "<color=#00000000>.</color>"
+                    ? texto
+                    : "<size=14><br></size>" + texto;
+        }
+        catch { }
     }
 
     // Reproduz o indicador nativo do Noisemaker em cada cliente com o mod.
