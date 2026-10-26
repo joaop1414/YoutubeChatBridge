@@ -37,6 +37,8 @@ internal sealed class EventoRaio : EventoVotacao
     private static AudioClip somRaio;
     private static AudioSource fonteSom;
     private static bool tentativaCriarSom;
+    private static bool alertaNoisemakerAtivo;
+    private static Vector2 ultimaPosicaoAlerta;
     private static readonly System.Random Sorteador = new();
 
     // Cinco variações textuais provisórias. Podem ser trocadas pelos cinco
@@ -140,6 +142,7 @@ internal sealed class EventoRaio : EventoVotacao
         // evento e das mortes continua exclusivo do host.
         CriarSomLocal();
         AtualizarSomLocal();
+        AtualizarAlertaNoisemakerLocal();
         if (!YouTubeVoteBridgePlugin.EhHost() || !ativo) return;
 
         if (etapaInicializacao == 1 && Time.realtimeSinceStartup >= proximaEtapa)
@@ -295,6 +298,81 @@ internal sealed class EventoRaio : EventoVotacao
         try { if (boneco?.cosmetics?.nameText != null) boneco.cosmetics.nameText.text = texto; } catch { }
     }
 
+    // Reproduz o indicador nativo do Noisemaker em cada cliente com o mod.
+    // O aviso replicado pelo host determina o local; não é necessário matar
+    // alguém nem atribuir a função Noisemaker a um jogador.
+    private static void AtualizarAlertaNoisemakerLocal()
+    {
+        PlayerControl aviso = bonecoAviso;
+        if (aviso == null || aviso.PlayerId != PlayerIdAviso)
+        {
+            try
+            {
+                foreach (PlayerControl candidato in UnityEngine.Object.FindObjectsOfType<PlayerControl>())
+                {
+                    if (candidato != null && candidato.PlayerId == PlayerIdAviso)
+                    {
+                        aviso = candidato;
+                        break;
+                    }
+                }
+            }
+            catch { }
+        }
+
+        if (aviso == null) return;
+        Vector2 posicao = aviso.transform.position;
+        if (posicao.x < -500f)
+        {
+            alertaNoisemakerAtivo = false;
+            return;
+        }
+
+        // Um único alerta por aviso/descarga, sem recriá-lo a cada frame.
+        if (alertaNoisemakerAtivo &&
+            Vector2.Distance(posicao, ultimaPosicaoAlerta) < 0.2f)
+            return;
+
+        alertaNoisemakerAtivo = true;
+        ultimaPosicaoAlerta = posicao;
+
+        try
+        {
+            var role = RoleManager.Instance?.GetRole(RoleTypes.Noisemaker);
+            if (role == null) return;
+
+            var tipoRole = role.GetType();
+            var campoPrefab = tipoRole.GetField("deathArrowPrefab");
+            object prefab = campoPrefab != null ? campoPrefab.GetValue(role) :
+                tipoRole.GetProperty("deathArrowPrefab")?.GetValue(role);
+            if (prefab is not GameObject prefabObjeto || prefabObjeto == null) return;
+
+            GameObject setaObjeto = UnityEngine.Object.Instantiate(
+                prefabObjeto, Vector3.zero, Quaternion.identity);
+            if (setaObjeto == null) return;
+
+            Component seta = setaObjeto.GetComponent("NoisemakerArrow");
+            if (seta == null)
+            {
+                UnityEngine.Object.Destroy(setaObjeto);
+                return;
+            }
+
+            var tipoSeta = seta.GetType();
+            var metodoDuracao = tipoSeta.GetMethod("SetDuration");
+            metodoDuracao?.Invoke(seta, new object[] { DuracaoAviso });
+            var campoAlvo = tipoSeta.GetField("target");
+            if (campoAlvo != null) campoAlvo.SetValue(seta, posicao);
+            else tipoSeta.GetProperty("target")?.SetValue(seta, posicao);
+            setaObjeto.SetActive(true);
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Raio] Não foi possível mostrar o alerta nativo Noisemaker: " + ex.Message);
+        }
+    }
+
     private static void CriarSomLocal()
     {
         if (somRaio != null || tentativaCriarSom) return;
@@ -377,6 +455,7 @@ internal sealed class EventoRaio : EventoVotacao
         armado = false;
         descargaPendente = false;
         ocultarDepoisDoImpacto = false;
+        alertaNoisemakerAtivo = false;
         etapaInicializacao = 0;
         proximoRaioEm = 0f;
         // Os objetos não são destruídos: apenas ficam fora da área visível.
