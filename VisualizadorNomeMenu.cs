@@ -95,7 +95,7 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
         botaoMenu.name = "YouTubeVoteBridge_TMPViewerButton";
         UnityEngine.Object.Destroy(botaoMenu.GetComponent<AspectPosition>());
         botaoMenu.transform.localPosition = new Vector3(3.2f, -1.3f, 1f);
-        botaoMenu.OnClick = new UnityEngine.Events.UnityEvent();
+        botaoMenu.OnClick.RemoveAllListeners();
         botaoMenu.OnClick.AddListener((Action)AbrirPainel);
 
         var labelTransform = botaoMenu.transform.Find("FontPlacer/Text_TMP");
