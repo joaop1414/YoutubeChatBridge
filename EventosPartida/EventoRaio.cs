@@ -67,9 +67,16 @@ internal sealed class EventoRaio : EventoVotacao
 
     internal static void IniciarPartida()
     {
-        if (!armado || !YouTubeVoteBridgePlugin.EhHost() ||
+        if (!YouTubeVoteBridgePlugin.EhHost() ||
             ShipStatus.Instance == null || AmongUsClient.Instance == null)
             return;
+
+        if (!armado)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[F7/Raio] IniciarPartida ignorado: o evento não estava armado quando o mapa iniciou.");
+            return;
+        }
 
         if (ativo && bonecoAviso != null && bonecoRaio != null) return;
 
@@ -147,6 +154,8 @@ internal sealed class EventoRaio : EventoVotacao
 
         if (etapaInicializacao == 1 && Time.realtimeSinceStartup >= proximaEtapa)
         {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[F7/Raio] Enviando spawn oculto dos dois indicadores; canto reservado X=" + OcultoX + ".");
             InicializarBonecoRede(bonecoAviso);
             InicializarBonecoRede(bonecoRaio);
             etapaInicializacao = 2;
@@ -476,18 +485,41 @@ internal sealed class EventoRaio : EventoVotacao
         }
     }
 
-    internal static void Resetar()
+    internal static void Resetar(bool preservarArmado = false)
     {
+        bool estavaArmado = armado;
         ativo = false;
-        armado = false;
+        armado = preservarArmado && estavaArmado;
         descargaPendente = false;
         ocultarDepoisDoImpacto = false;
         alertaNoisemakerAtivo = false;
         somGlobalTocadoNestaDescarga = false;
+        somTocadoNestaDescarga = false;
         etapaInicializacao = 0;
         proximoRaioEm = 0f;
-        // Os objetos não são destruídos: apenas ficam fora da área visível.
-        OcultarBoneco(bonecoAviso);
-        OcultarBoneco(bonecoRaio);
+        instanteImpacto = 0f;
+
+        // O CoStartGame pode ocorrer depois de ShipStatus.Start. Destrói os
+        // objetos antigos e zera as referências para que a próxima chamada de
+        // IniciarPartida faça um novo spawn/associação nesta partida.
+        DestruirBoneco(ref bonecoAviso);
+        DestruirBoneco(ref bonecoRaio);
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            "[F7/Raio] Estado reiniciado. Armado preservado=" + armado +
+            "; aguardando inicialização dos indicadores no mapa.");
+    }
+
+    private static void DestruirBoneco(ref PlayerControl boneco)
+    {
+        if (boneco == null) return;
+        try
+        {
+            if (PlayerControl.AllPlayerControls.Contains(boneco))
+                PlayerControl.AllPlayerControls.Remove(boneco);
+        }
+        catch { }
+        try { UnityEngine.Object.Destroy(boneco.gameObject); } catch { }
+        boneco = null;
     }
 }
