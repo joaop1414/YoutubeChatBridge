@@ -1,5 +1,4 @@
 using System;
-using HarmonyLib;
 using Il2CppInterop.Runtime.Injection;
 using TMPro;
 using UnityEngine.UI;
@@ -18,7 +17,6 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
 
     private static VisualizadorNomeMenu instancia;
     private static bool registrado;
-    private static PassiveButton botaoMenu;
     private static bool painelAberto;
     private static Canvas canvasPreview;
     private static TMP_Text textoPreview;
@@ -41,67 +39,9 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
         }
     }
 
-    public static void AoAbrirMenuPrincipal(MainMenuManager __instance)
-    {
-        try
-        {
-            if (__instance == null || __instance.quitButton == null)
-                return;
-
-            if (botaoMenu != null)
-                UnityEngine.Object.Destroy(botaoMenu.gameObject);
-
-            // EHR usa um botão existente como modelo para preservar aparência,
-            // collider e comportamento de clique do menu de Among Us.
-            botaoMenu = UnityEngine.Object.Instantiate(
-                __instance.quitButton, __instance.quitButton.transform.parent);
-            botaoMenu.name = "YouTubeVoteBridge_TextMeshProButton";
-            UnityEngine.Object.Destroy(botaoMenu.GetComponent<AspectPosition>());
-            botaoMenu.transform.localPosition =
-                __instance.quitButton.transform.localPosition + new Vector3(0f, 0.72f, 0f);
-            botaoMenu.transform.localScale = __instance.quitButton.transform.localScale;
-            botaoMenu.OnClick.RemoveAllListeners();
-            botaoMenu.OnClick.AddListener((Action)(() =>
-            {
-                painelAberto = !painelAberto;
-                if (painelAberto)
-                {
-                    CriarPreviewTMP(labelModelo: botaoMenu.GetComponentInChildren<TMP_Text>(true));
-                    if (textoPreview != null)
-                    {
-                        textoPreview.text = textoEditor ?? string.Empty;
-                        textoPreview.gameObject.SetActive(true);
-                    }
-                }
-                else if (textoPreview != null)
-                    textoPreview.gameObject.SetActive(false);
-            }));
-
-            TMP_Text label = botaoMenu.GetComponentInChildren<TMP_Text>(true);
-            if (label != null)
-            {
-                label.text = "Visualizador TextMeshPro";
-                label.enableWordWrapping = false;
-                label.fontSize = 2.1f;
-                label.fontSizeMin = 1.6f;
-                label.fontSizeMax = 2.1f;
-            }
-
-            botaoMenu.gameObject.SetActive(true);
-            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[Visualizador TMP] Botão criado no menu principal usando o botão nativo do jogo.");
-        }
-        catch (Exception ex)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[Visualizador TMP] Não foi possível criar o botão do menu: " + ex);
-        }
-    }
-
     private static void CriarPreviewTMP(TMP_Text labelModelo)
     {
         if (canvasPreview != null && textoPreview != null) return;
-        if (labelModelo == null) return;
 
         var canvasObj = new GameObject("YouTubeVoteBridge_TMPPreviewCanvas");
         UnityEngine.Object.DontDestroyOnLoad(canvasObj);
@@ -111,8 +51,8 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
         canvasObj.AddComponent<CanvasScaler>();
         canvasObj.AddComponent<GraphicRaycaster>();
 
-        var previewObj = UnityEngine.Object.Instantiate(labelModelo.gameObject, canvasObj.transform);
-        previewObj.name = "TextMeshProPreview";
+        var previewObj = new GameObject("TextMeshProPreview", typeof(RectTransform), typeof(TextMeshProUGUI));
+        previewObj.transform.SetParent(canvasObj.transform, false);
         var rect = previewObj.GetComponent<RectTransform>();
         rect.anchorMin = new Vector2(0.5f, 0.5f);
         rect.anchorMax = new Vector2(0.5f, 0.5f);
@@ -120,6 +60,7 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
         rect.anchoredPosition = new Vector2(0f, -115f);
         rect.sizeDelta = new Vector2(1000f, 180f);
         textoPreview = previewObj.GetComponent<TMP_Text>();
+        textoPreview.font = TMPro.TMP_Settings.defaultFontAsset;
         textoPreview.enableWordWrapping = true;
         textoPreview.richText = true;
         textoPreview.alignment = TextAlignmentOptions.Center;
@@ -129,11 +70,30 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
 
     private void OnGUI()
     {
-        if (!painelAberto || PlayerControl.LocalPlayer != null)
+        if (PlayerControl.LocalPlayer != null)
             return;
 
         try
         {
+            if (!painelAberto)
+            {
+                float buttonW = 300f;
+                float buttonH = 42f;
+                float buttonX = (Screen.width - buttonW) / 2f;
+                float buttonY = Screen.height * 0.5f + 115f;
+                if (GUI.Button(new Rect(buttonX, buttonY, buttonW, buttonH), "Visualizador TextMeshPro"))
+                {
+                    painelAberto = true;
+                    CriarPreviewTMP(null);
+                    if (textoPreview != null)
+                    {
+                        textoPreview.text = textoEditor ?? string.Empty;
+                        textoPreview.gameObject.SetActive(true);
+                    }
+                }
+                return;
+            }
+
             float w = 500f;
             float h = 390f;
             painel.x = (Screen.width - w) / 2f;
@@ -174,16 +134,5 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError("[Visualizador TMP] Erro no painel: " + ex);
         }
-    }
-}
-
-
-[HarmonyPatch(typeof(MainMenuManager), nameof(MainMenuManager.Start))]
-internal static class VisualizadorNomeMenuPatch
-{
-    [HarmonyPostfix]
-    private static void Postfix(MainMenuManager __instance)
-    {
-        VisualizadorNomeMenu.AoAbrirMenuPrincipal(__instance);
     }
 }
