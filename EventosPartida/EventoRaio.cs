@@ -34,6 +34,10 @@ internal sealed class EventoRaio : EventoVotacao
     private static PlayerControl bonecoRaio;
     private static int etapaInicializacao;
     private static float proximaEtapa;
+    private static bool inicializacaoPendente;
+    private static bool liberarInicializacaoAdiada;
+    private static float iniciarDepoisDe;
+    private const float AtrasoInicializacaoPartida = 2.5f;
     private static AudioClip somRaio;
     private static AudioSource fonteSom;
     private static bool tentativaCriarSom;
@@ -80,8 +84,28 @@ internal sealed class EventoRaio : EventoVotacao
 
         if (ativo && bonecoAviso != null && bonecoRaio != null) return;
 
+        // ShipStatus.Start/CoStartGame ainda fazem parte da transição de cena.
+        // Não instanciar PlayerPrefab nesse momento: aguardar a partida estabilizar.
+        if (!liberarInicializacaoAdiada)
+        {
+            if (!inicializacaoPendente)
+            {
+                inicializacaoPendente = true;
+                iniciarDepoisDe = Time.realtimeSinceStartup + AtrasoInicializacaoPartida;
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[F7/Raio] Inicialização adiada por " + AtrasoInicializacaoPartida +
+                    "s para evitar instanciar bonecos durante a transição/tela preta.");
+            }
+            return;
+        }
+
+        liberarInicializacaoAdiada = false;
+        inicializacaoPendente = false;
+
         try
         {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[F7/Raio] A partida estabilizou; começando a criar os indicadores ocultos.");
             ativo = true;
             descargaPendente = false;
             if (bonecoAviso != null && bonecoRaio != null)
@@ -150,6 +174,16 @@ internal sealed class EventoRaio : EventoVotacao
         CriarSomLocal();
         AtualizarSomLocal();
         AtualizarAlertaNoisemakerLocal();
+
+        // O adiamento é processado no Update, fora de ShipStatus.Start/CoStartGame.
+        if (YouTubeVoteBridgePlugin.EhHost() && armado && inicializacaoPendente &&
+            Time.realtimeSinceStartup >= iniciarDepoisDe &&
+            ShipStatus.Instance != null && MeetingHud.Instance == null)
+        {
+            liberarInicializacaoAdiada = true;
+            IniciarPartida();
+        }
+
         if (!YouTubeVoteBridgePlugin.EhHost() || !ativo) return;
 
         if (etapaInicializacao == 1 && Time.realtimeSinceStartup >= proximaEtapa)
@@ -496,6 +530,9 @@ internal sealed class EventoRaio : EventoVotacao
         somGlobalTocadoNestaDescarga = false;
         somTocadoNestaDescarga = false;
         etapaInicializacao = 0;
+        inicializacaoPendente = false;
+        liberarInicializacaoAdiada = false;
+        iniciarDepoisDe = 0f;
         proximoRaioEm = 0f;
         instanteImpacto = 0f;
 
