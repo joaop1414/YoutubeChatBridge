@@ -4,6 +4,7 @@ using System.Text;
 using System.Threading;
 using UnityEngine;
 using TMPro;
+using Hazel;
 using Il2CppInterop.Runtime.Injection;
 
 namespace YouTubeVoteBridge;
@@ -46,11 +47,10 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
     private GUIStyle estiloCampo;
     private bool estilosProntos;
 
-    // Substitui apenas o texto renderizado localmente no nome do jogador.
-    // Não altera DataManager.PlayerName nem envia RPCs.
-    private static TextMeshPro nomeTextoLocal;
+    // Teste de alteração global do nome do host. O nome original é guardado para restauração.
     private static PlayerControl jogadorDoNome;
-    private static string nomeOriginalLocal;
+    private static string nomeOriginalGlobal;
+    private static string ultimoNomeEnviado;
 
     public static void Inicializar()
     {
@@ -124,54 +124,104 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
             PlayerControl jogador = PlayerControl.LocalPlayer;
             if (!previewVisivel || string.IsNullOrWhiteSpace(textoAplicado) || jogador == null)
             {
-                RestaurarNomeLocal();
+                RestaurarNomeGlobal();
                 return;
             }
 
-            if (jogadorDoNome != jogador || nomeTextoLocal == null)
+            // A alteração global de nome é controlada pelo host da sala.
+            if (AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost)
             {
-                RestaurarNomeLocal();
-
-                if (jogador.cosmetics == null || jogador.cosmetics.nameText == null)
-                {
-                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                        "[Visualizador F8] O componente de nome do jogador ainda não está disponível.");
-                    return;
-                }
-
-                jogadorDoNome = jogador;
-                nomeTextoLocal = jogador.cosmetics.nameText;
-                nomeOriginalLocal = nomeTextoLocal.text ?? "";
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[Visualizador F8] Para testar o nome global, este cliente precisa ser o host da sala.");
+                return;
             }
 
-            // Reaplica localmente a cada atualização para prevalecer sobre atualizações visuais do jogo.
-            // Isso altera somente o TextMeshPro desta instância local, não o nome de rede.
-            if (nomeTextoLocal != null && nomeTextoLocal.text != textoAplicado)
-                nomeTextoLocal.text = textoAplicado;
+            if (jogadorDoNome != jogador || nomeOriginalGlobal == null)
+            {
+                RestaurarNomeGlobal();
+                jogadorDoNome = jogador;
+                nomeOriginalGlobal = jogador.Data != null
+                    ? (jogador.Data.PlayerName ?? string.Empty)
+                    : string.Empty;
+            }
+
+            if (!string.Equals(ultimoNomeEnviado, textoAplicado, StringComparison.Ordinal))
+                EnviarNomeGlobal(jogador, textoAplicado);
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[Visualizador F8] Falha ao substituir o nome renderizado localmente: " + ex);
+                "[Visualizador F8] Falha ao alterar o nome global: " + ex);
         }
     }
 
-    private static void RestaurarNomeLocal()
+    private static void EnviarNomeGlobal(PlayerControl jogador, string nome)
+    {
+        if (jogador == null || jogador.Data == null || AmongUsClient.Instance == null ||
+            !AmongUsClient.Instance.AmHost)
+            return;
+
+        MessageWriter writer = null;
+        try
+        {
+            // Broadcast do RPC SetName através de GameData, seguindo o formato usado no próprio mod.
+            writer = MessageWriter.Get(SendOption.Reliable);
+            writer.StartMessage(5); // GameData
+            writer.Write(AmongUsClient.Instance.GameId);
+            writer.StartMessage(2); // RPC
+            writer.WritePacked(jogador.NetId);
+            writer.Write((byte)RpcCalls.SetName);
+            writer.Write(jogador.Data.NetId);
+            writer.Write(nome);
+            writer.EndMessage();
+            writer.EndMessage();
+            AmongUsClient.Instance.SendOrDisconnect(writer);
+            writer.Recycle();
+            writer = null;
+
+            jogador.SetName(nome);
+            if (jogador.Data != null) jogador.Data.PlayerName = nome;
+            if (jogador.cosmetics != null && jogador.cosmetics.nameText != null)
+                jogador.cosmetics.nameText.text = nome;
+
+            ultimoNomeEnviado = nome;
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[Visualizador F8] Nome global enviado pelo host: '" + nome + "'.");
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "[Visualizador F8] Erro ao enviar SetName global: " + ex);
+        }
+        finally
+        {
+            if (writer != null)
+            {
+                try { writer.Recycle(); } catch { }
+            }
+        }
+    }
+
+    private static void RestaurarNomeGlobal()
     {
         try
         {
-            if (nomeTextoLocal != null && nomeOriginalLocal != null)
-                nomeTextoLocal.text = nomeOriginalLocal;
+            if (jogadorDoNome != null && !string.IsNullOrEmpty(nomeOriginalGlobal) &&
+                !string.Equals(ultimoNomeEnviado, nomeOriginalGlobal, StringComparison.Ordinal) &&
+                AmongUsClient.Instance != null && AmongUsClient.Instance.AmHost)
+            {
+                EnviarNomeGlobal(jogadorDoNome, nomeOriginalGlobal);
+            }
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "[Visualizador F8] Não foi possível restaurar o nome original: " + ex.Message);
+                "[Visualizador F8] Não foi possível restaurar o nome global: " + ex.Message);
         }
 
-        nomeTextoLocal = null;
         jogadorDoNome = null;
-        nomeOriginalLocal = null;
+        nomeOriginalGlobal = null;
+        ultimoNomeEnviado = null;
     }
 
     private static void CriarJanelaNativa()
