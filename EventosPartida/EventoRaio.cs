@@ -452,17 +452,27 @@ internal sealed class EventoRaio : EventoVotacao
             tentativaCriarSom = false;
             CriarSomLocal();
         }
-        if (fonteSom == null || somRaio == null) return;
+        if (fonteSom == null || somRaio == null)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Raio] O indicador apareceu, mas o áudio não está pronto; o trovão não foi reproduzido.");
+            return;
+        }
 
         try
         {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[F7/Raio] Trovão detectado! PlayerId=" + raio.PlayerId +
+                ", posição=" + posicaoRaio + ". Tentando reproduzir áudio local.");
             fonteSom.PlayOneShot(somRaio, 1f);
             somGlobalTocadoNestaDescarga = true;
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[F7/Raio] PlayOneShot chamado com sucesso para o trovão.");
         }
         catch (Exception ex)
         {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "[F7/Raio] Falha ao reproduzir o trovão: " + ex.Message);
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "[F7/Raio] Falha ao reproduzir o trovão: " + ex);
         }
     }
 
