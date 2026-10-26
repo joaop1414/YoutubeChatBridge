@@ -2,6 +2,7 @@ using System;
 using HarmonyLib;
 using Il2CppInterop.Runtime.Injection;
 using TMPro;
+using UnityEngine.UI;
 using UnityEngine;
 
 namespace YouTubeVoteBridge;
@@ -22,7 +23,6 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
     private static Canvas canvasPreview;
     private static TMP_Text textoPreview;
     private static string textoEditor = "<color=#ff4444>Teste</color> <b>TextMeshPro</b>";
-    private static Vector2 scroll;
     private Rect painel = new Rect(0, 0, 500, 390);
 
     public static void Inicializar()
@@ -62,7 +62,7 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
             botaoMenu.transform.localPosition =
                 __instance.quitButton.transform.localPosition + new Vector3(0f, 0.72f, 0f);
             botaoMenu.transform.localScale = __instance.quitButton.transform.localScale;
-            botaoMenu.OnClick = new UnityEngine.Events.UnityEvent();
+            botaoMenu.OnClick.RemoveAllListeners();
             botaoMenu.OnClick.AddListener((Action)(() =>
             {
                 painelAberto = !painelAberto;
@@ -82,7 +82,6 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
             TMP_Text label = botaoMenu.GetComponentInChildren<TMP_Text>(true);
             if (label != null)
             {
-                label.DestroyTranslator();
                 label.text = "Visualizador TextMeshPro";
                 label.enableWordWrapping = false;
                 label.fontSize = 2.1f;
@@ -111,8 +110,8 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
         canvasPreview = canvasObj.AddComponent<Canvas>();
         canvasPreview.renderMode = RenderMode.ScreenSpaceOverlay;
         canvasPreview.sortingOrder = 32000;
-        canvasObj.AddComponent<UnityEngine.UI.CanvasScaler>();
-        canvasObj.AddComponent<UnityEngine.UI.GraphicRaycaster>();
+        canvasObj.AddComponent<CanvasScaler>();
+        canvasObj.AddComponent<GraphicRaycaster>();
 
         var previewObj = UnityEngine.Object.Instantiate(labelModelo.gameObject, canvasObj.transform);
         previewObj.name = "TextMeshProPreview";
