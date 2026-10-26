@@ -18,6 +18,7 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
     private static VisualizadorNomeMenu instancia;
     private static bool registrado;
     private static bool painelAberto;
+    private static float proximoLogDiagnostico;
     private static Canvas canvasPreview;
     private static TMP_Text textoPreview;
     private static string textoEditor = "<color=#ff4444>Teste</color> <b>TextMeshPro</b>";
@@ -25,17 +26,28 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
 
     public static void Inicializar()
     {
-        if (!registrado)
+        try
         {
-            ClassInjector.RegisterTypeInIl2Cpp<VisualizadorNomeMenu>();
-            registrado = true;
-        }
+            if (!registrado)
+            {
+                ClassInjector.RegisterTypeInIl2Cpp<VisualizadorNomeMenu>();
+                registrado = true;
+            }
 
-        if (instancia == null)
+            if (instancia == null)
+            {
+                var go = new GameObject("YouTubeVoteBridge_TextMeshProPreview");
+                UnityEngine.Object.DontDestroyOnLoad(go);
+                instancia = go.AddComponent<VisualizadorNomeMenu>();
+            }
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[Visualizador TMP] Inicializado; aguardando F8.");
+        }
+        catch (Exception ex)
         {
-            var go = new GameObject("YouTubeVoteBridge_TextMeshProPreview");
-            UnityEngine.Object.DontDestroyOnLoad(go);
-            instancia = go.AddComponent<VisualizadorNomeMenu>();
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "[Visualizador TMP] Falha na inicialização: " + ex);
         }
     }
 
@@ -89,14 +101,23 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
 
     private void Update()
     {
-        // Não dependemos de GameState, pois o estado do cliente pode variar
-        // entre versões e impedir o atalho mesmo na tela inicial.
-        // Basta não existir um jogador local: assim o atalho não abre durante a partida.
+        // Diagnóstico contínuo, limitado a uma mensagem por segundo, para
+        // confirmar se o MonoBehaviour está recebendo Update.
+        if (Time.unscaledTime >= proximoLogDiagnostico)
+        {
+            proximoLogDiagnostico = Time.unscaledTime + 5f;
+            YouTubeVoteBridgePlugin.Instance?.Log.LogDebug(
+                "[Visualizador TMP] Update ativo; jogadorLocal=" +
+                (PlayerControl.LocalPlayer != null) + ".");
+        }
+
         if (PlayerControl.LocalPlayer != null)
             return;
 
         if (Input.GetKeyDown(KeyCode.F8))
         {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[Visualizador TMP] F8 detectado.");
             if (painelAberto)
             {
                 painelAberto = false;
@@ -109,7 +130,7 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
                 {
                     AbrirPainel();
                     YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                        "[Visualizador TMP] Atalho F8 detectado; painel aberto.");
+                        "[Visualizador TMP] Painel aberto.");
                 }
                 catch (Exception ex)
                 {
