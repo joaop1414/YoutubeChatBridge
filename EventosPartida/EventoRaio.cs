@@ -156,7 +156,21 @@ internal sealed class EventoRaio : EventoVotacao
             etapaInicializacao = 3;
             return;
         }
-        if (etapaInicializacao < 3 || MeetingHud.Instance != null) return;
+        // A etapa 0 é o estado normal antes do primeiro raio ou após o
+        // despawn. Não retornar sem chamar IniciarDescarga: ela cria os
+        // indicadores sob demanda e inicia a sequência de spawn em etapas.
+        if (etapaInicializacao < 3)
+        {
+            if (etapaInicializacao == 0 &&
+                !ocultarDepoisDoImpacto &&
+                !descargaPendente &&
+                Time.realtimeSinceStartup >= proximoRaioEm &&
+                MeetingHud.Instance == null)
+                IniciarDescarga();
+            return;
+        }
+
+        if (MeetingHud.Instance != null) return;
 
         if (ocultarDepoisDoImpacto && Time.realtimeSinceStartup >= proximoRaioEm)
         {
