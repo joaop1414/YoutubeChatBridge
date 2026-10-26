@@ -414,47 +414,55 @@ internal sealed class EventoRaio : EventoVotacao
     {
         if (PlayerControl.LocalPlayer == null) return;
 
-        // O som é local em cada cliente com o mod, mas não é espacial:
-        // todos ouvem cada descarga independentemente da distância.
-        // O indicador de rede é a sincronização da descarga entre clientes.
-        PlayerControl aviso = bonecoAviso;
-        if (aviso == null || aviso.PlayerId != PlayerIdAviso)
+        // O som deve acompanhar a DESCARGA, não o aviso amarelo anterior.
+        // O Tsunami usa o mesmo padrão de PlayerControl falso sincronizado:
+        // encontrar o objeto pelo PlayerId e observar sua posição replicada.
+        PlayerControl raio = bonecoRaio;
+        if (raio == null || raio.PlayerId != PlayerIdRaio)
         {
             try
             {
                 foreach (PlayerControl candidato in UnityEngine.Object.FindObjectsOfType<PlayerControl>())
                 {
-                    if (candidato != null && candidato.PlayerId == PlayerIdAviso)
+                    if (candidato != null && candidato.PlayerId == PlayerIdRaio)
                     {
-                        aviso = candidato;
+                        raio = candidato;
                         break;
                     }
                 }
             }
             catch { }
         }
-        if (aviso == null) return;
 
-        Vector2 posicaoAviso = aviso.transform.position;
-        bool visivel = posicaoAviso.x >= -500f;
+        if (raio == null) return;
+
+        Vector2 posicaoRaio = raio.transform.position;
+        bool visivel = posicaoRaio.x >= -500f;
         if (!visivel)
         {
             somGlobalTocadoNestaDescarga = false;
             return;
         }
 
-        if (somGlobalTocadoNestaDescarga || fonteSom == null || somRaio == null)
-            return;
+        if (somGlobalTocadoNestaDescarga) return;
+
+        // Se a criação inicial do AudioSource falhou, tenta novamente.
+        if (fonteSom == null || somRaio == null)
+        {
+            tentativaCriarSom = false;
+            CriarSomLocal();
+        }
+        if (fonteSom == null || somRaio == null) return;
 
         try
         {
-            fonteSom.PlayOneShot(somRaio);
+            fonteSom.PlayOneShot(somRaio, 1f);
             somGlobalTocadoNestaDescarga = true;
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "[F7/Raio] Falha ao tocar o som global: " + ex.Message);
+                "[F7/Raio] Falha ao reproduzir o trovão: " + ex.Message);
         }
     }
 
