@@ -43,16 +43,8 @@ internal sealed class EventoRaio : EventoVotacao
     private static Vector2 ultimaPosicaoAlerta;
     private static readonly System.Random Sorteador = new();
 
-    // Cinco variações textuais provisórias. Podem ser trocadas pelos cinco
-    // desenhos rich-text definitivos quando forem adicionados ao projeto.
-    private static readonly string[] DesenhosRaio =
-    {
-        "<color=#FFFFFF><size=5><line-height=80%>W\nW\nW\nW\nW\nW</line-height></size></color>",
-        "<color=#EAF8FF><size=5><line-height=80%>W\n W\nW\n W\nW\n W</line-height></size></color>",
-        "<color=#FFFFFF><size=5><line-height=80%>W\n W\n W\nW\n W\nW</line-height></size></color>",
-        "<color=#D7F2FF><size=5><line-height=80%>W\nW\n W\n W\nW\n W</line-height></size></color>",
-        "<color=#FFFFFF><size=5><line-height=80%>W\n W\nW\nW\n W\nW</line-height></size></color>"
-    };
+    // Desenho único do raio, usando as tags rich-text fornecidas.
+    private const string DesenhoRaio = "<line-height=97%><cspace=0.16em><size=170><color=#00000000>WWW</color><color=#ffffff><mark=#ffffff>WWWWW</mark></color></size>\\n<size=170><color=#00000000>W</color><color=#ffffff><mark=#ffffff>WWW</mark></color><color=#00000000>WWWW</color></size>\\n<size=170><color=#00000000>WW</color><color=#ffffff><mark=#ffffff>WW</mark></color><color=#00000000>WWWW</color></size>\\n<size=170><color=#00000000>WWWW</color><color=#ffffff><mark=#ffffff>WW</mark></color><color=#00000000>WW</color></size>\\n<size=170><color=#00000000>WW</color><color=#ffffff><mark=#ffffff>WW</mark></color><color=#00000000>W</color><color=#ffffff><mark=#ffffff>W</mark></color><color=#00000000>WW</color></size>\\n<size=170><color=#00000000>WWWWW</color><color=#ffffff><mark=#ffffff>W</mark></color><color=#00000000>WW</color></size>\\n<size=170><color=#00000000>WWW</color><color=#ffffff><mark=#ffffff>WWWW</mark></color><color=#00000000>W</color></size>\\n<size=170><color=#00000000>WW</color><color=#ffffff><mark=#ffffff>W</mark></color><color=#00000000>WWWWW</color></size>\\n<size=170><color=#00000000>W</color><color=#ffffff><mark=#ffffff>W</mark></color><color=#00000000>WWWWWW</color></size>\\n<size=170><color=#ffffff><mark=#ffffff>W</mark></color><color=#00000000>WWWWWWW</color></size></cspace></line-height>";
     private const string DesenhoAviso =
         "<color=#FFFF00><size=3><b>!</b></size></color>";
 
@@ -168,7 +160,7 @@ internal sealed class EventoRaio : EventoVotacao
         if (etapaInicializacao == 2 && Time.realtimeSinceStartup >= proximaEtapa)
         {
             PrepararBoneco(bonecoAviso, DesenhoAviso);
-            PrepararBoneco(bonecoRaio, DesenhosRaio[0]);
+            PrepararBoneco(bonecoRaio, DesenhoRaio);
             OcultarBoneco(bonecoAviso);
             OcultarBoneco(bonecoRaio);
             etapaInicializacao = 3;
@@ -280,15 +272,14 @@ internal sealed class EventoRaio : EventoVotacao
             (float)(Sorteador.NextDouble() * 2.8 - 1.4),
             (float)(Sorteador.NextDouble() * 2.0 - 1.0));
 
-        int variacao = Sorteador.Next(DesenhosRaio.Length);
-        desenhoAtualRaio = DesenhosRaio[variacao];
+        desenhoAtualRaio = DesenhoRaio;
         PrepararBoneco(bonecoRaio, desenhoAtualRaio);
         CustomNetObject.EnviarPosicao(bonecoAviso, localDoRaio);
         CustomNetObject.EnviarSetName(bonecoAviso, DesenhoAviso);
         CustomNetObject.EnviarPosicao(bonecoRaio, localDoRaio);
-        CustomNetObject.EnviarSetName(bonecoRaio, DesenhosRaio[variacao]);
+        CustomNetObject.EnviarSetName(bonecoRaio, DesenhoRaio);
         definirTextoLocal(bonecoAviso, DesenhoAviso);
-        definirTextoLocal(bonecoRaio, DesenhosRaio[variacao]);
+        definirTextoLocal(bonecoRaio, DesenhoRaio);
         MostrarBoneco(bonecoAviso);
         OcultarBoneco(bonecoRaio);
 
