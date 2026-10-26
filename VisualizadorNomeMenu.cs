@@ -3,8 +3,9 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using UnityEngine;
+using UnityEngine.SceneManagement;
+using UnityEngine.UI;
 using TMPro;
-using Hazel;
 using Il2CppInterop.Runtime.Injection;
 
 namespace YouTubeVoteBridge;
@@ -47,11 +48,14 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
     private GUIStyle estiloCampo;
     private bool estilosProntos;
 
-    // Prévia estritamente local: muda apenas o texto visual do jogador no cliente do host.
-    // Não envia RPC e não altera PlayerName, para que os outros clientes não vejam a mudança.
-    private static PlayerControl jogadorDoNome;
-    private static string nomeVisualOriginal;
-    private static string ultimoNomeVisualAplicado;
+    // Editor/preview da tela inicial. A prévia usa um TextMeshProUGUI independente,
+    // sem tocar no nome do jogador nem enviar mensagens pela rede.
+    private static bool painelInicialAberto;
+    private static string textoEditor = "<color=#ff4444>Teste</color> <b>TextMeshPro</b>";
+    private static GameObject canvasPreview;
+    private static TextMeshProUGUI textoPreviewTMP;
+    private static string ultimaCenaRegistrada;
+    private Rect painelInicial = new Rect(20, 80, 440, 360);
 
     public static void Inicializar()
     {
@@ -99,79 +103,135 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
     {
         if (instancia == null) return;
 
-        string novoTexto = null;
-        bool? novaVisibilidade;
-        lock (travaTexto)
-        {
-            if (aplicarTextoPendente)
-            {
-                novoTexto = textoPendente;
-                aplicarTextoPendente = false;
-            }
-            novaVisibilidade = visibilidadePendente;
-            visibilidadePendente = null;
-        }
-
-        if (novoTexto != null)
-        {
-            textoAplicado = novoTexto;
-            previewVisivel = !string.IsNullOrWhiteSpace(novoTexto);
-        }
-        if (novaVisibilidade.HasValue)
-            previewVisivel = novaVisibilidade.Value;
-
+        // Mantém o editor disponível no menu inicial e cria um TMP independente.
+        // Não altera PlayerControl, PlayerName, cosmetics.nameText nem envia RPC.
         try
         {
-            PlayerControl jogador = PlayerControl.LocalPlayer;
-            if (!previewVisivel || string.IsNullOrWhiteSpace(textoAplicado) || jogador == null ||
-                jogador.cosmetics == null || jogador.cosmetics.nameText == null)
+            string cena = SceneManager.GetActiveScene().name ?? string.Empty;
+            if (!string.Equals(cena, ultimaCenaRegistrada, StringComparison.Ordinal))
             {
-                RestaurarNomeLocal();
-                return;
+                ultimaCenaRegistrada = cena;
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[Visualizador F8] Cena atual: '" + cena + "'.");
             }
 
-            if (jogadorDoNome != jogador || nomeVisualOriginal == null)
-            {
-                RestaurarNomeLocal();
-                jogadorDoNome = jogador;
-                nomeVisualOriginal = jogador.cosmetics.nameText.text ?? string.Empty;
-            }
+            bool semJogador = PlayerControl.LocalPlayer == null;
+            bool noMenuInicial = semJogador &&
+                (AmongUsClient.Instance == null || cena.IndexOf("MainMenu", StringComparison.OrdinalIgnoreCase) >= 0);
 
-            // Reaplica somente a propriedade visual local. O jogo pode redesenhar o nome
-            // durante a partida, então a prévia é reaplicada a cada atualização.
-            jogador.cosmetics.nameText.text = textoAplicado;
-            ultimoNomeVisualAplicado = textoAplicado;
+            if (noMenuInicial && painelInicialAberto)
+                GarantirPreviewTMP();
+            else if (textoPreviewTMP != null)
+                textoPreviewTMP.gameObject.SetActive(noMenuInicial && painelInicialAberto);
+
+            if (textoPreviewTMP != null)
+            {
+                textoPreviewTMP.text = textoEditor ?? string.Empty;
+                textoPreviewTMP.gameObject.SetActive(noMenuInicial && painelInicialAberto);
+            }
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[Visualizador F8] Falha ao atualizar o texto visual local: " + ex);
+                "[Visualizador F8] Erro ao atualizar a prévia da tela inicial: " + ex);
         }
     }
 
-    private static void RestaurarNomeLocal()
+    private static void GarantirPreviewTMP()
+    {
+        if (canvasPreview != null && textoPreviewTMP != null) return;
+
+        var canvasObject = new GameObject("YouTubeChatBridge_PreviewCanvas");
+        UnityEngine.Object.DontDestroyOnLoad(canvasObject);
+        var canvas = canvasObject.AddComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvas.sortingOrder = 32700;
+        canvasObject.AddComponent<CanvasScaler>();
+        canvasObject.AddComponent<GraphicRaycaster>();
+        canvasPreview = canvasObject;
+
+        var textoObject = new GameObject("PreviewTextMeshPro");
+        textoObject.transform.SetParent(canvasObject.transform, false);
+        var rect = textoObject.GetComponent<RectTransform>();
+        if (rect == null) rect = textoObject.AddComponent<RectTransform>();
+        rect.anchorMin = new Vector2(0.5f, 0.5f);
+        rect.anchorMax = new Vector2(0.5f, 0.5f);
+        rect.pivot = new Vector2(0.5f, 0.5f);
+        rect.anchoredPosition = new Vector2(0, -105);
+        rect.sizeDelta = new Vector2(700, 110);
+
+        textoPreviewTMP = textoObject.AddComponent<TextMeshProUGUI>();
+        textoPreviewTMP.text = textoEditor;
+        textoPreviewTMP.richText = true;
+        textoPreviewTMP.fontSize = 32;
+        textoPreviewTMP.alignment = TextAlignmentOptions.Center;
+        textoPreviewTMP.enableWordWrapping = true;
+        textoPreviewTMP.raycastTarget = false;
+    }
+
+    private void OnGUI()
     {
         try
         {
-            if (jogadorDoNome != null && !string.IsNullOrEmpty(nomeVisualOriginal) &&
-                jogadorDoNome.cosmetics != null && jogadorDoNome.cosmetics.nameText != null)
+            string cena = SceneManager.GetActiveScene().name ?? string.Empty;
+            bool semJogador = PlayerControl.LocalPlayer == null;
+            bool noMenuInicial = semJogador &&
+                (AmongUsClient.Instance == null || cena.IndexOf("MainMenu", StringComparison.OrdinalIgnoreCase) >= 0);
+            if (!noMenuInicial) return;
+
+            GUI.depth = -1000;
+            if (!painelInicialAberto)
             {
-                // Só restaura se o texto ainda for o que esta prévia aplicou, para não
-                // sobrescrever uma mudança legítima feita por outra parte do jogo/mod.
-                string atual = jogadorDoNome.cosmetics.nameText.text;
-                if (string.Equals(atual, ultimoNomeVisualAplicado, StringComparison.Ordinal))
-                    jogadorDoNome.cosmetics.nameText.text = nomeVisualOriginal;
+                if (GUI.Button(new Rect(20, 20, 230, 38), "Visualizador TextMeshPro"))
+                {
+                    painelInicialAberto = true;
+                    GarantirPreviewTMP();
+                    if (textoPreviewTMP != null) textoPreviewTMP.gameObject.SetActive(true);
+                }
+                return;
             }
+
+            painelInicial = GUI.Window(57341, painelInicial, DesenharPainelInicial,
+                "YouTubeChatBridge — Prévia TextMeshPro");
         }
         catch (Exception ex)
         {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "[Visualizador F8] Não foi possível restaurar o texto visual local: " + ex.Message);
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError("[Visualizador F8] OnGUI: " + ex);
         }
+    }
 
-        jogadorDoNome = null;
-        nomeVisualOriginal = null;
-        ultimoNomeVisualAplicado = null;
+    private void DesenharPainelInicial(int id)
+    {
+        GUILayout.Label("Digite ou cole texto com tags do TextMeshPro:");
+        GUILayout.Space(5);
+        textoEditor = GUILayout.TextArea(textoEditor ?? string.Empty, GUILayout.Height(170), GUILayout.ExpandWidth(true));
+
+        GUILayout.Space(8);
+        GUILayout.BeginHorizontal();
+        if (GUILayout.Button("Atualizar prévia", GUILayout.Height(32)))
+        {
+            GarantirPreviewTMP();
+            if (textoPreviewTMP != null)
+            {
+                textoPreviewTMP.text = textoEditor;
+                textoPreviewTMP.gameObject.SetActive(true);
+            }
+        }
+        if (GUILayout.Button("Limpar", GUILayout.Height(32)))
+        {
+            textoEditor = string.Empty;
+            if (textoPreviewTMP != null) textoPreviewTMP.text = string.Empty;
+        }
+        if (GUILayout.Button("Fechar", GUILayout.Height(32)))
+        {
+            painelInicialAberto = false;
+            if (textoPreviewTMP != null) textoPreviewTMP.gameObject.SetActive(false);
+        }
+        GUILayout.EndHorizontal();
+
+        GUILayout.Space(6);
+        GUILayout.Label("A prévia é local e não altera o nome do jogador.");
+        GUI.DragWindow(new Rect(0, 0, 10000, 25));
     }
 
     private static void CriarJanelaNativa()
