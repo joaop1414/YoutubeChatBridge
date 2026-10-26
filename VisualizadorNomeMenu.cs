@@ -1,4 +1,5 @@
 using System;
+using HarmonyLib;
 using Il2CppInterop.Runtime.Injection;
 using TMPro;
 using UnityEngine.UI;
@@ -17,6 +18,7 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
     private static VisualizadorNomeMenu instancia;
     private static bool registrado;
     private static bool painelAberto;
+    private static PassiveButton botaoMenu;
     private static Canvas canvasPreview;
     private static TMP_Text textoPreview;
     private static string textoEditor = "<color=#ff4444>Teste</color> <b>TextMeshPro</b>";
@@ -71,32 +73,65 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
         textoPreview.gameObject.SetActive(true);
     }
 
+    private static void AbrirPainel()
+    {
+        painelAberto = true;
+        CriarPreviewTMP(null);
+        if (textoPreview != null)
+        {
+            textoPreview.text = textoEditor ?? string.Empty;
+            textoPreview.gameObject.SetActive(true);
+        }
+    }
+
+    private static void CriarBotaoMenu(MainMenuManager menu)
+    {
+        if (botaoMenu != null || menu == null || menu.quitButton == null)
+            return;
+
+        // Mesmo padrão usado pelo EHR: usa quitButton apenas como modelo visual,
+        // mas substitui completamente o evento para não executar a ação de sair.
+        botaoMenu = UnityEngine.Object.Instantiate(menu.quitButton, menu.quitButton.transform.parent);
+        botaoMenu.name = "YouTubeVoteBridge_TMPViewerButton";
+        UnityEngine.Object.Destroy(botaoMenu.GetComponent<AspectPosition>());
+        botaoMenu.transform.localPosition = new Vector3(3.2f, -1.3f, 1f);
+        botaoMenu.OnClick = new UnityEngine.Events.UnityEvent();
+        botaoMenu.OnClick.AddListener((Action)AbrirPainel);
+
+        var labelTransform = botaoMenu.transform.Find("FontPlacer/Text_TMP");
+        var label = labelTransform != null ? labelTransform.GetComponent<TMP_Text>() : null;
+        if (label != null)
+        {
+            label.text = "Visualizador TMP";
+            label.enableWordWrapping = false;
+            label.fontSize = label.fontSizeMax = label.fontSizeMin = 2.8f;
+        }
+        botaoMenu.gameObject.SetActive(true);
+    }
+
+    [HarmonyPatch(typeof(MainMenuManager), nameof(MainMenuManager.Start))]
+    private static class MainMenuManagerStartPatch
+    {
+        private static void Postfix(MainMenuManager __instance)
+        {
+            try
+            {
+                CriarBotaoMenu(__instance);
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogError("[Visualizador TMP] Falha ao criar botão: " + ex);
+            }
+        }
+    }
+
     private void OnGUI()
     {
-        if (PlayerControl.LocalPlayer != null)
+        if (PlayerControl.LocalPlayer != null || !painelAberto)
             return;
 
         try
         {
-            if (!painelAberto)
-            {
-                float buttonW = 300f;
-                float buttonH = 42f;
-                float buttonX = (Screen.width - buttonW) / 2f;
-                float buttonY = Screen.height * 0.5f + 115f;
-                if (GUI.Button(new Rect(buttonX, buttonY, buttonW, buttonH), "Visualizador TextMeshPro"))
-                {
-                    painelAberto = true;
-                    CriarPreviewTMP(null);
-                    if (textoPreview != null)
-                    {
-                        textoPreview.text = textoEditor ?? string.Empty;
-                        textoPreview.gameObject.SetActive(true);
-                    }
-                }
-                return;
-            }
-
             float w = 500f;
             float h = 390f;
             painel.x = (Screen.width - w) / 2f;
