@@ -3546,8 +3546,7 @@ public static class YouTubeVoteUpdatePatch
         EventoAdicionarTarefas.AtualizarRestauracoesAgendadas();
 
         EventoTesteMenu.VerificarTecla();
-        VisualizadorNomeMenu.VerificarTecla();
-        VisualizadorNomeMenu.AtualizarPreview();
+        // O visualizador TextMeshPro agora é aberto pelo botão do menu principal.
         // Processa cliques também no lobby: F7 precisa ser armado antes de iniciar a partida.
         // O próprio menu valida que F6 só seja executado durante a partida.
         EventoTesteMenu.ProcessarFilaExecucao();
