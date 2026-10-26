@@ -7,8 +7,7 @@ using UnityEngine;
 namespace YouTubeVoteBridge;
 
 /// <summary>
-/// Visualizador TextMeshPro integrado ao menu principal, usando um botão nativo
-/// clonado do quitButton, seguindo o padrão de MainMenuManagerPatch do EHR.
+/// Visualizador TextMeshPro local, com botão próprio no menu principal.
 /// Não usa F8 nem janela Win32.
 /// </summary>
 internal sealed class VisualizadorNomeMenu : MonoBehaviour
@@ -51,7 +50,11 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
         canvasObj.AddComponent<CanvasScaler>();
         canvasObj.AddComponent<GraphicRaycaster>();
 
-        var previewObj = new GameObject("TextMeshProPreview", typeof(RectTransform), typeof(TextMeshProUGUI));
+        var previewObj = new GameObject(
+            "TextMeshProPreview",
+            Il2CppInterop.Runtime.Il2CppType.Of<RectTransform>(),
+            Il2CppInterop.Runtime.Il2CppType.Of<TextMeshProUGUI>()
+        );
         previewObj.transform.SetParent(canvasObj.transform, false);
         var rect = previewObj.GetComponent<RectTransform>();
         rect.anchorMin = new Vector2(0.5f, 0.5f);
