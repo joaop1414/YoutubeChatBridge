@@ -3474,7 +3474,10 @@ public static class YouTubeVoteSemFimDeJogoRpcPatch
 {
     public static bool Prefix()
     {
-        return YouTubeVoteBridgePlugin.SemFimDeJogo == null ||
+        // A permissão só fica ativa durante uma chamada explícita de encerramento
+        // (por exemplo, o botão F6). As rotinas normais continuam bloqueadas.
+        return YouTubeVoteBridgePlugin.PermitirFimDeJogoForcado ||
+               YouTubeVoteBridgePlugin.SemFimDeJogo == null ||
                !YouTubeVoteBridgePlugin.SemFimDeJogo.Value;
     }
 }
