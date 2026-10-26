@@ -191,7 +191,8 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
                 return;
             }
 
-            painelInicial = GUI.Window(57341, painelInicial, DesenharPainelInicial,
+            painelInicial = GUI.Window(57341, painelInicial,
+                new GUI.WindowFunction((int id) => DesenharPainelInicial(id)),
                 "YouTubeChatBridge — Prévia TextMeshPro");
         }
         catch (Exception ex)
