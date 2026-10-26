@@ -18,7 +18,6 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
     private static VisualizadorNomeMenu instancia;
     private static bool registrado;
     private static bool painelAberto;
-    private static float proximoLogDiagnostico;
     private static Canvas canvasPreview;
     private static TMP_Text textoPreview;
     private static string textoEditor = "<color=#ff4444>Teste</color> <b>TextMeshPro</b>";
@@ -99,45 +98,36 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
     // comportamentos internos do botão Sair e a criação não é confiável em
     // todas as versões. O acesso agora é pelo atalho F8 na tela inicial.
 
-    private void Update()
+    // Chamado pelo patch Harmony no mesmo ciclo de atualização usado por F6/F7.
+    // Não depende do Update deste MonoBehaviour, que não estava sendo executado.
+    public static void VerificarTecla()
     {
-        // Diagnóstico contínuo, limitado a uma mensagem por segundo, para
-        // confirmar se o MonoBehaviour está recebendo Update.
-        if (Time.unscaledTime >= proximoLogDiagnostico)
-        {
-            proximoLogDiagnostico = Time.unscaledTime + 5f;
-            YouTubeVoteBridgePlugin.Instance?.Log.LogDebug(
-                "[Visualizador TMP] Update ativo; jogadorLocal=" +
-                (PlayerControl.LocalPlayer != null) + ".");
-        }
-
-        if (PlayerControl.LocalPlayer != null)
+        if (PlayerControl.LocalPlayer != null || !Input.GetKeyDown(KeyCode.F8))
             return;
 
-        if (Input.GetKeyDown(KeyCode.F8))
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            "[Visualizador TMP] F8 detectado.");
+
+        if (painelAberto)
         {
+            painelAberto = false;
+            if (textoPreview != null)
+                textoPreview.gameObject.SetActive(false);
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[Visualizador TMP] F8 detectado.");
-            if (painelAberto)
-            {
-                painelAberto = false;
-                if (textoPreview != null)
-                    textoPreview.gameObject.SetActive(false);
-            }
-            else
-            {
-                try
-                {
-                    AbrirPainel();
-                    YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                        "[Visualizador TMP] Painel aberto.");
-                }
-                catch (Exception ex)
-                {
-                    YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                        "[Visualizador TMP] Falha ao abrir painel: " + ex);
-                }
-            }
+                "[Visualizador TMP] Painel fechado.");
+            return;
+        }
+
+        try
+        {
+            AbrirPainel();
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[Visualizador TMP] Painel aberto.");
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "[Visualizador TMP] Falha ao abrir painel: " + ex);
         }
     }
 
