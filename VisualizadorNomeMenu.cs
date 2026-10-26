@@ -19,6 +19,7 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
     private static bool registrado;
     private static bool painelAberto;
     private static PassiveButton botaoMenu;
+    private static bool teclaAnterior;
     private static Canvas canvasPreview;
     private static TMP_Text textoPreview;
     private static string textoEditor = "<color=#ff4444>Teste</color> <b>TextMeshPro</b>";
@@ -84,45 +85,33 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
         }
     }
 
-    private static void CriarBotaoMenu(MainMenuManager menu)
+    // O botão visual foi removido porque clonar quitButton pode herdar
+    // comportamentos internos do botão Sair e a criação não é confiável em
+    // todas as versões. O acesso agora é pelo atalho F8 na tela inicial.
+
+    private void Update()
     {
-        if (botaoMenu != null || menu == null || menu.quitButton == null)
-            return;
+        // F8 alterna o painel somente na tela inicial, fora de uma partida.
+        bool naTelaInicial = PlayerControl.LocalPlayer == null &&
+            AmongUsClient.Instance != null &&
+            AmongUsClient.Instance.GameState == InnerNetClient.GameStates.NotJoined;
 
-        // Mesmo padrão usado pelo EHR: usa quitButton apenas como modelo visual,
-        // mas substitui completamente o evento para não executar a ação de sair.
-        botaoMenu = UnityEngine.Object.Instantiate(menu.quitButton, menu.quitButton.transform.parent);
-        botaoMenu.name = "YouTubeVoteBridge_TMPViewerButton";
-        UnityEngine.Object.Destroy(botaoMenu.GetComponent<AspectPosition>());
-        botaoMenu.transform.localPosition = new Vector3(3.2f, -1.3f, 1f);
-        botaoMenu.OnClick.RemoveAllListeners();
-        botaoMenu.OnClick.AddListener((Action)AbrirPainel);
-
-        var labelTransform = botaoMenu.transform.Find("FontPlacer/Text_TMP");
-        var label = labelTransform != null ? labelTransform.GetComponent<TMP_Text>() : null;
-        if (label != null)
+        bool teclaAgora = Input.GetKey(KeyCode.F8);
+        if (naTelaInicial && teclaAgora && !teclaAnterior)
         {
-            label.text = "Visualizador TMP";
-            label.enableWordWrapping = false;
-            label.fontSize = label.fontSizeMax = label.fontSizeMin = 2.8f;
-        }
-        botaoMenu.gameObject.SetActive(true);
-    }
-
-    [HarmonyPatch(typeof(MainMenuManager), nameof(MainMenuManager.Start))]
-    private static class MainMenuManagerStartPatch
-    {
-        private static void Postfix(MainMenuManager __instance)
-        {
-            try
+            if (painelAberto)
             {
-                CriarBotaoMenu(__instance);
+                painelAberto = false;
+                if (textoPreview != null)
+                    textoPreview.gameObject.SetActive(false);
             }
-            catch (Exception ex)
+            else
             {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogError("[Visualizador TMP] Falha ao criar botão: " + ex);
+                AbrirPainel();
             }
         }
+
+        teclaAnterior = teclaAgora;
     }
 
     private void OnGUI()
