@@ -3662,7 +3662,12 @@ public static class YouTubeVoteResetTaskEventsOnStartPatch
         EventoTarefaMataJogador.Desativar();
         EventoTarefaSuicidio.Desativar();
         EventoTeletransportarAlvoParaMetamorfo.Desativar();
-        EventoRaio.Resetar();
+        // Não desarma o evento F7 selecionado no lobby. CoStartGame pode
+        // executar depois de ShipStatus.Start, então reinicializamos o estado
+        // preservando a seleção; ShipStatus.Start fará o spawn se já estiver pronto.
+        EventoRaio.Resetar(preservarArmado: true);
+        if (ShipStatus.Instance != null)
+            EventoRaio.IniciarPartida();
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             "Eventos de tarefa resetados no início da partida.");
     }
