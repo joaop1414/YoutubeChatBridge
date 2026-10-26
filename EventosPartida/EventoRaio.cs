@@ -45,8 +45,18 @@ internal sealed class EventoRaio : EventoVotacao
 
     // Desenho único do raio, usando as tags rich-text fornecidas.
     private const string DesenhoRaio = "<cspace=-0.16em><line-height=90%><size=100%><color=#00000000>WWWW</color><mark=#fff880>WW</mark><color=#00000000>WW</color>\n<color=#00000000>WWW</color><mark=#ffea00>W</mark><mark=#ffffff>W</mark><mark=#ffea00>W</mark><color=#00000000>WW</color>\n<color=#00000000>WW</color><mark=#ffea00>W</mark><mark=#ffffff>W</mark><mark=#ffea00>W</mark><color=#00000000>WWW</color>\n<color=#00000000>W</color><mark=#ffea00>W</mark><mark=#ffffff>W</mark><mark=#ffea00>W</mark><color=#00000000>WWWW</color>\n<mark=#ffea00>WWWWWWWW</mark>\n<color=#00000000>WWW</color><mark=#ffea00>W</mark><mark=#ffffff>W</mark><mark=#ffea00>W</mark><color=#00000000>WW</color>\n<color=#00000000>WW</color><mark=#ffea00>W</mark><mark=#ffffff>W</mark><mark=#ffea00>W</mark><color=#00000000>WWW</color>\n<color=#00000000>W</color><mark=#ffea00>W</mark><mark=#ffffff>W</mark><color=#00000000>WWWWW</color>\n<mark=#ffea00>W</mark><color=#00000000>WWWWWWW</color>";
+    // Mantém o aviso abaixo do limite prático de tamanho do RPC SetName vanilla.
+    // Evita desconexão ao transmitir um nome maior que o pacote aceito.
     private const string DesenhoAviso =
-        "<cspace=0.16em><line-height=90%><size=100%><color=#00000000>WWWWW</color><mark=#000000>WW</mark><color=#00000000>WWWWW</color>\n<color=#00000000>WWWW</color><mark=#000000>W</mark><mark=#ffdd00>WW</mark><mark=#000000>W</mark><color=#00000000>WWWW</color>\n<color=#00000000>WWWW</color><mark=#000000>W</mark><mark=#ffdd00>WW</mark><mark=#000000>W</mark><color=#00000000>WWWW</color>\n<color=#00000000>WWW</color><mark=#000000>W</mark><mark=#ffdd00>W</mark><mark=#000000>WW</mark><mark=#ffdd00>W</mark><mark=#000000>W</mark><color=#00000000>WWW</color>\n<color=#00000000>WWW</color><mark=#000000>W</mark><mark=#ffdd00>W</mark><mark=#000000>WW</mark><mark=#ffdd00>W</mark><mark=#000000>W</mark><color=#00000000>WWW</color>\n<color=#00000000>WW</color><mark=#000000>W</mark><mark=#ffdd00>WW</mark><mark=#000000>WW</mark><mark=#ffdd00>WW</mark><mark=#000000>W</mark><color=#00000000>WW</color>\n<color=#00000000>WW</color><mark=#000000>W</mark><mark=#ffdd00>WWWWWW</mark><mark=#000000>W</mark><color=#00000000>WW</color>\n<color=#00000000>W</color><mark=#000000>W</mark><mark=#ffdd00>WWW</mark><mark=#000000>WW</mark><mark=#ffdd00>WWW</mark><mark=#000000>W</mark><color=#00000000>W</color>\n<color=#00000000>W</color><mark=#000000>W</mark><mark=#ffdd00>WWW</mark><mark=#000000>WW</mark><mark=#ffdd00>WWW</mark><mark=#000000>W</mark><color=#00000000>W</color>\n<mark=#000000>W</mark><mark=#ffdd00>WWWWWWWWWW</mark><mark=#000000>W</mark>\n<mark=#000000>WWWWWWWWWWWW</mark>";
+        "<cspace=0.12em><line-height=90%><mark=#000000>WWWWWWWW</mark>\n" +
+        "<mark=#000000>WW</mark><mark=#ffdd00>WWWW</mark><mark=#000000>WW</mark>\n" +
+        "<mark=#000000>WW</mark><mark=#ffdd00>WWWW</mark><mark=#000000>WW</mark>\n" +
+        "<mark=#000000>WW</mark><mark=#ffdd00>WWWW</mark><mark=#000000>WW</mark>\n" +
+        "<mark=#000000>WWWWWWWW</mark>\n" +
+        "<mark=#000000>WW</mark><mark=#ffdd00>WWWW</mark><mark=#000000>WW</mark>\n" +
+        "<mark=#000000>WW</mark><mark=#ffdd00>WWWW</mark><mark=#000000>WW</mark>\n" +
+        "<mark=#000000>WW</mark><mark=#ffdd00>WWWW</mark><mark=#000000>WW</mark>\n" +
+        "<mark=#000000>WWWWWWWW</mark>";
 
     public override string Nome => "Raio";
 
