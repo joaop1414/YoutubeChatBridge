@@ -15,6 +15,7 @@ internal sealed class EventoRaio : EventoVotacao
 {
     private const byte PlayerIdAviso = 252;
     private const byte PlayerIdRaio = 251;
+    private const float AtrasoPrimeiroRaio = 5f;
     private const float IntervaloMinimo = 5f;
     private const float IntervaloMaximo = 10f;
     private const float AlcanceAtingido = 0.85f;
@@ -87,9 +88,12 @@ internal sealed class EventoRaio : EventoVotacao
         ocultarDepoisDoImpacto = false;
         etapaInicializacao = (bonecoAviso != null && bonecoRaio != null) ? 3 : 0;
         CriarSomLocal();
-        AgendarProximoRaio();
+        // O primeiro raio tem um atraso fixo de 5 segundos após a ativação.
+        // Os raios seguintes continuam usando o intervalo aleatório normal.
+        proximoRaioEm = Time.realtimeSinceStartup + AtrasoPrimeiroRaio;
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            "[F7/Raio] Evento ativado; os indicadores só serão criados quando o primeiro raio for disparado.");
+            "[F7/Raio] Evento ativado; primeiro raio em " + AtrasoPrimeiroRaio +
+            " segundos. Os indicadores serão criados sob demanda.");
     }
 
     private static void CriarBonecosTemporarios()
