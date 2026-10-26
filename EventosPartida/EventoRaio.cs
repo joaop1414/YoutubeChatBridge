@@ -219,7 +219,7 @@ internal sealed class EventoRaio : EventoVotacao
                 if (bonecoAviso == null || bonecoRaio == null)
                 {
                     etapaInicializacao = 0;
-                    CriarBonecosPersistentes();
+                    CriarBonecosTemporarios();
                     proximoRaioEm = Time.realtimeSinceStartup;
                     YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                         "[F7/Raio] Primeiro raio solicitado: criando indicadores agora, sob demanda.");
