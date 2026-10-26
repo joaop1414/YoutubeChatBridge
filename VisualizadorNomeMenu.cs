@@ -47,10 +47,11 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
     private GUIStyle estiloCampo;
     private bool estilosProntos;
 
-    // Teste de alteração global do nome do host. O nome original é guardado para restauração.
+    // Prévia estritamente local: muda apenas o texto visual do jogador no cliente do host.
+    // Não envia RPC e não altera PlayerName, para que os outros clientes não vejam a mudança.
     private static PlayerControl jogadorDoNome;
-    private static string nomeOriginalGlobal;
-    private static string ultimoNomeEnviado;
+    private static string nomeVisualOriginal;
+    private static string ultimoNomeVisualAplicado;
 
     public static void Inicializar()
     {
@@ -122,107 +123,55 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
         try
         {
             PlayerControl jogador = PlayerControl.LocalPlayer;
-            if (!previewVisivel || string.IsNullOrWhiteSpace(textoAplicado) || jogador == null)
+            if (!previewVisivel || string.IsNullOrWhiteSpace(textoAplicado) || jogador == null ||
+                jogador.cosmetics == null || jogador.cosmetics.nameText == null)
             {
-                RestaurarNomeGlobal();
+                RestaurarNomeLocal();
                 return;
             }
 
-            // A alteração global de nome é controlada pelo host da sala.
-            if (AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost)
+            if (jogadorDoNome != jogador || nomeVisualOriginal == null)
             {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "[Visualizador F8] Para testar o nome global, este cliente precisa ser o host da sala.");
-                return;
-            }
-
-            if (jogadorDoNome != jogador || nomeOriginalGlobal == null)
-            {
-                RestaurarNomeGlobal();
+                RestaurarNomeLocal();
                 jogadorDoNome = jogador;
-                nomeOriginalGlobal = jogador.Data != null
-                    ? (jogador.Data.PlayerName ?? string.Empty)
-                    : string.Empty;
+                nomeVisualOriginal = jogador.cosmetics.nameText.text ?? string.Empty;
             }
 
-            if (!string.Equals(ultimoNomeEnviado, textoAplicado, StringComparison.Ordinal))
-                EnviarNomeGlobal(jogador, textoAplicado);
+            // Reaplica somente a propriedade visual local. O jogo pode redesenhar o nome
+            // durante a partida, então a prévia é reaplicada a cada atualização.
+            jogador.cosmetics.nameText.text = textoAplicado;
+            ultimoNomeVisualAplicado = textoAplicado;
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[Visualizador F8] Falha ao alterar o nome global: " + ex);
+                "[Visualizador F8] Falha ao atualizar o texto visual local: " + ex);
         }
     }
 
-    private static void EnviarNomeGlobal(PlayerControl jogador, string nome)
-    {
-        if (jogador == null || jogador.Data == null || AmongUsClient.Instance == null ||
-            !AmongUsClient.Instance.AmHost)
-            return;
-
-        MessageWriter writer = null;
-        try
-        {
-            // Broadcast do RPC SetName através de GameData, seguindo o formato usado no próprio mod.
-            writer = MessageWriter.Get(SendOption.Reliable);
-            writer.StartMessage(5); // GameData
-            writer.Write(AmongUsClient.Instance.GameId);
-            writer.StartMessage(2); // RPC
-            writer.WritePacked(jogador.NetId);
-            writer.Write((byte)RpcCalls.SetName);
-            writer.Write(jogador.Data.NetId);
-            writer.Write(nome);
-            writer.Write(false); // Flag do SetName: não suprimir o nome para clientes modificados.
-            writer.EndMessage();
-            writer.EndMessage();
-            AmongUsClient.Instance.SendOrDisconnect(writer);
-            writer.Recycle();
-            writer = null;
-
-            jogador.SetName(nome);
-            if (jogador.Data != null) jogador.Data.PlayerName = nome;
-            if (jogador.cosmetics != null && jogador.cosmetics.nameText != null)
-                jogador.cosmetics.nameText.text = nome;
-
-            ultimoNomeEnviado = nome;
-            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[Visualizador F8] Nome global enviado pelo host: '" + nome + "'.");
-        }
-        catch (Exception ex)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[Visualizador F8] Erro ao enviar SetName global: " + ex);
-        }
-        finally
-        {
-            if (writer != null)
-            {
-                try { writer.Recycle(); } catch { }
-            }
-        }
-    }
-
-    private static void RestaurarNomeGlobal()
+    private static void RestaurarNomeLocal()
     {
         try
         {
-            if (jogadorDoNome != null && !string.IsNullOrEmpty(nomeOriginalGlobal) &&
-                !string.Equals(ultimoNomeEnviado, nomeOriginalGlobal, StringComparison.Ordinal) &&
-                AmongUsClient.Instance != null && AmongUsClient.Instance.AmHost)
+            if (jogadorDoNome != null && !string.IsNullOrEmpty(nomeVisualOriginal) &&
+                jogadorDoNome.cosmetics != null && jogadorDoNome.cosmetics.nameText != null)
             {
-                EnviarNomeGlobal(jogadorDoNome, nomeOriginalGlobal);
+                // Só restaura se o texto ainda for o que esta prévia aplicou, para não
+                // sobrescrever uma mudança legítima feita por outra parte do jogo/mod.
+                string atual = jogadorDoNome.cosmetics.nameText.text;
+                if (string.Equals(atual, ultimoNomeVisualAplicado, StringComparison.Ordinal))
+                    jogadorDoNome.cosmetics.nameText.text = nomeVisualOriginal;
             }
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "[Visualizador F8] Não foi possível restaurar o nome global: " + ex.Message);
+                "[Visualizador F8] Não foi possível restaurar o texto visual local: " + ex.Message);
         }
 
         jogadorDoNome = null;
-        nomeOriginalGlobal = null;
-        ultimoNomeEnviado = null;
+        nomeVisualOriginal = null;
+        ultimoNomeVisualAplicado = null;
     }
 
     private static void CriarJanelaNativa()
@@ -269,7 +218,7 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
                     CriarControle("BUTTON", "Visualizar no jogo", WS_CHILD | WS_VISIBLE, 18, 455, 170, 36, hwnd, new IntPtr(ID_PREVIEW));
                     CriarControle("BUTTON", "Ocultar prévia", WS_CHILD | WS_VISIBLE, 198, 455, 150, 36, hwnd, new IntPtr(ID_OCULTAR));
                     CriarControle("BUTTON", "Limpar texto", WS_CHILD | WS_VISIBLE, 358, 455, 130, 36, hwnd, new IntPtr(ID_LIMPAR));
-                    CriarControle("STATIC", "Teste global: o nome pode mudar para todos os jogadores; exige ser o host.", WS_CHILD | WS_VISIBLE, 18, 505, 700, 28, hwnd, IntPtr.Zero);
+                    CriarControle("STATIC", "Prévia local: só você verá a alteração; não envia o nome para a sala.", WS_CHILD | WS_VISIBLE, 18, 505, 700, 28, hwnd, IntPtr.Zero);
                     return IntPtr.Zero;
                 case WM_APP_TOGGLE:
                     if (IsWindowVisible(hwnd)) ShowWindow(hwnd, SW_HIDE);
