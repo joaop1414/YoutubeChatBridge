@@ -8,9 +8,8 @@ using UnityEngine;
 namespace YouTubeVoteBridge;
 
 /// <summary>
-/// Raios: dois indicadores de rede (aviso e descarga) são criados sob demanda
-/// no primeiro disparo e reutilizados/ocultados até o fim da partida. O som é local,
-/// portanto só é reproduzido por clientes que possuem este mod.
+/// Raios: dois indicadores de rede são criados sob demanda para cada descarga
+/// e removidos da rede após o efeito. Nenhum indicador é reutilizado. O som é local.
 /// </summary>
 internal sealed class EventoRaio : EventoVotacao
 {
@@ -92,7 +91,7 @@ internal sealed class EventoRaio : EventoVotacao
             "[F7/Raio] Evento ativado; os indicadores só serão criados quando o primeiro raio for disparado.");
     }
 
-    private static void CriarBonecosPersistentes()
+    private static void CriarBonecosTemporarios()
     {
         if (bonecoAviso != null && bonecoRaio != null) return;
         Vector2 oculto = new(OcultoX, 0f);
@@ -161,7 +160,12 @@ internal sealed class EventoRaio : EventoVotacao
         if (ocultarDepoisDoImpacto && Time.realtimeSinceStartup >= proximoRaioEm)
         {
             ocultarDepoisDoImpacto = false;
-            OcultarBoneco(bonecoRaio);
+            // Cada raio tem seus próprios objetos de rede. Ao terminar o efeito,
+            // envia Despawn aos clientes e destrói as instâncias; o próximo raio
+            // criará objetos novos, sem reutilizar os anteriores.
+            DestruirBoneco(ref bonecoAviso);
+            DestruirBoneco(ref bonecoRaio);
+            etapaInicializacao = 0;
             AgendarProximoRaio();
             return;
         }
@@ -205,7 +209,8 @@ internal sealed class EventoRaio : EventoVotacao
 
     private static void IniciarDescarga()
     {
-        // Spawn sob demanda: nenhum boneco existe enquanto não for necessário.
+        // Cada descarga cria objetos novos. Eles são destruídos ao final do efeito;
+        // portanto, referências nulas significam que este raio precisa de novos NPCs.
         // A inicialização de rede acontece em etapas no Atualizar(), como no EHR.
         if (bonecoAviso == null || bonecoRaio == null || etapaInicializacao < 3)
         {
@@ -283,7 +288,8 @@ internal sealed class EventoRaio : EventoVotacao
                     "[F7/Raio] Falha ao aplicar suicídio: " + ex.Message);
             }
         }
-        // Deixa o desenho do raio visível brevemente e depois apenas o esconde.
+        // Mantém o desenho do raio visível brevemente; depois os dois objetos
+        // serão removidos da rede, em vez de ficarem ocultos para reutilização.
         proximoRaioEm = Time.realtimeSinceStartup + 0.35f;
         descargaPendente = false;
         ocultarDepoisDoImpacto = true;
@@ -508,9 +514,8 @@ internal sealed class EventoRaio : EventoVotacao
         proximoRaioEm = 0f;
         instanteImpacto = 0f;
 
-        // O CoStartGame pode ocorrer depois de ShipStatus.Start. Destrói os
-        // objetos antigos e zera as referências para que a próxima chamada de
-        // IniciarPartida faça um novo spawn/associação nesta partida.
+        // O CoStartGame pode ocorrer depois de ShipStatus.Start. Remove os objetos
+        // desta partida e zera as referências.
         DestruirBoneco(ref bonecoAviso);
         DestruirBoneco(ref bonecoRaio);
 
@@ -522,13 +527,19 @@ internal sealed class EventoRaio : EventoVotacao
     private static void DestruirBoneco(ref PlayerControl boneco)
     {
         if (boneco == null) return;
-        try
+        // O Despawn é enviado pela rede antes da destruição local, para não deixar
+        // PlayerControls fantasmas nos clientes vanilla.
+        try { CustomNetObject.Despawn(boneco); }
+        catch
         {
-            if (PlayerControl.AllPlayerControls.Contains(boneco))
-                PlayerControl.AllPlayerControls.Remove(boneco);
+            try
+            {
+                if (PlayerControl.AllPlayerControls.Contains(boneco))
+                    PlayerControl.AllPlayerControls.Remove(boneco);
+            }
+            catch { }
+            try { UnityEngine.Object.Destroy(boneco.gameObject); } catch { }
         }
-        catch { }
-        try { UnityEngine.Object.Destroy(boneco.gameObject); } catch { }
         boneco = null;
     }
 }
