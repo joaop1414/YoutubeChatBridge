@@ -19,6 +19,8 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
     private static bool registrado;
     private static PassiveButton botaoMenu;
     private static bool painelAberto;
+    private static Canvas canvasPreview;
+    private static TMP_Text textoPreview;
     private static string textoEditor = "<color=#ff4444>Teste</color> <b>TextMeshPro</b>";
     private static Vector2 scroll;
     private Rect painel = new Rect(0, 0, 500, 390);
@@ -64,6 +66,17 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
             botaoMenu.OnClick.AddListener((Action)(() =>
             {
                 painelAberto = !painelAberto;
+                if (painelAberto)
+                {
+                    CriarPreviewTMP(labelModelo: botaoMenu.GetComponentInChildren<TMP_Text>(true));
+                    if (textoPreview != null)
+                    {
+                        textoPreview.text = textoEditor ?? string.Empty;
+                        textoPreview.gameObject.SetActive(true);
+                    }
+                }
+                else if (textoPreview != null)
+                    textoPreview.gameObject.SetActive(false);
             }));
 
             TMP_Text label = botaoMenu.GetComponentInChildren<TMP_Text>(true);
@@ -88,6 +101,35 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
         }
     }
 
+    private static void CriarPreviewTMP(TMP_Text labelModelo)
+    {
+        if (canvasPreview != null && textoPreview != null) return;
+        if (labelModelo == null) return;
+
+        var canvasObj = new GameObject("YouTubeVoteBridge_TMPPreviewCanvas");
+        UnityEngine.Object.DontDestroyOnLoad(canvasObj);
+        canvasPreview = canvasObj.AddComponent<Canvas>();
+        canvasPreview.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvasPreview.sortingOrder = 32000;
+        canvasObj.AddComponent<UnityEngine.UI.CanvasScaler>();
+        canvasObj.AddComponent<UnityEngine.UI.GraphicRaycaster>();
+
+        var previewObj = UnityEngine.Object.Instantiate(labelModelo.gameObject, canvasObj.transform);
+        previewObj.name = "TextMeshProPreview";
+        var rect = previewObj.GetComponent<RectTransform>();
+        rect.anchorMin = new Vector2(0.5f, 0.5f);
+        rect.anchorMax = new Vector2(0.5f, 0.5f);
+        rect.pivot = new Vector2(0.5f, 0.5f);
+        rect.anchoredPosition = new Vector2(0f, -115f);
+        rect.sizeDelta = new Vector2(1000f, 180f);
+        textoPreview = previewObj.GetComponent<TMP_Text>();
+        textoPreview.enableWordWrapping = true;
+        textoPreview.richText = true;
+        textoPreview.alignment = TextAlignmentOptions.Center;
+        textoPreview.fontSize = 32f;
+        textoPreview.gameObject.SetActive(true);
+    }
+
     private void OnGUI()
     {
         if (!painelAberto || PlayerControl.LocalPlayer != null)
@@ -110,16 +152,24 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
             GUILayout.Space(8);
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("Atualizar prévia", GUILayout.Height(32)))
-                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo("[Visualizador TMP] Texto de prévia atualizado localmente.");
+            {
+                if (textoPreview != null)
+                    textoPreview.text = textoEditor ?? string.Empty;
+            }
             if (GUILayout.Button("Limpar", GUILayout.Height(32)))
+            {
                 textoEditor = string.Empty;
+                if (textoPreview != null) textoPreview.text = string.Empty;
+            }
             if (GUILayout.Button("Fechar", GUILayout.Height(32)))
+            {
                 painelAberto = false;
+                if (textoPreview != null) textoPreview.gameObject.SetActive(false);
+            }
             GUILayout.EndHorizontal();
 
             GUILayout.Space(8);
-            GUILayout.Label("Prévia do texto:");
-            GUILayout.Label(textoEditor ?? string.Empty);
+            GUILayout.Label("A prévia TextMeshPro aparece no centro da tela.");
             GUILayout.Label("Esta prévia é local e não altera o nome do jogador.");
             GUILayout.EndArea();
         }
