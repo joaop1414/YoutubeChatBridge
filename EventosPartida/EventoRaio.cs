@@ -27,7 +27,7 @@ internal sealed class EventoRaio : EventoVotacao
     private static float proximoRaioEm;
     private static float instanteImpacto;
     private static Vector2 localDoRaio;
-    private static string desenhoAtualRaio = DesenhosRaio[0];
+    private static string desenhoAtualRaio = string.Empty;
     private static bool descargaPendente;
     private static bool somTocadoNestaDescarga;
     private static PlayerControl bonecoAviso;
