@@ -15,6 +15,7 @@ internal static class RegistroEventosPartida
         new EventoTrocaDeDestinos(),
         new EventoUltimoSuspiro(),
         new EventoDutosInstaveis(),
+        new EventoRaio(),
     };
 
     public static IReadOnlyList<EventoVotacao> ObterTodos() => Eventos;
