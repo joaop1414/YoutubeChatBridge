@@ -3562,6 +3562,7 @@ public static class YouTubeVoteUpdatePatch
         EventoCongelarJogador.Atualizar();
         EventoVelocidadeJogadores.Atualizar();
         EventoTsunami.Atualizar();
+        EventoRaio.Atualizar();
         EventoVisaoReduzida.Atualizar();
         EventoTrocarIdentidades.Atualizar();
     }
@@ -3582,6 +3583,7 @@ public static class YouTubeVoteRestoreLobbyTagsBeforeMatchPatch
             EventoTeletransportarAlvoParaMetamorfoPartida.IniciarPartida();
             EventoTeletransportarJogadorAoCompletarTarefa.IniciarPartida();
             EventoTodosFicamInvisiveis.IniciarPartida();
+            EventoRaio.IniciarPartida();
         }
     }
 }
@@ -3660,6 +3662,7 @@ public static class YouTubeVoteResetTaskEventsOnStartPatch
         EventoTarefaMataJogador.Desativar();
         EventoTarefaSuicidio.Desativar();
         EventoTeletransportarAlvoParaMetamorfo.Desativar();
+        EventoRaio.Resetar();
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             "Eventos de tarefa resetados no início da partida.");
     }
@@ -3678,6 +3681,7 @@ public static class YouTubeVoteResetTaskEventsOnEndPatch
         EventoTarefaSuicidio.Desativar();
         EventoTeletransportarAlvoParaMetamorfo.Desativar();
         EventoTeletransportarAlvoParaMetamorfoPartida.Resetar();
+        EventoRaio.Resetar();
         EventoTeletransportarJogadorAoCompletarTarefa.Desativar("fim da partida");
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             "Eventos de tarefa desativados ao terminar a partida, mesmo sem reunião.");
