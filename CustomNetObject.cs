@@ -213,6 +213,16 @@ namespace MoreGamemodes
                 writer.EndMessage();
                 AmongUsClient.Instance.SendOrDisconnect(writer);
             }
+            finally
+            {
+                outfit.PlayerName = nomeAnterior;
+                outfit.ColorId = corAnterior;
+                outfit.HatId = chapeuAnterior;
+                outfit.SkinId = roupaAnterior;
+                outfit.PetId = petAnterior;
+                outfit.VisorId = visorAnterior;
+                writer.Recycle();
+            }
 
             // A serialização de NetworkedPlayerInfo nem sempre atualiza o rótulo
             // do PlayerControl em clientes vanilla. Envia também o RPC nativo
@@ -244,16 +254,6 @@ namespace MoreGamemodes
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
                     "CustomNetObject: RPC SetName nativo do NPC falhou: " + ex.Message);
-            }
-            finally
-            {
-                outfit.PlayerName = nomeAnterior;
-                outfit.ColorId = corAnterior;
-                outfit.HatId = chapeuAnterior;
-                outfit.SkinId = roupaAnterior;
-                outfit.PetId = petAnterior;
-                outfit.VisorId = visorAnterior;
-                writer.Recycle();
             }
         }
 
