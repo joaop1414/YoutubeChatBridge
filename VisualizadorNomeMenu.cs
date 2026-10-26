@@ -268,7 +268,7 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
                     CriarControle("BUTTON", "Visualizar no jogo", WS_CHILD | WS_VISIBLE, 18, 455, 170, 36, hwnd, new IntPtr(ID_PREVIEW));
                     CriarControle("BUTTON", "Ocultar prévia", WS_CHILD | WS_VISIBLE, 198, 455, 150, 36, hwnd, new IntPtr(ID_OCULTAR));
                     CriarControle("BUTTON", "Limpar texto", WS_CHILD | WS_VISIBLE, 358, 455, 130, 36, hwnd, new IntPtr(ID_LIMPAR));
-                    CriarControle("STATIC", "Substitui apenas o nome exibido nesta tela; não altera o nome de rede.", WS_CHILD | WS_VISIBLE, 18, 505, 700, 28, hwnd, IntPtr.Zero);
+                    CriarControle("STATIC", "Teste global: o nome pode mudar para todos os jogadores; exige ser o host.", WS_CHILD | WS_VISIBLE, 18, 505, 700, 28, hwnd, IntPtr.Zero);
                     return IntPtr.Zero;
                 case WM_APP_TOGGLE:
                     if (IsWindowVisible(hwnd)) ShowWindow(hwnd, SW_HIDE);
