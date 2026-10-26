@@ -4098,14 +4098,13 @@ public static class YouTubeVotePularVotacaoJuizRpcPatch
     }
 }
 
-// Adaptação do patch usado pelo EndlessHostRoles:
-// limpa os pontos locais de penalidade antes da verificação de permissões online.
-// O efeito depende da implementação do Among Us e não remove banimentos do anfitrião/conta.
-[HarmonyPatch(typeof(AmongUsClient), nameof(AmongUsClient.CheckOnlinePermissions))]
-internal static class CheckOnlinePermissionsPatch
+// Ignora a restrição local por pontos de abandono de partida.
+// Isso não remove banimentos impostos pelo anfitrião ou pela conta.
+[HarmonyPatch(typeof(AmongUs.Data.Player.PlayerBanData), nameof(AmongUs.Data.Player.PlayerBanData.IsBanned), MethodType.Getter)]
+internal static class PlayerBanDataIsBannedPatch
 {
-    public static void Prefix()
+    public static void Postfix(ref bool __result)
     {
-        DataManager.Player.Ban.banPoints = 0f;
+        __result = false;
     }
 }
