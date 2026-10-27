@@ -15,6 +15,7 @@ internal static class RegistroEventosPartida
         new EventoTrocaDeDestinos(),
         new EventoUltimoSuspiro(),
         new EventoDutosInstaveis(),
+        new EventoMorrerQuandoPortaFechar(),
         new EventoRaio(),
     };
 
