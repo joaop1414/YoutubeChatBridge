@@ -1846,9 +1846,50 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         PedidoLivePendente = null;
     }
 
-    private static void ProcessarPedidoLive(ChatController chat, PlayerControl jogador, string id)
+    public static string ObterTextoPedidoLivePendente()
+    {
+        if (PedidoLivePendente == null) return string.Empty;
+        return PedidoLivePendente.NomeJogador + "\nID da live: " + PedidoLivePendente.LiveId;
+    }
+
+    public static bool ExistePedidoLivePendente =>
+        EhHost() && LobbyTagManager.HostEstaNoLobby() && PedidoLivePendente != null;
+
+    public static void ResolverPedidoLivePendente(bool aceitar)
+    {
+        if (!EhHost() || !LobbyTagManager.HostEstaNoLobby() || PedidoLivePendente == null)
+            return;
+
+        PedidoLive pedido = PedidoLivePendente;
+        PedidoLivePendente = null;
+        PlayerControl solicitante = PlayerControl.AllPlayerControls?.ToArray()
+            .FirstOrDefault(j => j != null && j.PlayerId == pedido.PlayerId);
+
+        if (aceitar)
+        {
+            IniciarLeituraAdicionalAprovada(pedido.LiveId);
+            if (solicitante != null)
+                EnviarMensagemIndividual(solicitante, "O host aprovou sua live " + pedido.LiveId + ". Ela será incluída nas votações.");
+            EnviarMensagemIndividual(PlayerControl.LocalPlayer, "Live " + pedido.LiveId + " aprovada; iniciando leitor adicional.");
+            Instance?.Log.LogInfo("[Multi-live] Pedido aceito pela interface: " + pedido.NomeJogador + " / " + pedido.LiveId);
+        }
+        else
+        {
+            if (solicitante != null)
+                EnviarMensagemIndividual(solicitante, "O host recusou a inclusão da live " + pedido.LiveId + ".");
+            EnviarMensagemIndividual(PlayerControl.LocalPlayer, "Pedido da live " + pedido.LiveId + " recusado.");
+            Instance?.Log.LogInfo("[Multi-live] Pedido recusado pela interface: " + pedido.NomeJogador + " / " + pedido.LiveId);
+        }
+    }
+
+    public static void ProcessarPedidoLive(ChatController chat, PlayerControl jogador, string id)
     {
         if (!EhHost() || jogador == null) return;
+        if (!LobbyTagManager.HostEstaNoLobby())
+        {
+            EnviarMensagemIndividual(jogador, "Só é possível vincular uma live enquanto a sala está no lobby.");
+            return;
+        }
         if (MultiTransmissaoAtiva == null || !MultiTransmissaoAtiva.Value)
         {
             EnviarMensagemIndividual(jogador, "A sala não está com multi-transmissão ativada.");
@@ -1970,11 +2011,9 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                     ResponderComando(chat, destinatario, "Não há pedido de live aguardando aprovação.");
                     return;
                 }
-                PedidoLive aprovado = PedidoLivePendente;
-                PedidoLivePendente = null;
-                IniciarLeituraAdicionalAprovada(aprovado.LiveId);
-                EnviarMensagemIndividual(PlayerControl.AllPlayerControls.ToArray().FirstOrDefault(p => p != null && p.PlayerId == aprovado.PlayerId), "O host aprovou sua live " + aprovado.LiveId + ". Ela será incluída nas votações.");
-                ResponderComando(chat, destinatario, "Live " + aprovado.LiveId + " aprovada; iniciando leitor adicional.");
+                string idAprovado = PedidoLivePendente.LiveId;
+                ResolverPedidoLivePendente(true);
+                ResponderComando(chat, destinatario, "Live " + idAprovado + " aprovada; iniciando leitor adicional.");
                 return;
 
             case "recusar":
@@ -1984,11 +2023,9 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                     ResponderComando(chat, destinatario, "Não há pedido de live aguardando aprovação.");
                     return;
                 }
-                PedidoLive recusado = PedidoLivePendente;
-                PedidoLivePendente = null;
-                PlayerControl solicitante = PlayerControl.AllPlayerControls.ToArray().FirstOrDefault(p => p != null && p.PlayerId == recusado.PlayerId);
-                if (solicitante != null) EnviarMensagemIndividual(solicitante, "O host recusou a inclusão da live " + recusado.LiveId + ".");
-                ResponderComando(chat, destinatario, "Pedido da live " + recusado.LiveId + " recusado.");
+                string idRecusado = PedidoLivePendente.LiveId;
+                ResolverPedidoLivePendente(false);
+                ResponderComando(chat, destinatario, "Pedido da live " + idRecusado + " recusado.");
                 return;
 
             case "config":
@@ -2041,6 +2078,11 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 return;
 
             case "live":
+                if (!LobbyTagManager.HostEstaNoLobby())
+                {
+                    ResponderComando(chat, destinatario, "Só é possível vincular uma live enquanto a sala está no lobby.");
+                    return;
+                }
                 // Usa exatamente a mesma lógica do comando "colar":
                 // lê o ID/URL da área de transferência.
                 string textoLiveCopiado = LerAreaDeTransferencia();
@@ -2103,6 +2145,11 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             case "colar":
             case "clipboard":
             case "area":
+                if (!LobbyTagManager.HostEstaNoLobby())
+                {
+                    ResponderComando(chat, destinatario, "Só é possível vincular uma live enquanto a sala está no lobby.");
+                    return;
+                }
                 string copiado = LerAreaDeTransferencia();
                 string idColado = ExtrairLiveId(copiado);
 
@@ -2125,6 +2172,11 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
         if (id.Length > 0)
         {
+            if (!LobbyTagManager.HostEstaNoLobby())
+            {
+                ResponderComando(chat, destinatario, "Só é possível vincular uma live enquanto a sala está no lobby.");
+                return;
+            }
             PararLeituraChat();
             LiveId.Value = id;
             LiveConectada.Value = false;
@@ -3606,7 +3658,7 @@ public static class YouTubeVoteChatPatch
                     }
                     catch (Exception ex)
                     {
-                        Instance?.Log.LogError("[Comando TP] Falha ao teleportar jogador: " + ex);
+                        YouTubeVoteBridgePlugin.Instance?.Log.LogError("[Comando TP] Falha ao teleportar jogador: " + ex);
                         if (sourcePlayer == PlayerControl.LocalPlayer)
                             YouTubeVoteBridgePlugin.Responder(__instance, "Não foi possível teleportar.");
                         else
@@ -3659,7 +3711,7 @@ public static class YouTubeVoteChatPatch
                 }
                 catch (Exception ex)
                 {
-                    Instance?.Log.LogError("[Comando rename] Falha ao alterar nome: " + ex);
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogError("[Comando rename] Falha ao alterar nome: " + ex);
                     if (sourcePlayer == PlayerControl.LocalPlayer)
                         YouTubeVoteBridgePlugin.Responder(__instance, "Não foi possível alterar o nome.");
                     else
@@ -3685,7 +3737,7 @@ public static class YouTubeVoteChatPatch
         if (mensagem.Equals("/help", StringComparison.OrdinalIgnoreCase) ||
             mensagem.Equals("/ajuda", StringComparison.OrdinalIgnoreCase))
         {
-            const string ajuda = "Comandos: /color (id/nome/rainbow) | /evento (eventos F7 da partida) | /help | /ytconfig (ver configurações) | /youtube (...) e /tag update (somente host).";
+            const string ajuda = "Comandos: /help ou /ajuda; /color <id|nome|rainbow>; /evento (resumo dos eventos F7); /ytconfig; /youtube ajuda; /youtube live ou /youtube colar; /youtube iniciar|parar|status; /youtube tempo <5-600>; /youtube intervalo <0-600>; /youtube preparacao <0-120>; /youtube multi on/off; /youtube permitirids on/off; /youtube aceitar|recusar; /youtube config; /live <ID ou URL> (pedido de outro jogador, só no lobby); /tpout; /tpin; /rn <nome> ou /rename <nome> (só no lobby); /tag update (somente host).";
             if (ehLocal)
                 YouTubeVoteBridgePlugin.Responder(__instance, ajuda);
             else if (host)
