@@ -84,15 +84,14 @@ internal sealed class EventoRaio : EventoVotacao
 
         if (ativo) return;
 
-        // A ativação do evento não cria PlayerPrefab. Os indicadores só serão
-        // instanciados quando chegar a hora do primeiro raio.
+        // Como no fluxo do tsunami: os indicadores são criados uma vez e ficam
+        // fora do mapa até serem movimentados para cada descarga.
         ativo = true;
         descargaPendente = false;
         ocultarDepoisDoImpacto = false;
         etapaInicializacao = (bonecoAviso != null && bonecoRaio != null) ? 4 : 0;
         CriarSomLocal();
-        // Não inicia a contagem durante a animação de revelação de função.
-        // O cronômetro começa somente quando IntroCutscene for encerrada.
+        // A criação começa somente quando a revelação de função terminar.
         aguardandoFimRoleReveal = true;
         proximoRaioEm = float.MaxValue;
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
@@ -106,10 +105,25 @@ internal sealed class EventoRaio : EventoVotacao
             return;
 
         aguardandoFimRoleReveal = false;
-        proximoRaioEm = Time.realtimeSinceStartup + AtrasoPrimeiroRaio;
+        proximoRaioEm = float.MaxValue;
+        try
+        {
+            if (bonecoAviso == null || bonecoRaio == null)
+            {
+                etapaInicializacao = 0;
+                CriarBonecosTemporarios();
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[F7/Raio] Indicadores criados após a revelação; inicializando rede uma única vez.");
+            }
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "[F7/Raio] Falha ao criar indicadores após a revelação: " + ex);
+            AgendarProximoRaio();
+        }
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            "[F7/Raio] Revelação de função encerrada; primeiro raio em " +
-            AtrasoPrimeiroRaio + " segundos.");
+            "[F7/Raio] Revelação encerrada; aguardando a inicialização dos indicadores.");
     }
 
     private static void CriarBonecosTemporarios()
@@ -184,6 +198,9 @@ internal sealed class EventoRaio : EventoVotacao
             OcultarBoneco(bonecoAviso);
             OcultarBoneco(bonecoRaio);
             etapaInicializacao = 4;
+            proximoRaioEm = Time.realtimeSinceStartup + AtrasoPrimeiroRaio;
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[F7/Raio] Indicadores prontos; primeiro raio em " + AtrasoPrimeiroRaio + " segundos.");
             return;
         }
         // A etapa 0 é o estado normal antes do primeiro raio ou após o
@@ -205,12 +222,10 @@ internal sealed class EventoRaio : EventoVotacao
         if (ocultarDepoisDoImpacto && Time.realtimeSinceStartup >= proximoRaioEm)
         {
             ocultarDepoisDoImpacto = false;
-            // Cada raio tem seus próprios objetos de rede. Ao terminar o efeito,
-            // envia Despawn aos clientes e destrói as instâncias; o próximo raio
-            // criará objetos novos, sem reutilizar os anteriores.
-            DestruirBoneco(ref bonecoAviso);
-            DestruirBoneco(ref bonecoRaio);
-            etapaInicializacao = 0;
+            // Igual ao tsunami: mantém os NPCs de rede e apenas os deixa ocultos.
+            // O próximo efeito só envia SnapTo para reposicioná-los.
+            OcultarBoneco(bonecoAviso);
+            OcultarBoneco(bonecoRaio);
             AgendarProximoRaio();
             return;
         }
@@ -274,9 +289,8 @@ internal sealed class EventoRaio : EventoVotacao
 
     private static void IniciarDescarga()
     {
-        // Cada descarga cria objetos novos. Eles são destruídos ao final do efeito;
-        // portanto, referências nulas significam que este raio precisa de novos NPCs.
-        // A inicialização de rede acontece em etapas no Atualizar(), como no EHR.
+        // Os indicadores são persistentes, como no tsunami. Só os criamos caso
+        // ainda não existam; durante os raios seguintes apenas mudamos a posição.
         if (bonecoAviso == null || bonecoRaio == null || etapaInicializacao < 4)
         {
             try
@@ -366,8 +380,8 @@ internal sealed class EventoRaio : EventoVotacao
                     "[F7/Raio] Falha ao aplicar suicídio: " + ex.Message);
             }
         }
-        // Mantém o desenho do raio visível brevemente; depois os dois objetos
-        // serão removidos da rede, em vez de ficarem ocultos para reutilização.
+        // Mantém o desenho do raio visível brevemente; depois os indicadores
+        // são ocultados e reutilizados no próximo raio, como no tsunami.
         proximoRaioEm = Time.realtimeSinceStartup + 0.35f;
         descargaPendente = false;
         ocultarDepoisDoImpacto = true;
