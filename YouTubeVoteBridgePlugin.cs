@@ -3388,6 +3388,122 @@ public static class YouTubeVoteChatPatch
             return false;
         }
 
+        // Comandos de lobby inspirados no EHR: mover o próprio jogador para fora/dentro
+        // da área de espera e alterar o próprio nome.
+        bool comandoTpOut = mensagem.Equals("/tpout", StringComparison.OrdinalIgnoreCase);
+        bool comandoTpIn = mensagem.Equals("/tpin", StringComparison.OrdinalIgnoreCase);
+        bool comandoRename = Regex.IsMatch(
+            mensagem, @"^/(rn|rename)(\\s+|$)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+        if (comandoTpOut || comandoTpIn || comandoRename)
+        {
+            // Só são válidos no lobby, como no EHR.
+            if (LobbyTagManager.PartidaIniciada())
+            {
+                if (ehLocal)
+                    YouTubeVoteBridgePlugin.Responder(__instance, "Esses comandos só podem ser usados no lobby.");
+                else if (host)
+                    YouTubeVoteBridgePlugin.EnviarMensagemIndividual(sourcePlayer, "Esses comandos só podem ser usados no lobby.");
+                return false;
+            }
+
+            // O cliente que digitou o comando pode executá-lo para si; o host também
+            // processa mensagens recebidas dos demais jogadores.
+            if (!host && !ehLocal)
+                return false;
+
+            if (comandoTpOut || comandoTpIn)
+            {
+                if (host)
+                {
+                    Vector2 destino = comandoTpOut
+                        ? new Vector2(0.1f, 3.8f)
+                        : new Vector2(-0.2f, 1.3f);
+
+                    try
+                    {
+                        if (sourcePlayer.NetTransform == null)
+                            throw new InvalidOperationException("NetTransform do jogador não está disponível.");
+
+                        sourcePlayer.NetTransform.SnapTo(
+                            destino,
+                            (ushort)(sourcePlayer.NetTransform.lastSequenceId + 328));
+                        sourcePlayer.NetTransform.SetDirtyBit(uint.MaxValue);
+
+                        string confirmacao = comandoTpOut
+                            ? "Você foi teleportado para fora do lobby."
+                            : "Você voltou para dentro do lobby.";
+
+                        if (sourcePlayer == PlayerControl.LocalPlayer)
+                            YouTubeVoteBridgePlugin.Responder(__instance, confirmacao);
+                        else
+                            YouTubeVoteBridgePlugin.EnviarMensagemIndividual(sourcePlayer, confirmacao);
+                    }
+                    catch (Exception ex)
+                    {
+                        Instance?.Log.LogError("[Comando TP] Falha ao teleportar jogador: " + ex);
+                        if (sourcePlayer == PlayerControl.LocalPlayer)
+                            YouTubeVoteBridgePlugin.Responder(__instance, "Não foi possível teleportar.");
+                        else
+                            YouTubeVoteBridgePlugin.EnviarMensagemIndividual(sourcePlayer, "Não foi possível teleportar.");
+                    }
+                }
+                return false;
+            }
+
+            string[] partesRename = mensagem.Split(new[] { ' ' }, 2, StringSplitOptions.RemoveEmptyEntries);
+            if (partesRename.Length < 2 || string.IsNullOrWhiteSpace(partesRename[1]))
+            {
+                if (ehLocal)
+                    YouTubeVoteBridgePlugin.Responder(__instance, "Uso: /rn <nome> ou /rename <nome>");
+                else if (host)
+                    YouTubeVoteBridgePlugin.EnviarMensagemIndividual(sourcePlayer, "Uso: /rn <nome> ou /rename <nome>");
+                return false;
+            }
+
+            string novoNome = Regex.Replace(partesRename[1], @"<size=[^>]*>", string.Empty, RegexOptions.IgnoreCase).Trim();
+            string nomeSemTags = Regex.Replace(novoNome, @"<[^>]*>", string.Empty).Trim();
+            if (nomeSemTags.Length is < 1 or > 15)
+            {
+                if (ehLocal)
+                    YouTubeVoteBridgePlugin.Responder(__instance, "O nome precisa ter entre 1 e 15 caracteres.");
+                else if (host)
+                    YouTubeVoteBridgePlugin.EnviarMensagemIndividual(sourcePlayer, "O nome precisa ter entre 1 e 15 caracteres.");
+                return false;
+            }
+
+            if (host)
+            {
+                try
+                {
+                    if (sourcePlayer.Data == null)
+                        throw new InvalidOperationException("Dados do jogador não estão disponíveis.");
+
+                    // RPC SetName padrão do Among Us, sincronizado com os clientes.
+                    MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
+                        sourcePlayer.NetId, (byte)RpcCalls.SetName, SendOption.Reliable, -1);
+                    writer.Write(sourcePlayer.Data.NetId);
+                    writer.Write(novoNome);
+                    writer.Write(false);
+                    AmongUsClient.Instance.FinishRpcImmediately(writer);
+
+                    if (sourcePlayer == PlayerControl.LocalPlayer)
+                        YouTubeVoteBridgePlugin.Responder(__instance, "Nome alterado para: " + novoNome);
+                    else
+                        YouTubeVoteBridgePlugin.EnviarMensagemIndividual(sourcePlayer, "Nome alterado para: " + novoNome);
+                }
+                catch (Exception ex)
+                {
+                    Instance?.Log.LogError("[Comando rename] Falha ao alterar nome: " + ex);
+                    if (sourcePlayer == PlayerControl.LocalPlayer)
+                        YouTubeVoteBridgePlugin.Responder(__instance, "Não foi possível alterar o nome.");
+                    else
+                        YouTubeVoteBridgePlugin.EnviarMensagemIndividual(sourcePlayer, "Não foi possível alterar o nome.");
+                }
+            }
+            return false;
+        }
+
         if (mensagem.Equals("/help", StringComparison.OrdinalIgnoreCase) ||
             mensagem.Equals("/ajuda", StringComparison.OrdinalIgnoreCase))
         {
