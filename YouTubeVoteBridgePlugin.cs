@@ -163,7 +163,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         public string LiveId;
     }
     private static PedidoLive PedidoLivePendente;
-    private static readonly Dictionary<string, CancellationTokenSource> LeitoresAdicionais = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ConcurrentDictionary<string, CancellationTokenSource> LeitoresAdicionais = new(StringComparer.OrdinalIgnoreCase);
     private static readonly HashSet<string> LivesAdicionaisAprovadas = new(StringComparer.OrdinalIgnoreCase);
 
     private static readonly HttpClient ClienteHttp = CriarClienteHttp();
@@ -1183,11 +1183,8 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
             if (transmissaoAdicional)
             {
-                if (LeitoresAdicionais.TryGetValue(liveId, out CancellationTokenSource fonte))
-                {
+                if (LeitoresAdicionais.TryRemove(liveId, out CancellationTokenSource fonte))
                     fonte.Dispose();
-                    LeitoresAdicionais.Remove(liveId);
-                }
             }
 
             if (Instance != null)
@@ -1845,7 +1842,6 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             try { fonte.Cancel(); }
             catch { }
         }
-        LeitoresAdicionais.Clear();
         LivesAdicionaisAprovadas.Clear();
         PedidoLivePendente = null;
     }
@@ -3673,12 +3669,12 @@ public static class YouTubeVoteChatPatch
             return false;
         }
 
-        if (Regex.IsMatch(mensagem, @"^/live(\\s+|$)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+        if (Regex.IsMatch(mensagem, @"^/live(\s+|$)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
         {
             if (!host)
                 return ehLocal; // permite que o comando do cliente chegue ao host
 
-            string entradaLive = Regex.Replace(mensagem, @"^/live\\s*", "", RegexOptions.IgnoreCase).Trim();
+            string entradaLive = Regex.Replace(mensagem, @"^/live\s*", "", RegexOptions.IgnoreCase).Trim();
             string idSolicitado = YouTubeVoteBridgePlugin.ExtrairLiveId(entradaLive);
             if (idSolicitado.Length == 0)
                 idSolicitado = entradaLive;
