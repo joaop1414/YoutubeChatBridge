@@ -44,7 +44,7 @@ internal sealed class EventoRaio : EventoVotacao
     private static readonly System.Random Sorteador = new();
 
     // Desenho único do raio, usando as tags rich-text fornecidas.
-    private const string DesenhoRaio = "<size=200%>⚡";
+    private const string DesenhoRaio = "<cspace=-0.16em><line-height=66%><size=140%><color=#00000000>WWWW</color><mark=#fff880>WW</mark><color=#00000000>WW</color>\n<color=#00000000>WWW</color><mark=#ffea00>W</mark><mark=#ffffff>W</mark><mark=#ffea00>W</mark><color=#00000000>WW</color>\n<color=#00000000>WW</color><mark=#ffea00>W</mark><mark=#ffffff>W</mark><mark=#ffea00>W</mark><color=#00000000>WWW</color>\n<color=#00000000>W</color><mark=#ffea00>W</mark><mark=#ffffff>W</mark><mark=#ffea00>W</mark><color=#00000000>WWWW</color>\n<mark=#ffea00>WWWWWWWW</mark>\n<color=#00000000>WWW</color><mark=#ffea00>W</mark><mark=#ffffff>W</mark><mark=#ffea00>W</mark><color=#00000000>WW</color>\n<color=#00000000>WW</color><mark=#ffea00>W</mark><mark=#ffffff>W</mark><mark=#ffea00>W</mark><color=#00000000>WWW</color>\n<color=#00000000>W</color><mark=#ffea00>W</mark><mark=#ffffff>W</mark><color=#00000000>WWWWW</color>\n<mark=#ffea00>W</mark><color=#00000000>WWWWWWW</color>";
     // Mantém o aviso abaixo do limite prático de tamanho do RPC SetName vanilla.
     // Evita desconexão ao transmitir um nome maior que o pacote aceito.
     private const string DesenhoAviso = "<size=200%>⚠️";
