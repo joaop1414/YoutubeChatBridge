@@ -37,7 +37,7 @@ internal sealed class EventoMorrerQuandoPortaFechar : EventoVotacao
         }
     }
 
-    internal static void AoFecharPortas()
+    internal static void AoFecharPortas(SystemTypes salaFechada)
     {
         if (!ativo || !YouTubeVoteBridgePlugin.EhHost() ||
             ShipStatus.Instance == null || MeetingHud.Instance != null)
@@ -45,6 +45,18 @@ internal sealed class EventoMorrerQuandoPortaFechar : EventoVotacao
 
         try
         {
+            // CloseDoorsOfType recebe a sala cujas portas estão sendo fechadas.
+            // Restringe a checagem à área dessa sala para não atingir jogadores
+            // perto de portas de outras salas (ex.: Elétrica vs. Motor).
+            if (ShipStatus.Instance.FastRooms == null ||
+                !ShipStatus.Instance.FastRooms.TryGetValue(salaFechada, out PlainShipRoom sala) ||
+                sala == null || sala.roomArea == null)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogDebug(
+                    "[F7/Porta na cara] Não foi possível resolver a área da sala " + salaFechada + ".");
+                return;
+            }
+
             List<Collider2D> colisoresPortas = new();
             foreach (Collider2D colisor in UnityEngine.Object.FindObjectsOfType<Collider2D>())
             {
@@ -67,6 +79,11 @@ internal sealed class EventoMorrerQuandoPortaFechar : EventoVotacao
                     continue;
 
                 Vector2 posicao = jogador.transform.position;
+                // A posição do jogador precisa estar dentro da área da sala
+                // associada ao fechamento que acabou de ocorrer.
+                if (!sala.roomArea.OverlapPoint(posicao))
+                    continue;
+
                 bool atingido = false;
                 foreach (Collider2D porta in colisoresPortas)
                 {
@@ -136,8 +153,8 @@ internal sealed class EventoMorrerQuandoPortaFechar : EventoVotacao
 [HarmonyPatch(typeof(ShipStatus), nameof(ShipStatus.CloseDoorsOfType))]
 internal static class EventoMorrerQuandoPortaFecharPatch
 {
-    public static void Postfix()
+    public static void Postfix(SystemTypes __0)
     {
-        EventoMorrerQuandoPortaFechar.AoFecharPortas();
+        EventoMorrerQuandoPortaFechar.AoFecharPortas(__0);
     }
 }
