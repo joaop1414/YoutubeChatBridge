@@ -145,7 +145,7 @@ internal static class EventoEscudoTemporarioMortePatch
         return false;
     }
 
-    private static void AplicarEscudoEResetarCooldown(PlayerControl impostor)
+    internal static void AplicarEscudoEResetarCooldown(PlayerControl impostor)
     {
         if (AmongUsClient.Instance == null || impostor == null)
             return;
