@@ -64,14 +64,27 @@ namespace YouTubeVoteBridge
                                 .DefaultIfEmpty(-2f).Min() - 0.52f;
 
                             if (!existentes.Any(x => x.name == PREFIX + "SEMFIM"))
+                            {
                                 CriarControle(__instance, modeloExistente, "Sem fim de jogo", PREFIX + "SEMFIM", yExistente);
-
-                            if (!existentes.Any(x => x.name == PREFIX + "SEMFIM"))
-                                CriarControle(__instance, modeloExistente, "Sem fim de jogo", PREFIX + "SEMFIM", yExistente);
+                                yExistente -= 0.52f;
+                            }
                             if (!existentes.Any(x => x.name == PREFIX + "JUIZ"))
+                            {
                                 CriarControle(__instance, modeloExistente,
                                     "Pular fase de votos quando o juiz usa sua habilidade",
-                                    PREFIX + "JUIZ", yExistente - 0.52f);
+                                    PREFIX + "JUIZ", yExistente);
+                                yExistente -= 0.52f;
+                            }
+                            if (!existentes.Any(x => x.name == PREFIX + "MULTI"))
+                            {
+                                CriarControle(__instance, modeloExistente, "Multitransmissão", PREFIX + "MULTI", yExistente);
+                                yExistente -= 0.52f;
+                            }
+                            if (!existentes.Any(x => x.name == PREFIX + "PERMITIRIDS"))
+                            {
+                                CriarControle(__instance, modeloExistente, "Permitir IDs de outros jogadores", PREFIX + "PERMITIRIDS", yExistente);
+                                yExistente -= 0.52f;
+                            }
 
                             if (__instance.scrollBar != null)
                                 __instance.scrollBar.SetYBoundsMax(Math.Max(6f, -yExistente + 2.6f));
@@ -122,6 +135,10 @@ namespace YouTubeVoteBridge
                 CriarControle(__instance, modelo,
                     "Pular fase de votos quando o juiz usa sua habilidade",
                     PREFIX + "JUIZ", y);
+                y -= 0.52f;
+                CriarControle(__instance, modelo, "Multitransmissão", PREFIX + "MULTI", y);
+                y -= 0.52f;
+                CriarControle(__instance, modelo, "Permitir IDs de outros jogadores", PREFIX + "PERMITIRIDS", y);
                 y -= 0.52f;
 
                 AtualizarControles(__instance);
@@ -193,7 +210,9 @@ namespace YouTubeVoteBridge
                 YouTubeVoteBridgePlugin.IntervaloRodadas == null ||
                 YouTubeVoteBridgePlugin.PreparacaoChat == null ||
                 YouTubeVoteBridgePlugin.PularFaseVotosJuiz == null ||
-                YouTubeVoteBridgePlugin.SemFimDeJogo == null)
+                YouTubeVoteBridgePlugin.SemFimDeJogo == null ||
+                YouTubeVoteBridgePlugin.MultiTransmissaoAtiva == null ||
+                YouTubeVoteBridgePlugin.PermitirIdsDeOutrosJogadores == null)
                 return;
 
             if (option.name == PREFIX + "TEMPO")
@@ -209,6 +228,10 @@ namespace YouTubeVoteBridge
                 YouTubeVoteBridgePlugin.PularFaseVotosJuiz.Value = delta > 0;
             else if (option.name == PREFIX + "SEMFIM")
                 YouTubeVoteBridgePlugin.SemFimDeJogo.Value = delta > 0;
+            else if (option.name == PREFIX + "MULTI")
+                YouTubeVoteBridgePlugin.MultiTransmissaoAtiva.Value = delta > 0;
+            else if (option.name == PREFIX + "PERMITIRIDS")
+                YouTubeVoteBridgePlugin.PermitirIdsDeOutrosJogadores.Value = delta > 0;
             else
                 return;
 
@@ -282,6 +305,26 @@ namespace YouTubeVoteBridge
                 bool ativado = YouTubeVoteBridgePlugin.SemFimDeJogo != null &&
                     YouTubeVoteBridgePlugin.SemFimDeJogo.Value;
                 option.TitleText.text = "Sem fim de jogo";
+                option.Value = ativado ? 1 : 0;
+                option.oldValue = ativado ? 1 : 0;
+                option.ValueText.text = ativado ? "Ativado" : "Desativado";
+                return;
+            }
+            else if (option.name == PREFIX + "MULTI")
+            {
+                bool ativado = YouTubeVoteBridgePlugin.MultiTransmissaoAtiva != null &&
+                    YouTubeVoteBridgePlugin.MultiTransmissaoAtiva.Value;
+                option.TitleText.text = "Multitransmissão";
+                option.Value = ativado ? 1 : 0;
+                option.oldValue = ativado ? 1 : 0;
+                option.ValueText.text = ativado ? "Ativado" : "Desativado";
+                return;
+            }
+            else if (option.name == PREFIX + "PERMITIRIDS")
+            {
+                bool ativado = YouTubeVoteBridgePlugin.PermitirIdsDeOutrosJogadores != null &&
+                    YouTubeVoteBridgePlugin.PermitirIdsDeOutrosJogadores.Value;
+                option.TitleText.text = "Permitir IDs de outros jogadores";
                 option.Value = ativado ? 1 : 0;
                 option.oldValue = ativado ? 1 : 0;
                 option.ValueText.text = ativado ? "Ativado" : "Desativado";
