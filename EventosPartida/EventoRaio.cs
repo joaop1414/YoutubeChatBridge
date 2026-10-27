@@ -58,7 +58,7 @@ internal sealed class EventoRaio : EventoVotacao
         "<mark=#000000>WW</mark><mark=#ffdd00>WWWW</mark><mark=#000000>WW</mark>\n" +
         "<mark=#000000>WWWWWWWW</mark>";
 
-    public override string Nome => "Raio";
+    public override string Nome => "Tempestade elétrca - Raios podem matar os jogadores";
 
     public void Executar()
     {
