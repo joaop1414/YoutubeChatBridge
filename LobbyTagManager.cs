@@ -404,6 +404,8 @@ public static class LobbyTagManager
         }
     }
 
+    public static bool HostEstaNoLobby() => EstaNoLobby();
+
     private static bool EstaNoLobby()
     {
         try
