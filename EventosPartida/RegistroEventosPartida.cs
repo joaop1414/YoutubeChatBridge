@@ -17,6 +17,7 @@ internal static class RegistroEventosPartida
         new EventoDutosInstaveis(),
         new EventoMorrerQuandoPortaFechar(),
         new EventoRaio(),
+        new EventoImpostorSuicidaAoTentarMatar(),
     };
 
     public static IReadOnlyList<EventoVotacao> ObterTodos() => Eventos;
