@@ -3753,11 +3753,6 @@ public static class YouTubeVoteChatPatch
                 YouTubeVoteBridgePlugin.EnviarMensagemIndividual(sourcePlayer, ajuda3);
             }
             return false;
-            if (ehLocal)
-                YouTubeVoteBridgePlugin.Responder(__instance, ajuda);
-            else if (host)
-                YouTubeVoteBridgePlugin.EnviarMensagemIndividual(sourcePlayer, ajuda);
-            return false;
         }
 
         if (mensagem.Equals("/tag update", StringComparison.OrdinalIgnoreCase))
