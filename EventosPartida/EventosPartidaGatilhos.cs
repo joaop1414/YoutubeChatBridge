@@ -17,6 +17,7 @@ internal static class EventosPartidaInicioPatch
         EventoTrocaDeDestinos.IniciarPartida();
         EventoUltimoSuspiro.IniciarPartida();
         EventoDutosInstaveis.IniciarPartida();
+        EventoImpostorSuicidaAoTentarMatar.IniciarPartida();
     }
 }
 
@@ -44,6 +45,7 @@ internal static class EventoPartidaAssassinatoDesviadoPatch
 {
     private static bool Prefix(PlayerControl __instance, [HarmonyArgument(0)] PlayerControl target)
     {
+        if (EventoImpostorSuicidaAoTentarMatar.AoTentarMatar(__instance, target)) return false;
         return !EventoAssassinatoDesviado.AoTentarMatar(__instance, target);
     }
 }
@@ -71,5 +73,6 @@ internal static class EventosPartidaFimPatch
         EventoTrocaDeDestinos.Resetar();
         EventoUltimoSuspiro.Resetar();
         EventoDutosInstaveis.Resetar();
+        EventoImpostorSuicidaAoTentarMatar.Resetar();
     }
 }
