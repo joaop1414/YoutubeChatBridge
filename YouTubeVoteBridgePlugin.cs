@@ -3393,7 +3393,7 @@ public static class YouTubeVoteChatPatch
         bool comandoTpOut = mensagem.Equals("/tpout", StringComparison.OrdinalIgnoreCase);
         bool comandoTpIn = mensagem.Equals("/tpin", StringComparison.OrdinalIgnoreCase);
         bool comandoRename = Regex.IsMatch(
-            mensagem, @"^/(rn|rename)(\\s+|$)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            mensagem, @"^/(rn|rename)(\s+|$)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
         if (comandoTpOut || comandoTpIn || comandoRename)
         {
