@@ -3597,6 +3597,7 @@ public static class YouTubeVoteRestoreLobbyTagsBeforeMatchPatch
             EventoTeletransportarAlvoParaMetamorfoPartida.IniciarPartida();
             EventoTeletransportarJogadorAoCompletarTarefa.IniciarPartida();
             EventoTodosFicamInvisiveis.IniciarPartida();
+            EventoMorrerQuandoPortaFechar.IniciarPartida();
             EventoRaio.IniciarPartida();
         }
     }
@@ -3700,6 +3701,7 @@ public static class YouTubeVoteResetTaskEventsOnEndPatch
         EventoTarefaSuicidio.Desativar();
         EventoTeletransportarAlvoParaMetamorfo.Desativar();
         EventoTeletransportarAlvoParaMetamorfoPartida.Resetar();
+        EventoMorrerQuandoPortaFechar.Resetar();
         EventoRaio.Resetar();
         EventoTeletransportarJogadorAoCompletarTarefa.Desativar("fim da partida");
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
