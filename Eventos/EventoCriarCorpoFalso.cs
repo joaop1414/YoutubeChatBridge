@@ -149,6 +149,51 @@ internal sealed class EventoCriarCorpoFalso : EventoVotacao
             // do jogador temporário fará o jogo criar o corpo correspondente.
             CriarCorpoLocal(modelo, posicaoCorpo);
 
+            // Teste alternativo: em 25% dos corpos, instancia a seta nativa
+            // do Noisemaker localmente. Não atribui a função a nenhum jogador
+            // real nem envia SetRole para o PlayerControl temporário.
+            if (Sorteador.Next(100) < 25)
+            {
+                try
+                {
+                    var roleBase = RoleManager.Instance?.GetRole(RoleTypes.Noisemaker);
+                    var noisemaker = roleBase?.Cast<NoisemakerRole>();
+
+                    if (noisemaker != null && noisemaker.deathArrowPrefab != null)
+                    {
+                        GameObject setaObjeto = UnityEngine.Object.Instantiate(
+                            noisemaker.deathArrowPrefab, posicaoCorpo, Quaternion.identity);
+
+                        NoisemakerArrow seta = setaObjeto.GetComponent<NoisemakerArrow>();
+                        if (seta != null)
+                        {
+                            seta.SetDuration(noisemaker.alertDuration);
+                            seta.gameObject.SetActive(true);
+                            seta.target = new Vector2(posicaoCorpo.x, posicaoCorpo.y);
+
+                            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                                "Corpo falso: seta nativa do Noisemaker criada localmente para teste.");
+                        }
+                        else
+                        {
+                            UnityEngine.Object.Destroy(setaObjeto);
+                            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                                "Corpo falso: o prefab Noisemaker não contém NoisemakerArrow.");
+                        }
+                    }
+                    else
+                    {
+                        YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                            "Corpo falso: prefab do Noisemaker indisponível; seta não criada.");
+                    }
+                }
+                catch (Exception exSeta)
+                {
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                        "Falha ao criar seta local do Noisemaker: " + exSeta.Message);
+                }
+            }
+
             temporario = UnityEngine.Object.Instantiate(
                 AmongUsClient.Instance.PlayerPrefab, Vector2.zero, Quaternion.identity);
 
@@ -188,25 +233,6 @@ internal sealed class EventoCriarCorpoFalso : EventoVotacao
                     writer.EndMessage();
                     writer.EndMessage();
                 }
-
-                // Em 25% dos casos, tenta atribuir a função nativa Noisemaker
-                // ao PlayerControl temporário antes de matá-lo. A RPC aponta para
-                // o NetId temporário, não para o PlayerControl usado como modelo.
-                bool tentarNoisemaker = Sorteador.Next(100) < 25;
-                if (tentarNoisemaker)
-                {
-                    writer.StartMessage(2);
-                    writer.WritePacked(temporario.NetId);
-                    writer.Write((byte)RpcCalls.SetRole);
-                    writer.Write((ushort)RoleTypes.Noisemaker);
-                    writer.Write(true);
-                    writer.EndMessage();
-                }
-
-                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    tentarNoisemaker
-                        ? "Corpo falso: sorteio Noisemaker positivo; RPC SetRole enviada para o objeto temporário."
-                        : "Corpo falso: sorteio Noisemaker negativo; corpo comum.");
 
                 // RPC SetColor no objeto temporário.
                 writer.StartMessage(2);
