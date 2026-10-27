@@ -188,6 +188,25 @@ internal sealed class EventoCriarCorpoFalso : EventoVotacao
                     writer.EndMessage();
                 }
 
+                // Em 25% dos casos, tenta atribuir a função nativa Noisemaker
+                // ao PlayerControl temporário antes de matá-lo. A RPC aponta para
+                // o NetId temporário, não para o PlayerControl usado como modelo.
+                bool tentarNoisemaker = Sorteador.Next(100) < 25;
+                if (tentarNoisemaker)
+                {
+                    writer.StartMessage(2);
+                    writer.WritePacked(temporario.NetId);
+                    writer.Write((byte)RpcCalls.SetRole);
+                    writer.Write((ushort)RoleTypes.Noisemaker);
+                    writer.Write(true);
+                    writer.EndMessage();
+                }
+
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    tentarNoisemaker
+                        ? "Corpo falso: sorteio Noisemaker positivo; RPC SetRole enviada para o objeto temporário."
+                        : "Corpo falso: sorteio Noisemaker negativo; corpo comum.");
+
                 // RPC SetColor no objeto temporário.
                 writer.StartMessage(2);
                 writer.WritePacked(temporario.NetId);
