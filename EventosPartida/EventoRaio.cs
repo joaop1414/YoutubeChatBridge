@@ -44,10 +44,10 @@ internal sealed class EventoRaio : EventoVotacao
     private static readonly System.Random Sorteador = new();
 
     // Desenho único do raio, usando as tags rich-text fornecidas.
-    private const string DesenhoRaio = "!";
+    private const string DesenhoRaio = "<size=200%>⚡";
     // Mantém o aviso abaixo do limite prático de tamanho do RPC SetName vanilla.
     // Evita desconexão ao transmitir um nome maior que o pacote aceito.
-    private const string DesenhoAviso = "#";
+    private const string DesenhoAviso = "<size=200%>⚠️";
 
     public override string Nome => "Tempestade elétrica - Raios podem matar os jogadores";
 
