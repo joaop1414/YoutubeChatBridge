@@ -43,6 +43,8 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     public static ConfigEntry<int> PreparacaoChat;
     public static ConfigEntry<bool> PularFaseVotosJuiz;
     public static ConfigEntry<bool> SemFimDeJogo;
+    public static ConfigEntry<bool> MultiTransmissaoAtiva;
+    public static ConfigEntry<bool> PermitirIdsDeOutrosJogadores;
 
     // Permite que a ação manual "Encerrar partida" do menu F6 passe pelo bloqueio
     // de fim de jogo, mesmo quando a opção "Sem fim de jogo" está ativada.
@@ -154,6 +156,16 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     private static CancellationTokenSource leitorToken;
     private static Task tarefaLeitor;
 
+    private sealed class PedidoLive
+    {
+        public byte PlayerId;
+        public string NomeJogador;
+        public string LiveId;
+    }
+    private static PedidoLive PedidoLivePendente;
+    private static readonly Dictionary<string, CancellationTokenSource> LeitoresAdicionais = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly HashSet<string> LivesAdicionaisAprovadas = new(StringComparer.OrdinalIgnoreCase);
+
     private static readonly HttpClient ClienteHttp = CriarClienteHttp();
 
     private static HttpClient CriarClienteHttp()
@@ -219,6 +231,16 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             "Sem fim de jogo",
             false,
             "Quando ativado, impede que a partida termine pelas condições normais de vitória."
+        );
+
+        MultiTransmissaoAtiva = Config.Bind(
+            "YouTube", "MultiTransmissaoAtiva", false,
+            "Permite combinar a live do host com lives adicionais aprovadas."
+        );
+
+        PermitirIdsDeOutrosJogadores = Config.Bind(
+            "YouTube", "PermitirIdsDeOutrosJogadores", false,
+            "Permite que jogadores solicitem a inclusão de suas lives; o host precisa aprovar cada pedido."
         );
 
         LobbyTagManager.Initialize();
@@ -920,7 +942,8 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
     private static async Task LerChatAsync(
         string liveId,
-        CancellationToken token)
+        CancellationToken token,
+        bool transmissaoAdicional = false)
     {
         try
         {
@@ -1024,7 +1047,11 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             // A primeira resposta pode conter mensagens antigas do histórico.
             // Processamos a continuação, mas ignoramos votos dessa primeira resposta.
             bool ignorarPrimeiraResposta = true;
-            LeitorConectado = true;
+            if (!transmissaoAdicional)
+                LeitorConectado = true;
+            Instance.Log.LogInfo(transmissaoAdicional
+                ? "Leitor adicional conectado: " + liveId
+                : "Leitor principal conectado: " + liveId);
             var mensagensVistas = new HashSet<string>();
 
             while (!token.IsCancellationRequested)
@@ -1151,8 +1178,17 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         }
         finally
         {
-            if (LiveConectada != null)
+            if (!transmissaoAdicional && LiveConectada != null)
                 LiveConectada.Value = false;
+
+            if (transmissaoAdicional)
+            {
+                if (LeitoresAdicionais.TryGetValue(liveId, out CancellationTokenSource fonte))
+                {
+                    fonte.Dispose();
+                    LeitoresAdicionais.Remove(liveId);
+                }
+            }
 
             if (Instance != null)
                 Instance.Config.Save();
@@ -1473,7 +1509,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 Instance?.Log.LogInfo("[F7] Evento guardado para ativação no início da partida: " + EventoF7Pendente);
                 string estadoEvento = "Ele será ativado quando a partida começar.";
                 AnunciarEventoLobby(
-                    "Evento escolhido: <color=yellow>" +
+                    "O evento escolhido para a partida inteira é: <color=yellow>" +
                     eventoVencedor.Nome + "</color>. " + estadoEvento);
                 Instance?.Log.LogInfo("[F7] Evento guardado para o início da partida: " + eventoVencedor.Nome);
             }
@@ -1778,6 +1814,85 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         Responder(chat, mensagem);
     }
 
+    private static string NomeDoJogador(byte playerId)
+    {
+        PlayerControl jogador = PlayerControl.AllPlayerControls?.ToArray()
+            .FirstOrDefault(p => p != null && p.PlayerId == playerId);
+        return jogador != null && jogador.Data != null ? jogador.Data.PlayerName : "Jogador " + playerId;
+    }
+
+    private static void IniciarLeituraAdicionalAprovada(string id)
+    {
+        if (!EhHost() || !MultiTransmissaoAtiva.Value ||
+            !Regex.IsMatch(id ?? "", @"^[A-Za-z0-9_-]{11}$"))
+            return;
+
+        if (string.Equals(id, LiveId.Value, StringComparison.OrdinalIgnoreCase) ||
+            LeitoresAdicionais.ContainsKey(id) || LivesAdicionaisAprovadas.Contains(id))
+            return;
+
+        var fonte = new CancellationTokenSource();
+        LeitoresAdicionais[id] = fonte;
+        LivesAdicionaisAprovadas.Add(id);
+        _ = Task.Run(() => LerChatAsync(id, fonte.Token, true), fonte.Token);
+        Instance?.Log.LogInfo("[Multi-live] Leitor adicional iniciado para ID " + id);
+    }
+
+    private static void PararLeitoresAdicionais()
+    {
+        foreach (var fonte in LeitoresAdicionais.Values.ToArray())
+        {
+            try { fonte.Cancel(); }
+            catch { }
+        }
+        LeitoresAdicionais.Clear();
+        LivesAdicionaisAprovadas.Clear();
+        PedidoLivePendente = null;
+    }
+
+    private static void ProcessarPedidoLive(ChatController chat, PlayerControl jogador, string id)
+    {
+        if (!EhHost() || jogador == null) return;
+        if (MultiTransmissaoAtiva == null || !MultiTransmissaoAtiva.Value)
+        {
+            EnviarMensagemIndividual(jogador, "A sala não está com multi-transmissão ativada.");
+            return;
+        }
+        if (PermitirIdsDeOutrosJogadores == null || !PermitirIdsDeOutrosJogadores.Value)
+        {
+            EnviarMensagemIndividual(jogador, "O host não permite pedidos de lives de outros jogadores.");
+            return;
+        }
+        if (!Regex.IsMatch(id ?? "", @"^[A-Za-z0-9_-]{11}$"))
+        {
+            EnviarMensagemIndividual(jogador, "ID inválido. Envie /live <ID ou URL da transmissão>.");
+            return;
+        }
+        if (string.Equals(id, LiveId.Value, StringComparison.OrdinalIgnoreCase) ||
+            LeitoresAdicionais.ContainsKey(id) || LivesAdicionaisAprovadas.Contains(id))
+        {
+            EnviarMensagemIndividual(jogador, "Essa live já está sendo usada nesta votação.");
+            return;
+        }
+        if (PedidoLivePendente != null)
+        {
+            EnviarMensagemIndividual(jogador, "Já existe um pedido de live aguardando a decisão do host. Tente novamente depois.");
+            return;
+        }
+
+        PedidoLivePendente = new PedidoLive
+        {
+            PlayerId = jogador.PlayerId,
+            NomeJogador = jogador.Data != null ? jogador.Data.PlayerName : "Jogador " + jogador.PlayerId,
+            LiveId = id
+        };
+        string aviso = "Você permite que " + PedidoLivePendente.NomeJogador +
+            " coloque a live " + id + " para ser uma votação também? Use /youtube aceitar ou /youtube recusar.";
+        Responder(chat, "<color=#FFD166>Pedido de multi-transmissão</color>\\n" + aviso);
+        Instance?.Log.LogInfo("[Multi-live] Pedido aguardando aprovação: " + PedidoLivePendente.NomeJogador + " / " + id);
+        EnviarMensagemIndividual(jogador, "Seu pedido foi enviado ao host. Aguarde a aprovação.");
+    }
+
     public static void ProcessarComando(
         ChatController chat,
         string comando,
@@ -1813,8 +1928,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         if (argumentos.Length == 0 ||
             argumentos.Equals("ajuda", StringComparison.OrdinalIgnoreCase))
         {
-            ResponderComando(chat, destinatario, "Comandos: /youtube live (usa ID copiado) | colar | status | iniciar | parar | tempo 40 | intervalo 15 | preparacao 10 | config"
-            );
+            ResponderComando(chat, destinatario, "Comandos: /youtube live (usa ID copiado) | colar | status | iniciar | parar | tempo 40 | intervalo 15 | preparacao 10 | multi on/off | permitirids on/off | aceitar | recusar | config");
             return;
         }
 
@@ -1826,6 +1940,61 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
         switch (acao)
         {
+            case "multi":
+            case "multitransmissao":
+            case "multitransmissão":
+                if (partes.Length < 2 || !(partes[1].Equals("on", StringComparison.OrdinalIgnoreCase) || partes[1].Equals("off", StringComparison.OrdinalIgnoreCase) || partes[1].Equals("ligar", StringComparison.OrdinalIgnoreCase) || partes[1].Equals("desligar", StringComparison.OrdinalIgnoreCase)))
+                {
+                    ResponderComando(chat, destinatario, "Use: /youtube multi on ou /youtube multi off.");
+                    return;
+                }
+                MultiTransmissaoAtiva.Value = partes[1].Equals("on", StringComparison.OrdinalIgnoreCase) || partes[1].Equals("ligar", StringComparison.OrdinalIgnoreCase);
+                if (!MultiTransmissaoAtiva.Value) PararLeitoresAdicionais();
+                Instance.Config.Save();
+                ResponderComando(chat, destinatario, "Multi-transmissão " + (MultiTransmissaoAtiva.Value ? "ativada" : "desativada") + ".");
+                return;
+
+            case "permitirids":
+            case "permitirlives":
+                if (partes.Length < 2 || !(partes[1].Equals("on", StringComparison.OrdinalIgnoreCase) || partes[1].Equals("off", StringComparison.OrdinalIgnoreCase) || partes[1].Equals("ligar", StringComparison.OrdinalIgnoreCase) || partes[1].Equals("desligar", StringComparison.OrdinalIgnoreCase)))
+                {
+                    ResponderComando(chat, destinatario, "Use: /youtube permitirids on ou /youtube permitirids off.");
+                    return;
+                }
+                PermitirIdsDeOutrosJogadores.Value = partes[1].Equals("on", StringComparison.OrdinalIgnoreCase) || partes[1].Equals("ligar", StringComparison.OrdinalIgnoreCase);
+                if (!PermitirIdsDeOutrosJogadores.Value) PedidoLivePendente = null;
+                Instance.Config.Save();
+                ResponderComando(chat, destinatario, "Pedidos de lives por outros jogadores " + (PermitirIdsDeOutrosJogadores.Value ? "permitidos (cada pedido ainda precisa de aprovação)" : "desativados") + ".");
+                return;
+
+            case "aceitar":
+            case "aprovar":
+                if (PedidoLivePendente == null)
+                {
+                    ResponderComando(chat, destinatario, "Não há pedido de live aguardando aprovação.");
+                    return;
+                }
+                PedidoLive aprovado = PedidoLivePendente;
+                PedidoLivePendente = null;
+                IniciarLeituraAdicionalAprovada(aprovado.LiveId);
+                EnviarMensagemIndividual(PlayerControl.AllPlayerControls.ToArray().FirstOrDefault(p => p != null && p.PlayerId == aprovado.PlayerId), "O host aprovou sua live " + aprovado.LiveId + ". Ela será incluída nas votações.");
+                ResponderComando(chat, destinatario, "Live " + aprovado.LiveId + " aprovada; iniciando leitor adicional.");
+                return;
+
+            case "recusar":
+            case "negar":
+                if (PedidoLivePendente == null)
+                {
+                    ResponderComando(chat, destinatario, "Não há pedido de live aguardando aprovação.");
+                    return;
+                }
+                PedidoLive recusado = PedidoLivePendente;
+                PedidoLivePendente = null;
+                PlayerControl solicitante = PlayerControl.AllPlayerControls.ToArray().FirstOrDefault(p => p != null && p.PlayerId == recusado.PlayerId);
+                if (solicitante != null) EnviarMensagemIndividual(solicitante, "O host recusou a inclusão da live " + recusado.LiveId + ".");
+                ResponderComando(chat, destinatario, "Pedido da live " + recusado.LiveId + " recusado.");
+                return;
+
             case "config":
             case "configuracoes":
             case "configurações":
@@ -3501,6 +3670,19 @@ public static class YouTubeVoteChatPatch
                         YouTubeVoteBridgePlugin.EnviarMensagemIndividual(sourcePlayer, "Não foi possível alterar o nome.");
                 }
             }
+            return false;
+        }
+
+        if (Regex.IsMatch(mensagem, @"^/live(\\s+|$)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+        {
+            if (!host)
+                return ehLocal; // permite que o comando do cliente chegue ao host
+
+            string entradaLive = Regex.Replace(mensagem, @"^/live\\s*", "", RegexOptions.IgnoreCase).Trim();
+            string idSolicitado = YouTubeVoteBridgePlugin.ExtrairLiveId(entradaLive);
+            if (idSolicitado.Length == 0)
+                idSolicitado = entradaLive;
+            YouTubeVoteBridgePlugin.ProcessarPedidoLive(__instance, sourcePlayer, idSolicitado);
             return false;
         }
 
