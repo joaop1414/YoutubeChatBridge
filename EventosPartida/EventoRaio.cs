@@ -327,7 +327,8 @@ internal sealed class EventoRaio : EventoVotacao
             (float)(Sorteador.NextDouble() * 2.0 - 1.0));
 
         desenhoAtualRaio = DesenhoRaio;
-        PrepararBoneco(bonecoRaio, desenhoAtualRaio);
+        // A aparência já foi enviada uma única vez durante a inicialização.
+        // Não repetir Shapeshift/serialização de cosméticos a cada descarga.
         // Os desenhos foram transmitidos na preparação via aparência/Shapeshift.
         // Aqui só movemos os indicadores; reenviar arte grande em SetName pode
         // fazer clientes vanilla rejeitarem a mensagem e expulsarem o host.
