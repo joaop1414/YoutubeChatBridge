@@ -44,13 +44,12 @@ internal sealed class EventoImpostorSuicidaAoTentarMatar : EventoVotacao
             // reduz o cooldown local, usando temporariamente opções dobradas.
             EventoEscudoTemporarioMortePatch.AplicarEscudoEResetarCooldown(impostor);
 
-            // Depois da reação do escudo, mata o próprio impostor de forma
-            // autoritativa para que a morte seja sincronizada com os jogadores.
-            impostor.RpcMurderPlayer(impostor, true);
+            // O impostor continua vivo; quem morre é o alvo original do kill.
+            impostor.RpcMurderPlayer(alvo, true);
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 $"[F7/Impostor suicida] PlayerId={impostor.PlayerId} tentou matar " +
-                $"PlayerId={alvo.PlayerId} e cometeu suicídio.");
+                $"PlayerId={alvo.PlayerId}; o alvo foi morto e o impostor sobreviveu.");
             return true;
         }
         catch (Exception ex)
