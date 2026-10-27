@@ -1,6 +1,4 @@
 using System;
-using AmongUs.GameOptions;
-
 namespace YouTubeVoteBridge;
 
 internal sealed class EventoImpostorSuicidaAoTentarMatar : EventoVotacao
@@ -59,7 +57,9 @@ internal sealed class EventoImpostorSuicidaAoTentarMatar : EventoVotacao
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
                 "[F7/Impostor suicida] Falha ao processar tentativa de assassinato: " + ex);
-            return false;
+            // A tentativa original deve continuar bloqueada mesmo se a reação falhar;
+            // caso contrário o alvo poderia morrer normalmente.
+            return true;
         }
         finally
         {
