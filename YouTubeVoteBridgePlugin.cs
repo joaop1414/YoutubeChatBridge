@@ -3737,7 +3737,22 @@ public static class YouTubeVoteChatPatch
         if (mensagem.Equals("/help", StringComparison.OrdinalIgnoreCase) ||
             mensagem.Equals("/ajuda", StringComparison.OrdinalIgnoreCase))
         {
-            const string ajuda = "Comandos: /help ou /ajuda; /color <id|nome|rainbow>; /evento (resumo dos eventos F7); /ytconfig; /youtube ajuda; /youtube live ou /youtube colar; /youtube iniciar|parar|status; /youtube tempo <5-600>; /youtube intervalo <0-600>; /youtube preparacao <0-120>; /youtube multi on/off; /youtube permitirids on/off; /youtube aceitar|recusar; /youtube config; /live <ID ou URL> (pedido de outro jogador, só no lobby); /tpout; /tpin; /rn <nome> ou /rename <nome> (só no lobby); /tag update (somente host).";
+            const string ajuda1 = "Ajuda 1/3: /color <id|nome|rainbow> (cor); /evento, /eventof7 ou /eventosf7 (eventos F7); /ytconfig, /ytconfiguracoes ou /ytconfigurações (configurações).";
+            const string ajuda2 = "Ajuda 2/3 — host: /youtube ajuda; /youtube live, colar/clipboard/area ou /youtube <ID/URL>; /youtube iniciar/on/ligar; parar/off/desligar; status/info; tempo <5-600>; intervalo <0-600>; preparacao <0-120>; config/configuracoes.";
+            const string ajuda3 = "Ajuda 3/3: /youtube multi|multitransmissao on/off; permitirids|permitirlives on/off; aceitar/aprovar; recusar/negar. /live <ID/URL> pede inclusão de outra live (só no lobby). /tpout, /tpin, /rn <nome>, /rename <nome> (lobby). /tag update (host).";
+            if (ehLocal)
+            {
+                YouTubeVoteBridgePlugin.Responder(__instance, ajuda1);
+                YouTubeVoteBridgePlugin.Responder(__instance, ajuda2);
+                YouTubeVoteBridgePlugin.Responder(__instance, ajuda3);
+            }
+            else if (host)
+            {
+                YouTubeVoteBridgePlugin.EnviarMensagemIndividual(sourcePlayer, ajuda1);
+                YouTubeVoteBridgePlugin.EnviarMensagemIndividual(sourcePlayer, ajuda2);
+                YouTubeVoteBridgePlugin.EnviarMensagemIndividual(sourcePlayer, ajuda3);
+            }
+            return false;
             if (ehLocal)
                 YouTubeVoteBridgePlugin.Responder(__instance, ajuda);
             else if (host)
