@@ -39,10 +39,6 @@ internal sealed class EventoTsunami : EventoVotacao
     // Inicialização de rede do indicador em etapas, como no NPC seguidor/EHR.
     private static int etapaInicializacaoIndicador;
     private static float proximaEtapaInicializacaoIndicador;
-    // Mantém o SetName temporário por um curto intervalo para dar tempo ao cliente vanilla de processá-lo.
-    private const float DuracaoNomeTemporarioTsunami = 0.75f;
-    private static float restaurarNomesTemporariosEm;
-    private static readonly List<KeyValuePair<PlayerControl, string>> nomesTemporariosPendentes = new();
     private static float proximaSabotagem;
     private static float repararReatorAte;
     private static bool reparoPendente;
@@ -107,10 +103,11 @@ internal sealed class EventoTsunami : EventoVotacao
             if (outfitIndicador != null)
                 outfitIndicador.PlayerName = "TSUNAMI";
 
-            // Etapa -1: no próximo Update, enviaremos o spawn oculto e usaremos
-            // SetName direcionado para cada cliente vanilla, sem alterar o host.
-            etapaInicializacaoIndicador = -1;
-            proximaEtapaInicializacaoIndicador = Time.realtimeSinceStartup + 0.05f;
+            // Inicialização em etapas igual ao evento do Raio: primeiro o spawn
+            // oculto, depois a associação PlayerId/NetId e por último a aparência.
+            // Não alteramos nomes de jogadores reais para desenhar a onda.
+            etapaInicializacaoIndicador = 1;
+            proximaEtapaInicializacaoIndicador = Time.realtimeSinceStartup + 0.12f;
 
             ativo = true;
             proximaAtualizacaoAvisoRede = 0f;
@@ -157,16 +154,12 @@ internal sealed class EventoTsunami : EventoVotacao
 
         try
         {
-            // Usa a técnica de sprite do EHR: publica o outfit temporário do host,
-            // aplica-o ao NPC por Shapeshift e restaura o outfit original do host.
-            // O nome visual da onda é parte do sprite, não o nome de rede do NPC.
+            // Mesma abordagem do Raio: transmitir a arte pela aparência do NPC,
+            // sem enviar o desenho longo por SetName nem tocar no nome de jogador real.
             CustomNetObject.EnviarAparenciaSprite(indicador, NomeOnda, out _);
-            // Shapeshift pode sobrescrever o nome do NPC com o outfit do host;
-            // reenvia SetName depois dele para que o nome da onda prevaleça.
-            CustomNetObject.EnviarSetName(indicador, NomeOnda);
             CustomNetObject.EnviarPosicao(indicador, posicao);
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                $"Tsunami: nome aplicado diretamente ao NPC; NetId={indicador.NetId}, PlayerId={indicador.PlayerId}.");
+                $"Tsunami: aparência do indicador enviada; NetId={indicador.NetId}, PlayerId={indicador.PlayerId}.");
 
             // No host, não dependemos do nome propagado pelo Shapeshift:
             // desenhamos a onda diretamente no TextMeshPro do nome do indicador.
@@ -206,79 +199,30 @@ internal sealed class EventoTsunami : EventoVotacao
             return;
         }
 
-        // Restaura os nomes apenas depois de mantê-los ativos por 0,75 s.
-        // O RPC é direcionado ao proprietário; o nome do host nunca é alterado.
-        if (nomesTemporariosPendentes.Count > 0 &&
-            Time.realtimeSinceStartup >= restaurarNomesTemporariosEm)
-        {
-            foreach (var item in nomesTemporariosPendentes)
-                DefinirNomeLocalParaCliente(item.Key, item.Value);
-            nomesTemporariosPendentes.Clear();
-            restaurarNomesTemporariosEm = 0f;
-        }
-
-        // Usa o mecanismo já existente do mod: o SetName é direcionado apenas
-        // ao cliente proprietário de cada jogador vanilla. O host não tem seu
-        // próprio nome/outfit modificado nem serializado com o texto da onda.
-        if (indicador != null && etapaInicializacaoIndicador == -1 &&
+        // Etapa 1: envia o spawn enquanto o NPC está fora da área visível.
+        // Nenhum SetName é enviado aos jogadores reais, evitando o efeito de piscar.
+        if (indicador != null && etapaInicializacaoIndicador == 1 &&
             Time.realtimeSinceStartup >= proximaEtapaInicializacaoIndicador)
         {
-            var nomesTemporariosClientes = new List<KeyValuePair<PlayerControl, string>>();
             try
             {
-                foreach (PlayerControl jogador in PlayerControl.AllPlayerControls.ToArray())
-                {
-                    if (jogador == null || jogador == indicador || jogador.Data == null ||
-                        jogador.Data.Disconnected || jogador.OwnerId < 0 ||
-                        jogador.OwnerId == AmongUsClient.Instance.ClientId ||
-                        YouTubeVoteBridgePlugin.ClienteTemMod(jogador.OwnerId))
-                        continue;
-
-                    // Guarda o nome real antes de enviar o SetName temporário.
-                    // O texto visual (nameText) pode já conter o aviso/onda e não é uma fonte segura.
-                    string nomeOriginal = jogador.Data.PlayerName ?? string.Empty;
-                    if (!nomesOriginais.ContainsKey(jogador.PlayerId))
-                        nomesOriginais[jogador.PlayerId] = nomeOriginal;
-
-                    if (DefinirNomeLocalParaCliente(jogador, NomeOnda))
-                        nomesTemporariosClientes.Add(
-                            new KeyValuePair<PlayerControl, string>(jogador, nomeOriginal));
-                }
-
-                var outfitIndicador = indicador.Data?.Outfits[PlayerOutfitType.Default];
-                if (outfitIndicador != null)
-                    outfitIndicador.PlayerName = "TSUNAMI";
-
                 CustomNetObject.EnviarSpawn(indicador);
                 if (PlayerControl.AllPlayerControls.Contains(indicador))
                     PlayerControl.AllPlayerControls.Remove(indicador);
-
-                // Não restaura no mesmo Update: deixa o nome do tsunami visível
-                // por 0,75 s para o cliente vanilla processar e renderizar o SetName.
-                nomesTemporariosPendentes.Clear();
-                nomesTemporariosPendentes.AddRange(nomesTemporariosClientes);
-                restaurarNomesTemporariosEm = Time.realtimeSinceStartup + DuracaoNomeTemporarioTsunami;
-
-                etapaInicializacaoIndicador = 1;
-                proximaEtapaInicializacaoIndicador = Time.realtimeSinceStartup + 0.1f;
-                AplicarAvisoNomes();
+                etapaInicializacaoIndicador = 2;
+                proximaEtapaInicializacaoIndicador = Time.realtimeSinceStartup + 0.12f;
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "Tsunami: spawn oculto enviado; SetName temporário direcionado aos clientes vanilla e restaurado.");
+                    "Tsunami: spawn oculto enviado; aguardando para associar o NPC aos clientes.");
             }
             catch (Exception ex)
             {
-                foreach (var item in nomesTemporariosClientes)
-                    DefinirNomeLocalParaCliente(item.Key, item.Value);
-                nomesTemporariosPendentes.Clear();
-                restaurarNomesTemporariosEm = 0f;
                 etapaInicializacaoIndicador = 0;
                 YouTubeVoteBridgePlugin.Instance?.Log.LogError(
                     "Tsunami: falha ao enviar spawn oculto: " + ex);
             }
         }
 
-        // O jogo pode recalcular o nome do indicador durante Update; reafirma
-        // o TextMeshPro local do host sem depender da aparência do boneco.
+        // Reafirma apenas o texto local do NPC; nenhum nome de jogador real é alterado.
         if (indicador != null)
         {
             try
@@ -289,16 +233,24 @@ internal sealed class EventoTsunami : EventoVotacao
             catch { }
         }
 
-        // A sequência é deliberadamente dividida em duas atualizações:
-        // 1) associação temporária do objeto a cada cliente (EHR);
-        // 2) aparência e posição inicial depois que a associação foi enviada.
-        if (indicador != null && etapaInicializacaoIndicador == 1 &&
+        // Etapa 2: associa NetId e PlayerId em cada cliente, como no evento do Raio.
+        if (indicador != null && etapaInicializacaoIndicador == 2 &&
             Time.realtimeSinceStartup >= proximaEtapaInicializacaoIndicador)
         {
             try
             {
                 int mensagens = CustomNetObject.AssociarClientes(indicador, PlayerIdIndicador);
-                etapaInicializacaoIndicador = 2;
+                try
+                {
+                    if (PlayerControl.LocalPlayer?.Data != null)
+                        indicador.CachedPlayerData = PlayerControl.LocalPlayer.Data;
+                }
+                catch (Exception ex)
+                {
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                        "Tsunami: não foi possível configurar CachedPlayerData: " + ex.Message);
+                }
+                etapaInicializacaoIndicador = 3;
                 proximaEtapaInicializacaoIndicador = Time.realtimeSinceStartup + 0.15f;
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                     $"Tsunami: associação EHR enviada para {mensagens} clientes vanilla; preparando aparência.");
@@ -311,11 +263,14 @@ internal sealed class EventoTsunami : EventoVotacao
             }
         }
 
-        if (indicador != null && etapaInicializacaoIndicador == 2 &&
+        // Etapa 3: transmite a aparência uma única vez, depois libera a onda.
+        if (indicador != null && etapaInicializacaoIndicador == 3 &&
             Time.realtimeSinceStartup >= proximaEtapaInicializacaoIndicador)
         {
             PrepararIndicadorVisual();
-            etapaInicializacaoIndicador = 3;
+            etapaInicializacaoIndicador = 4;
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "Tsunami: NPC inicializado como no Raio; sem alterar nomes dos jogadores.");
         }
 
         if (reuniaoAguardandoFim)
