@@ -171,7 +171,7 @@ internal sealed class EventoCriarCorpoFalso : EventoVotacao
                             "Teste Noisemaker.OnDeath: chamando OnDeath() na instância obtida por RoleManager. " +
                             "Isso é apenas um teste local e pode não representar o papel de um jogador real.");
 
-                        noisemaker.OnDeath();
+                        noisemaker.OnDeath(DeathReason.Kill);
 
                         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                             "Teste Noisemaker.OnDeath: chamada concluída sem exceção.");
