@@ -47,7 +47,7 @@ internal sealed class EventoRaio : EventoVotacao
     private const string DesenhoRaio = "<cspace=-0.16em><line-height=90%><size=100%><color=#00000000>WWWW</color><mark=#fff880>WW</mark><color=#00000000>WW</color>\n<color=#00000000>WWW</color><mark=#ffea00>W</mark><mark=#ffffff>W</mark><mark=#ffea00>W</mark><color=#00000000>WW</color>\n<color=#00000000>WW</color><mark=#ffea00>W</mark><mark=#ffffff>W</mark><mark=#ffea00>W</mark><color=#00000000>WWW</color>\n<color=#00000000>W</color><mark=#ffea00>W</mark><mark=#ffffff>W</mark><mark=#ffea00>W</mark><color=#00000000>WWWW</color>\n<mark=#ffea00>WWWWWWWW</mark>\n<color=#00000000>WWW</color><mark=#ffea00>W</mark><mark=#ffffff>W</mark><mark=#ffea00>W</mark><color=#00000000>WW</color>\n<color=#00000000>WW</color><mark=#ffea00>W</mark><mark=#ffffff>W</mark><mark=#ffea00>W</mark><color=#00000000>WWW</color>\n<color=#00000000>W</color><mark=#ffea00>W</mark><mark=#ffffff>W</mark><color=#00000000>WWWWW</color>\n<mark=#ffea00>W</mark><color=#00000000>WWWWWWW</color>";
     // Mantém o aviso abaixo do limite prático de tamanho do RPC SetName vanilla.
     // Evita desconexão ao transmitir um nome maior que o pacote aceito.
-    private const string DesenhoAviso = "<size=300%><color=yellow>!";
+    private const string DesenhoAviso = "<cspace=-0.16em><line-height=90%><size=100%><color=#00000000>WWWWWW</color><mark=#000000>W</mark><color=#00000000>WWWWWW</color>\n<color=#00000000>WWWWW</color><mark=#000000>W</mark><mark=#eeff00>W</mark><mark=#000000>W</mark><color=#00000000>WWWWW</color>\n<color=#00000000>WWWWW</color><mark=#000000>W</mark><mark=#eeff00>W</mark><mark=#000000>W</mark><color=#00000000>WWWWW</color>\n<color=#00000000>WWWW</color><mark=#000000>W</mark><mark=#eeff00>WWW</mark><mark=#000000>W</mark><color=#00000000>WWWW</color>\n<color=#00000000>WWWW</color><mark=#000000>W</mark><mark=#eeff00>W</mark><mark=#000000>W</mark><mark=#eeff00>W</mark><mark=#000000>W</mark><color=#00000000>WWWW</color>\n<color=#00000000>WWW</color><mark=#000000>W</mark><mark=#eeff00>WW</mark><mark=#000000>W</mark><mark=#eeff00>WW</mark><mark=#000000>W</mark><color=#00000000>WWW</color>\n<color=#00000000>WWW</color><mark=#000000>W</mark><mark=#eeff00>WW</mark><mark=#000000>W</mark><mark=#eeff00>WW</mark><mark=#000000>W</mark><color=#00000000>WWW</color>\n<color=#00000000>WW</color><mark=#000000>W</mark><mark=#eeff00>WWW</mark><mark=#000000>W</mark><mark=#eeff00>WWW</mark><mark=#000000>W</mark><color=#00000000>WW</color>\n<color=#00000000>WW</color><mark=#000000>W</mark><mark=#eeff00>WWW</mark><mark=#000000>W</mark><mark=#eeff00>WWW</mark><mark=#000000>W</mark><color=#00000000>WW</color>\n<color=#00000000>W</color><mark=#000000>W</mark><mark=#eeff00>WWWWWWWWW</mark><mark=#000000>W</mark><color=#00000000>W</color>\n<color=#00000000>W</color><mark=#000000>W</mark><mark=#eeff00>WWWW</mark><mark=#000000>W</mark><mark=#eeff00>WWWW</mark><mark=#000000>W</mark><color=#00000000>W</color>\n<mark=#000000>W</mark><mark=#eeff00>WWWWWWWWWWW</mark><mark=#000000>W</mark>\n<mark=#000000>WWWWWWWWWWWWW</mark>";
 
     public override string Nome => "Tempestade elétrica - Raios podem matar os jogadores";
 
@@ -265,9 +265,12 @@ internal sealed class EventoRaio : EventoVotacao
         if (boneco == null) return;
         try
         {
+            // Reutiliza o mesmo fluxo de aparência de rede que funciona no Tsunami.
+            // O desenho vai pelo CustomNetObject, nunca pelo nome de rede do jogador.
             CustomNetObject.EnviarAparenciaSprite(boneco, arte, out _);
-            // Não transmitir o desenho longo via RPC SetName: o sprite já é
-            // enviado pelo fluxo de aparência/Shapeshift usado pelo EHR.
+            CustomNetObject.EnviarPosicao(boneco, (Vector2)boneco.transform.position);
+
+            // Como no Tsunami, aplica o texto completo somente no cliente local.
             if (boneco.cosmetics?.nameText != null)
                 boneco.cosmetics.nameText.text = arte;
         }
