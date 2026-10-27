@@ -149,9 +149,10 @@ internal sealed class EventoCriarCorpoFalso : EventoVotacao
             // do jogador temporário fará o jogo criar o corpo correspondente.
             CriarCorpoLocal(modelo, posicaoCorpo);
 
-            // Teste alternativo: em 25% dos corpos, instancia a seta nativa
-            // do Noisemaker localmente. Não atribui a função a nenhum jogador
-            // real nem envia SetRole para o PlayerControl temporário.
+            // Teste diagnóstico: em 25% dos corpos, tenta chamar o método nativo
+            // OnDeath do Noisemaker. Esse método normalmente depende do Player
+            // associado à instância real da função; o log/catch permite verificar
+            // se a instância obtida pelo RoleManager aceita essa chamada.
             if (Sorteador.Next(100) < 25)
             {
                 try
@@ -159,38 +160,27 @@ internal sealed class EventoCriarCorpoFalso : EventoVotacao
                     var roleBase = RoleManager.Instance?.GetRole(RoleTypes.Noisemaker);
                     var noisemaker = roleBase?.Cast<NoisemakerRole>();
 
-                    if (noisemaker != null && noisemaker.deathArrowPrefab != null)
+                    if (noisemaker == null)
                     {
-                        GameObject setaObjeto = UnityEngine.Object.Instantiate(
-                            noisemaker.deathArrowPrefab, posicaoCorpo, Quaternion.identity);
-
-                        NoisemakerArrow seta = setaObjeto.GetComponent<NoisemakerArrow>();
-                        if (seta != null)
-                        {
-                            seta.SetDuration(noisemaker.alertDuration);
-                            seta.gameObject.SetActive(true);
-                            seta.target = new Vector2(posicaoCorpo.x, posicaoCorpo.y);
-
-                            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                                "Corpo falso: seta nativa do Noisemaker criada localmente para teste.");
-                        }
-                        else
-                        {
-                            UnityEngine.Object.Destroy(setaObjeto);
-                            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                                "Corpo falso: o prefab Noisemaker não contém NoisemakerArrow.");
-                        }
+                        YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                            "Teste Noisemaker.OnDeath: RoleManager não retornou uma instância NoisemakerRole.");
                     }
                     else
                     {
-                        YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                            "Corpo falso: prefab do Noisemaker indisponível; seta não criada.");
+                        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                            "Teste Noisemaker.OnDeath: chamando OnDeath() na instância obtida por RoleManager. " +
+                            "Isso é apenas um teste local e pode não representar o papel de um jogador real.");
+
+                        noisemaker.OnDeath();
+
+                        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                            "Teste Noisemaker.OnDeath: chamada concluída sem exceção.");
                     }
                 }
                 catch (Exception exSeta)
                 {
                     YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                        "Falha ao criar seta local do Noisemaker: " + exSeta.Message);
+                        "Teste Noisemaker.OnDeath falhou: " + exSeta);
                 }
             }
 
