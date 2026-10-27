@@ -298,6 +298,36 @@ internal sealed class PainelVotacaoOverlay : MonoBehaviour
         estilosCriados = true;
     }
 
+    private static void DesenharPedidoLivePendente()
+    {
+        if (!YouTubeVoteBridgePlugin.ExistePedidoLivePendente)
+            return;
+
+        float largura = Mathf.Min(520f, Screen.width - 32f);
+        float altura = 230f;
+        float x = (Screen.width - largura) / 2f;
+        float y = (Screen.height - altura) / 2f;
+        Rect caixa = new Rect(x, y, largura, altura);
+
+        GUI.color = new Color(0.04f, 0.06f, 0.10f, 0.98f);
+        GUI.Box(caixa, GUIContent.none, GUI.skin.box);
+        GUI.color = Color.white;
+
+        GUI.Label(new Rect(x + 22f, y + 18f, largura - 44f, 34f),
+            "PEDIDO DE MULTITRANSMISSÃO", GUI.skin.label);
+        GUI.Label(new Rect(x + 22f, y + 58f, largura - 44f, 76f),
+            YouTubeVoteBridgePlugin.ObterTextoPedidoLivePendente(), GUI.skin.label);
+        GUI.Label(new Rect(x + 22f, y + 132f, largura - 44f, 28f),
+            "Deseja incluir esta live nas votações?", GUI.skin.label);
+
+        float botaoY = y + altura - 58f;
+        float botaoLargura = (largura - 58f) / 2f;
+        if (GUI.Button(new Rect(x + 22f, botaoY, botaoLargura, 38f), "Aceitar"))
+            YouTubeVoteBridgePlugin.ResolverPedidoLivePendente(true);
+        if (GUI.Button(new Rect(x + 36f + botaoLargura, botaoY, botaoLargura, 38f), "Recusar"))
+            YouTubeVoteBridgePlugin.ResolverPedidoLivePendente(false);
+    }
+
     private void OnGUI()
     {
         if (AmongUsClient.Instance == null)
@@ -312,6 +342,8 @@ internal sealed class PainelVotacaoOverlay : MonoBehaviour
 
         CriarEstilos();
         if (!estilosCriados) return;
+
+        DesenharPedidoLivePendente();
 
         // 1280x720 é a escala de referência. Em janelas menores, reduzimos
         // proporcionalmente o painel e as fontes para caber nas três instâncias.
