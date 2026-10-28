@@ -41,6 +41,12 @@ internal sealed class EventoRaio : EventoVotacao
     private static bool tentativaCriarSom;
     private static bool alertaNoisemakerAtivo;
     private static Vector2 ultimaPosicaoAlerta;
+
+    // Os indicadores são removidos no início da reunião para evitar a tela
+    // preta após a ejeção. Só voltam 10 s depois que a tela de ejeção termina.
+    private static bool aguardandoFimEjecaoParaRecriar;
+    private static bool telaEjecaoFoiExibida;
+    private static float recriarBonecosEm;
     private static readonly System.Random Sorteador = new();
 
     // Desenho único do raio, usando as tags rich-text fornecidas.
@@ -162,6 +168,71 @@ internal sealed class EventoRaio : EventoVotacao
 
         if (!YouTubeVoteBridgePlugin.EhHost() || !ativo) return;
 
+        // Ao abrir uma reunião, remove os dois indicadores da rede e destrói
+        // suas cópias locais. Não os reutilizamos: serão criados com novos NetIds.
+        if (MeetingHud.Instance != null && !aguardandoFimEjecaoParaRecriar)
+        {
+            RemoverBonecosParaReuniao();
+            aguardandoFimEjecaoParaRecriar = true;
+            telaEjecaoFoiExibida = false;
+            recriarBonecosEm = float.MaxValue;
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[F7/Raio] Reunião iniciada: indicadores removidos; aguardando o fim da tela de ejeção.");
+            return;
+        }
+
+        if (aguardandoFimEjecaoParaRecriar)
+        {
+            if (MeetingHud.Instance != null)
+                return;
+
+            ExileController telaEjecao = null;
+            try { telaEjecao = UnityEngine.Object.FindObjectOfType<ExileController>(); }
+            catch { }
+
+            if (telaEjecao != null)
+            {
+                telaEjecaoFoiExibida = true;
+                return;
+            }
+
+            // Só começa a contar depois de detectar que a tela de ejeção existiu
+            // e desapareceu. Isso evita recriar os bonecos durante a transição.
+            if (!telaEjecaoFoiExibida)
+                return;
+
+            if (recriarBonecosEm <= 0f || float.IsPositiveInfinity(recriarBonecosEm) ||
+                recriarBonecosEm == float.MaxValue)
+            {
+                recriarBonecosEm = Time.realtimeSinceStartup + 10f;
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[F7/Raio] Tela de ejeção encerrada; recriando indicadores em 10 segundos.");
+                return;
+            }
+
+            if (Time.realtimeSinceStartup < recriarBonecosEm)
+                return;
+
+            aguardandoFimEjecaoParaRecriar = false;
+            telaEjecaoFoiExibida = false;
+            recriarBonecosEm = 0f;
+            etapaInicializacao = 0;
+            try
+            {
+                CriarBonecosTemporarios();
+                proximoRaioEm = float.MaxValue;
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[F7/Raio] Recriando indicadores após a reunião.");
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                    "[F7/Raio] Falha ao recriar indicadores após a reunião: " + ex);
+                AgendarProximoRaio();
+            }
+            return;
+        }
+
         if (etapaInicializacao == 1 && Time.realtimeSinceStartup >= proximaEtapa)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
@@ -230,6 +301,44 @@ internal sealed class EventoRaio : EventoVotacao
 
         if (Time.realtimeSinceStartup >= proximoRaioEm)
             IniciarDescarga();
+    }
+
+    private static void RemoverBonecosParaReuniao()
+    {
+        descargaPendente = false;
+        ocultarDepoisDoImpacto = false;
+        aguardandoFimRoleReveal = false;
+        etapaInicializacao = 0;
+
+        try
+        {
+            if (bonecoAviso != null)
+                CustomNetObject.Despawn(bonecoAviso);
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Raio] Falha ao remover o indicador de aviso: " + ex.Message);
+        }
+        finally
+        {
+            bonecoAviso = null;
+        }
+
+        try
+        {
+            if (bonecoRaio != null)
+                CustomNetObject.Despawn(bonecoRaio);
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Raio] Falha ao remover o indicador do raio: " + ex.Message);
+        }
+        finally
+        {
+            bonecoRaio = null;
+        }
     }
 
     private static void EnviarSpawnBonecoRede(PlayerControl boneco)
