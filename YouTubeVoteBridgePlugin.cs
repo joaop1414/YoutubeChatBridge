@@ -3696,16 +3696,36 @@ public static class YouTubeVoteChatPatch
                     if (sourcePlayer.Data == null)
                         throw new InvalidOperationException("Dados do jogador não estão disponíveis.");
 
-                    // RPC SetName padrão do Among Us, sincronizado com os clientes.
-                    MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
-                        sourcePlayer.NetId, (byte)RpcCalls.SetName, SendOption.Reliable, -1);
-                    writer.Write(sourcePlayer.Data.NetId);
-                    writer.Write(novoNome);
-                    writer.Write(false);
-                    AmongUsClient.Instance.FinishRpcImmediately(writer);
+                    // Envia o RPC SetName dentro de GameData por broadcast.
+                    // Assim, o host transmite a alteração para todos os clientes da sala,
+                    // em vez de depender de um RPC direcionado ao dono do jogador.
+                    MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
+                    try
+                    {
+                        writer.StartMessage(5); // GameData: broadcast para a sala
+                        writer.Write(AmongUsClient.Instance.GameId);
+                        writer.StartMessage(2); // RPC
+                        writer.WritePacked(sourcePlayer.NetId);
+                        writer.Write((byte)RpcCalls.SetName);
+                        writer.Write(sourcePlayer.Data.NetId);
+                        writer.Write(novoNome);
+                        writer.EndMessage();
+                        writer.EndMessage();
+                        AmongUsClient.Instance.SendOrDisconnect(writer);
+                    }
+                    finally
+                    {
+                        writer.Recycle();
+                    }
+
+                    // O host também atualiza seus próprios dados e a lista/UI local.
+                    sourcePlayer.SetName(novoNome);
+                    sourcePlayer.Data.PlayerName = novoNome;
+                    if (sourcePlayer.cosmetics != null && sourcePlayer.cosmetics.nameText != null)
+                        sourcePlayer.cosmetics.nameText.text = novoNome;
 
                     if (sourcePlayer == PlayerControl.LocalPlayer)
-                        YouTubeVoteBridgePlugin.Responder(__instance, "Nome alterado para: " + novoNome);
+                        YouTubeVoteBridgePlugin.Responder(__instance, "Nome global alterado para: " + novoNome);
                     else
                         YouTubeVoteBridgePlugin.EnviarMensagemIndividual(sourcePlayer, "Nome alterado para: " + novoNome);
                 }
