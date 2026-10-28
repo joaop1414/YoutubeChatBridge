@@ -3774,11 +3774,51 @@ public static class YouTubeVoteChatPatch
         if (!mensagem.StartsWith("/youtube", StringComparison.OrdinalIgnoreCase))
             return true;
 
-        // Todo /youtube (...) é exclusivo do host. Não encaminhar comandos de
-        // clientes ao host e nunca executar subcomandos recebidos de terceiros.
+        // Jogadores comuns podem solicitar uma live usando /live <ID/URL>,
+        // /youtube live <ID/URL> ou /youtube <ID/URL>. Os comandos administrativos
+        // continuam exclusivos do host. A mensagem do cliente precisa chegar ao host
+        // pelo chat normal; o host processa a solicitação quando ela é replicada.
+        string argumentosYoutube = mensagem.Length > "/youtube".Length
+            ? mensagem.Substring("/youtube".Length).Trim()
+            : "";
+        bool hostRecebePedidoDeOutro = host && !ehLocal && sourcePlayer != null;
+        bool pedidoYoutubeComLive = false;
+        string entradaPedidoYoutube = "";
+
+        if (argumentosYoutube.StartsWith("live ", StringComparison.OrdinalIgnoreCase))
+        {
+            entradaPedidoYoutube = argumentosYoutube.Substring(5).Trim();
+            pedidoYoutubeComLive = entradaPedidoYoutube.Length > 0;
+        }
+        else if (!string.IsNullOrWhiteSpace(argumentosYoutube) &&
+                 YouTubeVoteBridgePlugin.ExtrairLiveId(argumentosYoutube).Length > 0)
+        {
+            entradaPedidoYoutube = argumentosYoutube;
+            pedidoYoutubeComLive = true;
+        }
+
+        if (pedidoYoutubeComLive)
+        {
+            if (hostRecebePedidoDeOutro)
+            {
+                string idPedido = YouTubeVoteBridgePlugin.ExtrairLiveId(entradaPedidoYoutube);
+                YouTubeVoteBridgePlugin.ProcessarPedidoLive(__instance, sourcePlayer, idPedido);
+                return false;
+            }
+
+            // No cliente de quem digitou, deixa o chat enviar a solicitação ao host.
+            if (!host && ehLocal)
+                return true;
+
+            // Não mostrar comandos de solicitação enviados por outros jogadores
+            // como texto comum nos clientes com o mod.
+            return false;
+        }
+
+        // Todos os demais comandos /youtube permanecem exclusivos do host.
         if (!host || !ehLocal)
         {
-            const string avisoPermissao = "Somente o host pode usar comandos /youtube. Use /ytconfig para consultar as configurações.";
+            const string avisoPermissao = "Somente o host pode usar comandos administrativos /youtube. Para pedir uma live, use /live <ID/URL> ou /youtube live <ID/URL>.";
             if (ehLocal)
                 YouTubeVoteBridgePlugin.Responder(__instance, avisoPermissao);
             else if (host)
