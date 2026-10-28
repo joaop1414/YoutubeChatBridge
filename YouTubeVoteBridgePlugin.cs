@@ -949,16 +949,68 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         {
             Instance.Log.LogInfo("Conectando ao YouTube por HTTP...");
 
-            string urlLive =
-                "https://www.youtube.com/watch?v=" +
-                Uri.EscapeDataString(liveId);
+            // Se o ID recebido contém '-', tenta primeiro a variante com '_'
+            // (útil quando o chat do Among Us não deixa digitar underscore) e,
+            // se ela não corresponder a uma live válida, tenta o ID original.
+            string[] idsTentativa = liveId.Contains('-')
+                ? new[] { liveId.Replace('-', '_'), liveId }
+                : new[] { liveId };
 
-            using HttpResponseMessage respostaPagina =
-                await GetComRetry429Async(urlLive, token);
+            string html = null;
+            string idConectado = null;
+            Exception ultimoErroInicial = null;
 
-            respostaPagina.EnsureSuccessStatusCode();
+            foreach (string idTentativa in idsTentativa.Distinct(StringComparer.Ordinal))
+            {
+                try
+                {
+                    string urlLive = "https://www.youtube.com/watch?v=" +
+                        Uri.EscapeDataString(idTentativa);
 
-            string html = await respostaPagina.Content.ReadAsStringAsync();
+                    using HttpResponseMessage respostaPagina =
+                        await GetComRetry429Async(urlLive, token);
+
+                    respostaPagina.EnsureSuccessStatusCode();
+                    string htmlTentativa = await respostaPagina.Content.ReadAsStringAsync();
+
+                    // Só aceita a variante se a página aparentar conter os dados
+                    // necessários para abrir o chat ao vivo.
+                    bool temConfiguracao = htmlTentativa.Contains("INNERTUBE_API_KEY", StringComparison.Ordinal);
+                    bool temContinuacao = htmlTentativa.Contains("continuation", StringComparison.Ordinal) ||
+                        htmlTentativa.Contains("liveChatRenderer", StringComparison.Ordinal);
+
+                    if (!temConfiguracao || !temContinuacao)
+                    {
+                        ultimoErroInicial = new Exception(
+                            "A página do ID " + idTentativa + " não contém dados de chat ao vivo.");
+                        continue;
+                    }
+
+                    html = htmlTentativa;
+                    idConectado = idTentativa;
+                    break;
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception exTentativa)
+                {
+                    ultimoErroInicial = exTentativa;
+                    Instance?.Log.LogWarning(
+                        "[YouTube] Falha ao tentar ID alternativo " + idTentativa + ": " +
+                        exTentativa.Message);
+                }
+            }
+
+            if (html == null || idConectado == null)
+                throw new Exception(
+                    "Não foi possível abrir o chat com a variante '_' nem com o ID original '-'. " +
+                    (ultimoErroInicial?.Message ?? "A página não forneceu dados de chat ao vivo."));
+
+            // Registra qual variante realmente foi aceita pelo YouTube.
+            liveId = idConectado;
+            Instance.Log.LogInfo("[YouTube] ID usado para conexão: " + liveId);
 
             string jsonConfig = ExtrairConfiguracaoYouTube(html);
 
