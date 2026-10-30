@@ -385,14 +385,3 @@ internal static class BlackScreenRecovery
         return null;
     }
 }
-
-// O EHR aplica o AntiBlackout no OnDestroy da MeetingHud, antes de terminar
-// a transição da tela de ejeção. Este patch reproduz o mesmo ponto do ciclo.
-[HarmonyPatch(typeof(MeetingHud), nameof(MeetingHud.OnDestroy))]
-internal static class BlackScreenAntiBlackoutMeetingPatch
-{
-    public static void Postfix()
-    {
-        BlackScreenRecovery.PrepararFuncoesTemporarias();
-    }
-}
