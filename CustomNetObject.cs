@@ -301,16 +301,9 @@ namespace MoreGamemodes
                 alvo.Data.Serialize(writer, false);
                 writer.EndMessage();
 
-                // Restaura o nome e os cosméticos locais antes de executar
-                // Shapeshift; a mensagem já contém a cópia temporária.
-                outfit.PlayerName = nomeOutfitAnterior;
-                outfit.ColorId = corAnterior;
-                outfit.HatId = chapeuAnterior;
-                outfit.SkinId = roupaAnterior;
-                outfit.PetId = petAnterior;
-                outfit.VisorId = visorAnterior;
-                outfitRestaurado = true;
-
+                // Segue a ordem do EHR: o Shapeshift é aplicado enquanto o
+                // outfit temporário ainda está ativo. Restaurar antes desta
+                // chamada pode deixar os clientes com estado visual inconsistente.
                 try { jogador.Shapeshift(alvo, false); }
                 catch { }
 
@@ -321,8 +314,16 @@ namespace MoreGamemodes
                 writer.Write(false);
                 writer.EndMessage();
 
-                // Reenvia os dados originais do host depois da transformação,
-                // para que os outros clientes não mantenham o nome temporário.
+                // Só agora restaura o outfit original do host e transmite
+                // novamente os dados originais, como faz o EHR.
+                outfit.PlayerName = nomeOutfitAnterior;
+                outfit.ColorId = corAnterior;
+                outfit.HatId = chapeuAnterior;
+                outfit.SkinId = roupaAnterior;
+                outfit.PetId = petAnterior;
+                outfit.VisorId = visorAnterior;
+                outfitRestaurado = true;
+
                 writer.StartMessage(1);
                 writer.WritePacked(alvo.Data.NetId);
                 alvo.Data.Serialize(writer, false);
