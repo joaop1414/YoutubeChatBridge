@@ -3979,7 +3979,7 @@ public static class YouTubeVoteLobbyKeybindPatch
             }
 
             if (Input.GetKeyDown(KeyCode.Return) &&
-                EnterKeyToStartGame != null && EnterKeyToStartGame.Value &&
+                YouTubeVoteBridgePlugin.EnterKeyToStartGame != null && YouTubeVoteBridgePlugin.EnterKeyToStartGame.Value &&
                 manager.startState == GameStartManager.StartingStates.NotStarting &&
                 GameSettingMenu.Instance == null)
             {
@@ -3988,7 +3988,7 @@ public static class YouTubeVoteLobbyKeybindPatch
         }
         catch (Exception ex)
         {
-            Instance?.Log.LogWarning("Atalhos do lobby: " + ex);
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning("Atalhos do lobby: " + ex);
         }
     }
 }
