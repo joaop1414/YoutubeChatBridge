@@ -186,27 +186,16 @@ internal sealed class EventoRaio : EventoVotacao
             if (MeetingHud.Instance != null)
                 return;
 
-            ExileController telaEjecao = null;
-            try { telaEjecao = UnityEngine.Object.FindObjectOfType<ExileController>(); }
-            catch { }
-
-            if (telaEjecao != null)
-            {
-                telaEjecaoFoiExibida = true;
-                return;
-            }
-
-            // Só começa a contar depois de detectar que a tela de ejeção existiu
-            // e desapareceu. Isso evita recriar os bonecos durante a transição.
-            if (!telaEjecaoFoiExibida)
-                return;
-
+            // A contagem começa assim que a reunião termina (MeetingHud deixa de
+            // existir). Não dependemos de ExileController: em algumas reuniões ele
+            // não é encontrado de forma confiável, o que podia deixar o evento
+            // bloqueado ou recriar os bonecos durante a transição.
             if (recriarBonecosEm <= 0f || float.IsPositiveInfinity(recriarBonecosEm) ||
                 recriarBonecosEm == float.MaxValue)
             {
                 recriarBonecosEm = Time.realtimeSinceStartup + 10f;
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "[F7/Raio] Tela de ejeção encerrada; recriando indicadores em 10 segundos.");
+                    "[F7/Raio] Reunião encerrada; indicadores voltarão em 10 segundos.");
                 return;
             }
 
@@ -708,6 +697,9 @@ internal sealed class EventoRaio : EventoVotacao
         bool estavaArmado = armado;
         ativo = false;
         aguardandoFimRoleReveal = false;
+        aguardandoFimEjecaoParaRecriar = false;
+        telaEjecaoFoiExibida = false;
+        recriarBonecosEm = 0f;
         armado = preservarArmado && estavaArmado;
         descargaPendente = false;
         ocultarDepoisDoImpacto = false;
