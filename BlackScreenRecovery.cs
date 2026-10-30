@@ -281,7 +281,7 @@ internal static class BlackScreenRecovery
         yield return new WaitForSecondsRealtime(AtrasoReparo);
 
         if (jogador == null || ShipStatus.Instance == null ||
-            AmongUsClient.Instance == null || false)
+            AmongUsClient.Instance == null)
             yield break;
 
         try
