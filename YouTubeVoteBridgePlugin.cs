@@ -4103,6 +4103,7 @@ public static class YouTubeVoteUpdatePatch
         RainbowColorTransition.Atualizar();
         YouTubeVoteBridgePlugin.AtualizarRainbow();
         EventoEscudoTemporario.Atualizar();
+        BlackScreenRecovery.Atualizar();
         EventoCooldownIndividual.Atualizar();
         EventoCongelarJogador.Atualizar();
         EventoVelocidadeJogadores.Atualizar();
@@ -4489,6 +4490,7 @@ public static class YouTubeVoteRestoreExileNamePatch
     public static void Postfix()
     {
         YouTubeVoteBridgePlugin.RestaurarNomeGlobalDeEjecao();
+        BlackScreenRecovery.NotificarFimDaReuniao();
     }
 }
 
