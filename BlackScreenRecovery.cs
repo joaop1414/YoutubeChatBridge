@@ -30,6 +30,7 @@ internal static class BlackScreenRecovery
     }
 
     private static readonly Dictionary<byte, EstadoJogador> Jogadores = new();
+    private static readonly Dictionary<byte, (PlayerControl Jogador, SystemTypes Sistema, float Quando)> ReparosPendentes = new();
     private static bool AguardandoFimDaReuniao;
     private static bool Monitorando;
     private static bool EncerramentoEmAndamento;
@@ -56,6 +57,8 @@ internal static class BlackScreenRecovery
             !AmongUsClient.Instance.IsGameStarted ||
             EncerramentoEmAndamento)
             return;
+
+        ProcessarReparosPendentes();
 
         // A reunião e a tela de ejeção precisam ter desaparecido antes de iniciar
         // a contagem, para não confundir a animação de saída com falta de movimento.
@@ -193,8 +196,8 @@ internal static class BlackScreenRecovery
             // ProtectPlayer + MurderPlayer(FailedProtected), somente no cliente dono.
             EventoEscudoTemporarioMortePatch.AplicarEscudoEResetarCooldown(jogador);
 
-            PlayerControl.LocalPlayer?.StartCoroutine(
-                RepararSabotagemDepoisDoAtraso(jogador, sistema));
+            ReparosPendentes[jogador.PlayerId] =
+                (jogador, sistema, Time.realtimeSinceStartup + AtrasoReparo);
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 $"Recuperação {tentativa}/2 enviada para PlayerId={jogador.PlayerId}; " +
@@ -274,28 +277,39 @@ internal static class BlackScreenRecovery
         AmongUsClient.Instance.FinishRpcImmediately(writer);
     }
 
-    private static IEnumerator RepararSabotagemDepoisDoAtraso(
-        PlayerControl jogador,
-        SystemTypes sistema)
+    private static void ProcessarReparosPendentes()
     {
-        yield return new WaitForSecondsRealtime(AtrasoReparo);
+        if (ReparosPendentes.Count == 0)
+            return;
 
-        if (jogador == null || ShipStatus.Instance == null ||
-            AmongUsClient.Instance == null)
-            yield break;
-
-        try
+        float agora = Time.realtimeSinceStartup;
+        foreach (byte playerId in ReparosPendentes.Keys.ToArray())
         {
-            EnviarAtualizacaoSistemaDirecionada(jogador, sistema, 16);
+            var pendente = ReparosPendentes[playerId];
+            if (agora < pendente.Quando)
+                continue;
 
-            // O Airship possui dois estágios de reparo para o helicóptero.
-            if (sistema == SystemTypes.HeliSabotage)
-                EnviarAtualizacaoSistemaDirecionada(jogador, sistema, 17);
-        }
-        catch (Exception ex)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "Falha ao reparar a sabotagem usada na recuperação: " + ex.Message);
+            ReparosPendentes.Remove(playerId);
+
+            PlayerControl jogador = pendente.Jogador;
+            if (jogador == null || jogador.Data == null ||
+                jogador.Data.Disconnected || ShipStatus.Instance == null ||
+                AmongUsClient.Instance == null)
+                continue;
+
+            try
+            {
+                EnviarAtualizacaoSistemaDirecionada(jogador, pendente.Sistema, 16);
+
+                // O Airship possui dois estágios de reparo para o helicóptero.
+                if (pendente.Sistema == SystemTypes.HeliSabotage)
+                    EnviarAtualizacaoSistemaDirecionada(jogador, pendente.Sistema, 17);
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "Falha ao reparar a sabotagem usada na recuperação: " + ex.Message);
+            }
         }
     }
 
