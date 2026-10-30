@@ -45,6 +45,7 @@ internal sealed class EventoRaio : EventoVotacao
     // Os indicadores são removidos no início da reunião para evitar a tela
     // preta após a ejeção. Só voltam 20 s depois que a reunião termina.
     private static bool aguardandoFimEjecaoParaRecriar;
+    private static bool bonecosRemovidosNaReuniao;
     // Valor positivo: instante para despawn (5 s após abrir reunião).
     // Valor negativo: objetos já removidos; aguarda o fim da ejeção e +3 s.
     private static float recriarBonecosEm;
@@ -161,6 +162,7 @@ internal sealed class EventoRaio : EventoVotacao
             if (!aguardandoFimEjecaoParaRecriar)
             {
                 aguardandoFimEjecaoParaRecriar = true;
+                bonecosRemovidosNaReuniao = false;
                 recriarBonecosEm = Time.realtimeSinceStartup + 5f;
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                     "[F7/Raio] Reunião detectada; despawn dos indicadores agendado para daqui a 5 s.");
@@ -170,6 +172,7 @@ internal sealed class EventoRaio : EventoVotacao
                 Time.realtimeSinceStartup >= recriarBonecosEm)
             {
                 RemoverBonecosParaReuniao();
+                bonecosRemovidosNaReuniao = true;
                 recriarBonecosEm = -1f;
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                     "[F7/Raio] Indicadores removidos pelo host após o atraso do EHR.");
@@ -181,9 +184,10 @@ internal sealed class EventoRaio : EventoVotacao
         {
             // Se a reunião terminou antes dos 5 s, ainda assim removemos os
             // indicadores uma única vez pelo host, nunca pela cópia local.
-            if (recriarBonecosEm > 0f)
+            if (!bonecosRemovidosNaReuniao)
             {
                 RemoverBonecosParaReuniao();
+                bonecosRemovidosNaReuniao = true;
                 recriarBonecosEm = -1f;
             }
 
@@ -202,6 +206,7 @@ internal sealed class EventoRaio : EventoVotacao
                 return;
 
             aguardandoFimEjecaoParaRecriar = false;
+            bonecosRemovidosNaReuniao = false;
             recriarBonecosEm = 0f;
             etapaInicializacao = 0;
             proximoRaioEm = Time.realtimeSinceStartup +
@@ -690,6 +695,7 @@ internal sealed class EventoRaio : EventoVotacao
         ativo = false;
         aguardandoFimRoleReveal = false;
         aguardandoFimEjecaoParaRecriar = false;
+        bonecosRemovidosNaReuniao = false;
         recriarBonecosEm = 0f;
         armado = preservarArmado && estavaArmado;
         descargaPendente = false;
