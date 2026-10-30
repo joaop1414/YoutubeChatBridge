@@ -3,401 +3,388 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using HarmonyLib;
-using Hazel;
-using InnerNet;
-using AmongUs.GameOptions;
 using UnityEngine;
 
 namespace YouTubeVoteBridge;
 
-// Recuperação automática da tela preta após reuniões.
-// Como o host não consegue ler o estado de renderização dos outros clientes,
-// a falta contínua de movimento é usada como indício.
+// Adaptação do AntiBlackout do EndlessHostRoles.
+// Durante a tela de ejeção, força temporariamente uma composição de funções
+// que evita a condição de tela preta. Depois do WrapUp, restaura as funções
+// originais (ou a variante fantasma correta para quem morreu).
 internal static class BlackScreenRecovery
 {
-    private const float TempoParadoParaPrimeiraTentativa = 5f;
-    private const float IntervaloEntreTentativas = 5f;
-    private const float DistanciaMinimaMovimento = 0.20f;
-    private const float AtrasoReparo = 0.25f;
-
-    private sealed class EstadoJogador
+    private sealed class EstadoFuncao
     {
-        public Vector2 UltimaPosicao;
-        public float UltimoMovimento;
-        public float ProximaTentativa;
-        public int Tentativas;
+        public PlayerControl Jogador;
+        public RoleTypes FuncaoOriginal;
     }
 
-    private static readonly Dictionary<byte, EstadoJogador> Jogadores = new();
-    private static readonly Dictionary<byte, (PlayerControl Jogador, SystemTypes Sistema, float Quando)> ReparosPendentes = new();
-    private static bool AguardandoFimDaReuniao;
-    private static bool Monitorando;
-    private static bool EncerramentoEmAndamento;
+    private static readonly Dictionary<byte, EstadoFuncao> FuncoesOriginais = new();
+    private static bool AntiBlackoutAtivo;
+    private static bool RestauracaoPendente;
+    private static float PrazoRestauracaoAlternativo;
 
-    public static void NotificarFimDaReuniao()
-    {
-        if (!YouTubeVoteBridgePlugin.EhHost() || ShipStatus.Instance == null)
-            return;
-
-        Jogadores.Clear();
-        AguardandoFimDaReuniao = true;
-        Monitorando = false;
-        EncerramentoEmAndamento = false;
-
-        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            "Recuperação de tela preta: aguardando a transição terminar para monitorar o movimento dos jogadores.");
-    }
-
-    public static void Atualizar()
+    // Chamado quando MeetingHud é destruído, no mesmo ponto do EHR.
+    public static void PrepararFuncoesTemporarias()
     {
         if (!YouTubeVoteBridgePlugin.EhHost() ||
-            ShipStatus.Instance == null ||
             AmongUsClient.Instance == null ||
             !AmongUsClient.Instance.IsGameStarted ||
-            EncerramentoEmAndamento)
-            return;
-
-        ProcessarReparosPendentes();
-
-        // A reunião e a tela de ejeção precisam ter desaparecido antes de iniciar
-        // a contagem, para não confundir a animação de saída com falta de movimento.
-        if (AguardandoFimDaReuniao)
-        {
-            if (MeetingHud.Instance != null ||
-                UnityEngine.Object.FindObjectOfType<ExileController>() != null)
-                return;
-
-            IniciarMonitoramento();
-        }
-
-        if (!Monitorando)
-            return;
-
-        float agora = Time.realtimeSinceStartup;
-        List<PlayerControl> vivos = ObterJogadoresVivos();
-
-        if (vivos.Count == 0)
-        {
-            PararMonitoramento("não há jogadores vivos para monitorar");
-            return;
-        }
-
-        foreach (PlayerControl jogador in vivos)
-        {
-            if (jogador == null || jogador.Data == null)
-                continue;
-
-            Vector2 posicao = jogador.transform.position;
-            if (!Jogadores.TryGetValue(jogador.PlayerId, out EstadoJogador estado))
-            {
-                estado = new EstadoJogador
-                {
-                    UltimaPosicao = posicao,
-                    UltimoMovimento = agora,
-                    ProximaTentativa = agora + TempoParadoParaPrimeiraTentativa,
-                    Tentativas = 0
-                };
-                Jogadores[jogador.PlayerId] = estado;
-                continue;
-            }
-
-            if ((posicao - estado.UltimaPosicao).sqrMagnitude >=
-                DistanciaMinimaMovimento * DistanciaMinimaMovimento)
-            {
-                estado.UltimaPosicao = posicao;
-                estado.UltimoMovimento = agora;
-                estado.Tentativas = 0;
-                estado.ProximaTentativa = agora + TempoParadoParaPrimeiraTentativa;
-                continue;
-            }
-
-            if (estado.Tentativas < 2 && agora >= estado.ProximaTentativa)
-            {
-                estado.Tentativas++;
-                estado.ProximaTentativa = agora + IntervaloEntreTentativas;
-
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    $"Possível tela preta: {jogador.Data.PlayerName} (PlayerId={jogador.PlayerId}) " +
-                    $"permaneceu parado por {agora - estado.UltimoMovimento:0.0}s. " +
-                    $"Executando recuperação {estado.Tentativas}/2.");
-
-                ExecutarRecuperacao(jogador, estado.Tentativas);
-            }
-        }
-
-        // Só encerra se TODOS os jogadores vivos tiverem recebido as duas tentativas
-        // e continuarem sem movimento durante o intervalo completo da segunda tentativa.
-        bool todosSemResposta = vivos.All(j =>
-            j != null &&
-            Jogadores.TryGetValue(j.PlayerId, out EstadoJogador estado) &&
-            estado.Tentativas >= 2 &&
-            agora >= estado.ProximaTentativa);
-
-        if (todosSemResposta)
-            EncerrarPartidaComoTripulantesFantasma();
-    }
-
-    private static void IniciarMonitoramento()
-    {
-        AguardandoFimDaReuniao = false;
-        Monitorando = true;
-        Jogadores.Clear();
-
-        float agora = Time.realtimeSinceStartup;
-        foreach (PlayerControl jogador in ObterJogadoresVivos())
-        {
-            if (jogador == null || jogador.Data == null)
-                continue;
-
-            Jogadores[jogador.PlayerId] = new EstadoJogador
-            {
-                UltimaPosicao = jogador.transform.position,
-                UltimoMovimento = agora,
-                ProximaTentativa = agora + TempoParadoParaPrimeiraTentativa,
-                Tentativas = 0
-            };
-        }
-
-        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"Monitoramento pós-reunião iniciado para {Jogadores.Count} jogador(es) vivo(s). " +
-            "Primeira tentativa após 5s parado.");
-    }
-
-    private static List<PlayerControl> ObterJogadoresVivos()
-    {
-        List<PlayerControl> vivos = new();
-
-        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
-        {
-            if (jogador == null || jogador.Data == null ||
-                jogador.Data.IsDead || jogador.Data.Disconnected)
-                continue;
-
-            vivos.Add(jogador);
-        }
-
-        return vivos;
-    }
-
-    private static void ExecutarRecuperacao(PlayerControl jogador, int tentativa)
-    {
-        if (jogador == null || jogador.Data == null ||
-            jogador.Data.IsDead || jogador.Data.Disconnected ||
-            AmongUsClient.Instance == null || ShipStatus.Instance == null)
+            ShipStatus.Instance == null ||
+            AntiBlackoutAtivo ||
+            GameManager.Instance == null)
             return;
 
         try
         {
-            SystemTypes sistema = ObterSistemaDeSabotagem();
-            EnviarAtualizacaoSistemaDirecionada(jogador, sistema, 128);
+            List<PlayerControl> todos = ObterJogadoresConectados();
+            if (todos.Count <= 2)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[AntiBlackout] Ignorado: há no máximo 2 jogadores conectados; " +
+                    "não é possível montar a composição segura do EHR.");
+                return;
+            }
 
-            // Reaproveita a sequência já existente no mod:
-            // ProtectPlayer + MurderPlayer(FailedProtected), somente no cliente dono.
-            EventoEscudoTemporarioMortePatch.AplicarEscudoEResetarCooldown(jogador);
+            List<PlayerControl> vivos = todos
+                .Where(j => j.Data != null && !j.Data.IsDead)
+                .ToList();
 
-            ReparosPendentes[jogador.PlayerId] =
-                (jogador, sistema, Time.realtimeSinceStartup + AtrasoReparo);
+            if (vivos.Count < 2)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[AntiBlackout] Menos de 2 jogadores vivos. A composição temporária não será aplicada.");
+                return;
+            }
+
+            // O EHR precisa de 1 impostor visível e pelo menos 2 tripulantes
+            // visíveis. Com exatamente 2 vivos, usa um jogador morto como
+            // tripulante temporário, sem revivê-lo de verdade.
+            PlayerControl tripulanteFantasmaTemporario = null;
+            if (vivos.Count == 2)
+            {
+                byte? exiladoId = ObterIdJogadorExilado();
+                tripulanteFantasmaTemporario = todos.FirstOrDefault(j =>
+                    j.Data != null &&
+                    j.Data.IsDead &&
+                    !j.Data.Disconnected &&
+                    (!exiladoId.HasValue || j.PlayerId != exiladoId.Value));
+
+                if (tripulanteFantasmaTemporario == null)
+                {
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                        "[AntiBlackout] Existem apenas 2 jogadores vivos e não foi possível " +
+                        "identificar um jogador morto que possa servir de tripulante temporário. " +
+                        "A prevenção foi ignorada para não alterar incorretamente as funções.");
+                    return;
+                }
+            }
+
+            FuncoesOriginais.Clear();
+
+            // Guarda as funções reais de todos os jogadores antes de alterar
+            // qualquer RoleType. A identidade das funções personalizadas do mod
+            // não é modificada por esta troca temporária do RoleType vanilla.
+            foreach (PlayerControl jogador in todos)
+            {
+                if (jogador == null || jogador.Data == null || jogador.Data.Disconnected)
+                    continue;
+
+                if (!TentarLerRoleType(jogador, out RoleTypes funcao))
+                {
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                        $"[AntiBlackout] Não foi possível ler a função original de PlayerId={jogador.PlayerId}. " +
+                        "Cancelando a prevenção para evitar perder a função ao restaurar.");
+                    FuncoesOriginais.Clear();
+                    return;
+                }
+
+                FuncoesOriginais[jogador.PlayerId] = new EstadoFuncao
+                {
+                    Jogador = jogador,
+                    FuncaoOriginal = funcao
+                };
+            }
+
+            // Prioriza um impostor real já existente. Caso contrário, escolhe
+            // um jogador vivo determinístico para ser o impostor temporário.
+            PlayerControl impostorTemporario = vivos
+                .OrderByDescending(j => j.Data.Role != null && j.Data.Role.IsImpostor)
+                .ThenBy(j => j.PlayerId)
+                .FirstOrDefault();
+
+            if (impostorTemporario == null)
+            {
+                FuncoesOriginais.Clear();
+                return;
+            }
+
+            AntiBlackoutAtivo = true;
+            RestauracaoPendente = true;
+            PrazoRestauracaoAlternativo = Time.realtimeSinceStartup + 8f;
+
+            // Mesma composição usada pelo EHR: um impostor e todos os demais
+            // jogadores vivos como tripulantes.
+            if (!DefinirFuncao(impostorTemporario, RoleTypes.Impostor))
+                throw new InvalidOperationException("Não foi possível definir o impostor temporário.");
+
+            foreach (PlayerControl jogador in vivos)
+            {
+                if (jogador == null || jogador.PlayerId == impostorTemporario.PlayerId)
+                    continue;
+
+                if (!DefinirFuncao(jogador, RoleTypes.Crewmate))
+                    throw new InvalidOperationException(
+                        $"Não foi possível definir tripulante temporário para PlayerId={jogador.PlayerId}.");
+            }
+
+            if (tripulanteFantasmaTemporario != null)
+            {
+                if (!DefinirFuncao(tripulanteFantasmaTemporario, RoleTypes.Crewmate))
+                    throw new InvalidOperationException(
+                        "Não foi possível definir o tripulante temporário adicional.");
+            }
+
+            // Jogadores mortos restantes aparecem como fantasmas durante a
+            // transição, evitando que mantenham uma função viva na tela de ejeção.
+            foreach (PlayerControl jogador in todos)
+            {
+                if (jogador == null || jogador.Data == null ||
+                    jogador.Data.Disconnected || !jogador.Data.IsDead ||
+                    (tripulanteFantasmaTemporario != null &&
+                     jogador.PlayerId == tripulanteFantasmaTemporario.PlayerId))
+                    continue;
+
+                RoleTypes fantasma = ObterFuncaoFantasmaOriginal(jogador.PlayerId);
+                DefinirFuncao(jogador, fantasma);
+            }
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                $"Recuperação {tentativa}/2 enviada para PlayerId={jogador.PlayerId}; " +
-                $"sabotagem {sistema}, escudo local e tentativa de morte protegida.");
+                $"[AntiBlackout] Prevenção aplicada após a reunião. " +
+                $"Impostor temporário: PlayerId={impostorTemporario.PlayerId}; " +
+                $"jogadores vivos: {vivos.Count}; jogadores conectados: {todos.Count}. " +
+                "As funções originais serão restauradas após a tela de ejeção.");
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                $"Falha na recuperação de tela preta de PlayerId={jogador.PlayerId}: {ex}");
+                "[AntiBlackout] Erro ao preparar funções temporárias: " + ex);
+
+            // Se uma troca falhar no meio do processo, tenta restaurar tudo
+            // imediatamente para não deixar ninguém com uma função provisória.
+            RestaurarFuncoesOriginais(true);
         }
     }
 
-    private static SystemTypes ObterSistemaDeSabotagem()
+    // Chamado pelo WrapUp da tela de ejeção.
+    public static void NotificarFimDaReuniao()
     {
-        // Os mapas Polus e Airship usam sistemas diferentes do reator padrão.
-        try
-        {
-            var sistemas = ShipStatus.Instance.Systems;
-            if (sistemas != null && sistemas.ContainsKey(SystemTypes.Laboratory))
-                return SystemTypes.Laboratory;
-            if (sistemas != null && sistemas.ContainsKey(SystemTypes.HeliSabotage))
-                return SystemTypes.HeliSabotage;
-        }
-        catch { }
-
-        return SystemTypes.Reactor;
+        RestaurarFuncoesOriginais(false);
     }
 
-    private static void EnviarAtualizacaoSistemaDirecionada(
-        PlayerControl jogador,
-        SystemTypes sistema,
-        byte quantidade)
+    // Fallback para reuniões sem ExileController (por exemplo, empate).
+    // O plugin já chama este método durante Update.
+    public static void Atualizar()
     {
-        if (jogador == null || ShipStatus.Instance == null ||
-            AmongUsClient.Instance == null || jogador.OwnerId < 0)
+        if (!RestauracaoPendente || !AntiBlackoutAtivo ||
+            !YouTubeVoteBridgePlugin.EhHost())
             return;
 
-        // O host não recebe de volta um RPC enviado para o próprio ClientId.
-        // Nesse caso, tenta executar a atualização local pelo método do ShipStatus.
-        if (jogador.AmOwner)
-        {
-            MethodInfo metodo = AccessTools.Method(typeof(ShipStatus), "UpdateSystem");
-            if (metodo != null)
-            {
-                ParameterInfo[] parametros = metodo.GetParameters();
-                object[] argumentos = new object[parametros.Length];
-
-                for (int i = 0; i < parametros.Length; i++)
-                {
-                    Type tipo = parametros[i].ParameterType;
-                    if (tipo == typeof(SystemTypes))
-                        argumentos[i] = sistema;
-                    else if (tipo == typeof(PlayerControl))
-                        argumentos[i] = jogador;
-                    else if (tipo == typeof(byte))
-                        argumentos[i] = quantidade;
-                    else if (tipo == typeof(int))
-                        argumentos[i] = (int)quantidade;
-                    else
-                        argumentos[i] = tipo.IsValueType ? Activator.CreateInstance(tipo) : null;
-                }
-
-                metodo.Invoke(ShipStatus.Instance, argumentos);
-                return;
-            }
-        }
-
-        MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
-            ShipStatus.Instance.NetId,
-            (byte)RpcCalls.UpdateSystem,
-            SendOption.Reliable,
-            jogador.OwnerId);
-
-        writer.Write((byte)sistema);
-        writer.WriteNetObject(jogador);
-        writer.Write(quantidade);
-        AmongUsClient.Instance.FinishRpcImmediately(writer);
-    }
-
-    private static void ProcessarReparosPendentes()
-    {
-        if (ReparosPendentes.Count == 0)
+        if (Time.realtimeSinceStartup < PrazoRestauracaoAlternativo)
             return;
 
-        float agora = Time.realtimeSinceStartup;
-        foreach (byte playerId in ReparosPendentes.Keys.ToArray())
+        if (MeetingHud.Instance != null ||
+            UnityEngine.Object.FindObjectOfType<ExileController>() != null)
+            return;
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+            "[AntiBlackout] O WrapUp não notificou a restauração; executando restauração alternativa.");
+        RestaurarFuncoesOriginais(false);
+    }
+
+    private static void RestaurarFuncoesOriginais(bool restauracaoPorFalha)
+    {
+        if (!AntiBlackoutAtivo && FuncoesOriginais.Count == 0)
+            return;
+
+        if (!YouTubeVoteBridgePlugin.EhHost())
+            return;
+
+        int restauradas = 0;
+
+        foreach (KeyValuePair<byte, EstadoFuncao> item in FuncoesOriginais.ToArray())
         {
-            var pendente = ReparosPendentes[playerId];
-            if (agora < pendente.Quando)
-                continue;
-
-            ReparosPendentes.Remove(playerId);
-
-            PlayerControl jogador = pendente.Jogador;
-            if (jogador == null || jogador.Data == null ||
-                jogador.Data.Disconnected || ShipStatus.Instance == null ||
-                AmongUsClient.Instance == null)
+            PlayerControl jogador = item.Value.Jogador;
+            if (jogador == null || jogador.Data == null || jogador.Data.Disconnected)
                 continue;
 
             try
             {
-                EnviarAtualizacaoSistemaDirecionada(jogador, pendente.Sistema, 16);
+                // Depois da ejeção, quem morreu precisa receber uma função
+                // fantasma. Os vivos voltam exatamente ao RoleType salvo.
+                RoleTypes funcao = jogador.Data.IsDead
+                    ? ObterFuncaoFantasmaOriginal(item.Key)
+                    : item.Value.FuncaoOriginal;
 
-                // O Airship possui dois estágios de reparo para o helicóptero.
-                if (pendente.Sistema == SystemTypes.HeliSabotage)
-                    EnviarAtualizacaoSistemaDirecionada(jogador, pendente.Sistema, 17);
+                if (DefinirFuncao(jogador, funcao))
+                    restauradas++;
             }
             catch (Exception ex)
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "Falha ao reparar a sabotagem usada na recuperação: " + ex.Message);
+                    $"[AntiBlackout] Falha ao restaurar PlayerId={item.Key}: {ex.Message}");
             }
         }
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"[AntiBlackout] Restauração concluída: {restauradas}/{FuncoesOriginais.Count} jogador(es)." +
+            (restauracaoPorFalha ? " (após falha na preparação)" : string.Empty));
+
+        FuncoesOriginais.Clear();
+        AntiBlackoutAtivo = false;
+        RestauracaoPendente = false;
+        PrazoRestauracaoAlternativo = 0f;
     }
 
-    private static void EncerrarPartidaComoTripulantesFantasma()
+    private static List<PlayerControl> ObterJogadoresConectados()
     {
-        if (EncerramentoEmAndamento || !YouTubeVoteBridgePlugin.EhHost() ||
-            GameManager.Instance == null || AmongUsClient.Instance == null)
-            return;
+        List<PlayerControl> jogadores = new();
 
-        EncerramentoEmAndamento = true;
-        Monitorando = false;
-        AguardandoFimDaReuniao = false;
+        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+        {
+            if (jogador == null || jogador.Data == null || jogador.Data.Disconnected)
+                continue;
 
-        YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-            "RECUPERAÇÃO FALHOU: todos os jogadores vivos permaneceram parados após duas tentativas. " +
-            "Encerrando a partida como vitória de tripulantes por tarefas.");
+            jogadores.Add(jogador);
+        }
+
+        return jogadores;
+    }
+
+    private static bool DefinirFuncao(PlayerControl jogador, RoleTypes funcao)
+    {
+        if (jogador == null || jogador.Data == null || jogador.Data.Disconnected)
+            return false;
+
+        return RoleSwitchAPI.TrocarFuncao(jogador, funcao);
+    }
+
+    private static bool TentarLerRoleType(PlayerControl jogador, out RoleTypes funcao)
+    {
+        funcao = default;
 
         try
         {
-            // Converte todos, vivos ou mortos, para Fantasma Tripulante antes do fim.
-            foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
-            {
-                if (jogador == null || jogador.Data == null ||
-                    jogador.Data.Disconnected)
-                    continue;
+            object roleData = jogador?.Data?.Role;
+            if (roleData == null)
+                return false;
 
-                try
-                {
-                    RoleSwitchAPI.TrocarFuncao(jogador, RoleTypes.CrewmateGhost);
-                }
-                catch (Exception ex)
-                {
-                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                        $"Não foi possível definir Fantasma Tripulante para PlayerId={jogador.PlayerId}: {ex.Message}");
-                }
+            Type tipo = roleData.GetType();
+            object valor =
+                tipo.GetProperty("Role", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?.GetValue(roleData) ??
+                tipo.GetField("Role", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?.GetValue(roleData);
+
+            if (valor is RoleTypes role)
+            {
+                funcao = role;
+                return true;
             }
 
-            // A chamada é explicitamente autorizada para passar pelos dois bloqueios
-            // da opção "Sem fim de jogo".
-            YouTubeVoteBridgePlugin.PermitirFimDeJogoForcado = true;
-
-            MethodInfo shouldCheck = AccessTools.PropertySetter(
-                typeof(GameManager), "ShouldCheckForGameEnd");
-            try { shouldCheck?.Invoke(GameManager.Instance, new object[] { false }); }
-            catch { }
-
-            MethodInfo fim = AccessTools.Method(
-                typeof(GameManager), nameof(GameManager.RpcEndGame));
-
-            if (fim == null)
-                throw new MissingMethodException("GameManager.RpcEndGame não foi encontrado.");
-
-            ParameterInfo[] parametros = fim.GetParameters();
-            object[] argumentos = new object[parametros.Length];
-
-            for (int i = 0; i < parametros.Length; i++)
-            {
-                Type tipo = parametros[i].ParameterType;
-                if (tipo == typeof(GameOverReason))
-                    argumentos[i] = GameOverReason.CrewmatesByTask;
-                else if (tipo == typeof(bool))
-                    argumentos[i] = false;
-                else if (parametros[i].HasDefaultValue)
-                    argumentos[i] = parametros[i].DefaultValue;
-                else
-                    argumentos[i] = tipo.IsValueType ? Activator.CreateInstance(tipo) : null;
-            }
-
-            fim.Invoke(GameManager.Instance, argumentos);
+            return valor != null && Enum.TryParse(valor.ToString(), true, out funcao);
         }
-        catch (Exception ex)
+        catch
         {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "Falha ao encerrar a partida pela proteção contra tela preta: " + ex);
-            EncerramentoEmAndamento = false;
-        }
-        finally
-        {
-            YouTubeVoteBridgePlugin.PermitirFimDeJogoForcado = false;
+            return false;
         }
     }
 
-    private static void PararMonitoramento(string motivo)
+    private static RoleTypes ObterFuncaoFantasmaOriginal(byte playerId)
     {
-        AguardandoFimDaReuniao = false;
-        Monitorando = false;
-        Jogadores.Clear();
+        if (!FuncoesOriginais.TryGetValue(playerId, out EstadoFuncao estado))
+            return RoleTypes.CrewmateGhost;
 
-        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            "Monitoramento de tela preta encerrado: " + motivo + ".");
+        string nome = estado.FuncaoOriginal.ToString();
+        bool eraImpostor =
+            nome.IndexOf("Impostor", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            nome.IndexOf("Shapeshifter", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            nome.IndexOf("Viper", StringComparison.OrdinalIgnoreCase) >= 0;
+
+        return eraImpostor ? RoleTypes.ImpostorGhost : RoleTypes.CrewmateGhost;
+    }
+
+    private static byte? ObterIdJogadorExilado()
+    {
+        try
+        {
+            ExileController exile = UnityEngine.Object.FindObjectOfType<ExileController>();
+            if (exile == null)
+                return null;
+
+            Type tipo = exile.GetType();
+            const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+
+            foreach (FieldInfo campo in tipo.GetFields(flags))
+            {
+                if (campo.Name.IndexOf("exil", StringComparison.OrdinalIgnoreCase) < 0)
+                    continue;
+
+                object valor = campo.GetValue(exile);
+                byte? id = ExtrairPlayerId(valor);
+                if (id.HasValue)
+                    return id;
+            }
+
+            foreach (PropertyInfo propriedade in tipo.GetProperties(flags))
+            {
+                if (propriedade.Name.IndexOf("exil", StringComparison.OrdinalIgnoreCase) < 0 ||
+                    propriedade.GetIndexParameters().Length != 0)
+                    continue;
+
+                object valor = propriedade.GetValue(exile);
+                byte? id = ExtrairPlayerId(valor);
+                if (id.HasValue)
+                    return id;
+            }
+        }
+        catch { }
+
+        return null;
+    }
+
+    private static byte? ExtrairPlayerId(object valor)
+    {
+        if (valor == null)
+            return null;
+
+        if (valor is PlayerControl jogador && jogador.Data != null)
+            return jogador.PlayerId;
+
+        if (valor is NetworkedPlayerInfo info)
+            return info.PlayerId;
+
+        try
+        {
+            Type tipo = valor.GetType();
+            object playerId =
+                tipo.GetProperty("PlayerId", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?.GetValue(valor) ??
+                tipo.GetField("PlayerId", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?.GetValue(valor);
+
+            if (playerId is byte id)
+                return id;
+        }
+        catch { }
+
+        return null;
+    }
+}
+
+// O EHR aplica o AntiBlackout no OnDestroy da MeetingHud, antes de terminar
+// a transição da tela de ejeção. Este patch reproduz o mesmo ponto do ciclo.
+[HarmonyPatch(typeof(MeetingHud), nameof(MeetingHud.OnDestroy))]
+internal static class BlackScreenAntiBlackoutMeetingPatch
+{
+    public static void Postfix()
+    {
+        BlackScreenRecovery.PrepararFuncoesTemporarias();
     }
 }
