@@ -44,6 +44,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     public static ConfigEntry<int> PreparacaoChat;
     public static ConfigEntry<bool> PularFaseVotosJuiz;
     public static ConfigEntry<bool> SemFimDeJogo;
+    public static ConfigEntry<bool> EnterKeyToStartGame;
     public static ConfigEntry<bool> MultiTransmissaoAtiva;
     public static ConfigEntry<bool> PermitirIdsDeOutrosJogadores;
 
@@ -232,6 +233,13 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             "Sem fim de jogo",
             false,
             "Quando ativado, impede que a partida termine pelas condições normais de vitória."
+        );
+
+        EnterKeyToStartGame = Config.Bind(
+            "Configurações do Mod",
+            "Iniciar partida com Enter",
+            false,
+            "Permite ao host iniciar a partida pressionando Enter enquanto estiver no lobby."
         );
 
         MultiTransmissaoAtiva = Config.Bind(
@@ -3905,36 +3913,87 @@ public static class YouTubeVoteChatPatch
 }
 
 // Permite ao host iniciar a partida com apenas o próprio jogador na sala.
-// O patch só atua enquanto o lobby está realmente ativo. Isso evita acessar
-// componentes do GameStartManager durante a transição para EndGame ou Gameplay.
+// Segue o comportamento do EHR: MinPlayers é reduzido para 1 no ciclo do lobby.
 [HarmonyPatch(typeof(GameStartManager), nameof(GameStartManager.Update))]
 public static class YouTubeVoteMinimumPlayersPatch
 {
     public static void Prefix(GameStartManager __instance)
     {
+        if (__instance == null || AmongUsClient.Instance == null ||
+            !AmongUsClient.Instance.AmHost)
+            return;
+
+        __instance.MinPlayers = 1;
+        if (__instance.StartButton != null)
+            __instance.StartButton.SetButtonEnableState(
+                GameData.Instance != null && GameData.Instance.PlayerCount >= 1);
+    }
+}
+
+// Atalhos do lobby seguindo o comportamento do EHR:
+// C cancela a contagem, Shift a acelera para zero, Ctrl+C copia o código
+// e Enter inicia a partida quando a opção correspondente está habilitada.
+[HarmonyPatch(typeof(ControllerManager), nameof(ControllerManager.Update))]
+public static class YouTubeVoteLobbyKeybindPatch
+{
+    public static void Postfix()
+    {
         try
         {
-            AmongUsClient cliente = AmongUsClient.Instance;
-
-            if (__instance == null ||
-                cliente == null ||
-                !cliente.AmHost ||
-                cliente.IsGameStarted ||
-                ShipStatus.Instance != null ||
-                GameData.Instance == null)
+            if (AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost ||
+                AmongUsClient.Instance.IsGameStarted)
                 return;
 
-            // Deixa o jogo controlar o estado visual e a ativação do botão.
-            // Aqui alteramos somente o mínimo de jogadores exigido.
-            __instance.MinPlayers = 1;
+            GameStartManager manager = GameStartManager.Instance;
+            if (manager == null || ShipStatus.Instance != null)
+                return;
+
+            bool chatAberto = HudManager.InstanceExists &&
+                HudManager.Instance.Chat != null &&
+                HudManager.Instance.Chat.IsOpenOrOpening;
+            if (chatAberto)
+                return;
+
+            bool control = Input.GetKey(KeyCode.LeftControl) ||
+                Input.GetKey(KeyCode.RightControl);
+
+            if (control && Input.GetKeyDown(KeyCode.C))
+            {
+                GUIUtility.systemCopyBuffer =
+                    GameCode.IntToGameName(AmongUsClient.Instance.GameId) ?? string.Empty;
+                return;
+            }
+
+            if (manager.startState == GameStartManager.StartingStates.Countdown)
+            {
+                if (!control && Input.GetKeyDown(KeyCode.C))
+                {
+                    manager.ResetStartState();
+                    return;
+                }
+
+                if (Input.GetKeyDown(KeyCode.LeftShift))
+                {
+                    manager.countDownTimer = 0f;
+                    return;
+                }
+            }
+
+            if (Input.GetKeyDown(KeyCode.Return) &&
+                YouTubeVoteBridgePlugin.EnterKeyToStartGame != null && YouTubeVoteBridgePlugin.EnterKeyToStartGame.Value &&
+                manager.startState == GameStartManager.StartingStates.NotStarting &&
+                GameSettingMenu.Instance == null)
+            {
+                manager.BeginGame();
+            }
         }
         catch (Exception ex)
         {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "Não foi possível atualizar o mínimo de jogadores do lobby: " + ex.Message);
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning("Atalhos do lobby: " + ex);
         }
     }
 }
+
 
 // Impede os critérios normais de vitória quando a opção "Sem fim de jogo" está ativa.
 // O comportamento padrão do jogo continua intacto quando a opção está desativada.
@@ -4044,7 +4103,6 @@ public static class YouTubeVoteUpdatePatch
         RainbowColorTransition.Atualizar();
         YouTubeVoteBridgePlugin.AtualizarRainbow();
         EventoEscudoTemporario.Atualizar();
-        BlackScreenRecovery.Atualizar();
         EventoCooldownIndividual.Atualizar();
         EventoCongelarJogador.Atualizar();
         EventoVelocidadeJogadores.Atualizar();
@@ -4431,7 +4489,6 @@ public static class YouTubeVoteRestoreExileNamePatch
     public static void Postfix()
     {
         YouTubeVoteBridgePlugin.RestaurarNomeGlobalDeEjecao();
-        BlackScreenRecovery.NotificarFimDaReuniao();
     }
 }
 
