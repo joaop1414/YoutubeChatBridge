@@ -43,7 +43,7 @@ internal sealed class EventoRaio : EventoVotacao
     private static Vector2 ultimaPosicaoAlerta;
 
     // Os indicadores são removidos no início da reunião para evitar a tela
-    // preta após a ejeção. Só voltam 10 s depois que a tela de ejeção termina.
+    // preta após a ejeção. Só voltam 20 s depois que a reunião termina.
     private static bool aguardandoFimEjecaoParaRecriar;
     private static bool telaEjecaoFoiExibida;
     private static float recriarBonecosEm;
@@ -193,9 +193,9 @@ internal sealed class EventoRaio : EventoVotacao
             if (recriarBonecosEm <= 0f || float.IsPositiveInfinity(recriarBonecosEm) ||
                 recriarBonecosEm == float.MaxValue)
             {
-                recriarBonecosEm = Time.realtimeSinceStartup + 10f;
+                recriarBonecosEm = Time.realtimeSinceStartup + 20f;
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "[F7/Raio] Reunião encerrada; indicadores voltarão em 10 segundos.");
+                    "[F7/Raio] Reunião encerrada; indicadores voltarão em 20 segundos.");
                 return;
             }
 
