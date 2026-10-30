@@ -3913,20 +3913,39 @@ public static class YouTubeVoteChatPatch
 }
 
 // Permite ao host iniciar a partida com apenas o próprio jogador na sala.
-// Segue o comportamento do EHR: MinPlayers é reduzido para 1 no ciclo do lobby.
+// O patch só atua enquanto o lobby está realmente ativo. Isso evita acessar
+// componentes do GameStartManager durante a transição para EndGame ou Gameplay.
 [HarmonyPatch(typeof(GameStartManager), nameof(GameStartManager.Update))]
 public static class YouTubeVoteMinimumPlayersPatch
 {
     public static void Prefix(GameStartManager __instance)
     {
-        if (__instance == null || AmongUsClient.Instance == null ||
-            !AmongUsClient.Instance.AmHost)
-            return;
+        try
+        {
+            AmongUsClient cliente = AmongUsClient.Instance;
 
-        __instance.MinPlayers = 1;
-        if (__instance.StartButton != null)
-            __instance.StartButton.SetButtonEnableState(
-                GameData.Instance != null && GameData.Instance.PlayerCount >= 1);
+            if (__instance == null ||
+                cliente == null ||
+                !cliente.AmHost ||
+                cliente.IsGameStarted ||
+                ShipStatus.Instance != null ||
+                GameData.Instance == null)
+                return;
+
+            // StartButton pode ainda não ter sido criado (ou já estar destruído)
+            // durante Start/Update e nas transições de cena.
+            var botao = __instance.StartButton;
+            if (botao == null)
+                return;
+
+            __instance.MinPlayers = 1;
+            botao.SetButtonEnableState(GameData.Instance.PlayerCount >= 1);
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "Não foi possível atualizar o mínimo de jogadores do lobby: " + ex.Message);
+        }
     }
 }
 
