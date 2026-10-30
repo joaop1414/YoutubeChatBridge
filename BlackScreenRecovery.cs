@@ -48,8 +48,15 @@ internal static class BlackScreenRecovery
                 return;
             }
 
+            // O jogador expulso ainda pode aparecer como vivo durante
+            // MeetingHud.OnDestroy. O EHR também o remove da lista antes
+            // de escolher o impostor temporário.
+            byte? exiladoId = ObterIdJogadorExilado();
+
             List<PlayerControl> vivos = todos
-                .Where(j => j.Data != null && !j.Data.IsDead)
+                .Where(j => j.Data != null &&
+                    !j.Data.IsDead &&
+                    (!exiladoId.HasValue || j.PlayerId != exiladoId.Value))
                 .ToList();
 
             if (vivos.Count < 2)
@@ -65,7 +72,6 @@ internal static class BlackScreenRecovery
             PlayerControl tripulanteFantasmaTemporario = null;
             if (vivos.Count == 2)
             {
-                byte? exiladoId = ObterIdJogadorExilado();
                 tripulanteFantasmaTemporario = todos.FirstOrDefault(j =>
                     j.Data != null &&
                     j.Data.IsDead &&
