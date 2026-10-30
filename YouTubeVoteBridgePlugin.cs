@@ -17,6 +17,7 @@ using BepInEx.Configuration;
 using BepInEx.Unity.IL2CPP;
 
 using HarmonyLib;
+using Rewired;
 using Reactor;
 using UnityEngine;
 using Hazel;
