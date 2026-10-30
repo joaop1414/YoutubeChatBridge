@@ -281,7 +281,7 @@ internal static class BlackScreenRecovery
         yield return new WaitForSecondsRealtime(AtrasoReparo);
 
         if (jogador == null || ShipStatus.Instance == null ||
-            AmongUsClient.Instance == null || AmongUsClient.Instance.GameState == InnerNetClient.GameStates.Ended)
+            AmongUsClient.Instance == null || false)
             yield break;
 
         try
@@ -324,7 +324,7 @@ internal static class BlackScreenRecovery
 
                 try
                 {
-                    jogador.RpcSetRole(RoleTypes.CrewmateGhost);
+                    RoleSwitchAPI.TrocarFuncao(jogador, RoleTypes.CrewmateGhost);
                 }
                 catch (Exception ex)
                 {
