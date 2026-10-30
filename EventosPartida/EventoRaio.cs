@@ -166,6 +166,15 @@ internal sealed class EventoRaio : EventoVotacao
         AtualizarSomLocal();
         AtualizarAlertaNoisemakerLocal();
 
+        // Todos os clientes removem localmente qualquer cópia órfã dos bonecos
+        // enquanto a reunião está aberta. O host também envia o Despawn pela
+        // rede abaixo; isso cobre clientes nos quais o pacote não limpou a cópia.
+        if (MeetingHud.Instance != null &&
+            (!YouTubeVoteBridgePlugin.EhHost() || !ativo || aguardandoFimEjecaoParaRecriar))
+        {
+            RemoverBonecosLocaisPorId();
+        }
+
         if (!YouTubeVoteBridgePlugin.EhHost() || !ativo) return;
 
         // Ao abrir uma reunião, remove os dois indicadores da rede e destrói
@@ -290,6 +299,35 @@ internal sealed class EventoRaio : EventoVotacao
 
         if (Time.realtimeSinceStartup >= proximoRaioEm)
             IniciarDescarga();
+    }
+
+    private static void RemoverBonecosLocaisPorId()
+    {
+        try
+        {
+            foreach (PlayerControl jogador in UnityEngine.Object.FindObjectsOfType<PlayerControl>())
+            {
+                if (jogador == null ||
+                    (jogador.PlayerId != PlayerIdAviso && jogador.PlayerId != PlayerIdRaio))
+                    continue;
+
+                // Esta função roda também nos clientes que não são host.
+                // Não transmite outro Despawn: apenas limpa a cópia local órfã.
+                try { AmongUsClient.Instance?.RemoveNetObject(jogador); } catch { }
+                try
+                {
+                    if (PlayerControl.AllPlayerControls.Contains(jogador))
+                        PlayerControl.AllPlayerControls.Remove(jogador);
+                }
+                catch { }
+                try { UnityEngine.Object.Destroy(jogador.gameObject); } catch { }
+            }
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Raio] Falha ao limpar cópias locais durante reunião: " + ex.Message);
+        }
     }
 
     private static void RemoverBonecosParaReuniao()
