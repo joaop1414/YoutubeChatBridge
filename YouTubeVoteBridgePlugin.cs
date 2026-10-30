@@ -3932,14 +3932,9 @@ public static class YouTubeVoteMinimumPlayersPatch
                 GameData.Instance == null)
                 return;
 
-            // StartButton pode ainda não ter sido criado (ou já estar destruído)
-            // durante Start/Update e nas transições de cena.
-            var botao = __instance.StartButton;
-            if (botao == null)
-                return;
-
+            // Deixa o jogo controlar o estado visual e a ativação do botão.
+            // Aqui alteramos somente o mínimo de jogadores exigido.
             __instance.MinPlayers = 1;
-            botao.SetButtonEnableState(GameData.Instance.PlayerCount >= 1);
         }
         catch (Exception ex)
         {
