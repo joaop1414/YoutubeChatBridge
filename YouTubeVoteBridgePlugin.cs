@@ -44,7 +44,6 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     public static ConfigEntry<int> PreparacaoChat;
     public static ConfigEntry<bool> PularFaseVotosJuiz;
     public static ConfigEntry<bool> SemFimDeJogo;
-    public static ConfigEntry<bool> EnterKeyToStartGame;
     public static ConfigEntry<bool> MultiTransmissaoAtiva;
     public static ConfigEntry<bool> PermitirIdsDeOutrosJogadores;
 
@@ -233,13 +232,6 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             "Sem fim de jogo",
             false,
             "Quando ativado, impede que a partida termine pelas condições normais de vitória."
-        );
-
-        EnterKeyToStartGame = Config.Bind(
-            "Configurações do Mod",
-            "Iniciar partida com Enter",
-            false,
-            "Permite ao host iniciar a partida pressionando Enter enquanto estiver no lobby."
         );
 
         MultiTransmissaoAtiva = Config.Bind(
@@ -3940,70 +3932,6 @@ public static class YouTubeVoteMinimumPlayersPatch
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
                 "Não foi possível atualizar o mínimo de jogadores do lobby: " + ex.Message);
-        }
-    }
-}
-
-// Atalhos do lobby seguindo o comportamento do EHR:
-// C cancela a contagem, Shift a acelera para zero, Ctrl+C copia o código
-// e Enter inicia a partida quando a opção correspondente está habilitada.
-[HarmonyPatch(typeof(ControllerManager), nameof(ControllerManager.Update))]
-public static class YouTubeVoteLobbyKeybindPatch
-{
-    public static void Postfix()
-    {
-        try
-        {
-            if (AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost ||
-                AmongUsClient.Instance.IsGameStarted)
-                return;
-
-            GameStartManager manager = GameStartManager.Instance;
-            if (manager == null || ShipStatus.Instance != null)
-                return;
-
-            bool chatAberto = HudManager.InstanceExists &&
-                HudManager.Instance.Chat != null &&
-                HudManager.Instance.Chat.IsOpenOrOpening;
-            if (chatAberto)
-                return;
-
-            bool control = Input.GetKey(KeyCode.LeftControl) ||
-                Input.GetKey(KeyCode.RightControl);
-
-            if (control && Input.GetKeyDown(KeyCode.C))
-            {
-                GUIUtility.systemCopyBuffer =
-                    GameCode.IntToGameName(AmongUsClient.Instance.GameId) ?? string.Empty;
-                return;
-            }
-
-            if (manager.startState == GameStartManager.StartingStates.Countdown)
-            {
-                if (!control && Input.GetKeyDown(KeyCode.C))
-                {
-                    manager.ResetStartState();
-                    return;
-                }
-
-                if (Input.GetKeyDown(KeyCode.LeftShift))
-                {
-                    manager.countDownTimer = 0f;
-                    return;
-                }
-            }
-
-            if (Input.GetKeyDown(KeyCode.Return) &&
-                YouTubeVoteBridgePlugin.EnterKeyToStartGame != null && YouTubeVoteBridgePlugin.EnterKeyToStartGame.Value &&
-                manager.startState == GameStartManager.StartingStates.NotStarting &&
-                GameSettingMenu.Instance == null)
-            {
-                manager.BeginGame();
-            }
-        }
-        catch (Exception ex)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning("Atalhos do lobby: " + ex);
         }
     }
 }
