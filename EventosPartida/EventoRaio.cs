@@ -45,7 +45,9 @@ internal sealed class EventoRaio : EventoVotacao
     // Os indicadores são removidos no início da reunião para evitar a tela
     // preta após a ejeção. Só voltam 20 s depois que a reunião termina.
     private static bool aguardandoFimEjecaoParaRecriar;
-    private static bool telaEjecaoFoiExibida;
+    private static bool bonecosRemovidosNaReuniao;
+    // Valor positivo: instante para despawn (5 s após abrir reunião).
+    // Valor negativo: objetos já removidos; aguarda o fim da ejeção e +3 s.
     private static float recriarBonecosEm;
     private static readonly System.Random Sorteador = new();
 
@@ -149,47 +151,68 @@ internal sealed class EventoRaio : EventoVotacao
         AtualizarSomLocal();
         AtualizarAlertaNoisemakerLocal();
 
-        // Todos os clientes removem localmente qualquer cópia órfã dos bonecos
-        // enquanto a reunião está aberta. O host também envia o Despawn pela
-        // rede abaixo; isso cobre clientes nos quais o pacote não limpou a cópia.
-        if (MeetingHud.Instance != null &&
-            (!YouTubeVoteBridgePlugin.EhHost() || !ativo || aguardandoFimEjecaoParaRecriar))
-        {
-            RemoverBonecosLocaisPorId();
-        }
-
         if (!YouTubeVoteBridgePlugin.EhHost() || !ativo) return;
 
-        // Ao abrir uma reunião, remove os dois indicadores da rede e destrói
-        // suas cópias locais. Não os reutilizamos: serão criados com novos NetIds.
-        if (MeetingHud.Instance != null && !aguardandoFimEjecaoParaRecriar)
+        // O EHR não destrói os CustomNetObjects localmente em cada cliente.
+        // Ele aguarda 5 s após o início da reunião e o host envia um único
+        // Despawn pela rede. Isso evita destruir PlayerControls enquanto o
+        // MeetingHud ainda está montando a reunião.
+        if (MeetingHud.Instance != null)
         {
-            RemoverBonecosParaReuniao();
-            aguardandoFimEjecaoParaRecriar = true;
-            telaEjecaoFoiExibida = false;
-            recriarBonecosEm = float.MaxValue;
-            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[F7/Raio] Reunião iniciada: indicadores removidos; aguardando o fim da tela de ejeção.");
+            if (!aguardandoFimEjecaoParaRecriar)
+            {
+                aguardandoFimEjecaoParaRecriar = true;
+                bonecosRemovidosNaReuniao = false;
+                recriarBonecosEm = Time.realtimeSinceStartup + 5f;
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[F7/Raio] Reunião detectada; despawn dos indicadores agendado para daqui a 5 s.");
+            }
+
+            if (recriarBonecosEm > 0f &&
+                Time.realtimeSinceStartup >= recriarBonecosEm)
+            {
+                RemoverBonecosParaReuniao();
+                bonecosRemovidosNaReuniao = true;
+                recriarBonecosEm = -1f;
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[F7/Raio] Indicadores removidos pelo host após o atraso do EHR.");
+            }
             return;
         }
 
         if (aguardandoFimEjecaoParaRecriar)
         {
-            if (MeetingHud.Instance != null)
+            // Se a reunião terminou antes dos 5 s, ainda assim removemos os
+            // indicadores uma única vez pelo host, nunca pela cópia local.
+            if (!bonecosRemovidosNaReuniao)
+            {
+                RemoverBonecosParaReuniao();
+                bonecosRemovidosNaReuniao = true;
+                recriarBonecosEm = -1f;
+            }
+
+            // A tela de ejeção/transição também precisa terminar antes de
+            // continuar. O EHR aguarda a ausência de ExileController e mais 3 s.
+            if (ExileController.Instance != null)
                 return;
 
-            // A contagem começa assim que a reunião termina (MeetingHud deixa de
-            // existir). Não dependemos de ExileController: em algumas reuniões ele
-            // não é encontrado de forma confiável, o que podia deixar o evento
-            // bloqueado ou recriar os bonecos durante a transição.
+            if (recriarBonecosEm < 0f)
+            {
+                recriarBonecosEm = Time.realtimeSinceStartup + 3f;
+                return;
+            }
+
+            if (Time.realtimeSinceStartup < recriarBonecosEm)
+                return;
+
             aguardandoFimEjecaoParaRecriar = false;
-            telaEjecaoFoiExibida = false;
+            bonecosRemovidosNaReuniao = false;
             recriarBonecosEm = 0f;
             etapaInicializacao = 0;
             proximoRaioEm = Time.realtimeSinceStartup +
                 (float)(IntervaloMinimo + Sorteador.NextDouble() * (IntervaloMaximo - IntervaloMinimo));
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[F7/Raio] Reunião encerrada; nenhum indicador foi recriado. O próximo será criado sob demanda.");
+                "[F7/Raio] Reunião e ejeção encerradas; próximo indicador será criado sob demanda.");
             return;
         }
 
@@ -264,35 +287,6 @@ internal sealed class EventoRaio : EventoVotacao
 
         if (Time.realtimeSinceStartup >= proximoRaioEm)
             IniciarDescarga();
-    }
-
-    private static void RemoverBonecosLocaisPorId()
-    {
-        try
-        {
-            foreach (PlayerControl jogador in UnityEngine.Object.FindObjectsOfType<PlayerControl>())
-            {
-                if (jogador == null ||
-                    (jogador.PlayerId != PlayerIdAviso && jogador.PlayerId != PlayerIdRaio))
-                    continue;
-
-                // Esta função roda também nos clientes que não são host.
-                // Não transmite outro Despawn: apenas limpa a cópia local órfã.
-                try { AmongUsClient.Instance?.RemoveNetObject(jogador); } catch { }
-                try
-                {
-                    if (PlayerControl.AllPlayerControls.Contains(jogador))
-                        PlayerControl.AllPlayerControls.Remove(jogador);
-                }
-                catch { }
-                try { UnityEngine.Object.Destroy(jogador.gameObject); } catch { }
-            }
-        }
-        catch (Exception ex)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "[F7/Raio] Falha ao limpar cópias locais durante reunião: " + ex.Message);
-        }
     }
 
     private static void RemoverBonecosParaReuniao()
@@ -701,7 +695,7 @@ internal sealed class EventoRaio : EventoVotacao
         ativo = false;
         aguardandoFimRoleReveal = false;
         aguardandoFimEjecaoParaRecriar = false;
-        telaEjecaoFoiExibida = false;
+        bonecosRemovidosNaReuniao = false;
         recriarBonecosEm = 0f;
         armado = preservarArmado && estavaArmado;
         descargaPendente = false;
