@@ -81,14 +81,12 @@ internal sealed class EventoRaio : EventoVotacao
 
         if (ativo) return;
 
-        // Como no fluxo do tsunami: os indicadores são criados uma vez e ficam
-        // fora do mapa até serem movimentados para cada descarga.
+        // Os indicadores só existem durante a preparação/execução de um raio.
         ativo = true;
         descargaPendente = false;
         ocultarDepoisDoImpacto = false;
-        etapaInicializacao = (bonecoAviso != null && bonecoRaio != null) ? 4 : 0;
+        etapaInicializacao = 0;
         CriarSomLocal();
-        // A criação começa somente quando a revelação de função terminar.
         aguardandoFimRoleReveal = true;
         proximoRaioEm = float.MaxValue;
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
@@ -102,25 +100,10 @@ internal sealed class EventoRaio : EventoVotacao
             return;
 
         aguardandoFimRoleReveal = false;
-        proximoRaioEm = float.MaxValue;
-        try
-        {
-            if (bonecoAviso == null || bonecoRaio == null)
-            {
-                etapaInicializacao = 0;
-                CriarBonecosTemporarios();
-                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "[F7/Raio] Indicadores criados após a revelação; inicializando rede uma única vez.");
-            }
-        }
-        catch (Exception ex)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[F7/Raio] Falha ao criar indicadores após a revelação: " + ex);
-            AgendarProximoRaio();
-        }
+        etapaInicializacao = 0;
+        proximoRaioEm = Time.realtimeSinceStartup + AtrasoPrimeiroRaio;
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            "[F7/Raio] Revelação encerrada; aguardando a inicialização dos indicadores.");
+            "[F7/Raio] Revelação encerrada; os indicadores serão criados apenas quando o primeiro raio começar.");
     }
 
     private static void CriarBonecosTemporarios()
@@ -199,35 +182,14 @@ internal sealed class EventoRaio : EventoVotacao
             // existir). Não dependemos de ExileController: em algumas reuniões ele
             // não é encontrado de forma confiável, o que podia deixar o evento
             // bloqueado ou recriar os bonecos durante a transição.
-            if (recriarBonecosEm <= 0f || float.IsPositiveInfinity(recriarBonecosEm) ||
-                recriarBonecosEm == float.MaxValue)
-            {
-                recriarBonecosEm = Time.realtimeSinceStartup + 20f;
-                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "[F7/Raio] Reunião encerrada; indicadores voltarão em 20 segundos.");
-                return;
-            }
-
-            if (Time.realtimeSinceStartup < recriarBonecosEm)
-                return;
-
             aguardandoFimEjecaoParaRecriar = false;
             telaEjecaoFoiExibida = false;
             recriarBonecosEm = 0f;
             etapaInicializacao = 0;
-            try
-            {
-                CriarBonecosTemporarios();
-                proximoRaioEm = float.MaxValue;
-                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "[F7/Raio] Recriando indicadores após a reunião.");
-            }
-            catch (Exception ex)
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                    "[F7/Raio] Falha ao recriar indicadores após a reunião: " + ex);
-                AgendarProximoRaio();
-            }
+            proximoRaioEm = Time.realtimeSinceStartup +
+                (float)(IntervaloMinimo + Sorteador.NextDouble() * (IntervaloMaximo - IntervaloMinimo));
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[F7/Raio] Reunião encerrada; nenhum indicador foi recriado. O próximo será criado sob demanda.");
             return;
         }
 
@@ -282,11 +244,14 @@ internal sealed class EventoRaio : EventoVotacao
         if (ocultarDepoisDoImpacto && Time.realtimeSinceStartup >= proximoRaioEm)
         {
             ocultarDepoisDoImpacto = false;
-            // Igual ao tsunami: mantém os NPCs de rede e apenas os deixa ocultos.
-            // O próximo efeito só envia SnapTo para reposicioná-los.
-            OcultarBoneco(bonecoAviso);
-            OcultarBoneco(bonecoRaio);
+            // O efeito acabou: remove os personagens da rede em vez de deixá-los
+            // escondidos fora do mapa até o próximo raio.
+            DestruirBoneco(ref bonecoAviso);
+            DestruirBoneco(ref bonecoRaio);
+            etapaInicializacao = 0;
             AgendarProximoRaio();
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[F7/Raio] Indicadores removidos após o impacto; serão recriados no próximo raio.");
             return;
         }
 
