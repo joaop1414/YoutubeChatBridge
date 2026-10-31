@@ -4091,6 +4091,7 @@ public static class YouTubeVoteUpdatePatch
         EventoAdicionarTarefas.AtualizarRestauracoesAgendadas();
 
         EventoTesteMenu.VerificarTecla();
+        EventoReviverJogadorMorto.RegistrarFuncoesVivas();
         VisualizadorNomeMenu.VerificarTecla();
         // Processa cliques também no lobby: F7 precisa ser armado antes de iniciar a partida.
         // O próprio menu valida que F6 só seja executado durante a partida.
@@ -4098,6 +4099,7 @@ public static class YouTubeVoteUpdatePatch
         // Não enviar RPC customizado 248 para hosts vanilla: eles não conhecem esse RPC.
         YouTubeVoteBridgePlugin.AtualizarAvisos();
         FakePlayerAPI.Atualizar();
+        EventoNpcSeguidor.Atualizar();
         NomeNpcRpc.Atualizar();
         YouTubeVoteBridgePlugin.AtualizarVotacao();
         RainbowColorTransition.Atualizar();
