@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Hazel;
 using HarmonyLib;
 using UnityEngine;
 
@@ -8,10 +9,14 @@ namespace YouTubeVoteBridge;
 internal sealed class EventoRoomRush : EventoVotacao
 {
     private const float TEMPO_POR_RODADA = 15f;
+    private const float INTERVALO_AVISO_NOME = 0.5f;
     private static bool ativo;
     private static float prazo;
+    private static float proximaAtualizacaoAvisoNome;
     private static SystemTypes salaAlvo;
     private static bool salaEscolhida;
+    private static readonly Dictionary<byte, string> nomesOriginais = new();
+    private static readonly HashSet<byte> nomesAvisadosRede = new();
 
     public override string Nome => "Room Rush (vá para a sala indicada antes do tempo acabar)";
 
@@ -27,11 +32,13 @@ internal sealed class EventoRoomRush : EventoVotacao
             return;
         }
 
+        RestaurarNomes();
         ativo = true;
         salaEscolhida = false;
         prazo = 0f;
+        proximaAtualizacaoAvisoNome = 0f;
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            "[F6/Room Rush] Iniciado. Os jogadores precisam alcançar a sala anunciada antes do prazo.");
+            "[F6/Room Rush] Iniciado. Os avisos serão exibidos localmente abaixo dos nomes dos jogadores.");
         Atualizar();
     }
 
@@ -65,11 +72,10 @@ internal sealed class EventoRoomRush : EventoVotacao
 
             salaEscolhida = true;
             prazo = agora + TEMPO_POR_RODADA;
-            Anunciar("<color=#FFB347>[ROOM RUSH]</color> Vá para <color=yellow>" +
-                NomeSala(salaAlvo) + "</color>! Você tem <color=red>" +
-                TEMPO_POR_RODADA.ToString("0") + " segundos</color> ou morrerá!");
-            return;
+            proximaAtualizacaoAvisoNome = 0f;
         }
+
+        AtualizarAvisosNosNomes(agora);
 
         if (agora < prazo)
             return;
@@ -84,10 +90,6 @@ internal sealed class EventoRoomRush : EventoVotacao
 
             try
             {
-                // A sala é obtida pelo mapa usando a posição real do jogador.
-                // GetPlainShipRoom() não é um método de PlayerControl nesta versão.
-                // Localiza a sala pela área física, sem depender de métodos de
-                // extensão de mods externos como GetPlainShipRoom().
                 PlainShipRoom salaJogador = ObterSalaJogador(jogador.GetTruePosition());
                 if (salaJogador != null && salaJogador.RoomId == salaAlvo)
                     continue;
@@ -103,10 +105,136 @@ internal sealed class EventoRoomRush : EventoVotacao
             }
         }
 
-        Anunciar("<color=#FFB347>[ROOM RUSH]</color> Tempo esgotado! " +
-            mortos + " jogador(es) eliminado(s) por não chegar à sala.");
+        RestaurarNomes();
         salaEscolhida = false;
         prazo = agora + 2f;
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            "[F6/Room Rush] Tempo esgotado! " + mortos +
+            " jogador(es) eliminado(s) por não chegar à sala.");
+    }
+
+    private static void AtualizarAvisosNosNomes(float agora)
+    {
+        if (agora < proximaAtualizacaoAvisoNome ||
+            PlayerControl.AllPlayerControls == null)
+            return;
+
+        proximaAtualizacaoAvisoNome = agora + INTERVALO_AVISO_NOME;
+        int segundosRestantes = Math.Max(0, Mathf.CeilToInt(prazo - agora));
+        string cor = segundosRestantes <= 5 ? "red" : "yellow";
+        string aviso = "\n<color=" + cor + ">ROOM RUSH: " +
+            NomeSala(salaAlvo) + " (" + segundosRestantes + "s)</color>";
+
+        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+        {
+            if (jogador == null || jogador.Data == null ||
+                jogador.Data.Disconnected || jogador.notRealPlayer)
+                continue;
+
+            if (!nomesOriginais.TryGetValue(jogador.PlayerId, out string nomeOriginal))
+            {
+                nomeOriginal = jogador.Data.PlayerName ??
+                    jogador.cosmetics?.nameText?.text ?? "";
+                nomesOriginais[jogador.PlayerId] = nomeOriginal;
+            }
+
+            string nomeComAviso = nomeOriginal + aviso;
+            try
+            {
+                // O host vê o aviso no nome de cada jogador.
+                if (jogador.cosmetics?.nameText != null)
+                    jogador.cosmetics.nameText.text = nomeComAviso;
+
+                // Para o jogador remoto, envia o SetName apenas ao seu próprio
+                // cliente, sem mudar o nome de rede visto globalmente.
+                if (jogador.AmOwner)
+                    YouTubeVoteBridgePlugin.DefinirNomeLocal(jogador, nomeComAviso);
+                else if (DefinirNomeLocalParaCliente(jogador, nomeComAviso))
+                    nomesAvisadosRede.Add(jogador.PlayerId);
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogDebug(
+                    "[F6/Room Rush] Não foi possível atualizar o aviso de nome: " + ex.Message);
+            }
+        }
+    }
+
+    private static bool DefinirNomeLocalParaCliente(PlayerControl jogador, string nome)
+    {
+        if (!YouTubeVoteBridgePlugin.EhHost() || AmongUsClient.Instance == null ||
+            jogador == null || jogador.Data == null || jogador.OwnerId < 0 ||
+            jogador.OwnerId == AmongUsClient.Instance.ClientId)
+            return false;
+
+        MessageWriter writer = null;
+        try
+        {
+            writer = MessageWriter.Get(SendOption.Reliable);
+            writer.StartMessage(6); // GameDataTo: somente o cliente proprietário
+            writer.Write(AmongUsClient.Instance.GameId);
+            writer.WritePacked(jogador.OwnerId);
+            writer.StartMessage(2);
+            writer.WritePacked(jogador.NetId);
+            writer.Write((byte)RpcCalls.SetName);
+            writer.Write(jogador.Data.NetId);
+            writer.Write(nome);
+            writer.EndMessage();
+            writer.EndMessage();
+            AmongUsClient.Instance.SendOrDisconnect(writer);
+            writer.Recycle();
+            writer = null;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F6/Room Rush] Falha ao enviar aviso local para PlayerId=" +
+                jogador.PlayerId + ": " + ex.Message);
+            return false;
+        }
+        finally
+        {
+            if (writer != null)
+            {
+                try { writer.Recycle(); } catch { }
+            }
+        }
+    }
+
+    private static void RestaurarNomes()
+    {
+        if (PlayerControl.AllPlayerControls != null)
+        {
+            foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+            {
+                if (jogador == null)
+                    continue;
+
+                if (!nomesOriginais.TryGetValue(jogador.PlayerId, out string nomeOriginal))
+                    continue;
+
+                try
+                {
+                    if (jogador.AmOwner)
+                        YouTubeVoteBridgePlugin.DefinirNomeLocal(jogador, nomeOriginal);
+
+                    if (jogador.cosmetics?.nameText != null)
+                        jogador.cosmetics.nameText.text = nomeOriginal;
+
+                    if (YouTubeVoteBridgePlugin.EhHost() &&
+                        AmongUsClient.Instance != null &&
+                        jogador.OwnerId >= 0 &&
+                        jogador.OwnerId != AmongUsClient.Instance.ClientId &&
+                        nomesAvisadosRede.Contains(jogador.PlayerId))
+                        DefinirNomeLocalParaCliente(jogador, nomeOriginal);
+                }
+                catch { }
+            }
+        }
+
+        nomesOriginais.Clear();
+        nomesAvisadosRede.Clear();
     }
 
     private static PlainShipRoom ObterSalaJogador(Vector2 posicao)
@@ -121,7 +249,6 @@ internal sealed class EventoRoomRush : EventoVotacao
             if (sala == null || sala.roomArea == null)
                 continue;
 
-            // Bounds.Contains usa a caixa delimitadora do Collider2D da sala.
             if (sala.roomArea.bounds.Contains(ponto))
                 return sala;
         }
@@ -147,7 +274,6 @@ internal sealed class EventoRoomRush : EventoVotacao
         if (salas.Count == 0)
             return false;
 
-        // Evita repetir a mesma sala em rodadas consecutivas quando há alternativas.
         if (salas.Count > 1)
             salas.Remove(salaAlvo);
 
@@ -195,26 +321,12 @@ internal sealed class EventoRoomRush : EventoVotacao
         };
     }
 
-    private static void Anunciar(string texto)
-    {
-        if (!YouTubeVoteBridgePlugin.EhHost() || PlayerControl.AllPlayerControls == null)
-            return;
-
-        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
-        {
-            if (jogador == null || jogador.Data == null ||
-                jogador.Data.Disconnected || jogador.notRealPlayer)
-                continue;
-
-            YouTubeVoteBridgePlugin.EnviarMensagemIndividual(jogador, texto);
-        }
-    }
-
     internal static void Resetar()
     {
         ativo = false;
         salaEscolhida = false;
         prazo = 0f;
+        RestaurarNomes();
     }
 }
 
