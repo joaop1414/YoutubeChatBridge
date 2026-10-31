@@ -110,7 +110,7 @@ internal sealed class EventoRoomRush : EventoVotacao
         List<SystemTypes> salas = new();
         foreach (PlainShipRoom sala in ShipStatus.Instance.AllRooms)
         {
-            if (sala == null || sala.RoomId == SystemTypes.None)
+            if (sala == null || sala.RoomId.ToString() == "None")
                 continue;
 
             if (!salas.Contains(sala.RoomId))
@@ -130,45 +130,40 @@ internal sealed class EventoRoomRush : EventoVotacao
 
     private static string NomeSala(SystemTypes sala)
     {
-        return sala switch
+        return sala.ToString() switch
         {
-            SystemTypes.Cafeteria => "Cafeteria",
-            SystemTypes.Weapons => "Armas",
-            SystemTypes.Navigation => "Navegação",
-            SystemTypes.O2 => "O2",
-            SystemTypes.Shields => "Escudos",
-            SystemTypes.Comms => "Comunicações",
-            SystemTypes.Storage => "Armazenamento",
-            SystemTypes.Admin => "Administração",
-            SystemTypes.Electrical => "Elétrica",
-            SystemTypes.LifeSupp => "Suprimentos médicos",
-            SystemTypes.MedBay => "Enfermaria",
-            SystemTypes.Security => "Segurança",
-            SystemTypes.Reactor => "Reator",
-            SystemTypes.LowerEngine => "Motor inferior",
-            SystemTypes.UpperEngine => "Motor superior",
-            SystemTypes.Laboratory => "Laboratório",
-            SystemTypes.Greenhouse => "Estufa",
-            SystemTypes.Balcony => "Varanda",
-            SystemTypes.Dropship => "Dropship",
-            SystemTypes.Decontamination => "Descontaminação",
-            SystemTypes.Launchpad => "Plataforma de lançamento",
-            SystemTypes.Specimens => "Espécimes",
-            SystemTypes.Brig => "Brigue",
-            SystemTypes.VaultRoom => "Cofre",
-            SystemTypes.Cockpit => "Cabine",
-            SystemTypes.Armory => "Arsenal",
-            SystemTypes.Kitchen => "Cozinha",
-            SystemTypes.ViewingDeck => "Deque de observação",
-            SystemTypes.HallOfPortraits => "Galeria de retratos",
-            SystemTypes.CargoBay => "Baía de carga",
-            SystemTypes.Showers => "Chuveiros",
-            SystemTypes.Lounge => "Salão",
-            SystemTypes.GapRoom => "Sala do vão",
-            SystemTypes.MainHall => "Salão principal",
-            SystemTypes.Medical => "Médica",
-            SystemTypes.SecurityOffice => "Escritório de segurança",
-            SystemTypes.ArmoryRoom => "Sala de arsenal",
+            "Cafeteria" => "Cafeteria",
+            "Weapons" => "Armas",
+            "Navigation" => "Navegação",
+            "O2" => "O2",
+            "Shields" => "Escudos",
+            "Communications" or "Comms" => "Comunicações",
+            "Storage" => "Armazenamento",
+            "Admin" => "Administração",
+            "Electrical" => "Elétrica",
+            "LifeSupp" or "MedBay" or "Medical" => "Enfermaria",
+            "Security" => "Segurança",
+            "Reactor" => "Reator",
+            "LowerEngine" => "Motor inferior",
+            "UpperEngine" => "Motor superior",
+            "Laboratory" => "Laboratório",
+            "Greenhouse" => "Estufa",
+            "Balcony" => "Varanda",
+            "Dropship" => "Dropship",
+            "Decontamination" => "Descontaminação",
+            "Launchpad" => "Plataforma de lançamento",
+            "Specimens" => "Espécimes",
+            "VaultRoom" => "Cofre",
+            "Cockpit" => "Cabine",
+            "Armory" => "Arsenal",
+            "Kitchen" => "Cozinha",
+            "ViewingDeck" => "Deque de observação",
+            "HallOfPortraits" => "Galeria de retratos",
+            "CargoBay" => "Baía de carga",
+            "Showers" => "Chuveiros",
+            "Lounge" => "Salão",
+            "GapRoom" => "Sala do vão",
+            "MainHall" => "Salão principal",
             _ => sala.ToString()
         };
     }
