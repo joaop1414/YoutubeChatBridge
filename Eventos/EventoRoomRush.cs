@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Hazel;
 using HarmonyLib;
 using UnityEngine;
@@ -243,17 +244,36 @@ internal sealed class EventoRoomRush : EventoVotacao
         if (navio == null || navio.AllRooms == null)
             return null;
 
-        Vector3 ponto = new Vector3(posicao.x, posicao.y, 0f);
+        // Bounds.Contains falha em salas com formatos irregulares e pode
+        // classificar o jogador na sala vizinha quando as caixas se sobrepõem.
+        // OverlapPoint consulta a forma real do Collider2D.
+        PlainShipRoom melhorSala = null;
+        float menorArea = float.MaxValue;
+
         foreach (PlainShipRoom sala in navio.AllRooms)
         {
             if (sala == null || sala.roomArea == null)
                 continue;
 
-            if (sala.roomArea.bounds.Contains(ponto))
-                return sala;
+            try
+            {
+                if (!sala.roomArea.OverlapPoint(posicao))
+                    continue;
+
+                Vector2 tamanho = sala.roomArea.bounds.size;
+                float area = tamanho.x * tamanho.y;
+
+                // Se dois colliders se sobrepõem, prefere o menor/mais específico.
+                if (area < menorArea)
+                {
+                    menorArea = area;
+                    melhorSala = sala;
+                }
+            }
+            catch { }
         }
 
-        return null;
+        return melhorSala;
     }
 
     private static bool EscolherSala()
@@ -264,7 +284,8 @@ internal sealed class EventoRoomRush : EventoVotacao
         List<SystemTypes> salas = new();
         foreach (PlainShipRoom sala in ShipStatus.Instance.AllRooms)
         {
-            if (sala == null || sala.RoomId.ToString() == "None")
+            if (sala == null || sala.roomArea == null ||
+                sala.RoomId.ToString() == "None")
                 continue;
 
             if (!salas.Contains(sala.RoomId))
@@ -283,42 +304,36 @@ internal sealed class EventoRoomRush : EventoVotacao
 
     private static string NomeSala(SystemTypes sala)
     {
-        return sala.ToString() switch
+        // O HUD usa StringNames para traduzir o nome da sala. Procura o item
+        // correspondente no enum do próprio jogo, em vez de manter uma lista
+        // manual que fica desatualizada entre mapas/idiomas.
+        try
         {
-            "Cafeteria" => "Cafeteria",
-            "Weapons" => "Armas",
-            "Navigation" => "Navegação",
-            "O2" => "O2",
-            "Shields" => "Escudos",
-            "Communications" or "Comms" => "Comunicações",
-            "Storage" => "Armazenamento",
-            "Admin" => "Administração",
-            "Electrical" => "Elétrica",
-            "LifeSupp" or "MedBay" or "Medical" => "Enfermaria",
-            "Security" => "Segurança",
-            "Reactor" => "Reator",
-            "LowerEngine" => "Motor inferior",
-            "UpperEngine" => "Motor superior",
-            "Laboratory" => "Laboratório",
-            "Greenhouse" => "Estufa",
-            "Balcony" => "Varanda",
-            "Dropship" => "Dropship",
-            "Decontamination" => "Descontaminação",
-            "Launchpad" => "Plataforma de lançamento",
-            "Specimens" => "Espécimes",
-            "VaultRoom" => "Cofre",
-            "Cockpit" => "Cabine",
-            "Armory" => "Arsenal",
-            "Kitchen" => "Cozinha",
-            "ViewingDeck" => "Deque de observação",
-            "HallOfPortraits" => "Galeria de retratos",
-            "CargoBay" => "Baía de carga",
-            "Showers" => "Chuveiros",
-            "Lounge" => "Salão",
-            "GapRoom" => "Sala do vão",
-            "MainHall" => "Salão principal",
-            _ => sala.ToString()
-        };
+            string id = sala.ToString();
+            string normalizado = new string(id.Where(char.IsLetterOrDigit).ToArray());
+
+            foreach (string nome in Enum.GetNames(typeof(StringNames)))
+            {
+                string chave = new string(nome.Where(char.IsLetterOrDigit).ToArray());
+                if (chave.Equals("Room" + normalizado, StringComparison.OrdinalIgnoreCase) ||
+                    chave.Equals("RoomName" + normalizado, StringComparison.OrdinalIgnoreCase))
+                {
+                    StringNames stringName = (StringNames)Enum.Parse(typeof(StringNames), nome);
+                    string traduzido = TranslationController.Instance.GetString(stringName);
+                    if (!string.IsNullOrWhiteSpace traduzido)
+                        return traduzido;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogDebug(
+                "[F6/Room Rush] Falha ao traduzir nome da sala: " + ex.Message);
+        }
+
+        // Fallback: mantém um nome legível caso o jogo não tenha uma chave
+        // de tradução correspondente a esta sala.
+        return sala.ToString();
     }
 
     internal static void Resetar()
