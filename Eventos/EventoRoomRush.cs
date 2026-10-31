@@ -22,6 +22,8 @@ internal sealed class EventoRoomRush : EventoVotacao
     private static bool ativoLocal;
     private static bool reparoReatorPendente;
     private static float repararReatorAte;
+    private static int ciclosReatorRestantes;
+    private static bool sequenciaReatorAtiva;
 
     public override string Nome => "Vá para a sala ou morra";
 
@@ -115,6 +117,8 @@ internal sealed class EventoRoomRush : EventoVotacao
     {
         reparoReatorPendente = false;
         repararReatorAte = 0f;
+        ciclosReatorRestantes = 0;
+        sequenciaReatorAtiva = false;
 
         try
         {
@@ -122,12 +126,9 @@ internal sealed class EventoRoomRush : EventoVotacao
             if (navio == null ||
                 !navio.Systems.ContainsKey(SystemTypes.Sabotage) ||
                 !navio.Systems.ContainsKey(SystemTypes.Reactor))
-                return;
-
-            if (ReatorEstaEmSabotagem(navio.Systems[SystemTypes.Reactor]))
             {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "[F6/Room Rush] O reator já está em sabotagem; não será reiniciado nem reparado.");
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[F6/Room Rush] Sistemas do reator/sabotagem não encontrados no mapa.");
                 return;
             }
 
@@ -136,78 +137,74 @@ internal sealed class EventoRoomRush : EventoVotacao
             if (sabotagem == null)
                 return;
 
+            // O sistema global informa se já existe uma sabotagem em andamento.
+            // Não interrompemos uma sabotagem iniciada por outro evento/jogador.
+            if (sabotagem.AnyActive)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[F6/Room Rush] Já existe uma sabotagem ativa; sequência do reator ignorada.");
+                return;
+            }
+
+            ciclosReatorRestantes = 4;
+            sequenciaReatorAtiva = true;
+            AcionarProximoCicloReator();
+        }
+        catch (Exception ex)
+        {
+            sequenciaReatorAtiva = false;
+            ciclosReatorRestantes = 0;
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F6/Room Rush] Falha ao iniciar sequência do reator: " + ex.Message);
+        }
+    }
+
+    private static void AcionarProximoCicloReator()
+    {
+        if (!sequenciaReatorAtiva || ciclosReatorRestantes <= 0 ||
+            ShipStatus.Instance == null)
+            return;
+
+        try
+        {
+            ShipStatus navio = ShipStatus.Instance;
+            if (!navio.Systems.ContainsKey(SystemTypes.Sabotage) ||
+                !navio.Systems.ContainsKey(SystemTypes.Reactor))
+            {
+                EncerrarSequenciaReator();
+                return;
+            }
+
+            SabotageSystemType sabotagem = navio.Systems[SystemTypes.Sabotage]
+                .Cast<SabotageSystemType>();
+            if (sabotagem == null)
+            {
+                EncerrarSequenciaReator();
+                return;
+            }
+
             sabotagem.Timer = 0f;
             sabotagem.IsDirty = true;
             navio.RpcUpdateSystem(SystemTypes.Sabotage, (byte)SystemTypes.Reactor);
 
             reparoReatorPendente = true;
-            repararReatorAte = Time.realtimeSinceStartup + 0.5f;
+            repararReatorAte = Time.realtimeSinceStartup + 0.1f;
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[F6/Room Rush] Aviso do reator acionado; reparo programado para 0,5 segundo.");
+                "[F6/Room Rush] Pulso do reator enviado; reparo em 0,1s. Restantes: " +
+                ciclosReatorRestantes);
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "[F6/Room Rush] Falha ao acionar o aviso do reator: " + ex.Message);
+                "[F6/Room Rush] Falha ao acionar o reator: " + ex.Message);
+            EncerrarSequenciaReator();
         }
     }
 
-    private static bool ReatorEstaEmSabotagem(object sistemaReator)
+    private static void AtualizarReparoReator()
     {
-        if (sistemaReator == null)
-            return false;
-
-        try
-        {
-            Type tipo = sistemaReator.GetType();
-            System.Reflection.BindingFlags flags =
-                System.Reflection.BindingFlags.Instance |
-                System.Reflection.BindingFlags.Public |
-                System.Reflection.BindingFlags.NonPublic;
-
-            var propriedadeAtiva = tipo.GetProperty("IsActive", flags);
-            if (propriedadeAtiva != null &&
-                propriedadeAtiva.PropertyType == typeof(bool))
-                return (bool)propriedadeAtiva.GetValue(sistemaReator);
-
-            var campoAtivo = tipo.GetField("IsActive", flags);
-            if (campoAtivo != null && campoAtivo.FieldType == typeof(bool))
-                return (bool)campoAtivo.GetValue(sistemaReator);
-
-            var propriedadeContagem = tipo.GetProperty("Countdown", flags);
-            if (propriedadeContagem != null)
-            {
-                object valor = propriedadeContagem.GetValue(sistemaReator);
-                if (valor != null)
-                    return Convert.ToSingle(valor) > 0f;
-            }
-
-            var campoContagem = tipo.GetField("Countdown", flags);
-            if (campoContagem != null)
-            {
-                object valor = campoContagem.GetValue(sistemaReator);
-                if (valor != null)
-                    return Convert.ToSingle(valor) > 0f;
-            }
-        }
-        catch (Exception ex)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "[F6/Room Rush] Não foi possível consultar o estado do reator: " + ex.Message);
-            // Na dúvida, não inicia outra sabotagem.
-            return true;
-        }
-
-        // Se a versão do jogo não expuser o estado conhecido, não arrisca
-        // interromper uma sabotagem que já esteja ativa.
-        YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-            "[F6/Room Rush] Não foi possível identificar o estado do reator; aviso não acionado.");
-        return true;
-    }
-
-    private static void AtualizarReparoReator(bool forcar = false)
-    {
-        if (!reparoReatorPendente || (!forcar && Time.realtimeSinceStartup < repararReatorAte))
+        if (!sequenciaReatorAtiva || !reparoReatorPendente ||
+            Time.realtimeSinceStartup < repararReatorAte)
             return;
 
         try
@@ -218,19 +215,33 @@ internal sealed class EventoRoomRush : EventoVotacao
                 navio.RpcUpdateSystem(SystemTypes.Reactor, 16);
                 navio.RpcUpdateSystem(SystemTypes.Reactor, 17);
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "[F6/Room Rush] Reparo do reator enviado.");
+                    "[F6/Room Rush] Reparo do pulso do reator enviado.");
             }
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "[F6/Room Rush] Falha ao reparar o reator: " + ex.Message);
+                "[F6/Room Rush] Falha ao reparar o pulso do reator: " + ex.Message);
+            EncerrarSequenciaReator();
+            return;
         }
-        finally
-        {
-            reparoReatorPendente = false;
-            repararReatorAte = 0f;
-        }
+
+        reparoReatorPendente = false;
+        repararReatorAte = 0f;
+        ciclosReatorRestantes--;
+
+        if (ciclosReatorRestantes > 0)
+            AcionarProximoCicloReator();
+        else
+            EncerrarSequenciaReator();
+    }
+
+    private static void EncerrarSequenciaReator()
+    {
+        sequenciaReatorAtiva = false;
+        reparoReatorPendente = false;
+        repararReatorAte = 0f;
+        ciclosReatorRestantes = 0;
     }
 
     private static void AplicarEscudoERomperParaTodos()
@@ -412,10 +423,7 @@ internal sealed class EventoRoomRush : EventoVotacao
             YouTubeVoteBridgePlugin.SincronizarRoomRush(0, 0f, false);
 
         ativo = false;
-        if (reparoReatorPendente)
-            AtualizarReparoReator(true);
-        reparoReatorPendente = false;
-        repararReatorAte = 0f;
+        EncerrarSequenciaReator();
         prazo = 0f;
         proximaSincronizacao = 0f;
         ReceberEstadoLocal(salaAlvoLocal, 0f, false);
