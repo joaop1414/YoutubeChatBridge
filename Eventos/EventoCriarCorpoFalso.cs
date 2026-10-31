@@ -219,13 +219,15 @@ internal sealed class EventoCriarCorpoFalso : EventoVotacao
                 }
             }
 
+            // O clone já nasce na posição correta. Assim não precisamos usar
+            // SnapTo local antes do Spawn; a própria mensagem de Spawn replica
+            // a posição inicial para os clientes.
             temporario = UnityEngine.Object.Instantiate(
-                AmongUsClient.Instance.PlayerPrefab, Vector2.zero, Quaternion.identity);
+                AmongUsClient.Instance.PlayerPrefab, posicao, Quaternion.identity);
 
             temporario.PlayerId = modelo.PlayerId;
             temporario.isNew = false;
             temporario.notRealPlayer = true;
-            temporario.NetTransform.SnapTo(posicao);
 
             // O prefab de PlayerControl contém três objetos de rede.
             AmongUsClient.Instance.NetIdCnt += 1U;
