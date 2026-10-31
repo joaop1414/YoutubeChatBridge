@@ -363,35 +363,42 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
             saidasPendentes.RemoveAt(i);
 
             alvo = EncontrarJogador(pendente.PlayerId);
-            if (!EstaVivo(alvo))
+            if (alvo == null || alvo.Data == null || alvo.Data.Disconnected)
             {
                 jogadoresNoDuto.Remove(pendente.PlayerId);
                 continue;
             }
 
             int saidasEnviadas = 0;
+            bool alvoMorreuDuranteEvento = alvo.Data.IsDead;
 
-            // O próprio jogador precisa sair do duto somente na própria tela.
-            if (EnviarSaidaDutoDesync(alvo, pendente.VentId, alvo))
-                saidasEnviadas++;
-
-            // Impostores também recebem a saída, para continuarem vendo o jogador.
-            // Tripulantes que não são o próprio alvo NÃO recebem ExitVent:
-            // para eles, o alvo continua dentro do duto e fica invisível.
+            // Se o jogador morreu enquanto estava no duto, expulsamos o seu
+            // estado de duto em TODOS os clientes, incluindo os espectadores mortos.
+            // Para jogadores vivos, mantemos a regra original: o próprio jogador
+            // e impostores recebem ExitVent; tripulantes continuam vendo-o no duto.
             foreach (PlayerControl espectador in PlayerControl.AllPlayerControls)
             {
-                if (!EstaVivo(espectador) ||
-                    espectador == alvo ||
-                    espectador.Data.Role?.IsImpostor != true)
+                if (espectador == null || espectador.Data == null ||
+                    espectador.Data.Disconnected || espectador.OwnerId < 0)
+                    continue;
+
+                bool enviarSaida = alvoMorreuDuranteEvento ||
+                    espectador.PlayerId == alvo.PlayerId ||
+                    (!espectador.Data.IsDead && espectador.Data.Role?.IsImpostor == true);
+
+                if (!enviarSaida)
                     continue;
 
                 if (EnviarSaidaDutoDesync(alvo, pendente.VentId, espectador))
                     saidasEnviadas++;
             }
 
+            if (alvoMorreuDuranteEvento)
+                jogadoresNoDuto.Remove(pendente.PlayerId);
+
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 $"[Invisibilidade] Duto dessincronizado para PlayerId={alvo.PlayerId}; " +
-                $"saídas direcionadas={saidasEnviadas}.");
+                $"morto durante evento={alvoMorreuDuranteEvento}; saídas direcionadas={saidasEnviadas}.");
         }
     }
 
@@ -438,17 +445,16 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
                     espectador.Data.Disconnected || espectador.OwnerId < 0)
                     continue;
 
-                // O assassino e a vítima recebem a autoria verdadeira.
-                // Para os demais, a vítima aparece como autora do próprio assassinato.
-                PlayerControl remetente = espectador.PlayerId == assassino.PlayerId
-                    || espectador.PlayerId == vitima.PlayerId
-                    ? assassino
-                    : vitima;
+                    // O assassino e a vítima recebem a autoria verdadeira.
+                // Para os demais, o NetId da vítima é usado como remetente,
+                // fazendo o RPC representar uma morte da vítima por si mesma.
+                PlayerControl remetente =
+                    espectador.PlayerId == assassino.PlayerId ||
+                    espectador.PlayerId == vitima.PlayerId
+                        ? assassino
+                        : vitima;
 
-                PlayerControl alvoRpc = espectador.PlayerId == assassino.PlayerId
-                    || espectador.PlayerId == vitima.PlayerId
-                    ? vitima
-                    : vitima;
+                PlayerControl alvoRpc = vitima;
 
                 if (espectador.OwnerId == clientLocal)
                 {
