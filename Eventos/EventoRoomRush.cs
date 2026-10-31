@@ -133,12 +133,11 @@ internal sealed class EventoRoomRush : EventoVotacao
 
             try
             {
-                if (jogador.cosmetics?.nameText != null)
-                    jogador.cosmetics.nameText.text = nomeComAviso;
-
-                if (jogador.AmOwner)
-                    YouTubeVoteBridgePlugin.DefinirNomeLocal(jogador, nomeComAviso);
-                else if (DefinirNomeLocalParaCliente(jogador, nomeComAviso))
+                // O aviso é enviado somente ao cliente proprietário deste jogador.
+                // Não alteramos nameText nem o nome local do host, para que ele
+                // continue vendo os nomes originais.
+                if (!jogador.AmOwner &&
+                    DefinirNomeLocalParaCliente(jogador, nomeComAviso))
                     nomesAvisadosRede.Add(jogador.PlayerId);
             }
             catch (Exception ex)
@@ -205,12 +204,6 @@ internal sealed class EventoRoomRush : EventoVotacao
 
                 try
                 {
-                    if (jogador.AmOwner)
-                        YouTubeVoteBridgePlugin.DefinirNomeLocal(jogador, nomeOriginal);
-
-                    if (jogador.cosmetics?.nameText != null)
-                        jogador.cosmetics.nameText.text = nomeOriginal;
-
                     if (YouTubeVoteBridgePlugin.EhHost() &&
                         AmongUsClient.Instance != null &&
                         jogador.OwnerId >= 0 &&
