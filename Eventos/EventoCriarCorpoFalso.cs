@@ -130,6 +130,8 @@ internal sealed class EventoCriarCorpoFalso : EventoVotacao
             Vector3 deslocamento = modelo.KillAnimations[0].BodyOffset;
 
             Vector2 pontoJogador = Vector2.zero;
+            PlainShipRoom salaEscolhida = null;
+
             if (posicaoJogadorForcada.HasValue)
             {
                 // A vítima já está no ponto correto; não sorteia outra sala.
@@ -138,7 +140,6 @@ internal sealed class EventoCriarCorpoFalso : EventoVotacao
             else
             {
                 // Evento normal: escolhe um ponto seguro aleatório no mapa.
-                PlainShipRoom salaEscolhida = null;
                 bool encontrouPosicaoSegura = false;
 
                 for (int tentativa = 0; tentativa < Math.Max(20, salas.Count * 4); tentativa++)
