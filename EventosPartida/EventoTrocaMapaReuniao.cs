@@ -227,26 +227,16 @@ internal sealed class EventoTrocaMapaReuniao : EventoVotacao
 
         try
         {
-            // Mesmo fluxo de criação/destruição usado como referência no Hydra.
-            MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
-            try
-            {
-                writer.StartMessage(InnerNet.Tags.GameData);
-                writer.Write(AmongUsClient.Instance.GameId);
+            // Mesmo mecanismo usado pelo Hydra: BatchSpawn serializa e envia
+            // a criação do ShipStatus pela rede. O mapa antigo só é removido
+            // depois que o novo spawn é enfileirado no mesmo lote.
+            BatchedMessage lote = new BatchedMessage();
+            lote.QueueSpawn(mapaNovo, -2, SpawnFlags.None);
 
-                SpawnGameDataMessage spawn = AmongUsClient.Instance.CreateSpawnMessage(
-                    mapaNovo, -2, SpawnFlags.None);
+            if (mapaAntigo != null && mapaAntigo != mapaNovo)
+                lote.QueueDespawn(mapaAntigo);
 
-                spawn.Serialize(writer);
-                writer.EndMessage();
-
-                mapaAntigo?.Despawn();
-                AmongUsClient.Instance.SendOrDisconnect(writer);
-            }
-            finally
-            {
-                writer.Recycle();
-            }
+            lote.FinishBatch();
         }
         catch (Exception ex)
         {
@@ -300,7 +290,17 @@ internal sealed class EventoTrocaMapaReuniao : EventoVotacao
 
         int quantidadeJogadores = ContarJogadoresConectados();
         int reposicionados = 0;
+        Vector2 posicaoBotao;
 
+        if (!TentarObterPosicaoBotaoEmergencia(mapa, out posicaoBotao))
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Troca de mapa] Não encontrei o botão de emergência no novo mapa; reposicionamento cancelado para não enviar jogadores a coordenadas incorretas.");
+            return;
+        }
+
+        // Experimento solicitado: todos recebem SnapTo para o mesmo ponto
+        // do botão. A colisão do próprio jogo poderá separar os personagens.
         foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
         {
             if (jogador == null || jogador.Data == null || jogador.Data.Disconnected ||
@@ -309,12 +309,8 @@ internal sealed class EventoTrocaMapaReuniao : EventoVotacao
 
             try
             {
-                Vector2 posicao = ObterPosicaoSpawn(mapa, jogador, quantidadeJogadores);
-                jogador.NetTransform.RpcSnapTo(posicao);
+                jogador.NetTransform.RpcSnapTo(posicaoBotao);
                 reposicionados++;
-
-                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    $"[F7/Troca de mapa] SnapTo enviado: PlayerId={jogador.PlayerId}, posição=({posicao.x:F2}, {posicao.y:F2}).");
             }
             catch (Exception ex)
             {
@@ -324,7 +320,45 @@ internal sealed class EventoTrocaMapaReuniao : EventoVotacao
         }
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"[F7/Troca de mapa] Reposicionamento concluído: {reposicionados}/{quantidadeJogadores} jogador(es).");
+            $"[F7/Troca de mapa] Experimento de colisão: {reposicionados}/{quantidadeJogadores} jogador(es) enviados ao botão de emergência em ({posicaoBotao.x:F2}, {posicaoBotao.y:F2}).");
+    }
+
+    private static bool TentarObterPosicaoBotaoEmergencia(ShipStatus mapa, out Vector2 posicao)
+    {
+        posicao = Vector2.zero;
+        if (mapa == null)
+            return false;
+
+        try
+        {
+            Transform[] transforms = mapa.GetComponentsInChildren<Transform>(true);
+            foreach (Transform item in transforms)
+            {
+                if (item == null)
+                    continue;
+
+                string nome = (item.name ?? "").ToLowerInvariant();
+                bool pareceBotao =
+                    (nome.Contains("emergency") || nome.Contains("meeting")) &&
+                    (nome.Contains("button") || nome.Contains("console") || nome.Contains("table"));
+
+                if (!pareceBotao)
+                    continue;
+
+                Vector3 p = item.position;
+                posicao = new Vector2(p.x, p.y);
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    $"[F7/Troca de mapa] Âncora de emergência encontrada: {item.name} em ({p.x:F2}, {p.y:F2}).");
+                return true;
+            }
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Troca de mapa] Erro ao procurar botão de emergência: " + ex.GetBaseException().Message);
+        }
+
+        return false;
     }
 
     private static Vector2 ObterPosicaoSpawn(
@@ -409,8 +443,33 @@ internal sealed class EventoTrocaMapaReuniao : EventoVotacao
 
     private static int ObterIdMapa(ShipStatus ship)
     {
-        // O tipo concreto de ShipStatus pode ser igual em todos os mapas.
-        // A fonte confiável é o MapId das opções/LogicOptions do jogo.
+        // Como no Hydra, quando existe ShipStatus o SpawnId identifica o mapa
+        // efetivamente materializado. MapId das opções pode estar desatualizado.
+        if (ship != null)
+        {
+            try
+            {
+                object spawnId = LerMembro(ship, "SpawnId", "spawnId");
+                string nomeSpawn = spawnId?.ToString()?.ToLowerInvariant() ?? "";
+
+                if (nomeSpawn.Contains("skeld")) return 0;
+                if (nomeSpawn.Contains("mira")) return 1;
+                if (nomeSpawn.Contains("polus")) return 2;
+                if (nomeSpawn.Contains("dleks")) return 3;
+                if (nomeSpawn.Contains("airship")) return 4;
+                if (nomeSpawn.Contains("fungle")) return 5;
+
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    $"[F7/Troca de mapa] SpawnId não reconhecido: {spawnId ?? "(null)"}.");
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[F7/Troca de mapa] Não foi possível ler ShipStatus.SpawnId: " + ex.GetBaseException().Message);
+            }
+        }
+
+        // Opções são fallback apenas quando o SpawnId não está disponível.
         try
         {
             object logicOptions = LerMembro(GameManager.Instance, "LogicOptions", "logicOptions");
@@ -437,17 +496,6 @@ internal sealed class EventoTrocaMapaReuniao : EventoVotacao
             }
         }
         catch { }
-
-        if (ship != null)
-        {
-            string nome = ship.GetType().Name.ToLowerInvariant();
-            if (nome.Contains("dleks")) return 3;
-            if (nome.Contains("mira")) return 1;
-            if (nome.Contains("polus")) return 2;
-            if (nome.Contains("airship")) return 4;
-            if (nome.Contains("fungle")) return 5;
-            if (nome.Contains("skeld")) return 0;
-        }
 
         return mapaAtual;
     }
