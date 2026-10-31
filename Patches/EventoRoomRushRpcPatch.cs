@@ -96,7 +96,7 @@ internal static class EventoRoomRushLowerInfoTextPatch
 
             string textoRoomRush = EventoRoomRush.ObterTextoHud();
             string textoTsunami = EventoTsunami.ObterTextoAvisoHud();
-            string texto = string.Join("\\n",
+            string texto = string.Join("\n",
                 new[] { textoRoomRush, textoTsunami }
                     .Where(t => !string.IsNullOrWhiteSpace(t)));
             lowerInfoText.text = texto;
