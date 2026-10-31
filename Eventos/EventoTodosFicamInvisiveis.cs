@@ -434,77 +434,44 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
             AmongUsClient.Instance == null)
             return;
 
-        int clientLocal = AmongUsClient.Instance.ClientId;
-        int enviados = 0;
-
         try
         {
-            foreach (PlayerControl espectador in PlayerControl.AllPlayerControls)
+            // Mesmo fluxo do EHR:
+            // 1. O host aplica o assassinato localmente.
+            // 2. Um único RPC MurderPlayer é transmitido para todos os clientes,
+            //    usando o NetId real do assassino e a vítima como argumento.
+            // 3. A morte não é confirmada com Die(Exile), pois o próprio
+            //    MurderPlayer deve produzir a morte e o corpo normalmente.
+
+            processandoMorteDessinc = true;
+            try
             {
-                if (espectador == null || espectador.Data == null ||
-                    espectador.Data.Disconnected || espectador.OwnerId < 0)
-                    continue;
-
-                    // O assassino e a vítima recebem a autoria verdadeira.
-                // Para os demais, o NetId da vítima é usado como remetente,
-                // fazendo o RPC representar uma morte da vítima por si mesma.
-                PlayerControl remetente =
-                    espectador.PlayerId == assassino.PlayerId ||
-                    espectador.PlayerId == vitima.PlayerId
-                        ? assassino
-                        : vitima;
-
-                PlayerControl alvoRpc = vitima;
-
-                if (espectador.OwnerId == clientLocal)
-                {
-                    // Aplica a representação correspondente na tela do próprio host.
-                    processandoMorteDessinc = true;
-                    try
-                    {
-                        remetente.MurderPlayer(alvoRpc, MurderResultFlags.Succeeded);
-                    }
-                    finally
-                    {
-                        processandoMorteDessinc = false;
-                    }
-                    enviados++;
-                    continue;
-                }
-
-                MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
-                    remetente.NetId,
-                    (byte)RpcCalls.MurderPlayer,
-                    SendOption.Reliable,
-                    espectador.OwnerId);
-
-                writer.WriteNetObject(alvoRpc);
-                writer.Write((int)MurderResultFlags.Succeeded);
-                AmongUsClient.Instance.FinishRpcImmediately(writer);
-                enviados++;
+                assassino.MurderPlayer(vitima, MurderResultFlags.Succeeded);
+            }
+            finally
+            {
+                processandoMorteDessinc = false;
             }
 
-            // Confirma a morte no estado autoritativo do jogo, usando o mesmo
-            // método empregado pelo evento Tsunami para converter jogadores em Ghost.
-            vitima.Die(DeathReason.Exile, true);
+            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
+                assassino.NetId,
+                (byte)RpcCalls.MurderPlayer,
+                SendOption.Reliable);
+
+            writer.WriteNetObject(vitima);
+            writer.Write((int)MurderResultFlags.Succeeded);
+            AmongUsClient.Instance.FinishRpcImmediately(writer);
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                $"[Invisibilidade] Assassinato dessincronizado: assassino={assassino.PlayerId}, " +
-                $"vítima={vitima.PlayerId}, RPCs direcionados={enviados}; " +
-                "morte confirmada com Die(DeathReason.Exile, true).");
+                $"[Invisibilidade] Assassinato sincronizado no padrão EHR: " +
+                $"assassino={assassino.PlayerId}; vítima={vitima.PlayerId}; " +
+                $"NetId origem={assassino.NetId}; RPC MurderPlayer transmitido para todos.");
         }
         catch (Exception ex)
         {
             processandoMorteDessinc = false;
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                $"[Invisibilidade] Falha ao dessincronizar assassinato de PlayerId={vitima.PlayerId}: {ex}");
-            // Se a sincronização especial falhar, não deixar a vítima viva no estado do host.
-            try { if (!vitima.Data.IsDead) vitima.Die(DeathReason.Exile, true); }
-            catch (Exception morteEx)
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                    "[Invisibilidade] Falha ao confirmar a morte após erro de RPC: " + morteEx);
-            }
+                $"[Invisibilidade] Falha ao enviar assassinato de PlayerId={vitima.PlayerId}: {ex}");
         }
     }
 
