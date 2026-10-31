@@ -3912,23 +3912,8 @@ public static class YouTubeVoteChatPatch
     }
 }
 
-// Permite ao host iniciar a partida com apenas o próprio jogador na sala.
-// Segue o comportamento do EHR: MinPlayers é reduzido para 1 no ciclo do lobby.
-[HarmonyPatch(typeof(GameStartManager), nameof(GameStartManager.Update))]
-public static class YouTubeVoteMinimumPlayersPatch
-{
-    public static void Prefix(GameStartManager __instance)
-    {
-        if (__instance == null || AmongUsClient.Instance == null ||
-            !AmongUsClient.Instance.AmHost)
-            return;
-
-        __instance.MinPlayers = 1;
-        if (__instance.StartButton != null)
-            __instance.StartButton.SetButtonEnableState(
-                GameData.Instance != null && GameData.Instance.PlayerCount >= 1);
-    }
-}
+// TEMPORARIAMENTE DESATIVADO PARA TESTE: YouTubeVoteMinimumPlayersPatch.
+// O bloco original foi removido para verificar se ele interfere no botão Iniciar.
 
 // Atalhos do lobby seguindo o comportamento do EHR:
 // C cancela a contagem, Shift a acelera para zero, Ctrl+C copia o código
