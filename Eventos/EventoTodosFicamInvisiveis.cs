@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using HarmonyLib;
 using Hazel;
+using InnerNet;
+using AmongUs.GameOptions;
 using UnityEngine;
 
 namespace YouTubeVoteBridge;
@@ -16,6 +18,7 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
 
     private static bool ativo;
     private static bool armado;
+    private static bool processandoMorteDessinc;
 
     // Jogadores que foram colocados no duto para produzir a dessincronização visual.
     private static readonly Dictionary<byte, int> jogadoresNoDuto = new();
@@ -389,6 +392,112 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 $"[Invisibilidade] Duto dessincronizado para PlayerId={alvo.PlayerId}; " +
                 $"saídas direcionadas={saidasEnviadas}.");
+        }
+    }
+
+
+    // Durante este evento, a morte é enviada de forma dessincronizada:
+    // vítima e assassino veem o assassinato normal; os demais recebem vítima -> vítima.
+    [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.MurderPlayer))]
+    private static class AssassinatoInvisibilidadePatch
+    {
+        private static bool Prefix(PlayerControl __instance, PlayerControl target)
+        {
+            if (!ativo || processandoMorteDessinc ||
+                !YouTubeVoteBridgePlugin.EhHost() ||
+                __instance == null || target == null ||
+                __instance.Data == null || target.Data == null ||
+                __instance.Data.Role?.IsImpostor != true ||
+                __instance.Data.IsDead || __instance.Data.Disconnected ||
+                target.Data.IsDead || target.Data.Disconnected ||
+                MeetingHud.Instance != null || AmongUsClient.Instance == null)
+                return true;
+
+            // Só intercepta assassinatos reais de impostor durante a invisibilidade.
+            EnviarAssassinatoDessinc(__instance, target);
+            return false;
+        }
+    }
+
+    private static void EnviarAssassinatoDessinc(PlayerControl assassino, PlayerControl vitima)
+    {
+        if (assassino == null || vitima == null ||
+            assassino.Data == null || vitima.Data == null ||
+            AmongUsClient.Instance == null)
+            return;
+
+        int clientLocal = AmongUsClient.Instance.ClientId;
+        int enviados = 0;
+
+        try
+        {
+            foreach (PlayerControl espectador in PlayerControl.AllPlayerControls)
+            {
+                if (espectador == null || espectador.Data == null ||
+                    espectador.Data.Disconnected || espectador.OwnerId < 0)
+                    continue;
+
+                // O assassino e a vítima recebem a autoria verdadeira.
+                // Para os demais, a vítima aparece como autora do próprio assassinato.
+                PlayerControl remetente = espectador.PlayerId == assassino.PlayerId
+                    || espectador.PlayerId == vitima.PlayerId
+                    ? assassino
+                    : vitima;
+
+                PlayerControl alvoRpc = espectador.PlayerId == assassino.PlayerId
+                    || espectador.PlayerId == vitima.PlayerId
+                    ? vitima
+                    : vitima;
+
+                if (espectador.OwnerId == clientLocal)
+                {
+                    // Aplica a representação correspondente na tela do próprio host.
+                    processandoMorteDessinc = true;
+                    try
+                    {
+                        remetente.MurderPlayer(alvoRpc, MurderResultFlags.Succeeded);
+                    }
+                    finally
+                    {
+                        processandoMorteDessinc = false;
+                    }
+                    enviados++;
+                    continue;
+                }
+
+                MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
+                    remetente.NetId,
+                    (byte)RpcCalls.MurderPlayer,
+                    SendOption.Reliable,
+                    espectador.OwnerId);
+
+                writer.WriteNetObject(alvoRpc);
+                writer.Write((int)MurderResultFlags.Succeeded);
+                AmongUsClient.Instance.FinishRpcImmediately(writer);
+                enviados++;
+            }
+
+            // Confirma a morte no estado autoritativo do jogo, usando o mesmo
+            // método empregado pelo evento Tsunami para converter jogadores em Ghost.
+            vitima.Die(DeathReason.Exile, true);
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                $"[Invisibilidade] Assassinato dessincronizado: assassino={assassino.PlayerId}, " +
+                $"vítima={vitima.PlayerId}, RPCs direcionados={enviados}; " +
+                "morte confirmada com Die(DeathReason.Exile, true).");
+        }
+        catch (Exception ex)
+        {
+            processandoMorteDessinc = false;
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                $"[Invisibilidade] Falha ao dessincronizar assassinato de PlayerId={vitima.PlayerId}: {ex}");
+            // Se a sincronização especial falhar, não deixar a vítima viva no estado do host.
+            try { if (!vitima.Data.IsDead) vitima.Die(DeathReason.Exile, true); }
+            catch (Exception morteEx)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                    "[Invisibilidade] Falha ao confirmar a morte após erro de RPC: " + morteEx);
+            }
         }
     }
 
