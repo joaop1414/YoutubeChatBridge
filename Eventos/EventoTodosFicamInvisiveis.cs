@@ -35,16 +35,6 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
 
     private static readonly List<SaidaPendente> saidasPendentes = new();
 
-    // Reaplica o SnapTo de rede após a morte/corpo falso para impedir que
-    // atualizações de física do assassinato sobrescrevam o teleporte.
-    private sealed class SnapAssassinoPendente
-    {
-        public byte PlayerId;
-        public Vector2 Posicao;
-        public float ExecutarEm;
-    }
-
-    private static readonly List<SnapAssassinoPendente> snapsAssassinoPendentes = new();
     private static float proximaVerificacaoMortos;
 
     // Invisibilidade exclusivamente local no host: o ExitVent é recebido primeiro,
@@ -91,7 +81,6 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         armado = true;
         jogadoresNoDuto.Clear();
         saidasPendentes.Clear();
-        snapsAssassinoPendentes.Clear();
         proximaVerificacaoMortos = Time.realtimeSinceStartup + 0.10f;
 
         if (ShipStatus.Instance != null)
@@ -637,42 +626,6 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         }
     }
 
-    private static void ProcessarSnapsAssassino()
-    {
-        if (!ativo || !YouTubeVoteBridgePlugin.EhHost() || snapsAssassinoPendentes.Count == 0)
-            return;
-
-        float agora = Time.realtimeSinceStartup;
-        for (int i = snapsAssassinoPendentes.Count - 1; i >= 0; i--)
-        {
-            SnapAssassinoPendente pendente = snapsAssassinoPendentes[i];
-            if (agora < pendente.ExecutarEm)
-                continue;
-
-            snapsAssassinoPendentes.RemoveAt(i);
-            PlayerControl assassino = EncontrarJogador(pendente.PlayerId);
-            if (assassino == null || assassino.Data == null ||
-                assassino.Data.Disconnected || assassino.Data.IsDead ||
-                assassino.NetTransform == null)
-                continue;
-
-            try
-            {
-                // Segundo RPC confiável, depois que Die/corpo falso terminar.
-                EnviarSnapToParaTripulantes(assassino, pendente.Posicao);
-                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    $"[Invisibilidade] SnapTo de rede reaplicado após a morte. " +
-                    $"Impostor={pendente.PlayerId}; posição={pendente.Posicao}.");
-            }
-            catch (Exception ex)
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    $"[Invisibilidade] Falha ao reaplicar SnapTo do impostor {pendente.PlayerId}: " +
-                    ex.GetBaseException().Message);
-            }
-        }
-    }
-
     // Usa o mesmo ponto de interceptação do evento F7:
     // CheckMurder é cancelado antes que o assassinato original seja executado.
     [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.CheckMurder))]
@@ -700,6 +653,63 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         }
     }
 
+    // O SnapTo do assassinato é enviado somente ao próprio impostor.
+    // Os tripulantes não recebem a posição do impostor, preservando a invisibilidade.
+    private static void TeleportarImpostorSomenteLocal(PlayerControl assassino, Vector2 posicao)
+    {
+        if (assassino == null || assassino.NetTransform == null ||
+            AmongUsClient.Instance == null)
+            return;
+
+        int ownerId = assassino.OwnerId;
+        ushort sequence = (ushort)(assassino.NetTransform.lastSequenceId + 2);
+
+        try
+        {
+            if (assassino.AmOwner || ownerId == AmongUsClient.Instance.ClientId)
+            {
+                // Se o impostor for o host, atualiza somente a cópia local dele.
+                assassino.NetTransform.SnapTo(posicao, sequence);
+                return;
+            }
+
+            // Se for cliente remoto, direciona o SnapTo exclusivamente ao impostor.
+            MessageWriter writer = null;
+            try
+            {
+                writer = MessageWriter.Get(SendOption.Reliable);
+                writer.StartMessage(26); // GameData
+                writer.WritePacked(AmongUsClient.Instance.GameId);
+                writer.StartMessage(6); // GameDataTo
+                writer.Write(AmongUsClient.Instance.GameId);
+                writer.WritePacked(ownerId);
+
+                writer.StartMessage(2); // RPC
+                writer.WritePacked(assassino.NetTransform.NetId);
+                writer.Write((byte)RpcCalls.SnapTo);
+                writer.Write(posicao.x);
+                writer.Write(posicao.y);
+                writer.Write(sequence);
+                writer.EndMessage();
+
+                writer.EndMessage(); // GameDataTo
+                writer.EndMessage(); // GameData
+                AmongUsClient.Instance.SendOrDisconnect(writer);
+                writer = null;
+            }
+            finally
+            {
+                writer?.Recycle();
+            }
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                $"[Invisibilidade] Teleporte local do impostor falhou. " +
+                $"PlayerId={assassino.PlayerId}; erro={ex.GetBaseException().Message}");
+        }
+    }
+
     private static void EnviarAssassinatoDessinc(PlayerControl assassino, PlayerControl vitima)
     {
         if (assassino == null || vitima == null ||
@@ -712,39 +722,25 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         {
             Vector2 posicaoVitima = vitima.GetTruePosition();
 
-            // Primeiro SnapTo de rede para todos os clientes.
-            EnviarSnapToParaTripulantes(assassino, posicaoVitima);
+            // Apenas o cliente do impostor recebe o teleporte. Os tripulantes
+            // continuam vendo o impostor na posição que a invisibilidade mantém.
+            TeleportarImpostorSomenteLocal(assassino, posicaoVitima);
 
-            // Mesma reação do evento F7: escudo + FailedProtected para resetar
-            // o cooldown do impostor, sem permitir que a kill original prossiga.
-            EventoEscudoTemporarioMortePatch.AplicarEscudoEResetarCooldown(assassino);
-
-            // Mesmo mecanismo de morte usado pelo Tsunami: transforma a vítima
-            // em Ghost com Die(DeathReason.Exile, true), sem animação de assassinato.
-            // Depois publica um corpo falso sincronizado para todos na posição capturada.
-            vitima.Die(DeathReason.Exile, true);
-
-            EventoCriarCorpoFalso.ExecutarParaJogadorNaPosicao(
-                vitima.PlayerId, posicaoVitima);
-
-            // A física da morte e a criação do corpo podem atualizar posições no
-            // mesmo frame. Reafirma o teleporte por RPC no próximo ciclo de rede.
-            snapsAssassinoPendentes.Add(new SnapAssassinoPendente
-            {
-                PlayerId = assassino.PlayerId,
-                Posicao = posicaoVitima,
-                ExecutarEm = Time.realtimeSinceStartup + 0.12f
-            });
+            // Usa o RPC nativo de assassinato: o próprio jogo cria o corpo real,
+            // configura o fantasma e aplica as permissões normais de atravessar paredes.
+            // Não chamar Die() nem criar corpo falso neste fluxo.
+            assassino.RpcMurderPlayer(vitima, MurderResultFlags.Succeeded);
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                $"[Invisibilidade] Assassinato original cancelado; morte pelo mecanismo do Tsunami " +
-                $"e corpo falso criado. Impostor={assassino.PlayerId}; vítima={vitima.PlayerId}; " +
-                $"posição={posicaoVitima}.");
+                $"[Invisibilidade] RPC nativo de assassinato enviado. " +
+                $"Impostor={assassino.PlayerId}; vítima={vitima.PlayerId}; " +
+                $"teleporte enviado somente ao impostor; posição={posicaoVitima}.");
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                $"[Invisibilidade] Falha ao cancelar/replicar assassinato de PlayerId={vitima.PlayerId}: {ex}");
+                $"[Invisibilidade] Falha ao executar RPC nativo de assassinato de " +
+                $"PlayerId={vitima.PlayerId}: {ex}");
         }
     }
 
@@ -824,7 +820,6 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
             {
                 ProcessarPreparacao();
                 ProcessarSaidasPendentes();
-                ProcessarSnapsAssassino();
             }
         }
     }
