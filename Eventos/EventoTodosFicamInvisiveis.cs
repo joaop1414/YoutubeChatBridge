@@ -653,6 +653,122 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         }
     }
 
+
+    // Envia o SnapTo da vítima para todos os clientes (tripulantes, impostores e fantasmas).
+    private static int EnviarSnapToParaTodos(PlayerControl alvo, Vector2 posicao)
+    {
+        if (alvo == null || alvo.NetTransform == null ||
+            AmongUsClient.Instance == null || PlayerControl.AllPlayerControls == null)
+            return 0;
+
+        int enviados = 0;
+        int hostClientId = AmongUsClient.Instance.ClientId;
+        var clientes = new HashSet<int>();
+        ushort sequence = (ushort)(alvo.NetTransform.lastSequenceId + 2);
+
+        if (alvo.AmOwner || alvo.OwnerId == hostClientId)
+        {
+            try { alvo.NetTransform.SnapTo(posicao, sequence); }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    $"[Invisibilidade] SnapTo local da vítima falhou: {ex.GetBaseException().Message}");
+            }
+        }
+
+        foreach (PlayerControl espectador in PlayerControl.AllPlayerControls)
+        {
+            if (espectador == null || espectador.Data == null ||
+                espectador.Data.Disconnected || espectador.OwnerId < 0 ||
+                espectador.OwnerId == hostClientId ||
+                !clientes.Add(espectador.OwnerId))
+                continue;
+
+            MessageWriter writer = null;
+            try
+            {
+                writer = MessageWriter.Get(SendOption.Reliable);
+                writer.StartMessage(26);
+                writer.WritePacked(AmongUsClient.Instance.GameId);
+                writer.StartMessage(6);
+                writer.Write(AmongUsClient.Instance.GameId);
+                writer.WritePacked(espectador.OwnerId);
+                writer.StartMessage(2);
+                writer.WritePacked(alvo.NetTransform.NetId);
+                writer.Write((byte)RpcCalls.SnapTo);
+                writer.Write(posicao.x);
+                writer.Write(posicao.y);
+                writer.Write(sequence);
+                writer.EndMessage();
+                writer.EndMessage();
+                writer.EndMessage();
+                AmongUsClient.Instance.SendOrDisconnect(writer);
+                writer = null;
+                enviados++;
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    $"[Invisibilidade] SnapTo para cliente {espectador.OwnerId} falhou: {ex.GetBaseException().Message}");
+            }
+            finally { writer?.Recycle(); }
+        }
+
+        return enviados;
+    }
+
+    // O RPC de entrada continua executando CoEnterVent no cliente de origem,
+    // mas os clientes remotos ignoram a mensagem recebida durante este evento.
+    [HarmonyPatch(typeof(PlayerPhysics), nameof(PlayerPhysics.HandleRpc))]
+    private static class BloquearAnimacaoEntradaDutoPatch
+    {
+        private static bool Prefix(PlayerPhysics __instance, byte callId)
+        {
+            return !ativo || callId != 19;
+        }
+    }
+
+    private static Vector2 ObterPosicaoOriginalVitima(PlayerControl vitima)
+    {
+        foreach (SaidaPendente pendente in saidasPendentes)
+        {
+            if (pendente.PlayerId == vitima.PlayerId)
+                return pendente.PosicaoOriginal;
+        }
+
+        return vitima.GetTruePosition();
+    }
+
+    private static void PrepararVitimaAntesDoAssassinato(PlayerControl vitima)
+    {
+        if (vitima == null || !jogadoresNoDuto.TryGetValue(vitima.PlayerId, out int ventId))
+            return;
+
+        Vector2 posicaoOriginal = ObterPosicaoOriginalVitima(vitima);
+        int saidas = 0;
+
+        // Primeiro manda todos os clientes executarem a saída do duto.
+        foreach (PlayerControl espectador in PlayerControl.AllPlayerControls)
+        {
+            if (espectador == null || espectador.Data == null ||
+                espectador.Data.Disconnected || espectador.OwnerId < 0)
+                continue;
+
+            if (EnviarSaidaDutoDesync(vitima, ventId, espectador))
+                saidas++;
+        }
+
+        // Depois envia a posição original para todos, sem filtrar por função.
+        int snaps = EnviarSnapToParaTodos(vitima, posicaoOriginal);
+
+        jogadoresNoDuto.Remove(vitima.PlayerId);
+        saidasPendentes.RemoveAll(p => p.PlayerId == vitima.PlayerId);
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"[Invisibilidade] Vítima retirada do duto antes da morte. PlayerId={vitima.PlayerId}; " +
+            $"ExitVent={saidas}; SnapTo para clientes={snaps}; posição={posicaoOriginal}.");
+    }
+
     // O SnapTo do assassinato é enviado somente ao próprio impostor.
     // Os tripulantes não recebem a posição do impostor, preservando a invisibilidade.
     private static void TeleportarImpostorSomenteLocal(PlayerControl assassino, Vector2 posicao)
@@ -722,8 +838,11 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         {
             Vector2 posicaoVitima = vitima.GetTruePosition();
 
-            // Apenas o cliente do impostor recebe o teleporte. Os tripulantes
-            // continuam vendo o impostor na posição que a invisibilidade mantém.
+            // Se a vítima estiver na dessincronização do duto, todos os clientes
+            // recebem ExitVent e o SnapTo da posição original antes da morte.
+            PrepararVitimaAntesDoAssassinato(vitima);
+
+            // Apenas o cliente do impostor recebe o teleporte.
             TeleportarImpostorSomenteLocal(assassino, posicaoVitima);
 
             // Usa o RPC nativo de assassinato: o próprio jogo cria o corpo real,
@@ -756,7 +875,6 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         indicePreparacao = 0;
         ventPreparacaoId = -1;
         saidasPendentes.Clear();
-        snapsAssassinoPendentes.Clear();
 
         int restaurados = 0;
         int saidasEnviadas = 0;
@@ -801,7 +919,7 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         ventPreparacaoId = -1;
         jogadoresNoDuto.Clear();
         saidasPendentes.Clear();
-        snapsAssassinoPendentes.Clear();
+
         RestaurarVisuaisHost();
     }
 
