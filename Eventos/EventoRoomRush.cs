@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using Hazel;
 using HarmonyLib;
 using UnityEngine;
 
@@ -9,13 +8,15 @@ namespace YouTubeVoteBridge;
 internal sealed class EventoRoomRush : EventoVotacao
 {
     private const float TEMPO_POR_RODADA = 15f;
-    private const float INTERVALO_AVISO_NOME = 0.5f;
+    private const float INTERVALO_SINCRONIZACAO = 0.5f;
+
     private static bool ativo;
     private static float prazo;
-    private static float proximaAtualizacaoAvisoNome;
+    private static float proximaSincronizacao;
     private static SystemTypes salaAlvo;
-    private static readonly Dictionary<byte, string> nomesOriginais = new();
-    private static readonly HashSet<byte> nomesAvisadosRede = new();
+    private static SystemTypes salaAlvoLocal;
+    private static float prazoLocal;
+    private static bool ativoLocal;
 
     public override string Nome => "Vá para a sala ou morra";
 
@@ -31,11 +32,6 @@ internal sealed class EventoRoomRush : EventoVotacao
             return;
         }
 
-        RestaurarNomes();
-        ativo = true;
-        prazo = Time.realtimeSinceStartup + TEMPO_POR_RODADA;
-        proximaAtualizacaoAvisoNome = 0f;
-
         if (!EscolherSala())
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
@@ -44,9 +40,14 @@ internal sealed class EventoRoomRush : EventoVotacao
             return;
         }
 
+        ativo = true;
+        prazo = Time.realtimeSinceStartup + TEMPO_POR_RODADA;
+        proximaSincronizacao = 0f;
+        ReceberEstadoLocal(salaAlvo, TEMPO_POR_RODADA, true);
+
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            "[F6/Room Rush] Iniciado. Esta rodada é única; os avisos serão exibidos abaixo dos nomes dos jogadores.");
-        Atualizar();
+            "[F6/Room Rush] Iniciado. Os jogadores devem chegar à sala indicada em 15 segundos.");
+        SincronizarEstado();
     }
 
     internal static void Atualizar()
@@ -64,7 +65,8 @@ internal sealed class EventoRoomRush : EventoVotacao
             return;
 
         float agora = Time.realtimeSinceStartup;
-        AtualizarAvisosNosNomes(agora);
+        if (agora >= proximaSincronizacao)
+            SincronizarEstado();
 
         if (agora < prazo)
             return;
@@ -97,126 +99,45 @@ internal sealed class EventoRoomRush : EventoVotacao
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             "[F6/Room Rush] Rodada encerrada! " + mortos +
             " jogador(es) eliminado(s) por não chegar à sala.");
-
-        // O evento termina aqui: não há escolha de outra sala nem segunda rodada.
         Resetar();
     }
 
-    private static void AtualizarAvisosNosNomes(float agora)
+    private static void SincronizarEstado()
     {
-        if (agora < proximaAtualizacaoAvisoNome ||
-            PlayerControl.AllPlayerControls == null)
+        float restante = Mathf.Max(0f, prazo - Time.realtimeSinceStartup);
+        YouTubeVoteBridgePlugin.SincronizarRoomRush((byte)salaAlvo, restante, true);
+        ReceberEstadoLocal(salaAlvo, restante, true);
+        proximaSincronizacao = Time.realtimeSinceStartup + INTERVALO_SINCRONIZACAO;
+    }
+
+    internal static void ReceberEstadoLocal(SystemTypes sala, float segundosRestantes, bool eventoAtivo)
+    {
+        ativoLocal = eventoAtivo;
+        if (!eventoAtivo)
+        {
+            prazoLocal = 0f;
             return;
-
-        proximaAtualizacaoAvisoNome = agora + INTERVALO_AVISO_NOME;
-        int segundosRestantes = Math.Max(0, Mathf.CeilToInt(prazo - agora));
-
-        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
-        {
-            if (jogador == null || jogador.Data == null ||
-                jogador.Data.Disconnected || jogador.notRealPlayer)
-                continue;
-
-            if (!nomesOriginais.TryGetValue(jogador.PlayerId, out string nomeOriginal))
-            {
-                nomeOriginal = jogador.Data.PlayerName ??
-                    jogador.cosmetics?.nameText?.text ?? "";
-                nomesOriginais[jogador.PlayerId] = nomeOriginal;
-            }
-
-            PlainShipRoom salaJogador = ObterSalaJogador(jogador.GetTruePosition());
-            bool estaNaSala = salaJogador != null && salaJogador.RoomId == salaAlvo;
-            string cor = estaNaSala ? "green" : segundosRestantes <= 5 ? "red" : "yellow";
-            string aviso = "\n<color=" + cor + ">Sala: " +
-                NomeSala(salaAlvo) + " (" + segundosRestantes + "S)</color>";
-            string nomeComAviso = nomeOriginal + aviso;
-
-            try
-            {
-                // O aviso é enviado somente ao cliente proprietário deste jogador.
-                // Não alteramos nameText nem o nome local do host, para que ele
-                // continue vendo os nomes originais.
-                if (!jogador.AmOwner &&
-                    DefinirNomeLocalParaCliente(jogador, nomeComAviso))
-                    nomesAvisadosRede.Add(jogador.PlayerId);
-            }
-            catch (Exception ex)
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogDebug(
-                    "[F6/Room Rush] Não foi possível atualizar o aviso de nome: " + ex.Message);
-            }
         }
+
+        salaAlvoLocal = sala;
+        prazoLocal = Time.realtimeSinceStartup + Mathf.Max(0f, segundosRestantes);
     }
 
-    private static bool DefinirNomeLocalParaCliente(PlayerControl jogador, string nome)
+    internal static string ObterTextoHud()
     {
-        if (!YouTubeVoteBridgePlugin.EhHost() || AmongUsClient.Instance == null ||
-            jogador == null || jogador.Data == null || jogador.OwnerId < 0 ||
-            jogador.OwnerId == AmongUsClient.Instance.ClientId)
-            return false;
+        if (!ativoLocal || ShipStatus.Instance == null ||
+            MeetingHud.Instance != null || ExileController.Instance != null)
+            return "";
 
-        MessageWriter writer = null;
-        try
-        {
-            writer = MessageWriter.Get(SendOption.Reliable);
-            writer.StartMessage(6);
-            writer.Write(AmongUsClient.Instance.GameId);
-            writer.WritePacked(jogador.OwnerId);
-            writer.StartMessage(2);
-            writer.WritePacked(jogador.NetId);
-            writer.Write((byte)RpcCalls.SetName);
-            writer.Write(jogador.Data.NetId);
-            writer.Write(nome);
-            writer.EndMessage();
-            writer.EndMessage();
-            AmongUsClient.Instance.SendOrDisconnect(writer);
-            writer.Recycle();
-            writer = null;
-            return true;
-        }
-        catch (Exception ex)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "[F6/Room Rush] Falha ao enviar aviso local para PlayerId=" +
-                jogador.PlayerId + ": " + ex.Message);
-            return false;
-        }
-        finally
-        {
-            if (writer != null)
-            {
-                try { writer.Recycle(); } catch { }
-            }
-        }
-    }
+        int segundos = Mathf.Max(0, Mathf.CeilToInt(prazoLocal - Time.realtimeSinceStartup));
+        PlainShipRoom salaJogador = PlayerControl.LocalPlayer == null
+            ? null
+            : ObterSalaJogador(PlayerControl.LocalPlayer.GetTruePosition());
+        bool estaNaSala = salaJogador != null && salaJogador.RoomId == salaAlvoLocal;
 
-    private static void RestaurarNomes()
-    {
-        if (PlayerControl.AllPlayerControls != null)
-        {
-            foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
-            {
-                if (jogador == null)
-                    continue;
-
-                if (!nomesOriginais.TryGetValue(jogador.PlayerId, out string nomeOriginal))
-                    continue;
-
-                try
-                {
-                    if (YouTubeVoteBridgePlugin.EhHost() &&
-                        AmongUsClient.Instance != null &&
-                        jogador.OwnerId >= 0 &&
-                        jogador.OwnerId != AmongUsClient.Instance.ClientId &&
-                        nomesAvisadosRede.Contains(jogador.PlayerId))
-                        DefinirNomeLocalParaCliente(jogador, nomeOriginal);
-                }
-                catch { }
-            }
-        }
-
-        nomesOriginais.Clear();
-        nomesAvisadosRede.Clear();
+        string cor = estaNaSala ? "green" : segundos <= 5 ? "red" : "yellow";
+        return "<color=" + cor + ">Sala: " + NomeSala(salaAlvoLocal) +
+            " (" + segundos + "S)</color>";
     }
 
     private static PlainShipRoom ObterSalaJogador(Vector2 posicao)
@@ -227,7 +148,6 @@ internal sealed class EventoRoomRush : EventoVotacao
 
         PlainShipRoom melhorSala = null;
         float menorArea = float.MaxValue;
-
         foreach (PlainShipRoom sala in navio.AllRooms)
         {
             if (sala == null || sala.roomArea == null ||
@@ -282,8 +202,6 @@ internal sealed class EventoRoomRush : EventoVotacao
     {
         try
         {
-            // Este overload recebe SystemTypes e usa diretamente a localização
-            // ativa do Among Us (incluindo Português do Brasil).
             string traduzido = TranslationController.Instance.GetString(sala);
             if (!string.IsNullOrWhiteSpace(traduzido))
                 return traduzido;
@@ -299,10 +217,13 @@ internal sealed class EventoRoomRush : EventoVotacao
 
     internal static void Resetar()
     {
+        if (ativo && YouTubeVoteBridgePlugin.EhHost())
+            YouTubeVoteBridgePlugin.SincronizarRoomRush(0, 0f, false);
+
         ativo = false;
         prazo = 0f;
-        proximaAtualizacaoAvisoNome = 0f;
-        RestaurarNomes();
+        proximaSincronizacao = 0f;
+        ReceberEstadoLocal(salaAlvoLocal, 0f, false);
     }
 }
 
