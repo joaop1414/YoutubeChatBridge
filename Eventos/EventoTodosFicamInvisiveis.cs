@@ -8,6 +8,9 @@ namespace YouTubeVoteBridge;
 
 internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
 {
+    private const float IntervaloEntreSnapTo = 0.08f;
+    private const float AtrasoAntesDasEntradas = 0.20f;
+    private const float IntervaloEntreEntradas = 0.08f;
     private const float AtrasoRestaurarPosicao = 0.15f;
     private const float AtrasoSaida = 0.5f;
 
@@ -28,6 +31,27 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
     }
 
     private static readonly List<SaidaPendente> saidasPendentes = new();
+
+    private sealed class JogadorPreparacao
+    {
+        public byte PlayerId;
+        public Vector2 PosicaoOriginal;
+        public bool SnapToConcluido;
+    }
+
+    private enum EtapaPreparacao
+    {
+        Nenhuma,
+        SnapTo,
+        Entradas
+    }
+
+    private static readonly List<JogadorPreparacao> preparacaoPendente = new();
+    private static EtapaPreparacao etapaPreparacao = EtapaPreparacao.Nenhuma;
+    private static int indicePreparacao;
+    private static int ventPreparacaoId = -1;
+    private static Vector2 posicaoVentPreparacao;
+    private static float proximoProcessamentoPreparacao;
 
     public override string Nome => "Todos ficam invisíveis";
 
@@ -55,106 +79,152 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
     {
         if (!ativo || !YouTubeVoteBridgePlugin.EhHost() ||
             PlayerControl.AllPlayerControls == null ||
-            AmongUsClient.Instance == null)
-            return;
-
-        if (ShipStatus.Instance?.AllVents == null)
+            AmongUsClient.Instance == null ||
+            etapaPreparacao != EtapaPreparacao.Nenhuma)
             return;
 
         Vent ventGlobal = EncontrarVentGlobal();
         if (ventGlobal == null)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "[Invisibilidade] Nenhum duto disponível para posicionar os jogadores.");
+                "[Invisibilidade] Não existe duto com ID 1 ou ID 0 para posicionar os jogadores.");
             return;
         }
 
-        armado = false;
-        int posicionados = 0;
-        int entradasEnviadas = 0;
-        float agora = Time.realtimeSinceStartup;
-
-        // Guarda as posições originais antes de mover qualquer jogador.
-        Dictionary<byte, Vector2> posicoesOriginais = new();
-        List<PlayerControl> jogadores = new();
-        HashSet<byte> jogadoresReposicionados = new();
+        preparacaoPendente.Clear();
+        saidasPendentes.Clear();
+        jogadoresNoDuto.Clear();
 
         foreach (PlayerControl alvo in PlayerControl.AllPlayerControls)
         {
             if (!PodeFicarInvisivel(alvo) ||
-                jogadoresNoDuto.ContainsKey(alvo.PlayerId) ||
                 alvo.MyPhysics == null ||
                 alvo.NetTransform == null)
                 continue;
 
-            posicoesOriginais[alvo.PlayerId] = (Vector2)alvo.transform.position;
-            jogadores.Add(alvo);
+            preparacaoPendente.Add(new JogadorPreparacao
+            {
+                PlayerId = alvo.PlayerId,
+                PosicaoOriginal = (Vector2)alvo.transform.position
+            });
         }
 
-        int ventId = ventGlobal.Id;
-        Vector2 posicaoDuto = (Vector2)ventGlobal.transform.position;
-
-        // PRIMEIRA ETAPA: SnapTo global. Todos são posicionados no mesmo duto
-        // antes de qualquer RPC de entrada ser enviado.
-        foreach (PlayerControl alvo in jogadores)
+        if (preparacaoPendente.Count == 0)
         {
-            try
-            {
-                ushort sequencia = (ushort)(alvo.NetTransform.lastSequenceId + 128);
-                alvo.NetTransform.SnapTo(posicaoDuto, sequencia);
-                jogadoresReposicionados.Add(alvo.PlayerId);
-                posicionados++;
-            }
-            catch (Exception ex)
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    $"[Invisibilidade] Falha no SnapTo de PlayerId={alvo.PlayerId}: {ex.GetBaseException().Message}");
-            }
+            armado = false;
+            return;
         }
 
-        // SEGUNDA ETAPA: somente depois de posicionar todos, envia a entrada
-        // nativa no mesmo duto, como na implementação anterior.
-        foreach (PlayerControl alvo in jogadores)
+        armado = false;
+        ventPreparacaoId = ventGlobal.Id;
+        posicaoVentPreparacao = (Vector2)ventGlobal.transform.position;
+        indicePreparacao = 0;
+        etapaPreparacao = EtapaPreparacao.SnapTo;
+        proximoProcessamentoPreparacao = Time.realtimeSinceStartup;
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"[Invisibilidade] Preparação iniciada. Motivo={motivo}; duto fixo={ventPreparacaoId}; " +
+            $"jogadores={preparacaoPendente.Count}; intervalo entre SnapTo={IntervaloEntreSnapTo:0.00}s; " +
+            $"espera antes das entradas={AtrasoAntesDasEntradas:0.00}s.");
+    }
+
+    private static void ProcessarPreparacao()
+    {
+        if (!ativo || !YouTubeVoteBridgePlugin.EhHost() ||
+            etapaPreparacao == EtapaPreparacao.Nenhuma ||
+            Time.realtimeSinceStartup < proximoProcessamentoPreparacao)
+            return;
+
+        if (indicePreparacao >= preparacaoPendente.Count)
         {
-            if (!jogadoresReposicionados.Contains(alvo.PlayerId) ||
-                !posicoesOriginais.TryGetValue(alvo.PlayerId, out Vector2 posicaoOriginal))
-                continue;
-
-            try
+            if (etapaPreparacao == EtapaPreparacao.SnapTo)
             {
-                alvo.MyPhysics.RpcEnterVent(ventId);
+                etapaPreparacao = EtapaPreparacao.Entradas;
+                indicePreparacao = 0;
+                proximoProcessamentoPreparacao =
+                    Time.realtimeSinceStartup + AtrasoAntesDasEntradas;
 
-                jogadoresNoDuto[alvo.PlayerId] = ventId;
-                saidasPendentes.Add(new SaidaPendente
-                {
-                    PlayerId = alvo.PlayerId,
-                    VentId = ventId,
-                    PosicaoOriginal = posicaoOriginal,
-                    RestaurarPosicaoEm = agora + AtrasoRestaurarPosicao,
-                    ExecutarEm = agora + AtrasoSaida
-                });
-
-                entradasEnviadas++;
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    $"[Invisibilidade] Todos os SnapTo foram processados. " +
+                    $"Aguardando {AtrasoAntesDasEntradas:0.00}s antes dos RPCs de entrada.");
+                return;
             }
-            catch (Exception ex)
+
+            etapaPreparacao = EtapaPreparacao.Nenhuma;
+            preparacaoPendente.Clear();
+            ventPreparacaoId = -1;
+            return;
+        }
+
+        JogadorPreparacao item = preparacaoPendente[indicePreparacao];
+        PlayerControl alvo = EncontrarJogador(item.PlayerId);
+
+        if (etapaPreparacao == EtapaPreparacao.SnapTo)
+        {
+            if (PodeFicarInvisivel(alvo) && alvo.NetTransform != null)
             {
-                // Se a entrada falhar, devolve imediatamente o jogador à posição original.
                 try
                 {
                     ushort sequencia = (ushort)(alvo.NetTransform.lastSequenceId + 128);
-                    alvo.NetTransform.SnapTo(posicaoOriginal, sequencia);
+                    alvo.NetTransform.SnapTo(posicaoVentPreparacao, sequencia);
+                    item.SnapToConcluido = true;
                 }
-                catch { }
-
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    $"[Invisibilidade] Falha ao entrar no duto com PlayerId={alvo.PlayerId}: {ex.GetBaseException().Message}");
+                catch (Exception ex)
+                {
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                        $"[Invisibilidade] Falha no SnapTo de PlayerId={item.PlayerId}: " +
+                        ex.GetBaseException().Message);
+                }
             }
+
+            indicePreparacao++;
+            proximoProcessamentoPreparacao =
+                Time.realtimeSinceStartup + IntervaloEntreSnapTo;
+            return;
         }
 
-        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"[Invisibilidade] SnapTo global concluído. Motivo={motivo}; duto={ventId}; " +
-            $"posicionados={posicionados}; entradas enviadas={entradasEnviadas}; " +
-            $"retorno às posições originais em {AtrasoRestaurarPosicao:0.00}s.");
+        if (etapaPreparacao == EtapaPreparacao.Entradas)
+        {
+            if (item.SnapToConcluido &&
+                PodeFicarInvisivel(alvo) &&
+                alvo.MyPhysics != null &&
+                alvo.NetTransform != null)
+            {
+                try
+                {
+                    // O ID é sempre o mesmo para todos; nenhum cliente escolhe outro duto.
+                    alvo.MyPhysics.RpcEnterVent(ventPreparacaoId);
+
+                    float agora = Time.realtimeSinceStartup;
+                    jogadoresNoDuto[alvo.PlayerId] = ventPreparacaoId;
+                    saidasPendentes.Add(new SaidaPendente
+                    {
+                        PlayerId = alvo.PlayerId,
+                        VentId = ventPreparacaoId,
+                        PosicaoOriginal = item.PosicaoOriginal,
+                        RestaurarPosicaoEm = agora + AtrasoRestaurarPosicao,
+                        ExecutarEm = agora + AtrasoSaida
+                    });
+                }
+                catch (Exception ex)
+                {
+                    try
+                    {
+                        ushort sequencia = (ushort)(alvo.NetTransform.lastSequenceId + 128);
+                        alvo.NetTransform.SnapTo(item.PosicaoOriginal, sequencia);
+                    }
+                    catch { }
+
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                        $"[Invisibilidade] Falha ao entrar no duto com PlayerId={item.PlayerId}: " +
+                        ex.GetBaseException().Message);
+                }
+            }
+
+            indicePreparacao++;
+            proximoProcessamentoPreparacao =
+                Time.realtimeSinceStartup + IntervaloEntreEntradas;
+        }
     }
 
     private static Vent EncontrarVentGlobal()
@@ -162,13 +232,22 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         if (ShipStatus.Instance?.AllVents == null)
             return null;
 
+        Vent ventId1 = null;
+        Vent ventId0 = null;
+
         foreach (Vent vent in ShipStatus.Instance.AllVents)
         {
-            if (vent != null)
-                return vent;
+            if (vent == null)
+                continue;
+
+            if (vent.Id == 1)
+                ventId1 = vent;
+            else if (vent.Id == 0)
+                ventId0 = vent;
         }
 
-        return null;
+        // Prioriza o duto 1. Se não existir, usa o duto 0.
+        return ventId1 ?? ventId0;
     }
 
     private static bool PodeFicarInvisivel(PlayerControl jogador) =>
@@ -322,6 +401,10 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
 
         ativo = false;
         armado = false;
+        etapaPreparacao = EtapaPreparacao.Nenhuma;
+        preparacaoPendente.Clear();
+        indicePreparacao = 0;
+        ventPreparacaoId = -1;
         saidasPendentes.Clear();
 
         int restaurados = 0;
@@ -360,6 +443,10 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
     {
         ativo = false;
         armado = false;
+        etapaPreparacao = EtapaPreparacao.Nenhuma;
+        preparacaoPendente.Clear();
+        indicePreparacao = 0;
+        ventPreparacaoId = -1;
         jogadoresNoDuto.Clear();
         saidasPendentes.Clear();
     }
@@ -376,7 +463,10 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         private static void Postfix()
         {
             if (ativo)
+            {
+                ProcessarPreparacao();
                 ProcessarSaidasPendentes();
+            }
         }
     }
 }
