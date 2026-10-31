@@ -24,6 +24,7 @@ internal sealed class EventoRoomRush : EventoVotacao
     private static float repararReatorAte;
     private static int ciclosReatorRestantes;
     private static bool sequenciaReatorAtiva;
+    private static bool aguardandoProximoPulsoReator;
 
     public override string Nome => "Vá para a sala ou morra";
 
@@ -119,6 +120,7 @@ internal sealed class EventoRoomRush : EventoVotacao
         repararReatorAte = 0f;
         ciclosReatorRestantes = 0;
         sequenciaReatorAtiva = false;
+        aguardandoProximoPulsoReator = false;
 
         try
         {
@@ -146,7 +148,7 @@ internal sealed class EventoRoomRush : EventoVotacao
                 return;
             }
 
-            ciclosReatorRestantes = 4;
+            ciclosReatorRestantes = 3;
             sequenciaReatorAtiva = true;
             AcionarProximoCicloReator();
         }
@@ -207,6 +209,16 @@ internal sealed class EventoRoomRush : EventoVotacao
             Time.realtimeSinceStartup < repararReatorAte)
             return;
 
+        // Mantém 0,1s entre cada ação: depois do reparo, espera antes do próximo reator.
+        if (aguardandoProximoPulsoReator)
+        {
+            aguardandoProximoPulsoReator = false;
+            reparoReatorPendente = false;
+            repararReatorAte = 0f;
+            AcionarProximoCicloReator();
+            return;
+        }
+
         try
         {
             ShipStatus navio = ShipStatus.Instance;
@@ -231,9 +243,15 @@ internal sealed class EventoRoomRush : EventoVotacao
         ciclosReatorRestantes--;
 
         if (ciclosReatorRestantes > 0)
-            AcionarProximoCicloReator();
+        {
+            aguardandoProximoPulsoReator = true;
+            reparoReatorPendente = true;
+            repararReatorAte = Time.realtimeSinceStartup + 0.1f;
+        }
         else
+        {
             EncerrarSequenciaReator();
+        }
     }
 
     private static void EncerrarSequenciaReator()
@@ -242,6 +260,7 @@ internal sealed class EventoRoomRush : EventoVotacao
         reparoReatorPendente = false;
         repararReatorAte = 0f;
         ciclosReatorRestantes = 0;
+        aguardandoProximoPulsoReator = false;
     }
 
     private static void AplicarEscudoERomperParaTodos()
