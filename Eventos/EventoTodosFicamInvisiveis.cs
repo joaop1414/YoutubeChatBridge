@@ -18,7 +18,6 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
 
     private static bool ativo;
     private static bool armado;
-    private static bool processandoMorteDessinc;
 
     // Jogadores que foram colocados no duto para produzir a dessincronização visual.
     private static readonly Dictionary<byte, int> jogadoresNoDuto = new();
@@ -419,7 +418,7 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
             PlayerControl __instance,
             [HarmonyArgument(0)] PlayerControl target)
         {
-            if (!ativo || processandoMorteDessinc ||
+            if (!ativo ||
                 !YouTubeVoteBridgePlugin.EhHost() ||
                 __instance == null || target == null ||
                 __instance.Data == null || target.Data == null ||
@@ -464,26 +463,21 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
             // o cooldown do impostor, sem permitir que a kill original prossiga.
             EventoEscudoTemporarioMortePatch.AplicarEscudoEResetarCooldown(assassino);
 
-            // Mesmo comportamento do evento F7: a vítima executa o próprio
-            // assassinato, enquanto o CheckMurder original do impostor é cancelado.
-            processandoMorteDessinc = true;
-            try
-            {
-                vitima.RpcMurderPlayer(vitima, true);
-            }
-            finally
-            {
-                processandoMorteDessinc = false;
-            }
+            // Mesmo mecanismo de morte usado pelo Tsunami: transforma a vítima
+            // em Ghost com Die(DeathReason.Exile, true), sem animação de assassinato.
+            // Depois publica um corpo falso sincronizado para todos na posição capturada.
+            vitima.Die(DeathReason.Exile, true);
+
+            EventoCriarCorpoFalso.ExecutarParaJogadorNaPosicao(
+                vitima.PlayerId, posicaoVitima);
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                $"[Invisibilidade] CheckMurder cancelado no padrão F7. " +
-                $"Impostor={assassino.PlayerId}; vítima={vitima.PlayerId}; " +
-                $"SnapTo enviado para {posicaoVitima}.");
+                $"[Invisibilidade] Assassinato original cancelado; morte pelo mecanismo do Tsunami " +
+                $"e corpo falso criado. Impostor={assassino.PlayerId}; vítima={vitima.PlayerId}; " +
+                $"posição={posicaoVitima}.");
         }
         catch (Exception ex)
         {
-            processandoMorteDessinc = false;
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
                 $"[Invisibilidade] Falha ao cancelar/replicar assassinato de PlayerId={vitima.PlayerId}: {ex}");
         }
