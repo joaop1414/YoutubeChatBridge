@@ -77,6 +77,7 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         // Guarda as posições originais antes de mover qualquer jogador.
         Dictionary<byte, Vector2> posicoesOriginais = new();
         List<PlayerControl> jogadores = new();
+        HashSet<byte> jogadoresReposicionados = new();
 
         foreach (PlayerControl alvo in PlayerControl.AllPlayerControls)
         {
@@ -101,6 +102,7 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
             {
                 ushort sequencia = (ushort)(alvo.NetTransform.lastSequenceId + 128);
                 alvo.NetTransform.SnapTo(posicaoDuto, sequencia);
+                jogadoresReposicionados.Add(alvo.PlayerId);
                 posicionados++;
             }
             catch (Exception ex)
@@ -114,7 +116,8 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         // nativa no mesmo duto, como na implementação anterior.
         foreach (PlayerControl alvo in jogadores)
         {
-            if (!posicoesOriginais.TryGetValue(alvo.PlayerId, out Vector2 posicaoOriginal))
+            if (!jogadoresReposicionados.Contains(alvo.PlayerId) ||
+                !posicoesOriginais.TryGetValue(alvo.PlayerId, out Vector2 posicaoOriginal))
                 continue;
 
             try
@@ -166,31 +169,6 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         }
 
         return null;
-    }
-
-    private static Vent EncontrarDutoMaisProximo(PlayerControl jogador)
-    {
-        if (jogador == null || ShipStatus.Instance?.AllVents == null)
-            return null;
-
-        Vent maisProximo = null;
-        float menorDistancia = float.MaxValue;
-        Vector2 posicaoJogador = jogador.transform.position;
-
-        foreach (Vent vent in ShipStatus.Instance.AllVents)
-        {
-            if (vent == null)
-                continue;
-
-            float distancia = Vector2.Distance(posicaoJogador, vent.transform.position);
-            if (distancia >= menorDistancia)
-                continue;
-
-            menorDistancia = distancia;
-            maisProximo = vent;
-        }
-
-        return maisProximo;
     }
 
     private static bool PodeFicarInvisivel(PlayerControl jogador) =>
