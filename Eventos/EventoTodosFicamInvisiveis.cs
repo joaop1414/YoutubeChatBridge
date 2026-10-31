@@ -401,9 +401,10 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
     [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.MurderPlayer))]
     private static class AssassinatoInvisibilidadePatch
     {
-        private static bool Prefix(PlayerControl __instance, PlayerControl target)
+        private static bool Prefix(PlayerControl __instance, PlayerControl target, MurderResultFlags resultFlags)
         {
             if (!ativo || processandoMorteDessinc ||
+                resultFlags != MurderResultFlags.Succeeded ||
                 !YouTubeVoteBridgePlugin.EhHost() ||
                 __instance == null || target == null ||
                 __instance.Data == null || target.Data == null ||
