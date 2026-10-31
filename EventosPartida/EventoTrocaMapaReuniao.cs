@@ -383,7 +383,7 @@ internal sealed class EventoTrocaMapaReuniao : EventoVotacao
     private static int EscolherNovoMapa(int mapaAntigo)
     {
         int total = 0;
-        try { total = AmongUsClient.Instance.ShipPrefabs.Length; }
+        try { total = AmongUsClient.Instance.ShipPrefabs.Count; }
         catch { }
 
         List<int> candidatos = new();
@@ -638,7 +638,7 @@ internal sealed class EventoTrocaMapaReuniao : EventoVotacao
         catch { return false; }
     }
 
-    private static void Resetar()
+    internal static void Resetar()
     {
         armado = false;
         ativo = false;
