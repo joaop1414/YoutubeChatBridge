@@ -320,7 +320,7 @@ internal sealed class EventoRoomRush : EventoVotacao
                 {
                     StringNames stringName = (StringNames)Enum.Parse(typeof(StringNames), nome);
                     string traduzido = TranslationController.Instance.GetString(stringName);
-                    if (!string.IsNullOrWhiteSpace traduzido)
+                    if (!string.IsNullOrWhiteSpace(traduzido))
                         return traduzido;
                 }
             }
