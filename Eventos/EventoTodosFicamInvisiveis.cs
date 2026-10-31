@@ -10,16 +10,18 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
 {
     private static bool ativo;
     private static bool armado;
-    private static readonly Dictionary<byte, int> dutosForcados = new();
+    private static readonly HashSet<byte> jogadoresInvisiveis = new();
 
     public override string Nome => "Todos ficam invisíveis";
 
     public void Executar()
     {
         if (!YouTubeVoteBridgePlugin.EhHost()) return;
+
         ativo = true;
         armado = true;
-        dutosForcados.Clear();
+        jogadoresInvisiveis.Clear();
+
         if (ShipStatus.Instance != null)
             AplicarInvisibilidade("ativação do evento");
     }
@@ -44,188 +46,125 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
     {
         if (!ativo || !YouTubeVoteBridgePlugin.EhHost() ||
             PlayerControl.AllPlayerControls == null ||
-            AmongUsClient.Instance == null ||
-            ShipStatus.Instance?.AllVents == null)
+            AmongUsClient.Instance == null)
             return;
 
         armado = false;
-        int processados = 0;
-        int envios = 0;
+        int alvos = 0;
+        int destinatarios = 0;
 
-        foreach (PlayerControl alvo in PlayerControl.AllPlayerControls)
+        // O host prepara um único PackedGameDataTo, como o EHR.
+        MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
+        bool pacoteAberto = false;
+
+        try
         {
-            // Todos os jogadores vivos são alvos, inclusive impostores.
-            // A restrição de tripulante é aplicada somente aos destinatários abaixo.
-            if (!PodeFicarInvisivel(alvo))
-                continue;
+            writer.StartMessage(26); // Packed GameData
+            writer.WritePacked(AmongUsClient.Instance.GameId);
+            pacoteAberto = true;
 
-            Vent duto = EncontrarDutoMaisProximo(alvo);
-            if (duto == null)
+            foreach (PlayerControl alvo in PlayerControl.AllPlayerControls)
             {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    $"[Invisibilidade] Nenhum duto encontrado para PlayerId={alvo.PlayerId}.");
-                continue;
+                if (!PodeFicarInvisivel(alvo))
+                    continue;
+
+                jogadoresInvisiveis.Add(alvo.PlayerId);
+
+                // Aplica a invisibilidade na visão local do host.
+                // O dono do personagem nunca deve esconder o próprio personagem.
+                if (!alvo.AmOwner)
+                {
+                    try
+                    {
+                        alvo.MakeInvisible();
+                    }
+                    catch (Exception ex)
+                    {
+                        YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                            $"[Invisibilidade] MakeInvisible falhou no host para PlayerId={alvo.PlayerId}: {ex.GetBaseException().Message}");
+                    }
+                }
+
+                ushort sequencia = alvo.NetTransform.lastSequenceId;
+
+                foreach (PlayerControl espectador in PlayerControl.AllPlayerControls)
+                {
+                    // Somente tripulantes vivos recebem. Cada um não recebe
+                    // os RPCs do próprio personagem.
+                    if (!PodeReceberRpc(espectador) ||
+                        espectador.AmOwner ||
+                        espectador == alvo)
+                        continue;
+
+                    // Formato copiado do CustomRpcSender do EHR:
+                    // GameDataTo (6) + GameId + ClientId + RPCs.
+                    writer.StartMessage(6);
+                    writer.Write(AmongUsClient.Instance.GameId);
+                    writer.WritePacked(espectador.OwnerId);
+
+                    // Técnica do EHR: dois SnapTo para (50, 50), com
+                    // sequências diferentes, fazem o personagem desaparecer
+                    // somente para esse cliente.
+                    EscreverSnapTo(writer, alvo, new Vector2(50f, 50f), sequencia);
+                    EscreverSnapTo(writer, alvo, new Vector2(50f, 50f),
+                        (ushort)(sequencia + 16383));
+
+                    writer.EndMessage(); // GameDataTo
+                    destinatarios++;
+                }
+
+                alvos++;
             }
 
-            dutosForcados[alvo.PlayerId] = duto.Id;
-            envios += EnviarRpcParaCadaTripulante(alvo, duto.Id, entrar: true);
-
-            // GameDataTo não é enviado ao host local. Se o host for tripulante,
-            // atualizamos localmente todos os outros jogadores, inclusive impostores.
-            PlayerControl local = PlayerControl.LocalPlayer;
-            if (PodeReceberRpc(local) && !alvo.AmOwner)
+            writer.EndMessage(); // Packed GameData
+            AmongUsClient.Instance.SendOrDisconnect(writer);
+            writer.Recycle();
+            writer = null;
+        }
+        catch (Exception ex)
+        {
+            if (pacoteAberto)
             {
-                try
-                {
-                    ushort sequence = (ushort)(alvo.NetTransform.lastSequenceId + 2);
-                    alvo.NetTransform.SnapTo((Vector2)duto.transform.position, sequence);
-                    alvo.Visible = false;
-                }
-                catch (Exception ex)
-                {
-                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                        $"[Invisibilidade] Falha ao atualizar host para PlayerId={alvo.PlayerId}: {ex.GetBaseException().Message}");
-                }
+                try { writer.EndMessage(); } catch { }
             }
 
-            processados++;
+            writer?.Recycle();
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                $"[Invisibilidade] Erro ao montar/enviar pacote ({motivo}): {ex}");
+            return;
         }
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"[Invisibilidade] Aplicação/reaplicação concluída. Motivo={motivo}; jogadores={processados}; envios individuais={envios}.");
+            $"[Invisibilidade] Técnica EHR aplicada. Motivo={motivo}; alvos={alvos}; destinatários={destinatarios}.");
+    }
+
+    private static void EscreverSnapTo(MessageWriter writer, PlayerControl alvo,
+        Vector2 posicao, ushort sequencia)
+    {
+        writer.StartMessage(2); // RPC
+        writer.WritePacked(alvo.NetTransform.NetId);
+        writer.Write((byte)RpcCalls.SnapTo);
+        writer.Write(posicao.x);
+        writer.Write(posicao.y);
+        writer.Write(sequencia);
+        writer.EndMessage();
     }
 
     private static bool PodeFicarInvisivel(PlayerControl jogador)
     {
-        // Não filtrar por função: impostores também precisam ficar invisíveis
-        // para os tripulantes. Fantasmas e jogadores desconectados ficam de fora.
+        // Todos os jogadores vivos são alvos, inclusive impostores.
         return jogador != null && jogador.Data != null &&
                !jogador.Data.Disconnected && !jogador.Data.IsDead &&
-               jogador.MyPhysics != null && jogador.NetTransform != null;
+               jogador.NetTransform != null;
     }
 
     private static bool PodeReceberRpc(PlayerControl espectador)
     {
-        // Somente tripulantes vivos recebem as mensagens direcionadas.
+        // Somente tripulantes vivos recebem os RPCs direcionados.
         return espectador != null && espectador.Data != null &&
                !espectador.Data.Disconnected && !espectador.Data.IsDead &&
-               espectador.Data.Role?.IsImpostor == false && espectador.OwnerId >= 0;
-    }
-
-    private static Vent EncontrarDutoMaisProximo(PlayerControl jogador)
-    {
-        Vent melhor = null;
-        float menorDistancia = float.MaxValue;
-        Vector2 posicao = jogador.GetTruePosition();
-
-        foreach (Vent vent in ShipStatus.Instance.AllVents)
-        {
-            if (vent == null) continue;
-            float distancia = Vector2.Distance(posicao, (Vector2)vent.transform.position);
-            if (distancia < menorDistancia)
-            {
-                menorDistancia = distancia;
-                melhor = vent;
-            }
-        }
-        return melhor;
-    }
-
-    // Envia um GameDataTo separado para cada tripulante vivo.
-    // Cada destinatário recebe todos os outros personagens, exceto o próprio.
-    // Ordem obrigatória: EnterVent primeiro; SnapTo depois.
-    private static int EnviarRpcParaCadaTripulante(PlayerControl alvo, int ventId, bool entrar)
-    {
-        if (alvo?.MyPhysics == null || alvo.NetTransform == null ||
-            AmongUsClient.Instance == null || PlayerControl.AllPlayerControls == null)
-            return 0;
-
-        Vent duto = entrar ? EncontrarDuto(ventId) : null;
-        if (entrar && duto == null)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                $"[Invisibilidade] Duto {ventId} não existe mais; RPC ignorado para PlayerId={alvo.PlayerId}.");
-            return 0;
-        }
-
-        int enviados = 0;
-        int hostClientId = AmongUsClient.Instance.ClientId;
-        var clientes = new HashSet<int>();
-
-        foreach (PlayerControl espectador in PlayerControl.AllPlayerControls)
-        {
-            if (!PodeReceberRpc(espectador) ||
-                espectador.OwnerId == hostClientId ||
-                espectador == alvo ||
-                !clientes.Add(espectador.OwnerId))
-                continue;
-
-            MessageWriter writer = null;
-            try
-            {
-                writer = MessageWriter.Get(SendOption.Reliable);
-                writer.StartMessage(26); // GameData
-                writer.WritePacked(AmongUsClient.Instance.GameId);
-                writer.StartMessage(6); // GameDataTo
-                // Cada GameDataTo precisa conter seu próprio GameId,
-                // mesmo dentro de PackedGameDataTo (conforme o EHR).
-                writer.Write(AmongUsClient.Instance.GameId);
-                writer.WritePacked(espectador.OwnerId);
-
-                if (entrar)
-                {
-                    // 1. RPC EnterVent
-                    writer.StartMessage(2);
-                    writer.WritePacked(alvo.MyPhysics.NetId);
-                    writer.Write((byte)RpcCalls.EnterVent);
-                    writer.WritePacked(ventId);
-                    writer.EndMessage();
-
-                    // 2. RPC SnapTo para a posição do duto selecionado
-                    ushort sequence = (ushort)(alvo.NetTransform.lastSequenceId + 2);
-                    Vector2 posicao = (Vector2)duto.transform.position;
-                    writer.StartMessage(2);
-                    writer.WritePacked(alvo.NetTransform.NetId);
-                    writer.Write((byte)RpcCalls.SnapTo);
-                    writer.Write(posicao.x);
-                    writer.Write(posicao.y);
-                    writer.Write(sequence);
-                    writer.EndMessage();
-                }
-                else
-                {
-                    writer.StartMessage(2);
-                    writer.WritePacked(alvo.MyPhysics.NetId);
-                    writer.Write((byte)RpcCalls.ExitVent);
-                    writer.WritePacked(ventId);
-                    writer.EndMessage();
-                }
-
-                writer.EndMessage(); // GameDataTo
-                writer.EndMessage(); // GameData
-                AmongUsClient.Instance.SendOrDisconnect(writer);
-                enviados++;
-            }
-            catch (Exception ex)
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    $"[Invisibilidade] Falha no RPC para OwnerId={espectador.OwnerId}, PlayerId={alvo.PlayerId}: {ex.GetBaseException().Message}");
-            }
-            finally
-            {
-                writer?.Recycle();
-            }
-        }
-        return enviados;
-    }
-
-    private static Vent EncontrarDuto(int ventId)
-    {
-        if (ShipStatus.Instance?.AllVents == null) return null;
-        foreach (Vent vent in ShipStatus.Instance.AllVents)
-            if (vent != null && vent.Id == ventId)
-                return vent;
-        return null;
+               espectador.Data.Role?.IsImpostor == false &&
+               espectador.OwnerId >= 0;
     }
 
     internal static void EncerrarNaReuniao()
@@ -235,31 +174,78 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
 
         ativo = false;
         armado = false;
-        int expulsos = 0;
 
-        foreach (KeyValuePair<byte, int> entrada in dutosForcados)
+        MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
+        bool pacoteAberto = false;
+        int restaurados = 0;
+
+        try
         {
-            PlayerControl jogador = EncontrarJogador(entrada.Key);
-            if (jogador == null || jogador.Data == null ||
-                jogador.Data.Disconnected || jogador.MyPhysics == null)
-                continue;
+            writer.StartMessage(26);
+            writer.WritePacked(AmongUsClient.Instance.GameId);
+            pacoteAberto = true;
 
-            try
+            foreach (byte playerId in jogadoresInvisiveis)
             {
-                jogador.MyPhysics.RpcBootFromVent(entrada.Value);
-                jogador.Visible = true;
-                expulsos++;
+                PlayerControl alvo = EncontrarJogador(playerId);
+                if (alvo == null || alvo.Data == null ||
+                    alvo.Data.Disconnected || alvo.NetTransform == null)
+                    continue;
+
+                if (!alvo.AmOwner)
+                {
+                    try { alvo.MakeVisible(); }
+                    catch (Exception ex)
+                    {
+                        YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                            $"[Invisibilidade] MakeVisible falhou para PlayerId={playerId}: {ex.GetBaseException().Message}");
+                    }
+                }
+
+                ushort seq = alvo.NetTransform.lastSequenceId;
+                foreach (PlayerControl espectador in PlayerControl.AllPlayerControls)
+                {
+                    if (!PodeReceberRpc(espectador) ||
+                        espectador.AmOwner ||
+                        espectador == alvo)
+                        continue;
+
+                    writer.StartMessage(6);
+                    writer.Write(AmongUsClient.Instance.GameId);
+                    writer.WritePacked(espectador.OwnerId);
+
+                    // Sequências de recuperação usadas pelo EHR.
+                    EscreverSnapTo(writer, alvo, new Vector2(50f, 50f),
+                        (ushort)(seq + 32767));
+                    EscreverSnapTo(writer, alvo, new Vector2(50f, 50f),
+                        (ushort)(seq + 32767 + 16383));
+                    EscreverSnapTo(writer, alvo, (Vector2)alvo.transform.position, seq);
+
+                    writer.EndMessage();
+                }
+
+                restaurados++;
             }
-            catch (Exception ex)
+
+            writer.EndMessage();
+            AmongUsClient.Instance.SendOrDisconnect(writer);
+            writer.Recycle();
+            writer = null;
+        }
+        catch (Exception ex)
+        {
+            if (pacoteAberto)
             {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    $"[Invisibilidade] Falha ao expulsar PlayerId={jogador.PlayerId}: {ex.GetBaseException().Message}");
+                try { writer.EndMessage(); } catch { }
             }
+            writer?.Recycle();
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                $"[Invisibilidade] Erro ao restaurar jogadores na reunião: {ex}");
         }
 
-        dutosForcados.Clear();
+        jogadoresInvisiveis.Clear();
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"[Invisibilidade] Evento encerrado na reunião. RpcBootFromVent enviado para {expulsos} jogadores.");
+            $"[Invisibilidade] Evento encerrado na reunião. Jogadores restaurados={restaurados}.");
     }
 
     private static PlayerControl EncontrarJogador(byte playerId)
@@ -275,7 +261,7 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
     {
         ativo = false;
         armado = false;
-        dutosForcados.Clear();
+        jogadoresInvisiveis.Clear();
     }
 
     [HarmonyPatch(typeof(MeetingHud), nameof(MeetingHud.Start))]
