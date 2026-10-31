@@ -4210,6 +4210,7 @@ public static class YouTubeVoteResetTaskEventsOnStartPatch
 {
     public static void Postfix()
     {
+        EventoTodosFicamInvisiveis.Resetar();
         EventoTesteMenu.ResetarEstadoPartida("início de partida");
         YouTubeVoteBridgePlugin.LimparRegistroTarefasShapeshift();
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
@@ -4233,6 +4234,7 @@ public static class YouTubeVoteResetTaskEventsOnEndPatch
 {
     public static void Postfix()
     {
+        EventoTodosFicamInvisiveis.Resetar();
         YouTubeVoteBridgePlugin.ResetarVotacaoLobbyFimDePartida();
         EventoTesteMenu.ResetarEstadoPartida("fim de partida");
         YouTubeVoteBridgePlugin.LimparRegistroTarefasShapeshift();
