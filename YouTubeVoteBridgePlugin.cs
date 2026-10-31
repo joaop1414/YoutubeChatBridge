@@ -4088,6 +4088,10 @@ public static class YouTubeVoteUpdatePatch
 {
     public static void Postfix()
     {
+        // Cada cliente com o mod sinaliza sua presença ao host. Sem esta chamada,
+        // ClientesComMod permanece vazio e os eventos tratam todos como vanilla.
+        YouTubeVoteBridgePlugin.EnviarSinalModAoHost();
+
         LobbyTagManager.Update();
         EventoAdicionarTarefas.AtualizarRestauracoesAgendadas();
 
