@@ -689,69 +689,6 @@ internal sealed class EventoTsunami : EventoVotacao
         }
     }
 
-    private static void AplicarAvisoNomes()
-    {
-        avisoLocalAtivo = true;
-        // Não limpar nomesOriginais aqui: o estágio de spawn já salvou os nomes
-        // reais antes de enviar o SetName temporário aos clientes vanilla.
-        PlayerControl local = PlayerControl.LocalPlayer;
-        if (local == null || local.Data == null || local.Data.Disconnected)
-            return;
-        try
-        {
-            PlayerControl jogador = local;
-
-            // Nunca sobrescreve um nome original já guardado com o texto visual:
-            // nameText pode já conter o aviso do tsunami, causando restauração do próprio aviso.
-            if (!nomesOriginais.ContainsKey(jogador.PlayerId))
-            {
-                string nomeOriginal = jogador.Data.Outfits[PlayerOutfitType.Default].PlayerName;
-                if (string.IsNullOrEmpty(nomeOriginal))
-                    nomeOriginal = jogador.Data.PlayerName ?? string.Empty;
-
-                // Evita registrar o aviso como nome original se outro Update já o aplicou.
-                if (nomeOriginal.Contains("Um tsunami está vindo") ||
-                    nomeOriginal.Contains("Vá para o duto mais próximo"))
-                    nomeOriginal = jogador.Data.PlayerName ?? string.Empty;
-
-                nomesOriginais[jogador.PlayerId] = nomeOriginal;
-            }
-
-            AtualizarNomeLocal(jogador, Time.realtimeSinceStartup);
-        }
-        catch (Exception ex)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "Tsunami: não foi possível aplicar o aviso local: " + ex.Message);
-        }
-    }
-
-    private static void AtualizarNomeLocal(PlayerControl jogador, float agora)
-    {
-        if ((!ativo && !avisoLocalAtivo) || jogador == null ||
-            jogador.cosmetics == null || jogador.cosmetics.nameText == null)
-            return;
-
-        if (!nomesOriginais.TryGetValue(jogador.PlayerId, out string nomeOriginal))
-            nomeOriginal = jogador.Data?.PlayerName ?? "";
-
-        string cor = ((int)(agora * 2f) % 2 == 0) ? "red" : "yellow";
-        string nomeAviso = nomeOriginal +
-            "\n<color=" + cor + ">Um tsunami está vindo\nVá para o duto mais próximo</color>";
-
-        // Para o próprio jogador, usa o mesmo caminho SetName local dos comandos.
-        // Isso atualiza o nome pelo PlayerControl, em vez de alterar só o texto
-        // visual, que o jogo pode sobrescrever durante a partida.
-        if (jogador.AmOwner)
-        {
-            YouTubeVoteBridgePlugin.DefinirNomeLocal(jogador, nomeAviso);
-            return;
-        }
-
-        // Os outros jogadores são alterados apenas na interface deste cliente.
-        jogador.cosmetics.nameText.text = nomeAviso;
-    }
-
     // Altera o nome apenas na tela do cliente dono do jogador.
     // Usa o mesmo GameDataTo + SetName direcionado do envio de mensagens do mod,
     // sem publicar a mudança de nome para todos os clientes.
