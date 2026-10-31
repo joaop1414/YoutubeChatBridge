@@ -269,7 +269,7 @@ internal sealed class EventoRoomRush : EventoVotacao
         foreach (PlainShipRoom sala in ShipStatus.Instance.AllRooms)
         {
             if (sala == null || sala.roomArea == null ||
-                sala.RoomId == SystemTypes.None ||
+                sala.RoomId.ToString() == "None" ||
                 sala.RoomId == SystemTypes.Hallway ||
                 sala.RoomId == SystemTypes.Outside)
                 continue;
