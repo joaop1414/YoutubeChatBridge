@@ -489,7 +489,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 writer.Write(ativo);
                 if (ativo)
                 {
-                    writer.Write(sala);
+                    writer.Write((byte)sala);
                     writer.Write(segundosRestantes);
                 }
                 AmongUsClient.Instance.FinishRpcImmediately(writer);
