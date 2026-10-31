@@ -35,6 +35,18 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
 
     private static readonly List<SaidaPendente> saidasPendentes = new();
 
+    // Invisibilidade exclusivamente local no host: o ExitVent é recebido primeiro,
+    // depois os renderers/nome são ocultados apenas na tela do host.
+    private sealed class EstadoVisualHost
+    {
+        public readonly List<Renderer> Renderers = new();
+        public readonly List<bool> RenderersAtivos = new();
+        public GameObject ObjetoNome;
+        public bool NomeAtivo;
+    }
+
+    private static readonly Dictionary<byte, EstadoVisualHost> visuaisOcultosHost = new();
+
     private sealed class JogadorPreparacao
     {
         public byte PlayerId;
@@ -282,6 +294,86 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         return null;
     }
 
+    private static void OcultarJogadorSomenteNoHost(PlayerControl jogador)
+    {
+        if (!YouTubeVoteBridgePlugin.EhHost() ||
+            AmongUsClient.Instance == null ||
+            jogador == null ||
+            jogador.AmOwner ||
+            visuaisOcultosHost.ContainsKey(jogador.PlayerId))
+            return;
+
+        try
+        {
+            EstadoVisualHost estado = new();
+
+            Renderer[] renderers = jogador.GetComponentsInChildren<Renderer>(true);
+            foreach (Renderer renderer in renderers)
+            {
+                if (renderer == null)
+                    continue;
+
+                estado.Renderers.Add(renderer);
+                estado.RenderersAtivos.Add(renderer.enabled);
+                renderer.enabled = false;
+            }
+
+            if (jogador.cosmetics != null && jogador.cosmetics.nameText != null)
+            {
+                estado.ObjetoNome = jogador.cosmetics.nameText.gameObject;
+                estado.NomeAtivo = estado.ObjetoNome.activeSelf;
+                estado.ObjetoNome.SetActive(false);
+            }
+
+            visuaisOcultosHost[jogador.PlayerId] = estado;
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                $"[Invisibilidade] PlayerId={jogador.PlayerId} ocultado somente na tela do host.");
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                $"[Invisibilidade] Falha ao ocultar PlayerId={jogador.PlayerId} no host: " +
+                ex.GetBaseException().Message);
+        }
+    }
+
+    private static void RestaurarVisuaisHost()
+    {
+        foreach (KeyValuePair<byte, EstadoVisualHost> entrada in visuaisOcultosHost)
+        {
+            EstadoVisualHost estado = entrada.Value;
+            if (estado == null)
+                continue;
+
+            for (int i = 0; i < estado.Renderers.Count; i++)
+            {
+                Renderer renderer = estado.Renderers[i];
+                if (renderer == null)
+                    continue;
+
+                try
+                {
+                    renderer.enabled = estado.RenderersAtivos[i];
+                }
+                catch { }
+            }
+
+            try
+            {
+                if (estado.ObjetoNome != null)
+                    estado.ObjetoNome.SetActive(estado.NomeAtivo);
+            }
+            catch { }
+        }
+
+        int total = visuaisOcultosHost.Count;
+        visuaisOcultosHost.Clear();
+
+        if (total > 0)
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                $"[Invisibilidade] Visuais restaurados no host: {total} jogador(es).");
+    }
+
     // Equivalente ao RpcExitVentDesync do EHR:
     // executa CoExitVent localmente quando o destinatário é o host;
     // caso contrário, envia o RPC nativo ExitVent somente ao OwnerId indicado.
@@ -359,12 +451,27 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
                         espectador.Data.Disconnected || espectador.OwnerId < 0)
                         continue;
 
+                    bool ehHostLocal =
+                        espectador.OwnerId == AmongUsClient.Instance.ClientId;
+
                     bool enviarSaida = morreu ||
+                        ehHostLocal ||
                         espectador.PlayerId == alvo.PlayerId ||
                         (!espectador.Data.IsDead && espectador.Data.Role?.IsImpostor == true);
 
                     if (enviarSaida)
-                        EnviarSaidaDutoDesync(alvo, pendente.VentId, espectador);
+                    {
+                        bool saidaEnviada = EnviarSaidaDutoDesync(
+                            alvo, pendente.VentId, espectador);
+
+                        if (saidaEnviada && ehHostLocal)
+                        {
+                            // O host recebe o ExitVent; a ocultação é aplicada
+                            // depois da restauração de posição da preparação.
+                            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                                $"[Invisibilidade] ExitVent direcionado ao host para PlayerId={alvo.PlayerId}.");
+                        }
+                    }
                 }
 
                 if (morreu)
@@ -390,6 +497,10 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
             {
                 if (alvo.NetTransform != null)
                     alvo.NetTransform.RpcSnapTo(pendente.PosicaoOriginal);
+
+                // Após sair do duto e voltar à posição original, o host oculta
+                // localmente o jogador. Nenhum estado visual é enviado aos demais.
+                OcultarJogadorSomenteNoHost(alvo);
             }
             catch (Exception ex)
             {
@@ -506,6 +617,7 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         }
 
         jogadoresNoDuto.Clear();
+        RestaurarVisuaisHost();
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             $"[Invisibilidade] Evento encerrado na reunião. Jogadores restaurados={restaurados}; " +
@@ -522,6 +634,7 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         ventPreparacaoId = -1;
         jogadoresNoDuto.Clear();
         saidasPendentes.Clear();
+        RestaurarVisuaisHost();
     }
 
     [HarmonyPatch(typeof(MeetingHud), nameof(MeetingHud.Start))]
