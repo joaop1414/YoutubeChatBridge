@@ -54,6 +54,8 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
 
         foreach (PlayerControl alvo in PlayerControl.AllPlayerControls)
         {
+            // Todos os jogadores vivos são alvos, inclusive impostores.
+            // A restrição de tripulante é aplicada somente aos destinatários abaixo.
             if (!PodeFicarInvisivel(alvo))
                 continue;
 
@@ -68,8 +70,8 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
             dutosForcados[alvo.PlayerId] = duto.Id;
             envios += EnviarRpcParaCadaTripulante(alvo, duto.Id, entrar: true);
 
-            // O host não recebe GameDataTo direcionado a si mesmo.
-            // Sua visão local é atualizada sem enviar RPC ao próprio jogador.
+            // GameDataTo não é enviado ao host local. Se o host for tripulante,
+            // atualizamos localmente todos os outros jogadores, inclusive impostores.
             PlayerControl local = PlayerControl.LocalPlayer;
             if (PodeReceberRpc(local) && !alvo.AmOwner)
             {
@@ -95,17 +97,19 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
 
     private static bool PodeFicarInvisivel(PlayerControl jogador)
     {
+        // Não filtrar por função: impostores também precisam ficar invisíveis
+        // para os tripulantes. Fantasmas e jogadores desconectados ficam de fora.
         return jogador != null && jogador.Data != null &&
                !jogador.Data.Disconnected && !jogador.Data.IsDead &&
-               jogador.Data.Role?.IsImpostor != true &&
                jogador.MyPhysics != null && jogador.NetTransform != null;
     }
 
     private static bool PodeReceberRpc(PlayerControl espectador)
     {
+        // Somente tripulantes vivos recebem as mensagens direcionadas.
         return espectador != null && espectador.Data != null &&
                !espectador.Data.Disconnected && !espectador.Data.IsDead &&
-               espectador.Data.Role?.IsImpostor != true && espectador.OwnerId >= 0;
+               espectador.Data.Role?.IsImpostor == false && espectador.OwnerId >= 0;
     }
 
     private static Vent EncontrarDutoMaisProximo(PlayerControl jogador)
@@ -127,14 +131,22 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         return melhor;
     }
 
-    // Cria um GameDataTo por destinatário. O cliente recebe todos os jogadores
-    // elegíveis, menos o personagem que ele próprio controla.
+    // Envia um GameDataTo separado para cada tripulante vivo.
+    // Cada destinatário recebe todos os outros personagens, exceto o próprio.
     // Ordem obrigatória: EnterVent primeiro; SnapTo depois.
     private static int EnviarRpcParaCadaTripulante(PlayerControl alvo, int ventId, bool entrar)
     {
         if (alvo?.MyPhysics == null || alvo.NetTransform == null ||
             AmongUsClient.Instance == null || PlayerControl.AllPlayerControls == null)
             return 0;
+
+        Vent duto = entrar ? EncontrarDuto(ventId) : null;
+        if (entrar && duto == null)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                $"[Invisibilidade] Duto {ventId} não existe mais; RPC ignorado para PlayerId={alvo.PlayerId}.");
+            return 0;
+        }
 
         int enviados = 0;
         int hostClientId = AmongUsClient.Instance.ClientId;
@@ -155,7 +167,8 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
                 writer.StartMessage(26); // GameData
                 writer.WritePacked(AmongUsClient.Instance.GameId);
                 writer.StartMessage(6); // GameDataTo
-                writer.Write(AmongUsClient.Instance.GameId);
+                // GameDataTo contém somente o ClientId destinatário.
+                // O GameId já foi escrito no cabeçalho de GameData.
                 writer.WritePacked(espectador.OwnerId);
 
                 if (entrar)
@@ -169,7 +182,7 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
 
                     // 2. RPC SnapTo para a posição do duto selecionado
                     ushort sequence = (ushort)(alvo.NetTransform.lastSequenceId + 2);
-                    Vector2 posicao = (Vector2)EncontrarDuto(ventId).transform.position;
+                    Vector2 posicao = (Vector2)duto.transform.position;
                     writer.StartMessage(2);
                     writer.WritePacked(alvo.NetTransform.NetId);
                     writer.Write((byte)RpcCalls.SnapTo);
@@ -207,6 +220,7 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
 
     private static Vent EncontrarDuto(int ventId)
     {
+        if (ShipStatus.Instance?.AllVents == null) return null;
         foreach (Vent vent in ShipStatus.Instance.AllVents)
             if (vent != null && vent.Id == ventId)
                 return vent;
@@ -222,7 +236,6 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         armado = false;
         int expulsos = 0;
 
-        // Usa exatamente a operação do evento de duto aleatório.
         foreach (KeyValuePair<byte, int> entrada in dutosForcados)
         {
             PlayerControl jogador = EncontrarJogador(entrada.Key);
