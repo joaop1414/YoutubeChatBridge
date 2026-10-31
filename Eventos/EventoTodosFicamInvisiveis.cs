@@ -55,11 +55,11 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
             AmongUsClient.Instance == null)
             return;
 
-        armado = false;
-        int colocadosNoDuto = 0;
-
         if (ShipStatus.Instance?.AllVents == null)
             return;
+
+        armado = false;
+        int colocadosNoDuto = 0;
 
         foreach (PlayerControl alvo in PlayerControl.AllPlayerControls)
         {
