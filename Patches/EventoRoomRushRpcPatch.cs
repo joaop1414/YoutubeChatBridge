@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using HarmonyLib;
 using Hazel;
 using TMPro;
@@ -93,7 +94,11 @@ internal static class EventoRoomRushLowerInfoTextPatch
             if (lowerInfoText == null)
                 return;
 
-            string texto = EventoRoomRush.ObterTextoHud();
+            string textoRoomRush = EventoRoomRush.ObterTextoHud();
+            string textoTsunami = EventoTsunami.ObterTextoAvisoHud();
+            string texto = string.Join("\\n",
+                new[] { textoRoomRush, textoTsunami }
+                    .Where(t => !string.IsNullOrWhiteSpace(t)));
             lowerInfoText.text = texto;
             lowerInfoText.enabled = !string.IsNullOrWhiteSpace(texto);
         }
