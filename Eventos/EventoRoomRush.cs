@@ -401,7 +401,7 @@ internal sealed class EventoRoomRush : EventoVotacao
             }
 
             string nomeAviso = nomeOriginal +
-                "\\n<color=" + cor + ">Vá para: " + NomeSala(salaAlvo) +
+                "\n<color=" + cor + ">Vá para: " + NomeSala(salaAlvo) +
                 " (" + segundos + "s)</color>";
 
             if (DefinirNomeLocalParaCliente(jogador, nomeAviso))
