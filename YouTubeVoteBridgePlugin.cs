@@ -477,10 +477,9 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             if (clientId == AmongUsClient.Instance.ClientId || clientId < 0)
                 continue;
 
-            MessageWriter writer = null;
             try
             {
-                writer = AmongUsClient.Instance.StartRpcImmediately(
+                MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
                     PlayerControl.LocalPlayer.NetId,
                     247,
                     SendOption.Reliable,
@@ -499,13 +498,6 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 Instance?.Log.LogWarning(
                     "[Room Rush] Falha ao sincronizar com ClientId=" +
                     clientId + ": " + ex.Message);
-            }
-            finally
-            {
-                if (writer != null)
-                {
-                    try { writer.Recycle(); } catch { }
-                }
             }
         }
     }
