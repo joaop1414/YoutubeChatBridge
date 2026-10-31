@@ -3923,10 +3923,11 @@ public static class YouTubeVoteMinimumPlayersPatch
             !AmongUsClient.Instance.AmHost)
             return;
 
+        // O jogo controla o estado visual do botão; alteramos apenas o mínimo.
+        if (AmongUsClient.Instance.IsGameStarted || ShipStatus.Instance != null || GameData.Instance == null)
+            return;
+
         __instance.MinPlayers = 1;
-        if (__instance.StartButton != null)
-            __instance.StartButton.SetButtonEnableState(
-                GameData.Instance != null && GameData.Instance.PlayerCount >= 1);
     }
 }
 
