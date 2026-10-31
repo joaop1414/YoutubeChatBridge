@@ -52,6 +52,9 @@ internal sealed class EventoRoomRush : EventoVotacao
         float agora = Time.realtimeSinceStartup;
         if (!salaEscolhida)
         {
+            if (agora < prazo)
+                return;
+
             if (!EscolherSala())
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
