@@ -4145,13 +4145,22 @@ public static class YouTubeVoteRestoreLobbyTagsBeforeMatchPatch
 {
     public static void Postfix()
     {
-        // O jogo pode atualizar os nomes durante ShipStatus.Start. Restaurar no
-        // Postfix faz a restauração depois dessa inicialização, evitando que os
-        // nomes voltem a aparecer como "Jogador" quando a partida começa.
+        // Cada cliente precisa detectar o ShipStatus recém-criado para atualizar
+        // o mapa local e ativar a proteção temporária da restauração de tarefas.
+        try
+        {
+            EventoTrocaMapaReuniao.AoShipStatusIniciado(ShipStatus.Instance);
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "[F7/Troca de mapa] Falha ao processar ShipStatus.Start neste cliente: " + ex);
+        }
+
+        // Ações que alteram estado global continuam exclusivas do host.
         if (AmongUsClient.Instance != null && AmongUsClient.Instance.AmHost)
         {
             LobbyTagManager.RestaurarTodos();
-            EventoTrocaMapaReuniao.AoShipStatusIniciado(ShipStatus.Instance);
             EventoTeletransportarAlvoParaMetamorfoPartida.IniciarPartida();
             EventoTeletransportarJogadorAoCompletarTarefa.IniciarPartida();
             EventoTodosFicamInvisiveis.IniciarPartida();
