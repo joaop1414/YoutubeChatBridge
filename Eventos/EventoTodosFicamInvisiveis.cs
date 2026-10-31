@@ -128,6 +128,43 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
             $"espera antes das entradas={AtrasoAntesDasEntradas:0.00}s.");
     }
 
+    // Move localmente no host e transmite o RPC nativo SnapTo para todos os clientes.
+    // O RPC contém Vector2 (X/Y) e o novo sequence ID, exatamente nessa ordem.
+    private static bool EnviarSnapToNaRede(PlayerControl alvo, Vector2 posicao)
+    {
+        if (AmongUsClient.Instance == null ||
+            alvo == null ||
+            alvo.NetTransform == null)
+            return false;
+
+        try
+        {
+            ushort sequenciaLocal = (ushort)(alvo.NetTransform.lastSequenceId + 128);
+            alvo.NetTransform.SnapTo(posicao, sequenciaLocal);
+
+            ushort sequenciaRede = (ushort)(alvo.NetTransform.lastSequenceId + 2);
+            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
+                alvo.NetTransform.NetId,
+                (byte)RpcCalls.SnapTo,
+                SendOption.Reliable
+            );
+
+            writer.Write(posicao.x);
+            writer.Write(posicao.y);
+            writer.Write(sequenciaRede);
+
+            AmongUsClient.Instance.FinishRpcImmediately(writer);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                $"[Invisibilidade] Falha ao transmitir SnapTo de PlayerId={alvo.PlayerId}: " +
+                ex.GetBaseException().Message);
+            return false;
+        }
+    }
+
     private static void ProcessarPreparacao()
     {
         if (!ativo || !YouTubeVoteBridgePlugin.EhHost() ||
@@ -165,9 +202,8 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
             {
                 try
                 {
-                    ushort sequencia = (ushort)(alvo.NetTransform.lastSequenceId + 128);
-                    alvo.NetTransform.SnapTo(posicaoVentPreparacao, sequencia);
-                    item.SnapToConcluido = true;
+                    item.SnapToConcluido =
+                        EnviarSnapToNaRede(alvo, posicaoVentPreparacao);
                 }
                 catch (Exception ex)
                 {
@@ -210,8 +246,7 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
                 {
                     try
                     {
-                        ushort sequencia = (ushort)(alvo.NetTransform.lastSequenceId + 128);
-                        alvo.NetTransform.SnapTo(item.PosicaoOriginal, sequencia);
+                        EnviarSnapToNaRede(alvo, item.PosicaoOriginal);
                     }
                     catch { }
 
@@ -345,8 +380,7 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
                 {
                     try
                     {
-                        ushort sequencia = (ushort)(alvo.NetTransform.lastSequenceId + 128);
-                        alvo.NetTransform.SnapTo(pendente.PosicaoOriginal, sequencia);
+                        EnviarSnapToNaRede(alvo, pendente.PosicaoOriginal);
                     }
                     catch (Exception ex)
                     {
