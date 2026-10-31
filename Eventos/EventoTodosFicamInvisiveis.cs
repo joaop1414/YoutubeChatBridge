@@ -76,7 +76,7 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
                 {
                     try
                     {
-                        alvo.MakeInvisible();
+                        AplicarVisualInvisivelLocal(alvo);
                     }
                     catch (Exception ex)
                     {
@@ -150,6 +150,47 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         writer.EndMessage();
     }
 
+    // Equivalente aos métodos MakeInvisible/MakeVisible do EHR.
+    // Eles são extensões próprias do EHR, não métodos nativos do PlayerControl.
+    private static void AplicarVisualInvisivelLocal(PlayerControl jogador)
+    {
+        if (jogador == null || PlayerControl.LocalPlayer == null ||
+            PlayerControl.LocalPlayer.Data == null)
+            return;
+
+        jogador.invisibilityAlpha = jogador.AmOwner
+            ? 0.5f
+            : PlayerControl.LocalPlayer.Data.Role.IsDead ? 0.5f : 0f;
+        jogador.cosmetics.SetPhantomRoleAlpha(jogador.invisibilityAlpha);
+
+        if (!jogador.AmOwner && !PlayerControl.LocalPlayer.Data.Role.IsDead)
+        {
+            jogador.shouldAppearInvisible = true;
+            jogador.Visible = false;
+        }
+    }
+
+    private static void RestaurarVisualLocal(PlayerControl jogador)
+    {
+        if (jogador == null)
+            return;
+
+        if (!jogador.AmOwner)
+        {
+            jogador.shouldAppearInvisible = false;
+            jogador.Visible = true;
+        }
+
+        jogador.invisibilityAlpha = 1f;
+        jogador.cosmetics.SetPhantomRoleAlpha(jogador.invisibilityAlpha);
+
+        if (!jogador.AmOwner)
+        {
+            jogador.shouldAppearInvisible = false;
+            jogador.Visible = !jogador.inVent;
+        }
+    }
+
     private static bool PodeFicarInvisivel(PlayerControl jogador)
     {
         // Todos os jogadores vivos são alvos, inclusive impostores.
@@ -194,7 +235,7 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
 
                 if (!alvo.AmOwner)
                 {
-                    try { alvo.MakeVisible(); }
+                    try { RestaurarVisualLocal(alvo); }
                     catch (Exception ex)
                     {
                         YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
