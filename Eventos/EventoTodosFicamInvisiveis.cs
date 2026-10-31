@@ -35,15 +35,6 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
 
     private static readonly List<SaidaPendente> saidasPendentes = new();
 
-    private sealed class RestauracaoAssassinoPendente
-    {
-        public byte PlayerId;
-        public Vector2 PosicaoOriginal;
-        public float ExecutarEm;
-    }
-
-    private static readonly List<RestauracaoAssassinoPendente> restauracoesAssassinoPendentes = new();
-
     private sealed class JogadorPreparacao
     {
         public byte PlayerId;
@@ -446,18 +437,11 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
 
         try
         {
-            Vector2 posicaoOriginalAssassino = assassino.GetTruePosition();
             Vector2 posicaoVitima = vitima.GetTruePosition();
 
-            // Primeiro teleporta o impostor para a vítima usando o RPC nativo.
+            // O impostor permanece no local da vítima após o SnapTo.
+            // A restauração de posição vale somente para a preparação da invisibilidade.
             assassino.NetTransform.RpcSnapTo(posicaoVitima);
-
-            restauracoesAssassinoPendentes.Add(new RestauracaoAssassinoPendente
-            {
-                PlayerId = assassino.PlayerId,
-                PosicaoOriginal = posicaoOriginalAssassino,
-                ExecutarEm = Time.realtimeSinceStartup + 0.20f
-            });
 
             // Mesma reação do evento F7: escudo + FailedProtected para resetar
             // o cooldown do impostor, sem permitir que a kill original prossiga.
@@ -483,38 +467,6 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         }
     }
 
-    private static void ProcessarRestauracoesAssassino()
-    {
-        if (!ativo || !YouTubeVoteBridgePlugin.EhHost() ||
-            restauracoesAssassinoPendentes.Count == 0)
-            return;
-
-        float agora = Time.realtimeSinceStartup;
-        for (int i = restauracoesAssassinoPendentes.Count - 1; i >= 0; i--)
-        {
-            RestauracaoAssassinoPendente pendente = restauracoesAssassinoPendentes[i];
-            if (agora < pendente.ExecutarEm)
-                continue;
-
-            restauracoesAssassinoPendentes.RemoveAt(i);
-            PlayerControl assassino = EncontrarJogador(pendente.PlayerId);
-            if (assassino == null || assassino.Data == null ||
-                assassino.Data.Disconnected || assassino.Data.IsDead ||
-                assassino.NetTransform == null)
-                continue;
-
-            try
-            {
-                assassino.NetTransform.RpcSnapTo(pendente.PosicaoOriginal);
-            }
-            catch (Exception ex)
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    $"[Invisibilidade] Falha ao restaurar impostor {pendente.PlayerId}: {ex.GetBaseException().Message}");
-            }
-        }
-    }
-
     internal static void EncerrarNaReuniao()
     {
         if (!ativo || !YouTubeVoteBridgePlugin.EhHost())
@@ -527,7 +479,6 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         indicePreparacao = 0;
         ventPreparacaoId = -1;
         saidasPendentes.Clear();
-        restauracoesAssassinoPendentes.Clear();
 
         int restaurados = 0;
         int saidasEnviadas = 0;
@@ -571,7 +522,6 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         ventPreparacaoId = -1;
         jogadoresNoDuto.Clear();
         saidasPendentes.Clear();
-        restauracoesAssassinoPendentes.Clear();
     }
 
     [HarmonyPatch(typeof(MeetingHud), nameof(MeetingHud.Start))]
@@ -589,7 +539,6 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
             {
                 ProcessarPreparacao();
                 ProcessarSaidasPendentes();
-                ProcessarRestauracoesAssassino();
             }
         }
     }
