@@ -410,25 +410,28 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
     }
 
 
-    // Durante este evento, a morte é enviada de forma dessincronizada:
-    // vítima e assassino veem o assassinato normal; os demais recebem vítima -> vítima.
-    [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.MurderPlayer))]
+    // Usa o mesmo ponto de interceptação do evento F7:
+    // CheckMurder é cancelado antes que o assassinato original seja executado.
+    [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.CheckMurder))]
     private static class AssassinatoInvisibilidadePatch
     {
-        private static bool Prefix(PlayerControl __instance, PlayerControl target, MurderResultFlags resultFlags)
+        private static bool Prefix(
+            PlayerControl __instance,
+            [HarmonyArgument(0)] PlayerControl target)
         {
             if (!ativo || processandoMorteDessinc ||
-                resultFlags != MurderResultFlags.Succeeded ||
                 !YouTubeVoteBridgePlugin.EhHost() ||
                 __instance == null || target == null ||
                 __instance.Data == null || target.Data == null ||
                 __instance.Data.Role?.IsImpostor != true ||
                 __instance.Data.IsDead || __instance.Data.Disconnected ||
                 target.Data.IsDead || target.Data.Disconnected ||
-                MeetingHud.Instance != null || AmongUsClient.Instance == null)
+                MeetingHud.Instance != null || ShipStatus.Instance == null ||
+                AmongUsClient.Instance == null)
                 return true;
 
-            // Só intercepta assassinatos reais de impostor durante a invisibilidade.
+            // Cancela o assassinato original e executa a sequência do evento F7,
+            // acrescentando apenas o SnapTo do impostor até a posição da vítima.
             EnviarAssassinatoDessinc(__instance, target);
             return false;
         }
@@ -444,9 +447,10 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
 
         try
         {
-            // O impostor é reposicionado visualmente até a vítima.
             Vector2 posicaoOriginalAssassino = assassino.GetTruePosition();
             Vector2 posicaoVitima = vitima.GetTruePosition();
+
+            // Primeiro teleporta o impostor para a vítima usando o RPC nativo.
             assassino.NetTransform.RpcSnapTo(posicaoVitima);
 
             restauracoesAssassinoPendentes.Add(new RestauracaoAssassinoPendente
@@ -456,13 +460,12 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
                 ExecutarEm = Time.realtimeSinceStartup + 0.20f
             });
 
-            // Reaproveita exatamente a reação do evento F7:
-            // escudo do Anjo da Guarda + cooldown temporariamente dobrado,
-            // seguido pelo efeito FailedProtected no cliente do impostor.
+            // Mesma reação do evento F7: escudo + FailedProtected para resetar
+            // o cooldown do impostor, sem permitir que a kill original prossiga.
             EventoEscudoTemporarioMortePatch.AplicarEscudoEResetarCooldown(assassino);
 
-            // Assim como no evento F7, o impostor não executa a kill original.
-            // A vítima recebe a ordem de executar o próprio assassinato.
+            // Mesmo comportamento do evento F7: a vítima executa o próprio
+            // assassinato, enquanto o CheckMurder original do impostor é cancelado.
             processandoMorteDessinc = true;
             try
             {
@@ -474,14 +477,15 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
             }
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                $"[Invisibilidade] Assassinato por auto-RPC: impostor={assassino.PlayerId}; " +
-                $"vítima/autora={vitima.PlayerId}; SnapTo do impostor enviado para {posicaoVitima}.");
+                $"[Invisibilidade] CheckMurder cancelado no padrão F7. " +
+                $"Impostor={assassino.PlayerId}; vítima={vitima.PlayerId}; " +
+                $"SnapTo enviado para {posicaoVitima}.");
         }
         catch (Exception ex)
         {
             processandoMorteDessinc = false;
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                $"[Invisibilidade] Falha no auto-RPC de PlayerId={vitima.PlayerId}: {ex}");
+                $"[Invisibilidade] Falha ao cancelar/replicar assassinato de PlayerId={vitima.PlayerId}: {ex}");
         }
     }
 
