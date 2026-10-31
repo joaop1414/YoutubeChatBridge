@@ -31,9 +31,19 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         public Vector2 PosicaoOriginal;
         public float RestaurarPosicaoEm;
         public float ExecutarEm;
+        public bool SaidaProcessada;
     }
 
     private static readonly List<SaidaPendente> saidasPendentes = new();
+
+    private sealed class RestauracaoAssassinoPendente
+    {
+        public byte PlayerId;
+        public Vector2 PosicaoOriginal;
+        public float ExecutarEm;
+    }
+
+    private static readonly List<RestauracaoAssassinoPendente> restauracoesAssassinoPendentes = new();
 
     private sealed class JogadorPreparacao
     {
@@ -205,8 +215,9 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
                         PlayerId = alvo.PlayerId,
                         VentId = ventPreparacaoId,
                         PosicaoOriginal = item.PosicaoOriginal,
-                        RestaurarPosicaoEm = agora + AtrasoRestaurarPosicao,
-                        ExecutarEm = agora + AtrasoSaida
+                        RestaurarPosicaoEm = 0f,
+                        ExecutarEm = agora + AtrasoSaida,
+                        SaidaProcessada = false
                     });
                 }
                 catch (Exception ex)
@@ -336,32 +347,48 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
             SaidaPendente pendente = saidasPendentes[i];
             PlayerControl alvo = EncontrarJogador(pendente.PlayerId);
 
-            // Depois que o RPC de entrada já foi enviado, devolve a posição
-            // física do jogador ao ponto original sem desfazer ainda o estado do duto.
-            if (agora >= pendente.RestaurarPosicaoEm &&
-                pendente.RestaurarPosicaoEm > 0f)
+            // Primeiro processa a saída do duto. Restaurar antes da saída permitia
+            // que a animação/estado do vent sobrescrevesse o SnapTo original.
+            if (!pendente.SaidaProcessada)
             {
-                pendente.RestaurarPosicaoEm = 0f;
+                if (agora < pendente.ExecutarEm)
+                    continue;
 
-                if (alvo != null && alvo.NetTransform != null)
+                alvo = EncontrarJogador(pendente.PlayerId);
+                if (alvo == null || alvo.Data == null || alvo.Data.Disconnected)
                 {
-                    try
-                    {
-                        alvo.NetTransform.RpcSnapTo(pendente.PosicaoOriginal);
-                    }
-                    catch (Exception ex)
-                    {
-                        YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                            $"[Invisibilidade] Falha ao restaurar posição de PlayerId={pendente.PlayerId}: {ex.GetBaseException().Message}");
-                    }
+                    saidasPendentes.RemoveAt(i);
+                    jogadoresNoDuto.Remove(pendente.PlayerId);
+                    continue;
                 }
+
+                bool morreu = alvo.Data.IsDead;
+                foreach (PlayerControl espectador in PlayerControl.AllPlayerControls)
+                {
+                    if (espectador == null || espectador.Data == null ||
+                        espectador.Data.Disconnected || espectador.OwnerId < 0)
+                        continue;
+
+                    bool enviarSaida = morreu ||
+                        espectador.PlayerId == alvo.PlayerId ||
+                        (!espectador.Data.IsDead && espectador.Data.Role?.IsImpostor == true);
+
+                    if (enviarSaida)
+                        EnviarSaidaDutoDesync(alvo, pendente.VentId, espectador);
+                }
+
+                if (morreu)
+                    jogadoresNoDuto.Remove(pendente.PlayerId);
+
+                pendente.SaidaProcessada = true;
+                pendente.RestaurarPosicaoEm = agora + AtrasoRestaurarPosicao;
+                continue;
             }
 
-            if (agora < pendente.ExecutarEm)
+            if (agora < pendente.RestaurarPosicaoEm)
                 continue;
 
             saidasPendentes.RemoveAt(i);
-
             alvo = EncontrarJogador(pendente.PlayerId);
             if (alvo == null || alvo.Data == null || alvo.Data.Disconnected)
             {
@@ -369,36 +396,16 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
                 continue;
             }
 
-            int saidasEnviadas = 0;
-            bool alvoMorreuDuranteEvento = alvo.Data.IsDead;
-
-            // Se o jogador morreu enquanto estava no duto, expulsamos o seu
-            // estado de duto em TODOS os clientes, incluindo os espectadores mortos.
-            // Para jogadores vivos, mantemos a regra original: o próprio jogador
-            // e impostores recebem ExitVent; tripulantes continuam vendo-o no duto.
-            foreach (PlayerControl espectador in PlayerControl.AllPlayerControls)
+            try
             {
-                if (espectador == null || espectador.Data == null ||
-                    espectador.Data.Disconnected || espectador.OwnerId < 0)
-                    continue;
-
-                bool enviarSaida = alvoMorreuDuranteEvento ||
-                    espectador.PlayerId == alvo.PlayerId ||
-                    (!espectador.Data.IsDead && espectador.Data.Role?.IsImpostor == true);
-
-                if (!enviarSaida)
-                    continue;
-
-                if (EnviarSaidaDutoDesync(alvo, pendente.VentId, espectador))
-                    saidasEnviadas++;
+                if (alvo.NetTransform != null)
+                    alvo.NetTransform.RpcSnapTo(pendente.PosicaoOriginal);
             }
-
-            if (alvoMorreuDuranteEvento)
-                jogadoresNoDuto.Remove(pendente.PlayerId);
-
-            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                $"[Invisibilidade] Duto dessincronizado para PlayerId={alvo.PlayerId}; " +
-                $"morto durante evento={alvoMorreuDuranteEvento}; saídas direcionadas={saidasEnviadas}.");
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    $"[Invisibilidade] Falha na restauração final de PlayerId={pendente.PlayerId}: {ex.GetBaseException().Message}");
+            }
         }
     }
 
@@ -431,22 +438,31 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
     {
         if (assassino == null || vitima == null ||
             assassino.Data == null || vitima.Data == null ||
+            assassino.NetTransform == null || vitima.NetTransform == null ||
             AmongUsClient.Instance == null)
             return;
 
         try
         {
-            // Mesmo fluxo do EHR:
-            // 1. O host aplica o assassinato localmente.
-            // 2. Um único RPC MurderPlayer é transmitido para todos os clientes,
-            //    usando o NetId real do assassino e a vítima como argumento.
-            // 3. A morte não é confirmada com Die(Exile), pois o próprio
-            //    MurderPlayer deve produzir a morte e o corpo normalmente.
+            // O impostor é reposicionado visualmente até a vítima.
+            Vector2 posicaoOriginalAssassino = assassino.GetTruePosition();
+            Vector2 posicaoVitima = vitima.GetTruePosition();
+            assassino.NetTransform.RpcSnapTo(posicaoVitima);
 
+            restauracoesAssassinoPendentes.Add(new RestauracaoAssassinoPendente
+            {
+                PlayerId = assassino.PlayerId,
+                PosicaoOriginal = posicaoOriginalAssassino,
+                ExecutarEm = Time.realtimeSinceStartup + 0.20f
+            });
+
+            // O RPC original do impostor foi cancelado pelo Prefix.
+            // Agora a própria vítima é a origem e o alvo do assassinato.
             processandoMorteDessinc = true;
             try
             {
-                assassino.MurderPlayer(vitima, MurderResultFlags.Succeeded);
+                if (AmongUsClient.Instance.AmClient)
+                    vitima.MurderPlayer(vitima, MurderResultFlags.Succeeded);
             }
             finally
             {
@@ -454,7 +470,7 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
             }
 
             MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
-                assassino.NetId,
+                vitima.NetId,
                 (byte)RpcCalls.MurderPlayer,
                 SendOption.Reliable);
 
@@ -463,15 +479,46 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
             AmongUsClient.Instance.FinishRpcImmediately(writer);
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                $"[Invisibilidade] Assassinato sincronizado no padrão EHR: " +
-                $"assassino={assassino.PlayerId}; vítima={vitima.PlayerId}; " +
-                $"NetId origem={assassino.NetId}; RPC MurderPlayer transmitido para todos.");
+                $"[Invisibilidade] Assassinato por auto-RPC: impostor={assassino.PlayerId}; " +
+                $"vítima/autora={vitima.PlayerId}; SnapTo do impostor enviado para {posicaoVitima}.");
         }
         catch (Exception ex)
         {
             processandoMorteDessinc = false;
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                $"[Invisibilidade] Falha ao enviar assassinato de PlayerId={vitima.PlayerId}: {ex}");
+                $"[Invisibilidade] Falha no auto-RPC de PlayerId={vitima.PlayerId}: {ex}");
+        }
+    }
+
+    private static void ProcessarRestauracoesAssassino()
+    {
+        if (!ativo || !YouTubeVoteBridgePlugin.EhHost() ||
+            restauracoesAssassinoPendentes.Count == 0)
+            return;
+
+        float agora = Time.realtimeSinceStartup;
+        for (int i = restauracoesAssassinoPendentes.Count - 1; i >= 0; i--)
+        {
+            RestauracaoAssassinoPendente pendente = restauracoesAssassinoPendentes[i];
+            if (agora < pendente.ExecutarEm)
+                continue;
+
+            restauracoesAssassinoPendentes.RemoveAt(i);
+            PlayerControl assassino = EncontrarJogador(pendente.PlayerId);
+            if (assassino == null || assassino.Data == null ||
+                assassino.Data.Disconnected || assassino.Data.IsDead ||
+                assassino.NetTransform == null)
+                continue;
+
+            try
+            {
+                assassino.NetTransform.RpcSnapTo(pendente.PosicaoOriginal);
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    $"[Invisibilidade] Falha ao restaurar impostor {pendente.PlayerId}: {ex.GetBaseException().Message}");
+            }
         }
     }
 
@@ -487,6 +534,7 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         indicePreparacao = 0;
         ventPreparacaoId = -1;
         saidasPendentes.Clear();
+        restauracoesAssassinoPendentes.Clear();
 
         int restaurados = 0;
         int saidasEnviadas = 0;
@@ -530,6 +578,7 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         ventPreparacaoId = -1;
         jogadoresNoDuto.Clear();
         saidasPendentes.Clear();
+        restauracoesAssassinoPendentes.Clear();
     }
 
     [HarmonyPatch(typeof(MeetingHud), nameof(MeetingHud.Start))]
@@ -547,6 +596,7 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
             {
                 ProcessarPreparacao();
                 ProcessarSaidasPendentes();
+                ProcessarRestauracoesAssassino();
             }
         }
     }
