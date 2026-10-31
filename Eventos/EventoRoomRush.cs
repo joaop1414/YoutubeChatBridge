@@ -17,7 +17,7 @@ internal sealed class EventoRoomRush : EventoVotacao
     private static readonly Dictionary<byte, string> nomesOriginais = new();
     private static readonly HashSet<byte> nomesAvisadosRede = new();
 
-    public override string Nome => "Room Rush (vá para a sala indicada antes do tempo acabar)";
+    public override string Nome => "Vá para a sala ou morra";
 
     public void Executar()
     {
@@ -127,8 +127,8 @@ internal sealed class EventoRoomRush : EventoVotacao
             PlainShipRoom salaJogador = ObterSalaJogador(jogador.GetTruePosition());
             bool estaNaSala = salaJogador != null && salaJogador.RoomId == salaAlvo;
             string cor = estaNaSala ? "green" : segundosRestantes <= 5 ? "red" : "yellow";
-            string aviso = "\\n<color=" + cor + ">ROOM RUSH: " +
-                NomeSala(salaAlvo) + " (" + segundosRestantes + "s)</color>";
+            string aviso = "\n<color=" + cor + ">Sala: " +
+                NomeSala(salaAlvo) + "</color>";
             string nomeComAviso = nomeOriginal + aviso;
 
             try
