@@ -4139,6 +4139,7 @@ public static class YouTubeVoteRestoreLobbyTagsBeforeMatchPatch
             EventoTodosFicamInvisiveis.IniciarPartida();
             EventoMorrerQuandoPortaFechar.IniciarPartida();
             EventoRaio.IniciarPartida();
+            EventoTrocaMapaReuniao.IniciarPartida();
         }
     }
 }
@@ -4243,6 +4244,7 @@ public static class YouTubeVoteResetTaskEventsOnEndPatch
         EventoTeletransportarAlvoParaMetamorfoPartida.Resetar();
         EventoMorrerQuandoPortaFechar.Resetar();
         EventoRaio.Resetar();
+        EventoTrocaMapaReuniao.Resetar();
         EventoTeletransportarJogadorAoCompletarTarefa.Desativar("fim da partida");
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             "Eventos de tarefa desativados ao terminar a partida, mesmo sem reunião.");
@@ -4297,6 +4299,8 @@ public static class YouTubeVoteShapeshiftTaskListPatch
 
     public static void Postfix(PlayerControl __instance)
     {
+        if (EventoTrocaMapaReuniao.DeveSuprimirRestauracao)
+            return;
         YouTubeVoteBridgePlugin.RestaurarTarefasDepoisDeAtualizar(__instance);
         EventoAdicionarTarefas.RestaurarTarefasConcluidas(__instance);
     }
@@ -4309,6 +4313,8 @@ public static class YouTubeVoteAdicionarTarefasPrefixPatch
 {
     public static void Prefix(NetworkedPlayerInfo __instance, ref Il2CppStructArray<byte> __0)
     {
+        if (EventoTrocaMapaReuniao.EmAndamento)
+            return;
         EventoAdicionarTarefas.AplicarAdicoesAntesDeEnviar(__instance, ref __0);
     }
 }
@@ -4329,15 +4335,23 @@ public static class YouTubeVoteAdicionarTarefasRestauracaoPatch
         }
     }
 
-    public static void Prefix(NetworkedPlayerInfo __instance)
+    public static void Prefix(NetworkedPlayerInfo __instance, out bool __state)
     {
+        __state = EventoTrocaMapaReuniao.DeveSuprimirRestauracao;
+        if (__state)
+            return;
         // Em clientes com mod, captura as tarefas concluídas antes de a lista antiga
         // ser substituída. Os RPCs do host continuam sendo usados para os clientes vanilla.
         EventoAdicionarTarefas.CapturarConclusoesLocaisAntesDaRedistribuicao(__instance);
     }
 
-    public static void Postfix(NetworkedPlayerInfo __instance)
+    public static void Postfix(NetworkedPlayerInfo __instance, bool __state)
     {
+        if (__state)
+        {
+            EventoTrocaMapaReuniao.RegistrarAtribuicaoRecebida(__instance);
+            return;
+        }
         if (__instance == null || PlayerControl.AllPlayerControls == null)
             return;
 
