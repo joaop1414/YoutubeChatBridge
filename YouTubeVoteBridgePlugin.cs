@@ -4055,18 +4055,27 @@ public static class YouTubeVoteCancelMeetingPatch
 {
     public static bool Prefix()
     {
-        // Executa também nos clientes com mod: a pausa da transição é local.
-        YouTubeVoteBridgePlugin.RetomarRainbowPausadosNaReuniao();
-        if (!YouTubeVoteBridgePlugin.EhHost())
-            return true;
-        EventoTsunami.PrepararAntesDaReuniao();
-        YouTubeVoteBridgePlugin.CancelarReuniaoSolicitada();
-        EventoTarefaMataJogador.Desativar();
-        EventoTarefaSuicidio.Desativar();
-        EventoTeletransportarAlvoParaMetamorfo.Desativar();
-        EventoTeletransportarJogadorAoCompletarTarefa.Desativar("reunião iniciada");
-        // Deixa a chamada original continuar depois de restaurar os nomes.
-        // Retornar false aqui cancelava a reunião e não havia um segundo RPC.
+        // Nenhuma rotina auxiliar do mod pode impedir o método original do jogo
+        // de criar e transmitir a reunião. Em caso de falha, registramos e seguimos.
+        try
+        {
+            YouTubeVoteBridgePlugin.RetomarRainbowPausadosNaReuniao();
+            if (!YouTubeVoteBridgePlugin.EhHost())
+                return true;
+
+            EventoTsunami.PrepararAntesDaReuniao();
+            YouTubeVoteBridgePlugin.CancelarReuniaoSolicitada();
+            EventoTarefaMataJogador.Desativar();
+            EventoTarefaSuicidio.Desativar();
+            EventoTeletransportarAlvoParaMetamorfo.Desativar();
+            EventoTeletransportarJogadorAoCompletarTarefa.Desativar("reunião iniciada");
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "Falha em uma preparação de reunião do mod; permitindo a reunião original: " + ex);
+        }
+
         return true;
     }
 }
@@ -4075,10 +4084,18 @@ public static class YouTubeVoteCancelRpcStartMeetingPatch
 {
     public static bool Prefix()
     {
-        if (!YouTubeVoteBridgePlugin.EhHost())
-            return true;
-        YouTubeVoteBridgePlugin.CancelarReuniaoSolicitada();
-        // Não bloquear o RPC: ele é a chamada que efetivamente abre a reunião.
+        try
+        {
+            if (YouTubeVoteBridgePlugin.EhHost())
+                YouTubeVoteBridgePlugin.CancelarReuniaoSolicitada();
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "Falha ao preparar o RPC da reunião; permitindo o envio original: " + ex);
+        }
+
+        // Nunca bloquear o RPC original que abre/sincroniza a reunião.
         return true;
     }
 }
@@ -4134,6 +4151,7 @@ public static class YouTubeVoteRestoreLobbyTagsBeforeMatchPatch
         if (AmongUsClient.Instance != null && AmongUsClient.Instance.AmHost)
         {
             LobbyTagManager.RestaurarTodos();
+            EventoTrocaMapaReuniao.AoShipStatusIniciado(ShipStatus.Instance);
             EventoTeletransportarAlvoParaMetamorfoPartida.IniciarPartida();
             EventoTeletransportarJogadorAoCompletarTarefa.IniciarPartida();
             EventoTodosFicamInvisiveis.IniciarPartida();
