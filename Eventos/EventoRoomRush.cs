@@ -86,7 +86,9 @@ internal sealed class EventoRoomRush : EventoVotacao
             {
                 // A sala é obtida pelo mapa usando a posição real do jogador.
                 // GetPlainShipRoom() não é um método de PlayerControl nesta versão.
-                PlainShipRoom salaJogador = ShipStatus.Instance.GetRoom(jogador.GetTruePosition());
+                // Localiza a sala pela área física, sem depender de métodos de
+                // extensão de mods externos como GetPlainShipRoom().
+                PlainShipRoom salaJogador = ObterSalaJogador(jogador.GetTruePosition());
                 if (salaJogador != null && salaJogador.RoomId == salaAlvo)
                     continue;
 
@@ -105,6 +107,26 @@ internal sealed class EventoRoomRush : EventoVotacao
             mortos + " jogador(es) eliminado(s) por não chegar à sala.");
         salaEscolhida = false;
         prazo = agora + 2f;
+    }
+
+    private static PlainShipRoom ObterSalaJogador(Vector2 posicao)
+    {
+        ShipStatus navio = ShipStatus.Instance;
+        if (navio == null || navio.AllRooms == null)
+            return null;
+
+        Vector3 ponto = new Vector3(posicao.x, posicao.y, 0f);
+        foreach (PlainShipRoom sala in navio.AllRooms)
+        {
+            if (sala == null || sala.roomArea == null)
+                continue;
+
+            // Bounds.Contains usa a caixa delimitadora do Collider2D da sala.
+            if (sala.roomArea.bounds.Contains(ponto))
+                return sala;
+        }
+
+        return null;
     }
 
     private static bool EscolherSala()
