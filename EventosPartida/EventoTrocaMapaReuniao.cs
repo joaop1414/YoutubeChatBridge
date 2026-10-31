@@ -3,7 +3,6 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using AmongUs.GameOptions;
 using AmongUs.InnerNet.GameDataMessages;
 using BepInEx.Unity.IL2CPP.Utils.Collections;
 using Hazel;
@@ -28,7 +27,6 @@ internal sealed class EventoTrocaMapaReuniao : EventoVotacao
     private static bool armado;
     private static bool ativo;
     private static bool emAndamento;
-    private static bool executandoMetodoOriginal;
     private static ShipStatus ultimoShipStatus;
     private static int mapaAtual = -1;
     private static bool suprimirRestauracaoLocal;
@@ -37,7 +35,7 @@ internal sealed class EventoTrocaMapaReuniao : EventoVotacao
     private static readonly HashSet<byte> jogadoresComTarefasRecebidas = new();
     private static float ultimaTrocaConcluida = -100f;
 
-    public override string Nome => "Troca de mapa antes de cada reunião";
+    public override string Nome => "Troca de mapa depois da ejeção";
 
     public void Executar()
     {
@@ -49,7 +47,7 @@ internal sealed class EventoTrocaMapaReuniao : EventoVotacao
             ativo = true;
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            "[F7/Troca de mapa] Evento armado: o mapa será trocado antes de cada reunião.");
+            "[F7/Troca de mapa] Evento armado: o mapa será trocado depois da tela de ejeção.");
     }
 
     internal static bool EmAndamento => emAndamento;
@@ -147,54 +145,32 @@ internal sealed class EventoTrocaMapaReuniao : EventoVotacao
         jogadoresComTarefasRecebidas.Clear();
     }
 
-    internal static bool InterceptarInicioReuniao(
-        PlayerControl instancia,
-        MethodBase metodoOriginal,
-        object[] argumentos)
+    // Chamado quando a tela de ejeção termina. A reunião já foi encerrada,
+    // então não precisamos interceptar StartMeeting/RpcStartMeeting nem retomá-los.
+    internal static void AoTerminarEjecao()
     {
-        if (executandoMetodoOriginal || !ativo || !YouTubeVoteBridgePlugin.EhHost())
-            return true;
+        if (!ativo || emAndamento || !YouTubeVoteBridgePlugin.EhHost() ||
+            ShipStatus.Instance == null || AmongUsClient.Instance == null)
+            return;
 
-        if (MeetingHud.Instance != null)
-            return true;
-
-        // StartMeeting e RpcStartMeeting podem participar da mesma chamada.
-        // Enquanto uma troca está em andamento, não deixamos uma segunda
-        // chamada abrir a reunião antes de o mapa novo estar pronto.
-        if (emAndamento)
-            return false;
-
-        // Algumas versões passam pelos dois métodos em sequência. A janela
-        // evita que a mesma reunião provoque duas trocas.
-        if (Time.realtimeSinceStartup - ultimaTrocaConcluida < 2.5f)
-            return true;
-
-        if (ShipStatus.Instance == null || AmongUsClient.Instance == null)
-            return true;
+        if (Time.realtimeSinceStartup - ultimaTrocaConcluida < 3f)
+            return;
 
         emAndamento = true;
-
         try
         {
             AmongUsClient.Instance.StartCoroutine(
-                TrocarMapaEContinuarReuniao(instancia, metodoOriginal, argumentos).WrapToIl2Cpp());
-            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[F7/Troca de mapa] Solicitação de reunião pausada até a troca do mapa terminar.");
-            return false;
+                TrocarMapaDepoisDaEjecao().WrapToIl2Cpp());
         }
         catch (Exception ex)
         {
             emAndamento = false;
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[F7/Troca de mapa] Não foi possível iniciar a troca: " + ex);
-            return true;
+                "[F7/Troca de mapa] Não foi possível iniciar a troca após a ejeção: " + ex);
         }
     }
 
-    private static IEnumerator TrocarMapaEContinuarReuniao(
-        PlayerControl instancia,
-        MethodBase metodoOriginal,
-        object[] argumentos)
+    private static IEnumerator TrocarMapaDepoisDaEjecao()
     {
         ShipStatus mapaAntigo = ShipStatus.Instance;
         int idAntigo = mapaAtual >= 0 ? mapaAtual : ObterIdMapa(mapaAntigo);
@@ -203,8 +179,8 @@ internal sealed class EventoTrocaMapaReuniao : EventoVotacao
         if (idNovo < 0)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "[F7/Troca de mapa] Não foi encontrado outro mapa disponível. A reunião será aberta no mapa atual.");
-            ContinuarReuniao(instancia, metodoOriginal, argumentos);
+                "[F7/Troca de mapa] Não há outro mapa disponível.");
+            FinalizarTroca();
             yield break;
         }
 
@@ -225,7 +201,7 @@ internal sealed class EventoTrocaMapaReuniao : EventoVotacao
 
         if (falhaInstanciacao)
         {
-            ContinuarReuniao(instancia, metodoOriginal, argumentos);
+            FinalizarTroca();
             yield break;
         }
 
@@ -234,8 +210,8 @@ internal sealed class EventoTrocaMapaReuniao : EventoVotacao
         if (operacao.Status != AsyncOperationStatus.Succeeded || operacao.Result == null)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                $"[F7/Troca de mapa] Addressables não conseguiu carregar o mapa {idNovo}. A reunião continuará no mapa anterior.");
-            ContinuarReuniao(instancia, metodoOriginal, argumentos);
+                $"[F7/Troca de mapa] Não foi possível carregar o mapa {idNovo}.");
+            FinalizarTroca();
             yield break;
         }
 
@@ -243,18 +219,15 @@ internal sealed class EventoTrocaMapaReuniao : EventoVotacao
         if (mapaNovo == null)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                $"[F7/Troca de mapa] O prefab {idNovo} não contém ShipStatus. A reunião continuará no mapa anterior.");
+                $"[F7/Troca de mapa] O prefab {idNovo} não contém ShipStatus.");
             UnityEngine.Object.Destroy(operacao.Result);
-            ContinuarReuniao(instancia, metodoOriginal, argumentos);
+            FinalizarTroca();
             yield break;
         }
 
-        bool falhaSpawn = false;
         try
         {
-            // Mesmo fluxo do Hydra: o prefab é instanciado por Addressables,
-            // o novo ShipStatus é preparado no pacote e o mapa antigo é despawnado
-            // imediatamente antes de enviar o Spawn pela rede.
+            // Mesmo fluxo de criação/destruição usado como referência no Hydra.
             MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
             try
             {
@@ -262,9 +235,7 @@ internal sealed class EventoTrocaMapaReuniao : EventoVotacao
                 writer.Write(AmongUsClient.Instance.GameId);
 
                 SpawnGameDataMessage spawn = AmongUsClient.Instance.CreateSpawnMessage(
-                    mapaNovo,
-                    -2,
-                    SpawnFlags.None);
+                    mapaNovo, -2, SpawnFlags.None);
 
                 spawn.Serialize(writer);
                 writer.EndMessage();
@@ -280,19 +251,15 @@ internal sealed class EventoTrocaMapaReuniao : EventoVotacao
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[F7/Troca de mapa] Falha ao despawnar/enviar o novo mapa: " + ex);
-            falhaSpawn = true;
-        }
-
-        if (falhaSpawn)
-        {
-            ContinuarReuniao(instancia, metodoOriginal, argumentos);
+                "[F7/Troca de mapa] Falha ao enviar o novo mapa: " + ex);
+            FinalizarTroca();
             yield break;
         }
 
-        // Aguarda o novo ShipStatus ser ativado e assumir o lugar do antigo.
+        // Aguarda todos os clientes materializarem o ShipStatus recém-criado.
         yield return null;
         yield return null;
+        yield return new WaitForSeconds(0.35f);
 
         if (ShipStatus.Instance != null)
             mapaNovo = ShipStatus.Instance;
@@ -300,60 +267,117 @@ internal sealed class EventoTrocaMapaReuniao : EventoVotacao
         mapaAtual = idNovo;
         ultimoShipStatus = mapaNovo;
 
+        // As tarefas são atribuídas no mapa novo antes de reposicionar os jogadores.
         AtribuirTarefasDoNovoMapa(mapaNovo, estados);
-
-        // Dá tempo para os TaskInfo novos serem materializados antes de enviar
-        // as conclusões de volta pela GameData.
         yield return new WaitForSeconds(0.45f);
         RestaurarQuantidadeDeTarefasConcluidas(estados);
 
-        try
-        {
-            GameData.Instance?.RecomputeTaskCounts();
-        }
+        try { GameData.Instance?.RecomputeTaskCounts(); }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "[F7/Troca de mapa] Não foi possível recalcular a barra de tarefas: " + ex.Message);
+                "[F7/Troca de mapa] Falha ao recalcular tarefas: " + ex.Message);
+        }
+
+        // O host calcula os pontos de spawn do novo ShipStatus e envia um SnapTo
+        // confiável para cada jogador. Assim, os clientes recebem as posições
+        // autoritativas em vez de dependerem do transform local antigo.
+        yield return new WaitForSeconds(0.2f);
+        ReposicionarJogadoresNaRede(mapaNovo);
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"[F7/Troca de mapa] Mapa alterado de {idAntigo} para {idNovo}; tarefas restauradas e jogadores reposicionados pela rede.");
+
+        FinalizarTroca();
+    }
+
+    private static void ReposicionarJogadoresNaRede(ShipStatus mapa)
+    {
+        if (mapa == null || PlayerControl.AllPlayerControls == null ||
+            !YouTubeVoteBridgePlugin.EhHost())
+            return;
+
+        int quantidadeJogadores = ContarJogadoresConectados();
+        int reposicionados = 0;
+
+        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+        {
+            if (jogador == null || jogador.Data == null || jogador.Data.Disconnected ||
+                jogador.NetTransform == null)
+                continue;
+
+            try
+            {
+                Vector2 posicao = ObterPosicaoSpawn(mapa, jogador, quantidadeJogadores);
+                jogador.NetTransform.RpcSnapTo(posicao);
+                reposicionados++;
+
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    $"[F7/Troca de mapa] SnapTo enviado: PlayerId={jogador.PlayerId}, posição=({posicao.x:F2}, {posicao.y:F2}).");
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    $"[F7/Troca de mapa] Não foi possível reposicionar PlayerId={jogador.PlayerId}: {ex.GetBaseException().Message}");
+            }
         }
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"[F7/Troca de mapa] Mapa alterado de {idAntigo} para {idNovo}; tarefas redistribuídas e conclusões restauradas.");
-
-        ultimaTrocaConcluida = Time.realtimeSinceStartup;
-        ContinuarReuniao(instancia, metodoOriginal, argumentos);
+            $"[F7/Troca de mapa] Reposicionamento concluído: {reposicionados}/{quantidadeJogadores} jogador(es).");
     }
 
-    private static void ContinuarReuniao(
-        PlayerControl instancia,
-        MethodBase metodoOriginal,
-        object[] argumentos)
+    private static Vector2 ObterPosicaoSpawn(
+        ShipStatus mapa, PlayerControl jogador, int quantidadeJogadores)
+    {
+        // GetSpawnLocation é consultado por reflexão para tolerar pequenas
+        // diferenças de assinatura entre versões do Among Us.
+        MethodInfo metodo = AccessTools.Method(mapa.GetType(), "GetSpawnLocation") ??
+                            AccessTools.Method(typeof(ShipStatus), "GetSpawnLocation");
+
+        if (metodo != null)
+        {
+            ParameterInfo[] parametros = metodo.GetParameters();
+            object[] argumentos = new object[parametros.Length];
+
+            for (int i = 0; i < parametros.Length; i++)
+            {
+                Type tipo = parametros[i].ParameterType;
+                if (tipo == typeof(byte))
+                    argumentos[i] = jogador.PlayerId;
+                else if (tipo == typeof(int))
+                    argumentos[i] = i == 0 ? (int)jogador.PlayerId : quantidadeJogadores;
+                else if (tipo == typeof(bool))
+                    argumentos[i] = jogador.Data.IsDead;
+                else if (tipo == typeof(PlayerControl))
+                    argumentos[i] = jogador;
+                else if (tipo == typeof(NetworkedPlayerInfo))
+                    argumentos[i] = jogador.Data;
+                else if (tipo == typeof(Vector2))
+                    argumentos[i] = Vector2.zero;
+                else if (tipo == typeof(Vector3))
+                    argumentos[i] = Vector3.zero;
+                else if (tipo.IsEnum)
+                    argumentos[i] = Activator.CreateInstance(tipo);
+                else
+                    argumentos[i] = tipo.IsValueType ? Activator.CreateInstance(tipo) : null;
+            }
+
+            object resultado = metodo.Invoke(mapa, argumentos);
+            if (resultado is Vector2 v2)
+                return v2;
+            if (resultado is Vector3 v3)
+                return new Vector2(v3.x, v3.y);
+        }
+
+        // Não envia coordenadas antigas se a API de spawn não for encontrada.
+        throw new MissingMethodException(
+            "ShipStatus.GetSpawnLocation não foi encontrado ou não retornou Vector2/Vector3.");
+    }
+
+    private static void FinalizarTroca()
     {
         emAndamento = false;
         ultimaTrocaConcluida = Time.realtimeSinceStartup;
-
-        if (instancia == null || metodoOriginal == null)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[F7/Troca de mapa] Não foi possível retomar a reunião: método ou jogador nulo.");
-            return;
-        }
-
-        executandoMetodoOriginal = true;
-        try
-        {
-            metodoOriginal.Invoke(instancia, argumentos);
-        }
-        catch (Exception ex)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[F7/Troca de mapa] Erro ao retomar a chamada original da reunião: " +
-                ex.GetBaseException());
-        }
-        finally
-        {
-            executandoMetodoOriginal = false;
-        }
     }
 
     private static int EscolherNovoMapa(int mapaAntigo)
@@ -619,34 +643,20 @@ internal sealed class EventoTrocaMapaReuniao : EventoVotacao
         armado = false;
         ativo = false;
         emAndamento = false;
-        executandoMetodoOriginal = false;
         ultimoShipStatus = null;
         mapaAtual = -1;
         ultimaTrocaConcluida = -100f;
         LimparSupressaoLocal();
     }
 
-    [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.StartMeeting))]
-    private static class TrocaMapaAntesDeStartMeetingPatch
+    // WrapUp acontece no encerramento da sequência de ejeção.
+    // O Postfix agenda a troca depois que a tela já terminou.
+    [HarmonyPatch(typeof(ExileController), nameof(ExileController.WrapUp))]
+    private static class TrocaMapaDepoisDaEjecaoPatch
     {
-        private static bool Prefix(
-            PlayerControl __instance,
-            MethodBase __originalMethod,
-            object[] __args)
+        private static void Postfix()
         {
-            return InterceptarInicioReuniao(__instance, __originalMethod, __args);
-        }
-    }
-
-    [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.RpcStartMeeting))]
-    private static class TrocaMapaAntesDeRpcStartMeetingPatch
-    {
-        private static bool Prefix(
-            PlayerControl __instance,
-            MethodBase __originalMethod,
-            object[] __args)
-        {
-            return InterceptarInicioReuniao(__instance, __originalMethod, __args);
+            AoTerminarEjecao();
         }
     }
 
