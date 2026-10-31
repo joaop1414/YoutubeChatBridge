@@ -266,6 +266,7 @@ internal sealed class EventoTrocaMapaReuniao : EventoVotacao
 
         mapaAtual = idNovo;
         ultimoShipStatus = mapaNovo;
+        AtualizarConfiguracaoMapa(idNovo);
 
         // As tarefas são atribuídas no mapa novo antes de reposicionar os jogadores.
         AtribuirTarefasDoNovoMapa(mapaNovo, estados);
@@ -408,19 +409,120 @@ internal sealed class EventoTrocaMapaReuniao : EventoVotacao
 
     private static int ObterIdMapa(ShipStatus ship)
     {
-        if (ship == null)
-            return -1;
+        // O tipo concreto de ShipStatus pode ser igual em todos os mapas.
+        // A fonte confiável é o MapId das opções/LogicOptions do jogo.
+        try
+        {
+            object logicOptions = LerMembro(GameManager.Instance, "LogicOptions", "logicOptions");
+            object idLogic = LerMembro(logicOptions, "MapId", "mapId");
+            if (idLogic != null)
+            {
+                int id = Convert.ToInt32(idLogic);
+                if (id >= 0 && id <= 5)
+                    return id;
+            }
+        }
+        catch { }
 
-        string nome = ship.GetType().Name.ToLowerInvariant();
+        try
+        {
+            object opcoes = LerMembro(GameOptionsManager.Instance,
+                "CurrentGameOptions", "currentGameOptions");
+            object idOpcoes = LerMembro(opcoes, "MapId", "mapId");
+            if (idOpcoes != null)
+            {
+                int id = Convert.ToInt32(idOpcoes);
+                if (id >= 0 && id <= 5)
+                    return id;
+            }
+        }
+        catch { }
 
-        if (nome.Contains("dleks")) return 3;
-        if (nome.Contains("mira")) return 1;
-        if (nome.Contains("polus")) return 2;
-        if (nome.Contains("airship")) return 4;
-        if (nome.Contains("fungle")) return 5;
-        if (nome.Contains("skeld")) return 0;
+        if (ship != null)
+        {
+            string nome = ship.GetType().Name.ToLowerInvariant();
+            if (nome.Contains("dleks")) return 3;
+            if (nome.Contains("mira")) return 1;
+            if (nome.Contains("polus")) return 2;
+            if (nome.Contains("airship")) return 4;
+            if (nome.Contains("fungle")) return 5;
+            if (nome.Contains("skeld")) return 0;
+        }
 
         return mapaAtual;
+    }
+
+    private static void AtualizarConfiguracaoMapa(int idMapa)
+    {
+        if (idMapa < 0 || idMapa > 5)
+            return;
+
+        int atualizados = 0;
+        object logicOptions = LerMembro(GameManager.Instance, "LogicOptions", "logicOptions");
+        object gameOptions = LerMembro(GameOptionsManager.Instance,
+            "CurrentGameOptions", "currentGameOptions");
+
+        if (TentarDefinirMapId(logicOptions, idMapa))
+            atualizados++;
+        if (TentarDefinirMapId(gameOptions, idMapa))
+            atualizados++;
+
+        try
+        {
+            MethodInfo setDirty = logicOptions?.GetType().GetMethod(
+                "SetDirty", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                null, Type.EmptyTypes, null);
+            setDirty?.Invoke(logicOptions, null);
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Troca de mapa] Não foi possível marcar as opções do jogo como alteradas: " + ex.GetBaseException().Message);
+        }
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"[F7/Troca de mapa] MapId das configurações atualizado para {idMapa} ({atualizados}/2 objetos).");
+    }
+
+    private static bool TentarDefinirMapId(object opcoes, int idMapa)
+    {
+        if (opcoes == null)
+            return false;
+
+        const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+        try
+        {
+            PropertyInfo propriedade = opcoes.GetType().GetProperty("MapId", flags) ??
+                                       opcoes.GetType().GetProperty("mapId", flags);
+            if (propriedade != null && propriedade.CanWrite)
+            {
+                propriedade.SetValue(opcoes, ConverterMapId(idMapa, propriedade.PropertyType));
+                return true;
+            }
+
+            FieldInfo campo = opcoes.GetType().GetField("MapId", flags) ??
+                              opcoes.GetType().GetField("mapId", flags);
+            if (campo != null)
+            {
+                campo.SetValue(opcoes, ConverterMapId(idMapa, campo.FieldType));
+                return true;
+            }
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Troca de mapa] Falha ao atualizar MapId: " + ex.GetBaseException().Message);
+        }
+
+        return false;
+    }
+
+    private static object ConverterMapId(int idMapa, Type tipo)
+    {
+        Type tipoBase = Nullable.GetUnderlyingType(tipo) ?? tipo;
+        if (tipoBase.IsEnum)
+            return Enum.ToObject(tipoBase, idMapa);
+        return Convert.ChangeType(idMapa, tipoBase);
     }
 
     private static List<EstadoTarefas> CapturarEstadoTarefas()
