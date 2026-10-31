@@ -57,12 +57,20 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
             Vector2 posicaoDuto = (Vector2)duto.transform.position;
             dutosForcados[jogador.PlayerId] = duto.Id;
 
+            // Cada RPC é enviado individualmente apenas aos tripulantes vivos.
+            // O cliente dono do jogador-alvo nunca recebe os RPCs desse jogador.
             EnviarRpcDutoParaEspectadores(jogador, duto.Id, entrar: true, posicaoDuto);
-            
-            // O host é o emissor dos RPCs direcionados e não recebe a própria
-            // mensagem de rede. Atualizamos a posição local para manter a visão
-            // do host alinhada com a dos demais clientes.
-            if (!jogador.AmOwner)
+
+            // O host não recebe mensagens direcionadas a si mesmo. Portanto,
+            // atualizamos a visão local somente se o host for tripulante vivo.
+            PlayerControl local = PlayerControl.LocalPlayer;
+            bool hostPodeReceber =
+                local != null &&
+                local.Data != null &&
+                !local.Data.IsDead &&
+                local.Data.Role?.IsImpostor != true;
+
+            if (!jogador.AmOwner && hostPodeReceber)
             {
                 ushort sequenceId = (ushort)(jogador.NetTransform.lastSequenceId + 2);
                 jogador.NetTransform.SnapTo(posicaoDuto, sequenceId);
@@ -73,7 +81,7 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         }
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"[Invisibilidade/Duto] SnapTo + EnterVent enviados a todos os outros clientes (incluindo impostores), excluindo somente o dono de cada jogador. Jogadores processados: {enviados}. Restauração na reunião.");
+            $"[Invisibilidade/Duto] RPCs direcionados somente aos tripulantes vivos, excluindo o cliente dono de cada jogador. Jogadores processados: {enviados}. Restauração na reunião.");
     }
 
     private static Vent EncontrarDutoMaisProximo(PlayerControl jogador)
@@ -96,9 +104,19 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         return melhor;
     }
 
-    // Encaminha os RPCs individualmente para todos os clientes, exceto o dono
-    // do jogador-alvo. A ordem é importante: SnapTo primeiro, EnterVent depois.
-    // No encerramento, envia apenas ExitVent, também para todos menos o dono.
+    private static bool PodeReceberRpc(PlayerControl espectador)
+    {
+        return espectador != null &&
+               espectador.Data != null &&
+               !espectador.Data.Disconnected &&
+               !espectador.Data.IsDead &&
+               espectador.Data.Role?.IsImpostor != true &&
+               espectador.OwnerId >= 0;
+    }
+
+    // Encaminha os RPCs individualmente para cada tripulante vivo, exceto
+    // para o cliente dono do jogador-alvo. Impostores e fantasmas são ignorados.
+    // A ordem é SnapTo e depois EnterVent; no encerramento, somente ExitVent.
     private static void EnviarRpcDutoParaEspectadores(
         PlayerControl alvo,
         int ventId,
@@ -123,13 +141,14 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
 
             foreach (PlayerControl espectador in PlayerControl.AllPlayerControls)
             {
-                if (espectador == null || espectador.Data == null ||
-                    espectador.Data.Disconnected || espectador.OwnerId < 0 ||
+                if (!PodeReceberRpc(espectador) ||
                     espectador.OwnerId == clientHost ||
-                    espectador == alvo || !clientes.Add(espectador.OwnerId))
+                    espectador == alvo ||
+                    !clientes.Add(espectador.OwnerId))
                     continue;
 
-                // GameDataTo: entrega os RPCs somente ao cliente deste espectador.
+                // GameDataTo: envia este conjunto de RPCs somente ao cliente
+                // específico que controla o tripulante vivo selecionado.
                 writer.StartMessage(6);
                 writer.Write(AmongUsClient.Instance.GameId);
                 writer.WritePacked(espectador.OwnerId);
@@ -189,15 +208,21 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
                 if (dutosForcados.TryGetValue(jogador.PlayerId, out int ventId))
                     EnviarRpcDutoParaEspectadores(jogador, ventId, entrar: false);
 
-                // Restaura a visibilidade local do host para os outros jogadores.
-                if (!jogador.AmOwner)
+                PlayerControl local = PlayerControl.LocalPlayer;
+                bool hostPodeReceber =
+                    local != null &&
+                    local.Data != null &&
+                    !local.Data.IsDead &&
+                    local.Data.Role?.IsImpostor != true;
+
+                if (!jogador.AmOwner && hostPodeReceber)
                     jogador.Visible = true;
             }
         }
 
         dutosForcados.Clear();
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            "[Invisibilidade/Duto] Evento encerrado na reunião; ExitVent enviado a todos os outros clientes.");
+            "[Invisibilidade/Duto] Evento encerrado na reunião; ExitVent enviado somente aos tripulantes vivos, sem enviar ao dono do jogador.");
     }
 
     [HarmonyPatch(typeof(MeetingHud), nameof(MeetingHud.Start))]
