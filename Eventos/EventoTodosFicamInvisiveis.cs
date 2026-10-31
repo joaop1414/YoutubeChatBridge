@@ -164,37 +164,19 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
             Time.realtimeSinceStartup < proximoProcessamentoPreparacao)
             return;
 
-        if (indicePreparacao >= preparacaoPendente.Count)
-        {
-            if (etapaPreparacao == EtapaPreparacao.SnapTo)
-            {
-                etapaPreparacao = EtapaPreparacao.Entradas;
-                indicePreparacao = 0;
-                proximoProcessamentoPreparacao =
-                    Time.realtimeSinceStartup + AtrasoAntesDasEntradas;
-
-                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    $"[Invisibilidade] Todos os SnapTo foram processados. " +
-                    $"Aguardando {AtrasoAntesDasEntradas:0.00}s antes dos RPCs de entrada.");
-                return;
-            }
-
-            etapaPreparacao = EtapaPreparacao.Nenhuma;
-            preparacaoPendente.Clear();
-            ventPreparacaoId = -1;
-            return;
-        }
-
-        JogadorPreparacao item = preparacaoPendente[indicePreparacao];
-        PlayerControl alvo = EncontrarJogador(item.PlayerId);
+        float agora = Time.realtimeSinceStartup;
 
         if (etapaPreparacao == EtapaPreparacao.SnapTo)
         {
-            if (PodeFicarInvisivel(alvo) && alvo.NetTransform != null)
+            // Todos recebem o SnapTo no mesmo ciclo, sem intervalo por jogador.
+            foreach (JogadorPreparacao item in preparacaoPendente)
             {
+                PlayerControl alvo = EncontrarJogador(item.PlayerId);
+                if (!PodeFicarInvisivel(alvo) || alvo.NetTransform == null)
+                    continue;
+
                 try
                 {
-                    // Mesmo padrão do Tsunami: usar o RPC nativo do NetTransform.
                     EnviarSnapToParaTripulantes(alvo, posicaoVentPreparacao);
                     item.SnapToConcluido = true;
                 }
@@ -206,24 +188,30 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
                 }
             }
 
-            indicePreparacao++;
-            proximoProcessamentoPreparacao = Time.realtimeSinceStartup;
+            etapaPreparacao = EtapaPreparacao.Entradas;
+            proximoProcessamentoPreparacao = agora + AtrasoAntesDasEntradas;
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                $"[Invisibilidade] SnapTo enviado para todos no mesmo ciclo. " +
+                $"Entradas simultâneas em {AtrasoAntesDasEntradas:0.00}s.");
             return;
         }
 
         if (etapaPreparacao == EtapaPreparacao.Entradas)
         {
-            if (item.SnapToConcluido &&
-                PodeFicarInvisivel(alvo) &&
-                alvo.MyPhysics != null &&
-                alvo.NetTransform != null)
+            // Todos os RPCs EnterVent são disparados juntos no mesmo ciclo.
+            foreach (JogadorPreparacao item in preparacaoPendente)
             {
+                if (!item.SnapToConcluido)
+                    continue;
+
+                PlayerControl alvo = EncontrarJogador(item.PlayerId);
+                if (!PodeFicarInvisivel(alvo) ||
+                    alvo.MyPhysics == null || alvo.NetTransform == null)
+                    continue;
+
                 try
                 {
-                    // O ID é sempre o mesmo para todos; nenhum cliente escolhe outro duto.
                     alvo.MyPhysics.RpcEnterVent(ventPreparacaoId);
-
-                    float agora = Time.realtimeSinceStartup;
                     jogadoresNoDuto[alvo.PlayerId] = ventPreparacaoId;
                     saidasPendentes.Add(new SaidaPendente
                     {
@@ -249,8 +237,12 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
                 }
             }
 
-            indicePreparacao++;
-            proximoProcessamentoPreparacao = Time.realtimeSinceStartup;
+            etapaPreparacao = EtapaPreparacao.Nenhuma;
+            preparacaoPendente.Clear();
+            indicePreparacao = 0;
+            ventPreparacaoId = -1;
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[Invisibilidade] RPCs de entrada enviados simultaneamente para todos os jogadores.");
         }
     }
 
