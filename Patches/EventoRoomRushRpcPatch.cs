@@ -37,7 +37,7 @@ internal static class EventoRoomRushRpcPatch
             bool ativo = reader.ReadBoolean();
             if (!ativo)
             {
-                EventoRoomRush.ReceberEstadoLocal(SystemTypes.None, 0f, false);
+                EventoRoomRush.ReceberEstadoLocal(SystemTypes.Hallway, 0f, false);
                 return;
             }
 
@@ -63,7 +63,7 @@ internal static class EventoRoomRushLowerInfoTextPatch
     [HarmonyPostfix]
     private static void Postfix(HudManager __instance)
     {
-        if (__instance == null || !__instanceExists())
+        if (__instance == null)
             return;
 
         try
@@ -104,10 +104,4 @@ internal static class EventoRoomRushLowerInfoTextPatch
         }
     }
 
-    private static bool __instanceExists()
-    {
-        return HudManager.Instance != null &&
-            AmongUsClient.Instance != null &&
-            AmongUsClient.Instance.GameState == InnerNetClient.GameStates.Started;
-    }
 }
