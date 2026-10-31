@@ -8,21 +8,36 @@ namespace YouTubeVoteBridge;
 
 internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
 {
-    // 249 está livre: 248 = handshake, 250 = painel, 251 = nome NPC.
-    private const byte RpcInvisibilidade = 249;
+    private const int VentId = 2;
+    private const float AtrasoSaida = 0.5f;
+
     private static bool ativo;
     private static bool armado;
-    private static readonly HashSet<byte> jogadoresInvisiveis = new();
+
+    // Jogadores que foram colocados no duto para produzir a dessincronização visual.
+    private static readonly Dictionary<byte, int> jogadoresNoDuto = new();
+
+    // A saída é agendada para acontecer depois que o EnterVent já foi replicado.
+    private sealed class SaidaPendente
+    {
+        public byte PlayerId;
+        public int VentId;
+        public float ExecutarEm;
+    }
+
+    private static readonly List<SaidaPendente> saidasPendentes = new();
 
     public override string Nome => "Todos ficam invisíveis";
 
     public void Executar()
     {
-        if (!YouTubeVoteBridgePlugin.EhHost()) return;
+        if (!YouTubeVoteBridgePlugin.EhHost())
+            return;
 
         ativo = true;
         armado = true;
-        jogadoresInvisiveis.Clear();
+        jogadoresNoDuto.Clear();
+        saidasPendentes.Clear();
 
         if (ShipStatus.Instance != null)
             AplicarInvisibilidade("ativação do evento");
@@ -34,16 +49,6 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
             AplicarInvisibilidade("início da partida");
     }
 
-    internal static void AoImpostorMatar(PlayerControl assassino)
-    {
-        if (!ativo || !YouTubeVoteBridgePlugin.EhHost() ||
-            assassino == null || assassino.Data == null ||
-            assassino.Data.Role?.IsImpostor != true)
-            return;
-
-        AplicarInvisibilidade("morte causada por impostor");
-    }
-
     private static void AplicarInvisibilidade(string motivo)
     {
         if (!ativo || !YouTubeVoteBridgePlugin.EhHost() ||
@@ -52,222 +57,162 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
             return;
 
         armado = false;
-        int alvos = 0;
-        int rpcModded = 0;
-        int fallbackVanilla = 0;
+        int colocadosNoDuto = 0;
 
         foreach (PlayerControl alvo in PlayerControl.AllPlayerControls)
         {
-            if (!PodeFicarInvisivel(alvo))
+            if (!PodeFicarInvisivel(alvo) || jogadoresNoDuto.ContainsKey(alvo.PlayerId))
                 continue;
 
-            jogadoresInvisiveis.Add(alvo.PlayerId);
+            if (alvo.MyPhysics == null)
+                continue;
 
-            // A visão do host é atualizada localmente. Nunca escondemos o próprio host.
-            if (!alvo.AmOwner)
+            try
             {
-                try { AplicarVisualInvisivelLocal(alvo); }
-                catch (Exception ex)
-                {
-                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                        $"[Invisibilidade] Falha local para PlayerId={alvo.PlayerId}: {ex.GetBaseException().Message}");
-                }
-            }
+                // Mesmo método nativo usado no EHR para colocar o jogador no duto.
+                // O RPC de entrada é replicado normalmente para todos os clientes.
+                alvo.MyPhysics.RpcEnterVent(VentId);
 
-            foreach (PlayerControl espectador in PlayerControl.AllPlayerControls)
+                jogadoresNoDuto[alvo.PlayerId] = VentId;
+                saidasPendentes.Add(new SaidaPendente
+                {
+                    PlayerId = alvo.PlayerId,
+                    VentId = VentId,
+                    ExecutarEm = Time.realtimeSinceStartup + AtrasoSaida
+                });
+
+                colocadosNoDuto++;
+            }
+            catch (Exception ex)
             {
-                if (!PodeReceberRpc(espectador) ||
-                    espectador.AmOwner ||
-                    espectador == alvo)
-                    continue;
-
-                if (YouTubeVoteBridgePlugin.ClienteTemMod(espectador.OwnerId))
-                {
-                    if (EnviarRpcDirecionado(espectador, alvo, true))
-                        rpcModded++;
-                }
-                else
-                {
-                    // Clientes vanilla não conhecem o RPC personalizado. Para eles,
-                    // mantemos o fallback SnapTo do EHR, direcionado ao OwnerId.
-                    if (EnviarSnapToVanilla(espectador, alvo, true))
-                        fallbackVanilla++;
-                }
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    $"[Invisibilidade] Não foi possível colocar PlayerId={alvo.PlayerId} no duto: {ex.GetBaseException().Message}");
             }
-
-            alvos++;
         }
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"[Invisibilidade] Ativada. Motivo={motivo}; alvos={alvos}; " +
-            $"RPCs personalizados enviados={rpcModded}; fallback vanilla enviado={fallbackVanilla}.");
-    }
-
-    private static bool EnviarRpcDirecionado(
-        PlayerControl espectador, PlayerControl alvo, bool invisivel)
-    {
-        if (AmongUsClient.Instance == null || PlayerControl.LocalPlayer == null ||
-            espectador == null || alvo == null)
-            return false;
-
-        MessageWriter writer = null;
-        try
-        {
-            writer = MessageWriter.Get(SendOption.Reliable);
-            writer.StartMessage(6); // GameDataTo
-            writer.Write(AmongUsClient.Instance.GameId);
-            writer.WritePacked(espectador.OwnerId);
-
-            // O RPC é executado no PlayerControl do host no cliente destinatário.
-            writer.StartMessage(2);
-            writer.WritePacked(PlayerControl.LocalPlayer.NetId);
-            writer.Write(RpcInvisibilidade);
-            writer.WritePacked(alvo.NetId);
-            writer.Write((byte)(invisivel ? 1 : 0));
-            writer.EndMessage();
-
-            writer.EndMessage();
-            AmongUsClient.Instance.SendOrDisconnect(writer);
-            writer = null;
-            return true;
-        }
-        catch (Exception ex)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                $"[Invisibilidade] Falha enviando RPC para OwnerId={espectador.OwnerId}, " +
-                $"alvo NetId={alvo.NetId}: {ex.GetBaseException().Message}");
-            return false;
-        }
-        finally
-        {
-            writer?.Recycle();
-        }
-    }
-
-    private static bool EnviarSnapToVanilla(
-        PlayerControl espectador, PlayerControl alvo, bool invisivel)
-    {
-        if (AmongUsClient.Instance == null || espectador == null ||
-            alvo == null || alvo.NetTransform == null)
-            return false;
-
-        MessageWriter writer = null;
-        try
-        {
-            writer = MessageWriter.Get(SendOption.Reliable);
-            writer.StartMessage(6); // GameDataTo
-            writer.Write(AmongUsClient.Instance.GameId);
-            writer.WritePacked(espectador.OwnerId);
-
-            ushort seq = alvo.NetTransform.lastSequenceId;
-            if (invisivel)
-            {
-                EscreverSnapTo(writer, alvo, new Vector2(50f, 50f), seq);
-                EscreverSnapTo(writer, alvo, new Vector2(50f, 50f),
-                    (ushort)(seq + 16383));
-            }
-            else
-            {
-                EscreverSnapTo(writer, alvo, new Vector2(50f, 50f),
-                    (ushort)(seq + 32767));
-                EscreverSnapTo(writer, alvo, new Vector2(50f, 50f),
-                    (ushort)(seq + 32767 + 16383));
-                EscreverSnapTo(writer, alvo, (Vector2)alvo.transform.position, seq);
-            }
-
-            writer.EndMessage();
-            AmongUsClient.Instance.SendOrDisconnect(writer);
-            writer = null;
-            return true;
-        }
-        catch (Exception ex)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                $"[Invisibilidade] Falha no fallback vanilla para OwnerId={espectador.OwnerId}: {ex.GetBaseException().Message}");
-            return false;
-        }
-        finally
-        {
-            writer?.Recycle();
-        }
-    }
-
-    private static void EscreverSnapTo(
-        MessageWriter writer, PlayerControl alvo, Vector2 posicao, ushort sequencia)
-    {
-        writer.StartMessage(2);
-        writer.WritePacked(alvo.NetTransform.NetId);
-        writer.Write((byte)RpcCalls.SnapTo);
-        writer.Write(posicao.x);
-        writer.Write(posicao.y);
-        writer.Write(sequencia);
-        writer.EndMessage();
-    }
-
-    private static void AplicarVisualInvisivelLocal(PlayerControl jogador)
-    {
-        if (jogador == null || PlayerControl.LocalPlayer == null ||
-            PlayerControl.LocalPlayer.Data == null)
-            return;
-
-        jogador.invisibilityAlpha = jogador.AmOwner
-            ? 0.5f
-            : PlayerControl.LocalPlayer.Data.Role.IsDead ? 0.5f : 0f;
-        jogador.cosmetics.SetPhantomRoleAlpha(jogador.invisibilityAlpha);
-
-        if (!jogador.AmOwner && !PlayerControl.LocalPlayer.Data.Role.IsDead)
-        {
-            jogador.shouldAppearInvisible = true;
-            jogador.Visible = false;
-        }
-    }
-
-    private static void RestaurarVisualLocal(PlayerControl jogador)
-    {
-        if (jogador == null) return;
-
-        if (!jogador.AmOwner)
-        {
-            jogador.shouldAppearInvisible = false;
-            jogador.Visible = true;
-        }
-
-        jogador.invisibilityAlpha = 1f;
-        jogador.cosmetics.SetPhantomRoleAlpha(jogador.invisibilityAlpha);
-
-        if (!jogador.AmOwner)
-        {
-            jogador.shouldAppearInvisible = false;
-            jogador.Visible = !jogador.inVent;
-        }
-    }
-
-    private static void AplicarVisualNoCliente(uint netId, bool invisivel)
-    {
-        PlayerControl alvo = EncontrarPorNetId(netId);
-        if (alvo == null)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                $"[Invisibilidade] RPC recebido, mas NetId={netId} ainda não foi encontrado.");
-            return;
-        }
-
-        if (invisivel)
-            AplicarVisualInvisivelLocal(alvo);
-        else
-            RestaurarVisualLocal(alvo);
+            $"[Invisibilidade] Entrada nos dutos enviada. Motivo={motivo}; jogadores={colocadosNoDuto}; VentId={VentId}.");
     }
 
     private static bool PodeFicarInvisivel(PlayerControl jogador) =>
-        jogador != null && jogador.Data != null &&
-        !jogador.Data.Disconnected && !jogador.Data.IsDead &&
+        jogador != null &&
+        jogador.Data != null &&
+        !jogador.Data.Disconnected &&
+        !jogador.Data.IsDead &&
+        jogador.MyPhysics != null &&
         jogador.NetTransform != null;
 
-    private static bool PodeReceberRpc(PlayerControl espectador) =>
-        espectador != null && espectador.Data != null &&
-        !espectador.Data.Disconnected && !espectador.Data.IsDead &&
-        espectador.Data.Role?.IsImpostor == false &&
-        espectador.OwnerId >= 0;
+    private static bool EstaVivo(PlayerControl jogador) =>
+        jogador != null &&
+        jogador.Data != null &&
+        !jogador.Data.Disconnected &&
+        !jogador.Data.IsDead &&
+        jogador.OwnerId >= 0;
+
+    private static PlayerControl EncontrarJogador(byte playerId)
+    {
+        if (PlayerControl.AllPlayerControls == null)
+            return null;
+
+        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+        {
+            if (jogador != null && jogador.PlayerId == playerId)
+                return jogador;
+        }
+
+        return null;
+    }
+
+    // Equivalente ao RpcExitVentDesync do EHR:
+    // executa CoExitVent localmente quando o destinatário é o host;
+    // caso contrário, envia o RPC nativo ExitVent somente ao OwnerId indicado.
+    private static bool EnviarSaidaDutoDesync(PlayerControl alvo, int ventId, PlayerControl espectador)
+    {
+        if (AmongUsClient.Instance == null ||
+            alvo == null ||
+            alvo.MyPhysics == null ||
+            espectador == null ||
+            espectador.OwnerId < 0)
+            return false;
+
+        int clientId = espectador.OwnerId;
+
+        try
+        {
+            if (AmongUsClient.Instance.ClientId == clientId)
+            {
+                alvo.MyPhysics.StopAllCoroutines();
+                alvo.MyPhysics.StartCoroutine(alvo.MyPhysics.CoExitVent(ventId));
+                return true;
+            }
+
+            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
+                alvo.MyPhysics.NetId,
+                (byte)RpcCalls.ExitVent,
+                SendOption.Reliable,
+                clientId
+            );
+
+            writer.WritePacked(ventId);
+            AmongUsClient.Instance.FinishRpcImmediately(writer);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                $"[Invisibilidade] Falha ao sincronizar saída do duto. Alvo={alvo.PlayerId}; " +
+                $"espectador={espectador.PlayerId}; erro={ex.GetBaseException().Message}");
+            return false;
+        }
+    }
+
+    private static void ProcessarSaidasPendentes()
+    {
+        if (!ativo || !YouTubeVoteBridgePlugin.EhHost() || saidasPendentes.Count == 0)
+            return;
+
+        float agora = Time.realtimeSinceStartup;
+
+        for (int i = saidasPendentes.Count - 1; i >= 0; i--)
+        {
+            SaidaPendente pendente = saidasPendentes[i];
+            if (agora < pendente.ExecutarEm)
+                continue;
+
+            saidasPendentes.RemoveAt(i);
+
+            PlayerControl alvo = EncontrarJogador(pendente.PlayerId);
+            if (!EstaVivo(alvo))
+            {
+                jogadoresNoDuto.Remove(pendente.PlayerId);
+                continue;
+            }
+
+            int saidasEnviadas = 0;
+
+            // O próprio jogador precisa sair do duto somente na própria tela.
+            if (EnviarSaidaDutoDesync(alvo, pendente.VentId, alvo))
+                saidasEnviadas++;
+
+            // Impostores também recebem a saída, para continuarem vendo o jogador.
+            // Tripulantes que não são o próprio alvo NÃO recebem ExitVent:
+            // para eles, o alvo continua dentro do duto e fica invisível.
+            foreach (PlayerControl espectador in PlayerControl.AllPlayerControls)
+            {
+                if (!EstaVivo(espectador) ||
+                    espectador == alvo ||
+                    espectador.Data.Role?.IsImpostor != true)
+                    continue;
+
+                if (EnviarSaidaDutoDesync(alvo, pendente.VentId, espectador))
+                    saidasEnviadas++;
+            }
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                $"[Invisibilidade] Duto dessincronizado para PlayerId={alvo.PlayerId}; " +
+                $"saídas direcionadas={saidasEnviadas}.");
+        }
+    }
 
     internal static void EncerrarNaReuniao()
     {
@@ -276,93 +221,46 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
 
         ativo = false;
         armado = false;
-        int restaurados = 0;
-        int rpcModded = 0;
-        int fallbackVanilla = 0;
+        saidasPendentes.Clear();
 
-        foreach (byte playerId in jogadoresInvisiveis)
+        int restaurados = 0;
+        int saidasEnviadas = 0;
+
+        foreach (KeyValuePair<byte, int> entrada in jogadoresNoDuto)
         {
-            PlayerControl alvo = EncontrarJogador(playerId);
+            PlayerControl alvo = EncontrarJogador(entrada.Key);
             if (alvo == null || alvo.Data == null ||
-                alvo.Data.Disconnected || alvo.NetTransform == null)
+                alvo.Data.Disconnected || alvo.MyPhysics == null)
                 continue;
 
-            if (!alvo.AmOwner)
-            {
-                try { RestaurarVisualLocal(alvo); }
-                catch (Exception ex)
-                {
-                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                        $"[Invisibilidade] Falha ao restaurar localmente PlayerId={playerId}: {ex.GetBaseException().Message}");
-                }
-            }
-
+            // Na reunião, todos os clientes precisam receber ExitVent.
+            // Isso desfaz a dessincronização criada durante o evento.
             foreach (PlayerControl espectador in PlayerControl.AllPlayerControls)
             {
-                if (!PodeReceberRpc(espectador) ||
-                    espectador.AmOwner ||
-                    espectador == alvo)
+                if (espectador == null || espectador.Data == null ||
+                    espectador.Data.Disconnected || espectador.OwnerId < 0)
                     continue;
 
-                if (YouTubeVoteBridgePlugin.ClienteTemMod(espectador.OwnerId))
-                {
-                    if (EnviarRpcDirecionado(espectador, alvo, false))
-                        rpcModded++;
-                }
-                else
-                {
-                    if (EnviarSnapToVanilla(espectador, alvo, false))
-                        fallbackVanilla++;
-                }
+                if (EnviarSaidaDutoDesync(alvo, entrada.Value, espectador))
+                    saidasEnviadas++;
             }
 
             restaurados++;
         }
 
-        jogadoresInvisiveis.Clear();
+        jogadoresNoDuto.Clear();
+
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"[Invisibilidade] Encerrada na reunião. Jogadores={restaurados}; " +
-            $"RPCs personalizados enviados={rpcModded}; fallback vanilla enviado={fallbackVanilla}.");
-    }
-
-    private static PlayerControl EncontrarJogador(byte playerId)
-    {
-        if (PlayerControl.AllPlayerControls == null) return null;
-        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
-            if (jogador != null && jogador.PlayerId == playerId)
-                return jogador;
-        return null;
-    }
-
-    private static PlayerControl EncontrarPorNetId(uint netId)
-    {
-        if (PlayerControl.AllPlayerControls == null) return null;
-        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
-            if (jogador != null && jogador.NetId == netId)
-                return jogador;
-        return null;
-    }
-
-    internal static void ReceberRpc(MessageReader reader)
-    {
-        try
-        {
-            uint netId = reader.ReadPackedUInt32();
-            bool invisivel = reader.ReadByte() != 0;
-            AplicarVisualNoCliente(netId, invisivel);
-        }
-        catch (Exception ex)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[Invisibilidade] RPC personalizado inválido: " + ex);
-        }
+            $"[Invisibilidade] Evento encerrado na reunião. Jogadores restaurados={restaurados}; " +
+            $"saídas direcionadas={saidasEnviadas}.");
     }
 
     internal static void Resetar()
     {
         ativo = false;
         armado = false;
-        jogadoresInvisiveis.Clear();
+        jogadoresNoDuto.Clear();
+        saidasPendentes.Clear();
     }
 
     [HarmonyPatch(typeof(MeetingHud), nameof(MeetingHud.Start))]
@@ -371,26 +269,13 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         private static void Postfix() => EncerrarNaReuniao();
     }
 
-    [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.MurderPlayer))]
-    private static class MorteImpostorInvisibilidadePatch
+    [HarmonyPatch(typeof(AmongUsClient), nameof(AmongUsClient.Update))]
+    private static class AtualizarSaidasInvisibilidadePatch
     {
-        private static void Postfix(PlayerControl __instance) =>
-            AoImpostorMatar(__instance);
-    }
-}
-
-[HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.HandleRpc))]
-internal static class EventoTodosFicamInvisiveisRpcPatch
-{
-    private const byte RpcInvisibilidade = 249;
-
-    [HarmonyPrefix]
-    private static bool Prefix(byte callId, MessageReader reader)
-    {
-        if (callId != RpcInvisibilidade)
-            return true;
-
-        EventoTodosFicamInvisiveis.ReceberRpc(reader);
-        return false;
+        private static void Postfix()
+        {
+            if (ativo)
+                ProcessarSaidasPendentes();
+        }
     }
 }
