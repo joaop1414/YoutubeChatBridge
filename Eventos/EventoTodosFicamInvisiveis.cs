@@ -396,8 +396,8 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         // O host precisa atualizar sua própria cópia sem enviar RPC para si.
         PlayerControl local = PlayerControl.LocalPlayer;
         if (local != null && local.Data != null && !local.Data.IsDead &&
-            !local.Data.Disconnected && local.Data.Role?.IsImpostor == false &&
-            !alvo.AmOwner)
+            !local.Data.Disconnected &&
+            (alvo.AmOwner || local.Data.Role?.IsImpostor == false))
         {
             try
             {
