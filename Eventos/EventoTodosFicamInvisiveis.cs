@@ -456,27 +456,22 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
                 ExecutarEm = Time.realtimeSinceStartup + 0.20f
             });
 
-            // O RPC original do impostor foi cancelado pelo Prefix.
-            // Agora a própria vítima é a origem e o alvo do assassinato.
+            // Reaproveita exatamente a reação do evento F7:
+            // escudo do Anjo da Guarda + cooldown temporariamente dobrado,
+            // seguido pelo efeito FailedProtected no cliente do impostor.
+            EventoEscudoTemporarioMortePatch.AplicarEscudoEResetarCooldown(assassino);
+
+            // Assim como no evento F7, o impostor não executa a kill original.
+            // A vítima recebe a ordem de executar o próprio assassinato.
             processandoMorteDessinc = true;
             try
             {
-                if (AmongUsClient.Instance.AmClient)
-                    vitima.MurderPlayer(vitima, MurderResultFlags.Succeeded);
+                vitima.RpcMurderPlayer(vitima, true);
             }
             finally
             {
                 processandoMorteDessinc = false;
             }
-
-            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
-                vitima.NetId,
-                (byte)RpcCalls.MurderPlayer,
-                SendOption.Reliable);
-
-            writer.WriteNetObject(vitima);
-            writer.Write((int)MurderResultFlags.Succeeded);
-            AmongUsClient.Instance.FinishRpcImmediately(writer);
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 $"[Invisibilidade] Assassinato por auto-RPC: impostor={assassino.PlayerId}; " +
