@@ -12,6 +12,7 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
     private static bool ativo;
     private static bool armado;
     private static readonly System.Collections.Generic.HashSet<byte> invisiveis = new();
+    private static readonly System.Collections.Generic.Dictionary<byte, int> dutosForcados = new();
 
     public override string Nome => "Todos ficam invisíveis";
 
@@ -28,8 +29,6 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         if (armado && ativo && ShipStatus.Instance != null) Aplicar();
     }
 
-    private static readonly System.Collections.Generic.Dictionary<byte, int> dutosForcados = new();
-
     private static void Aplicar()
     {
         if (!ativo || PlayerControl.AllPlayerControls == null ||
@@ -40,13 +39,11 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         dutosForcados.Clear();
         int enviados = 0;
 
-        bool hostImpostor = PlayerControl.LocalPlayer?.Data?.Role?.IsImpostor == true;
-
         foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
         {
             if (jogador == null || jogador.Data == null ||
                 jogador.Data.Disconnected || jogador.Data.IsDead ||
-                jogador.MyPhysics == null)
+                jogador.MyPhysics == null || jogador.NetTransform == null)
                 continue;
 
             Vent duto = EncontrarDutoMaisProximo(jogador);
@@ -57,27 +54,26 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
                 continue;
             }
 
+            Vector2 posicaoDuto = (Vector2)duto.transform.position;
             dutosForcados[jogador.PlayerId] = duto.Id;
 
-            // Sincroniza a posição real do jogador com o centro do duto antes
-            // de anunciar EnterVent aos clientes. Sem este SnapTo, alguns clientes
-            // recebem o estado de duto enquanto o jogador ainda está fora dele.
-            if (jogador.NetTransform != null)
-                jogador.NetTransform.RpcSnapTo((Vector2)duto.transform.position);
-
-            EnviarRpcDutoParaEspectadores(jogador, duto.Id, entrar: true);
-
-            // O host não pode enviar um RPC direcionado a si mesmo. Se o host for
-            // tripulante, reproduzimos localmente apenas o efeito visual dos outros.
-            // Se for impostor, ele continua vendo todos normalmente.
-            if (!hostImpostor && !jogador.AmOwner)
+            EnviarRpcDutoParaEspectadores(jogador, duto.Id, entrar: true, posicaoDuto);
+            
+            // O host é o emissor dos RPCs direcionados e não recebe a própria
+            // mensagem de rede. Atualizamos a posição local para manter a visão
+            // do host alinhada com a dos demais clientes.
+            if (!jogador.AmOwner)
+            {
+                ushort sequenceId = (ushort)(jogador.NetTransform.lastSequenceId + 2);
+                jogador.NetTransform.SnapTo(posicaoDuto, sequenceId);
                 jogador.Visible = false;
+            }
 
             enviados++;
         }
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"[Invisibilidade/Duto] RPC EnterVent enviado a espectadores não-impostores para {enviados} jogador(es); os alvos e os impostores não recebem o RPC. Restauração na reunião.");
+            $"[Invisibilidade/Duto] SnapTo + EnterVent enviados a todos os outros clientes (incluindo impostores), excluindo somente o dono de cada jogador. Jogadores processados: {enviados}. Restauração na reunião.");
     }
 
     private static Vent EncontrarDutoMaisProximo(PlayerControl jogador)
@@ -100,13 +96,17 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         return melhor;
     }
 
-    // Envia o RPC nativo EnterVent/ExitVent somente para clientes que devem
-    // enxergar o jogador dentro do duto. Clientes impostores e o próprio alvo
-    // são excluídos deliberadamente.
-    private static void EnviarRpcDutoParaEspectadores(PlayerControl alvo, int ventId, bool entrar)
+    // Encaminha os RPCs individualmente para todos os clientes, exceto o dono
+    // do jogador-alvo. A ordem é importante: SnapTo primeiro, EnterVent depois.
+    // No encerramento, envia apenas ExitVent, também para todos menos o dono.
+    private static void EnviarRpcDutoParaEspectadores(
+        PlayerControl alvo,
+        int ventId,
+        bool entrar,
+        Vector2? posicaoDuto = null)
     {
-        if (alvo?.MyPhysics == null || AmongUsClient.Instance == null ||
-            PlayerControl.AllPlayerControls == null)
+        if (alvo?.MyPhysics == null || alvo.NetTransform == null ||
+            AmongUsClient.Instance == null || PlayerControl.AllPlayerControls == null)
             return;
 
         MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
@@ -119,20 +119,34 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
 
             int clientHost = AmongUsClient.Instance.ClientId;
             var clientes = new System.Collections.Generic.HashSet<int>();
+            ushort sequenceId = (ushort)(alvo.NetTransform.lastSequenceId + 2);
 
             foreach (PlayerControl espectador in PlayerControl.AllPlayerControls)
             {
-                if (espectador == null || espectador.Data == null || espectador.Data.Disconnected ||
-                    espectador.OwnerId < 0 || espectador.OwnerId == clientHost ||
-                    espectador == alvo || espectador.Data.Role?.IsImpostor == true ||
-                    !clientes.Add(espectador.OwnerId))
+                if (espectador == null || espectador.Data == null ||
+                    espectador.Data.Disconnected || espectador.OwnerId < 0 ||
+                    espectador.OwnerId == clientHost ||
+                    espectador == alvo || !clientes.Add(espectador.OwnerId))
                     continue;
 
-                // GameDataTo: RPC direcionado a este espectador.
+                // GameDataTo: entrega os RPCs somente ao cliente deste espectador.
                 writer.StartMessage(6);
                 writer.Write(AmongUsClient.Instance.GameId);
                 writer.WritePacked(espectador.OwnerId);
 
+                if (entrar && posicaoDuto.HasValue)
+                {
+                    // CustomNetworkTransform.SnapTo: Vector2 + ushort sequence ID.
+                    writer.StartMessage(2);
+                    writer.WritePacked(alvo.NetTransform.NetId);
+                    writer.Write((byte)RpcCalls.SnapTo);
+                    writer.Write(posicaoDuto.Value.x);
+                    writer.Write(posicaoDuto.Value.y);
+                    writer.Write(sequenceId);
+                    writer.EndMessage();
+                }
+
+                // PlayerPhysics.EnterVent/ExitVent.
                 writer.StartMessage(2);
                 writer.WritePacked(alvo.MyPhysics.NetId);
                 writer.Write((byte)(entrar ? RpcCalls.EnterVent : RpcCalls.ExitVent));
@@ -151,7 +165,7 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                $"[Invisibilidade/Duto] Falha ao enviar {(entrar ? "EnterVent" : "ExitVent")} para PlayerId={alvo.PlayerId}: {ex.GetBaseException().Message}");
+                $"[Invisibilidade/Duto] Falha ao enviar {(entrar ? "SnapTo + EnterVent" : "ExitVent")} para PlayerId={alvo.PlayerId}: {ex.GetBaseException().Message}");
         }
         finally
         {
@@ -175,7 +189,7 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
                 if (dutosForcados.TryGetValue(jogador.PlayerId, out int ventId))
                     EnviarRpcDutoParaEspectadores(jogador, ventId, entrar: false);
 
-                // Restaura apenas a visibilidade local do host quando ele é tripulante.
+                // Restaura a visibilidade local do host para os outros jogadores.
                 if (!jogador.AmOwner)
                     jogador.Visible = true;
             }
@@ -183,7 +197,7 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
 
         dutosForcados.Clear();
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            "[Invisibilidade/Duto] Evento encerrado na reunião; enviados ExitVent aos espectadores elegíveis.");
+            "[Invisibilidade/Duto] Evento encerrado na reunião; ExitVent enviado a todos os outros clientes.");
     }
 
     [HarmonyPatch(typeof(MeetingHud), nameof(MeetingHud.Start))]
