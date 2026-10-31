@@ -10,10 +10,10 @@ namespace YouTubeVoteBridge;
 
 internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
 {
-    private const float IntervaloEntreSnapTo = 0.08f;
+    private const float IntervaloEntreSnapTo = 0f;
     private const float AtrasoAntesDasEntradas = 0.20f;
-    private const float IntervaloEntreEntradas = 0.08f;
-    private const float AtrasoRestaurarPosicao = 0.15f;
+    private const float IntervaloEntreEntradas = 0f;
+    private const float AtrasoRestaurarPosicao = 0.60f;
     private const float AtrasoSaida = 0.5f;
 
     private static bool ativo;
@@ -195,7 +195,7 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
                 try
                 {
                     // Mesmo padrão do Tsunami: usar o RPC nativo do NetTransform.
-                    alvo.NetTransform.RpcSnapTo(posicaoVentPreparacao);
+                    EnviarSnapToParaTripulantes(alvo, posicaoVentPreparacao);
                     item.SnapToConcluido = true;
                 }
                 catch (Exception ex)
@@ -207,8 +207,7 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
             }
 
             indicePreparacao++;
-            proximoProcessamentoPreparacao =
-                Time.realtimeSinceStartup + IntervaloEntreSnapTo;
+            proximoProcessamentoPreparacao = Time.realtimeSinceStartup;
             return;
         }
 
@@ -240,7 +239,7 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
                 {
                     try
                     {
-                        alvo.NetTransform.RpcSnapTo(item.PosicaoOriginal);
+                        EnviarSnapToParaTripulantes(alvo, item.PosicaoOriginal);
                     }
                     catch { }
 
@@ -251,8 +250,7 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
             }
 
             indicePreparacao++;
-            proximoProcessamentoPreparacao =
-                Time.realtimeSinceStartup + IntervaloEntreEntradas;
+            proximoProcessamentoPreparacao = Time.realtimeSinceStartup;
         }
     }
 
@@ -312,6 +310,7 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
     {
         if (!YouTubeVoteBridgePlugin.EhHost() ||
             AmongUsClient.Instance == null ||
+            PlayerControl.LocalPlayer?.Data?.Role?.IsImpostor == true ||
             jogador == null ||
             jogador.AmOwner ||
             visuaisOcultosHost.ContainsKey(jogador.PlayerId))
@@ -386,6 +385,84 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         if (total > 0)
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 $"[Invisibilidade] Visuais restaurados no host: {total} jogador(es).");
+    }
+
+    // Envia SnapTo diretamente a cada cliente tripulante, no mesmo formato
+    // GameDataTo usado pelo EHR. RpcSnapTo pelo host não atualizava de forma
+    // consistente os transforms que pertencem a outros clientes.
+    private static int EnviarSnapToParaTripulantes(PlayerControl alvo, Vector2 posicao)
+    {
+        if (alvo == null || alvo.NetTransform == null ||
+            AmongUsClient.Instance == null || PlayerControl.AllPlayerControls == null)
+            return 0;
+
+        int enviados = 0;
+        int hostClientId = AmongUsClient.Instance.ClientId;
+        var clientes = new HashSet<int>();
+        ushort sequence = (ushort)(alvo.NetTransform.lastSequenceId + 2);
+
+        // O host precisa atualizar sua própria cópia sem enviar RPC para si.
+        PlayerControl local = PlayerControl.LocalPlayer;
+        if (local != null && local.Data != null && !local.Data.IsDead &&
+            !local.Data.Disconnected && local.Data.Role?.IsImpostor == false &&
+            !alvo.AmOwner)
+        {
+            try
+            {
+                alvo.NetTransform.SnapTo(posicao, sequence);
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    $"[Invisibilidade] SnapTo local falhou para PlayerId={alvo.PlayerId}: {ex.GetBaseException().Message}");
+            }
+        }
+
+        foreach (PlayerControl espectador in PlayerControl.AllPlayerControls)
+        {
+            if (espectador == null || espectador.Data == null ||
+                espectador.Data.Disconnected || espectador.Data.IsDead ||
+                espectador.Data.Role?.IsImpostor != false ||
+                espectador.OwnerId < 0 || espectador.OwnerId == hostClientId ||
+                !clientes.Add(espectador.OwnerId))
+                continue;
+
+            MessageWriter writer = null;
+            try
+            {
+                writer = MessageWriter.Get(SendOption.Reliable);
+                writer.StartMessage(26); // GameData
+                writer.WritePacked(AmongUsClient.Instance.GameId);
+                writer.StartMessage(6); // GameDataTo
+                writer.Write(AmongUsClient.Instance.GameId);
+                writer.WritePacked(espectador.OwnerId);
+
+                writer.StartMessage(2); // RPC
+                writer.WritePacked(alvo.NetTransform.NetId);
+                writer.Write((byte)RpcCalls.SnapTo);
+                writer.Write(posicao.x);
+                writer.Write(posicao.y);
+                writer.Write(sequence);
+                writer.EndMessage();
+
+                writer.EndMessage(); // GameDataTo
+                writer.EndMessage(); // GameData
+                AmongUsClient.Instance.SendOrDisconnect(writer);
+                enviados++;
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    $"[Invisibilidade] SnapTo direcionado falhou. OwnerId={espectador.OwnerId}; " +
+                    $"PlayerId={alvo.PlayerId}; erro={ex.GetBaseException().Message}");
+            }
+            finally
+            {
+                writer?.Recycle();
+            }
+        }
+
+        return enviados;
     }
 
     // Equivalente ao RpcExitVentDesync do EHR:
@@ -514,7 +591,7 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
             try
             {
                 if (alvo.NetTransform != null)
-                    alvo.NetTransform.RpcSnapTo(pendente.PosicaoOriginal);
+                    EnviarSnapToParaTripulantes(alvo, pendente.PosicaoOriginal);
 
                 // Após sair do duto e voltar à posição original, o host oculta
                 // localmente o jogador. Nenhum estado visual é enviado aos demais.
@@ -590,7 +667,7 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
             try
             {
                 // Segundo RPC confiável, depois que Die/corpo falso terminar.
-                assassino.NetTransform.RpcSnapTo(pendente.Posicao);
+                EnviarSnapToParaTripulantes(assassino, pendente.Posicao);
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                     $"[Invisibilidade] SnapTo de rede reaplicado após a morte. " +
                     $"Impostor={pendente.PlayerId}; posição={pendente.Posicao}.");
@@ -644,7 +721,7 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
             Vector2 posicaoVitima = vitima.GetTruePosition();
 
             // Primeiro SnapTo de rede para todos os clientes.
-            assassino.NetTransform.RpcSnapTo(posicaoVitima);
+            EnviarSnapToParaTripulantes(assassino, posicaoVitima);
 
             // Mesma reação do evento F7: escudo + FailedProtected para resetar
             // o cooldown do impostor, sem permitir que a kill original prossiga.
