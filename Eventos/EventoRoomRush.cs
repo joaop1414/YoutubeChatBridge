@@ -25,6 +25,10 @@ internal sealed class EventoRoomRush : EventoVotacao
     private static int ciclosReatorRestantes;
     private static bool sequenciaReatorAtiva;
     private static bool aguardandoProximoPulsoReator;
+    // Aviso de sala aplicado somente ao nome visto pelo próprio cliente vanilla.
+    private static readonly Dictionary<byte, string> nomesOriginaisVanilla = new();
+    private static readonly HashSet<byte> nomesAlteradosVanilla = new();
+    private static float proximaAtualizacaoAvisoNomes;
 
     public override string Nome => "Vá para a sala ou morra";
 
@@ -75,6 +79,8 @@ internal sealed class EventoRoomRush : EventoVotacao
 
         if (MeetingHud.Instance != null || ExileController.Instance != null)
             return;
+
+        AtualizarAvisoNomesVanilla();
 
         float agora = Time.realtimeSinceStartup;
         if (agora >= proximaSincronizacao)
@@ -323,6 +329,108 @@ internal sealed class EventoRoomRush : EventoVotacao
             aplicados + " jogador(es).");
     }
 
+    // Envia o aviso somente ao dono de cada jogador sem o mod.
+    // O GameDataTo (tipo 6) impede que o nome temporário seja replicado para a sala inteira.
+    private static bool DefinirNomeLocalParaCliente(PlayerControl jogador, string nome)
+    {
+        if (!YouTubeVoteBridgePlugin.EhHost() || AmongUsClient.Instance == null ||
+            jogador == null || jogador.Data == null || jogador.OwnerId < 0 ||
+            jogador.OwnerId == AmongUsClient.Instance.ClientId)
+            return false;
+
+        MessageWriter writer = null;
+        try
+        {
+            writer = MessageWriter.Get(SendOption.Reliable);
+            writer.StartMessage(6); // GameDataTo: somente o cliente proprietário
+            writer.Write(AmongUsClient.Instance.GameId);
+            writer.WritePacked(jogador.OwnerId);
+
+            writer.StartMessage(2);
+            writer.WritePacked(jogador.NetId);
+            writer.Write((byte)RpcCalls.SetName);
+            writer.Write(jogador.Data.NetId);
+            writer.Write(nome);
+            writer.EndMessage();
+
+            writer.EndMessage();
+            AmongUsClient.Instance.SendOrDisconnect(writer);
+            writer.Recycle();
+            writer = null;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F6/Room Rush] Falha ao definir aviso no nome de PlayerId=" +
+                jogador.PlayerId + ": " + ex.Message);
+            return false;
+        }
+        finally
+        {
+            if (writer != null)
+            {
+                try { writer.Recycle(); } catch { }
+            }
+        }
+    }
+
+    private static void AtualizarAvisoNomesVanilla()
+    {
+        if (!ativo || !YouTubeVoteBridgePlugin.EhHost() ||
+            AmongUsClient.Instance == null ||
+            Time.realtimeSinceStartup < proximaAtualizacaoAvisoNomes)
+            return;
+
+        proximaAtualizacaoAvisoNomes = Time.realtimeSinceStartup + 0.5f;
+        int segundos = Mathf.Max(0, Mathf.CeilToInt(prazo - Time.realtimeSinceStartup));
+        string cor = segundos <= 5 ? "red" : "yellow";
+
+        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+        {
+            if (jogador == null || jogador.Data == null || jogador.Data.Disconnected ||
+                jogador.OwnerId < 0 ||
+                jogador.OwnerId == AmongUsClient.Instance.ClientId ||
+                YouTubeVoteBridgePlugin.ClienteTemMod(jogador.OwnerId))
+                continue;
+
+            if (!nomesOriginaisVanilla.TryGetValue(jogador.PlayerId, out string nomeOriginal))
+            {
+                nomeOriginal = jogador.Data.PlayerName ?? "";
+                nomesOriginaisVanilla[jogador.PlayerId] = nomeOriginal;
+            }
+
+            string nomeAviso = nomeOriginal +
+                "\\n<color=" + cor + ">Vá para: " + NomeSala(salaAlvo) +
+                " (" + segundos + "s)</color>";
+
+            if (DefinirNomeLocalParaCliente(jogador, nomeAviso))
+                nomesAlteradosVanilla.Add(jogador.PlayerId);
+        }
+    }
+
+    private static void RestaurarAvisosNomesVanilla()
+    {
+        if (YouTubeVoteBridgePlugin.EhHost() && AmongUsClient.Instance != null)
+        {
+            foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+            {
+                if (jogador == null ||
+                    !nomesOriginaisVanilla.TryGetValue(jogador.PlayerId, out string nomeOriginal))
+                    continue;
+
+                if (jogador.OwnerId >= 0 &&
+                    jogador.OwnerId != AmongUsClient.Instance.ClientId &&
+                    nomesAlteradosVanilla.Contains(jogador.PlayerId))
+                    DefinirNomeLocalParaCliente(jogador, nomeOriginal);
+            }
+        }
+
+        nomesOriginaisVanilla.Clear();
+        nomesAlteradosVanilla.Clear();
+        proximaAtualizacaoAvisoNomes = 0f;
+    }
+
     private static void SincronizarEstado()
     {
         float restante = Mathf.Max(0f, prazo - Time.realtimeSinceStartup);
@@ -438,6 +546,8 @@ internal sealed class EventoRoomRush : EventoVotacao
 
     internal static void Resetar()
     {
+        RestaurarAvisosNomesVanilla();
+
         if (ativo && YouTubeVoteBridgePlugin.EhHost())
             YouTubeVoteBridgePlugin.SincronizarRoomRush(0, 0f, false);
 
