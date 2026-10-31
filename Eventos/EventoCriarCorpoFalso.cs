@@ -13,14 +13,32 @@ internal sealed class EventoCriarCorpoFalso : EventoVotacao
 
     private static readonly System.Random Sorteador = new();
     private static byte? jogadorForcado;
+    private static Vector2? posicaoJogadorForcada;
 
-    // Reutiliza exatamente a sequência de criação/sincronização do evento,
-    // mas escolhe o jogador específico que foi atingido pelo tsunami.
+    // Reutiliza a sequência de sincronização do evento para um jogador específico.
     public static void ExecutarParaJogador(byte playerId)
     {
         jogadorForcado = playerId;
+        posicaoJogadorForcada = null;
         try { new EventoCriarCorpoFalso().Executar(); }
-        finally { jogadorForcado = null; }
+        finally
+        {
+            jogadorForcado = null;
+            posicaoJogadorForcada = null;
+        }
+    }
+
+    // Cria o corpo falso exatamente na posição em que o jogador foi morto.
+    public static void ExecutarParaJogadorNaPosicao(byte playerId, Vector2 posicao)
+    {
+        jogadorForcado = playerId;
+        posicaoJogadorForcada = posicao;
+        try { new EventoCriarCorpoFalso().Executar(); }
+        finally
+        {
+            jogadorForcado = null;
+            posicaoJogadorForcada = null;
+        }
     }
 
     public void Executar()
@@ -101,7 +119,7 @@ internal sealed class EventoCriarCorpoFalso : EventoVotacao
                 salas.Add(sala);
             }
 
-            if (salas.Count == 0)
+            if (!posicaoJogadorForcada.HasValue && salas.Count == 0)
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
                     "Corpo falso cancelado: não foram encontradas salas válidas no mapa.");
@@ -111,30 +129,37 @@ internal sealed class EventoCriarCorpoFalso : EventoVotacao
             PlayerControl modelo = candidatos[Sorteador.Next(candidatos.Count)];
             Vector3 deslocamento = modelo.KillAnimations[0].BodyOffset;
 
-            // Usa o mesmo validador do teleporte e verifica também a posição
-            // final do corpo depois de aplicar BodyOffset.
-            PlainShipRoom salaEscolhida = null;
             Vector2 pontoJogador = Vector2.zero;
-            bool encontrouPosicaoSegura = false;
-
-            for (int tentativa = 0; tentativa < Math.Max(20, salas.Count * 4); tentativa++)
+            if (posicaoJogadorForcada.HasValue)
             {
-                PlainShipRoom salaTentativa = salas[Sorteador.Next(salas.Count)];
-                if (PosicaoSeguraMapa.TentarObterPontoSeguro(
-                    salaTentativa.roomArea, new Vector2(deslocamento.x, deslocamento.y),
-                    out pontoJogador))
-                {
-                    salaEscolhida = salaTentativa;
-                    encontrouPosicaoSegura = true;
-                    break;
-                }
+                // A vítima já está no ponto correto; não sorteia outra sala.
+                pontoJogador = posicaoJogadorForcada.Value;
             }
-
-            if (!encontrouPosicaoSegura || salaEscolhida == null)
+            else
             {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "Corpo falso cancelado: não foi encontrado um ponto seguro livre de colisões.");
-                return;
+                // Evento normal: escolhe um ponto seguro aleatório no mapa.
+                PlainShipRoom salaEscolhida = null;
+                bool encontrouPosicaoSegura = false;
+
+                for (int tentativa = 0; tentativa < Math.Max(20, salas.Count * 4); tentativa++)
+                {
+                    PlainShipRoom salaTentativa = salas[Sorteador.Next(salas.Count)];
+                    if (PosicaoSeguraMapa.TentarObterPontoSeguro(
+                        salaTentativa.roomArea, new Vector2(deslocamento.x, deslocamento.y),
+                        out pontoJogador))
+                    {
+                        salaEscolhida = salaTentativa;
+                        encontrouPosicaoSegura = true;
+                        break;
+                    }
+                }
+
+                if (!encontrouPosicaoSegura || salaEscolhida == null)
+                {
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                        "Corpo falso cancelado: não foi encontrado um ponto seguro livre de colisões.");
+                    return;
+                }
             }
 
             Vector3 posicao = new(pontoJogador.x, pontoJogador.y, pontoJogador.y / 1000f);
