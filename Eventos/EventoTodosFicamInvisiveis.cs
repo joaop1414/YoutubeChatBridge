@@ -8,6 +8,8 @@ namespace YouTubeVoteBridge;
 
 internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
 {
+    // 249 está livre: 248 = handshake, 250 = painel, 251 = nome NPC.
+    private const byte RpcInvisibilidade = 249;
     private static bool ativo;
     private static bool armado;
     private static readonly HashSet<byte> jogadoresInvisiveis = new();
@@ -51,97 +53,149 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
 
         armado = false;
         int alvos = 0;
-        int destinatarios = 0;
+        int rpcModded = 0;
+        int fallbackVanilla = 0;
 
-        // O host prepara um único PackedGameDataTo, como o EHR.
-        MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
-        bool pacoteAberto = false;
-
-        try
+        foreach (PlayerControl alvo in PlayerControl.AllPlayerControls)
         {
-            writer.StartMessage(26); // Packed GameData
-            writer.WritePacked(AmongUsClient.Instance.GameId);
-            pacoteAberto = true;
+            if (!PodeFicarInvisivel(alvo))
+                continue;
 
-            foreach (PlayerControl alvo in PlayerControl.AllPlayerControls)
+            jogadoresInvisiveis.Add(alvo.PlayerId);
+
+            // A visão do host é atualizada localmente. Nunca escondemos o próprio host.
+            if (!alvo.AmOwner)
             {
-                if (!PodeFicarInvisivel(alvo))
+                try { AplicarVisualInvisivelLocal(alvo); }
+                catch (Exception ex)
+                {
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                        $"[Invisibilidade] Falha local para PlayerId={alvo.PlayerId}: {ex.GetBaseException().Message}");
+                }
+            }
+
+            foreach (PlayerControl espectador in PlayerControl.AllPlayerControls)
+            {
+                if (!PodeReceberRpc(espectador) ||
+                    espectador.AmOwner ||
+                    espectador == alvo)
                     continue;
 
-                jogadoresInvisiveis.Add(alvo.PlayerId);
-
-                // Aplica a invisibilidade na visão local do host.
-                // O dono do personagem nunca deve esconder o próprio personagem.
-                if (!alvo.AmOwner)
+                if (YouTubeVoteBridgePlugin.ClienteTemMod(espectador.OwnerId))
                 {
-                    try
-                    {
-                        AplicarVisualInvisivelLocal(alvo);
-                    }
-                    catch (Exception ex)
-                    {
-                        YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                            $"[Invisibilidade] MakeInvisible falhou no host para PlayerId={alvo.PlayerId}: {ex.GetBaseException().Message}");
-                    }
+                    if (EnviarRpcDirecionado(espectador, alvo, true))
+                        rpcModded++;
                 }
-
-                ushort sequencia = alvo.NetTransform.lastSequenceId;
-
-                foreach (PlayerControl espectador in PlayerControl.AllPlayerControls)
+                else
                 {
-                    // Somente tripulantes vivos recebem. Cada um não recebe
-                    // os RPCs do próprio personagem.
-                    if (!PodeReceberRpc(espectador) ||
-                        espectador.AmOwner ||
-                        espectador == alvo)
-                        continue;
-
-                    // Formato copiado do CustomRpcSender do EHR:
-                    // GameDataTo (6) + GameId + ClientId + RPCs.
-                    writer.StartMessage(6);
-                    writer.Write(AmongUsClient.Instance.GameId);
-                    writer.WritePacked(espectador.OwnerId);
-
-                    // Técnica do EHR: dois SnapTo para (50, 50), com
-                    // sequências diferentes, fazem o personagem desaparecer
-                    // somente para esse cliente.
-                    EscreverSnapTo(writer, alvo, new Vector2(50f, 50f), sequencia);
-                    EscreverSnapTo(writer, alvo, new Vector2(50f, 50f),
-                        (ushort)(sequencia + 16383));
-
-                    writer.EndMessage(); // GameDataTo
-                    destinatarios++;
+                    // Clientes vanilla não conhecem o RPC personalizado. Para eles,
+                    // mantemos o fallback SnapTo do EHR, direcionado ao OwnerId.
+                    if (EnviarSnapToVanilla(espectador, alvo, true))
+                        fallbackVanilla++;
                 }
-
-                alvos++;
             }
 
-            writer.EndMessage(); // Packed GameData
-            AmongUsClient.Instance.SendOrDisconnect(writer);
-            writer.Recycle();
-            writer = null;
-        }
-        catch (Exception ex)
-        {
-            if (pacoteAberto)
-            {
-                try { writer.EndMessage(); } catch { }
-            }
-
-            writer?.Recycle();
-            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                $"[Invisibilidade] Erro ao montar/enviar pacote ({motivo}): {ex}");
-            return;
+            alvos++;
         }
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"[Invisibilidade] Técnica EHR aplicada. Motivo={motivo}; alvos={alvos}; destinatários={destinatarios}.");
+            $"[Invisibilidade] Ativada. Motivo={motivo}; alvos={alvos}; " +
+            $"RPCs personalizados enviados={rpcModded}; fallback vanilla enviado={fallbackVanilla}.");
     }
 
-    private static void EscreverSnapTo(MessageWriter writer, PlayerControl alvo,
-        Vector2 posicao, ushort sequencia)
+    private static bool EnviarRpcDirecionado(
+        PlayerControl espectador, PlayerControl alvo, bool invisivel)
     {
-        writer.StartMessage(2); // RPC
+        if (AmongUsClient.Instance == null || PlayerControl.LocalPlayer == null ||
+            espectador == null || alvo == null)
+            return false;
+
+        MessageWriter writer = null;
+        try
+        {
+            writer = MessageWriter.Get(SendOption.Reliable);
+            writer.StartMessage(6); // GameDataTo
+            writer.Write(AmongUsClient.Instance.GameId);
+            writer.WritePacked(espectador.OwnerId);
+
+            // O RPC é executado no PlayerControl do host no cliente destinatário.
+            writer.StartMessage(2);
+            writer.WritePacked(PlayerControl.LocalPlayer.NetId);
+            writer.Write(RpcInvisibilidade);
+            writer.WritePacked(alvo.NetId);
+            writer.Write((byte)(invisivel ? 1 : 0));
+            writer.EndMessage();
+
+            writer.EndMessage();
+            AmongUsClient.Instance.SendOrDisconnect(writer);
+            writer = null;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                $"[Invisibilidade] Falha enviando RPC para OwnerId={espectador.OwnerId}, " +
+                $"alvo NetId={alvo.NetId}: {ex.GetBaseException().Message}");
+            return false;
+        }
+        finally
+        {
+            writer?.Recycle();
+        }
+    }
+
+    private static bool EnviarSnapToVanilla(
+        PlayerControl espectador, PlayerControl alvo, bool invisivel)
+    {
+        if (AmongUsClient.Instance == null || espectador == null ||
+            alvo == null || alvo.NetTransform == null)
+            return false;
+
+        MessageWriter writer = null;
+        try
+        {
+            writer = MessageWriter.Get(SendOption.Reliable);
+            writer.StartMessage(6); // GameDataTo
+            writer.Write(AmongUsClient.Instance.GameId);
+            writer.WritePacked(espectador.OwnerId);
+
+            ushort seq = alvo.NetTransform.lastSequenceId;
+            if (invisivel)
+            {
+                EscreverSnapTo(writer, alvo, new Vector2(50f, 50f), seq);
+                EscreverSnapTo(writer, alvo, new Vector2(50f, 50f),
+                    (ushort)(seq + 16383));
+            }
+            else
+            {
+                EscreverSnapTo(writer, alvo, new Vector2(50f, 50f),
+                    (ushort)(seq + 32767));
+                EscreverSnapTo(writer, alvo, new Vector2(50f, 50f),
+                    (ushort)(seq + 32767 + 16383));
+                EscreverSnapTo(writer, alvo, (Vector2)alvo.transform.position, seq);
+            }
+
+            writer.EndMessage();
+            AmongUsClient.Instance.SendOrDisconnect(writer);
+            writer = null;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                $"[Invisibilidade] Falha no fallback vanilla para OwnerId={espectador.OwnerId}: {ex.GetBaseException().Message}");
+            return false;
+        }
+        finally
+        {
+            writer?.Recycle();
+        }
+    }
+
+    private static void EscreverSnapTo(
+        MessageWriter writer, PlayerControl alvo, Vector2 posicao, ushort sequencia)
+    {
+        writer.StartMessage(2);
         writer.WritePacked(alvo.NetTransform.NetId);
         writer.Write((byte)RpcCalls.SnapTo);
         writer.Write(posicao.x);
@@ -150,8 +204,6 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         writer.EndMessage();
     }
 
-    // Equivalente aos métodos MakeInvisible/MakeVisible do EHR.
-    // Eles são extensões próprias do EHR, não métodos nativos do PlayerControl.
     private static void AplicarVisualInvisivelLocal(PlayerControl jogador)
     {
         if (jogador == null || PlayerControl.LocalPlayer == null ||
@@ -172,8 +224,7 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
 
     private static void RestaurarVisualLocal(PlayerControl jogador)
     {
-        if (jogador == null)
-            return;
+        if (jogador == null) return;
 
         if (!jogador.AmOwner)
         {
@@ -191,22 +242,32 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         }
     }
 
-    private static bool PodeFicarInvisivel(PlayerControl jogador)
+    private static void AplicarVisualNoCliente(uint netId, bool invisivel)
     {
-        // Todos os jogadores vivos são alvos, inclusive impostores.
-        return jogador != null && jogador.Data != null &&
-               !jogador.Data.Disconnected && !jogador.Data.IsDead &&
-               jogador.NetTransform != null;
+        PlayerControl alvo = EncontrarPorNetId(netId);
+        if (alvo == null)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                $"[Invisibilidade] RPC recebido, mas NetId={netId} ainda não foi encontrado.");
+            return;
+        }
+
+        if (invisivel)
+            AplicarVisualInvisivelLocal(alvo);
+        else
+            RestaurarVisualLocal(alvo);
     }
 
-    private static bool PodeReceberRpc(PlayerControl espectador)
-    {
-        // Somente tripulantes vivos recebem os RPCs direcionados.
-        return espectador != null && espectador.Data != null &&
-               !espectador.Data.Disconnected && !espectador.Data.IsDead &&
-               espectador.Data.Role?.IsImpostor == false &&
-               espectador.OwnerId >= 0;
-    }
+    private static bool PodeFicarInvisivel(PlayerControl jogador) =>
+        jogador != null && jogador.Data != null &&
+        !jogador.Data.Disconnected && !jogador.Data.IsDead &&
+        jogador.NetTransform != null;
+
+    private static bool PodeReceberRpc(PlayerControl espectador) =>
+        espectador != null && espectador.Data != null &&
+        !espectador.Data.Disconnected && !espectador.Data.IsDead &&
+        espectador.Data.Role?.IsImpostor == false &&
+        espectador.OwnerId >= 0;
 
     internal static void EncerrarNaReuniao()
     {
@@ -215,78 +276,53 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
 
         ativo = false;
         armado = false;
-
-        MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
-        bool pacoteAberto = false;
         int restaurados = 0;
+        int rpcModded = 0;
+        int fallbackVanilla = 0;
 
-        try
+        foreach (byte playerId in jogadoresInvisiveis)
         {
-            writer.StartMessage(26);
-            writer.WritePacked(AmongUsClient.Instance.GameId);
-            pacoteAberto = true;
+            PlayerControl alvo = EncontrarJogador(playerId);
+            if (alvo == null || alvo.Data == null ||
+                alvo.Data.Disconnected || alvo.NetTransform == null)
+                continue;
 
-            foreach (byte playerId in jogadoresInvisiveis)
+            if (!alvo.AmOwner)
             {
-                PlayerControl alvo = EncontrarJogador(playerId);
-                if (alvo == null || alvo.Data == null ||
-                    alvo.Data.Disconnected || alvo.NetTransform == null)
+                try { RestaurarVisualLocal(alvo); }
+                catch (Exception ex)
+                {
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                        $"[Invisibilidade] Falha ao restaurar localmente PlayerId={playerId}: {ex.GetBaseException().Message}");
+                }
+            }
+
+            foreach (PlayerControl espectador in PlayerControl.AllPlayerControls)
+            {
+                if (!PodeReceberRpc(espectador) ||
+                    espectador.AmOwner ||
+                    espectador == alvo)
                     continue;
 
-                if (!alvo.AmOwner)
+                if (YouTubeVoteBridgePlugin.ClienteTemMod(espectador.OwnerId))
                 {
-                    try { RestaurarVisualLocal(alvo); }
-                    catch (Exception ex)
-                    {
-                        YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                            $"[Invisibilidade] MakeVisible falhou para PlayerId={playerId}: {ex.GetBaseException().Message}");
-                    }
+                    if (EnviarRpcDirecionado(espectador, alvo, false))
+                        rpcModded++;
                 }
-
-                ushort seq = alvo.NetTransform.lastSequenceId;
-                foreach (PlayerControl espectador in PlayerControl.AllPlayerControls)
+                else
                 {
-                    if (!PodeReceberRpc(espectador) ||
-                        espectador.AmOwner ||
-                        espectador == alvo)
-                        continue;
-
-                    writer.StartMessage(6);
-                    writer.Write(AmongUsClient.Instance.GameId);
-                    writer.WritePacked(espectador.OwnerId);
-
-                    // Sequências de recuperação usadas pelo EHR.
-                    EscreverSnapTo(writer, alvo, new Vector2(50f, 50f),
-                        (ushort)(seq + 32767));
-                    EscreverSnapTo(writer, alvo, new Vector2(50f, 50f),
-                        (ushort)(seq + 32767 + 16383));
-                    EscreverSnapTo(writer, alvo, (Vector2)alvo.transform.position, seq);
-
-                    writer.EndMessage();
+                    if (EnviarSnapToVanilla(espectador, alvo, false))
+                        fallbackVanilla++;
                 }
-
-                restaurados++;
             }
 
-            writer.EndMessage();
-            AmongUsClient.Instance.SendOrDisconnect(writer);
-            writer.Recycle();
-            writer = null;
-        }
-        catch (Exception ex)
-        {
-            if (pacoteAberto)
-            {
-                try { writer.EndMessage(); } catch { }
-            }
-            writer?.Recycle();
-            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                $"[Invisibilidade] Erro ao restaurar jogadores na reunião: {ex}");
+            restaurados++;
         }
 
         jogadoresInvisiveis.Clear();
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"[Invisibilidade] Evento encerrado na reunião. Jogadores restaurados={restaurados}.");
+            $"[Invisibilidade] Encerrada na reunião. Jogadores={restaurados}; " +
+            $"RPCs personalizados enviados={rpcModded}; fallback vanilla enviado={fallbackVanilla}.");
     }
 
     private static PlayerControl EncontrarJogador(byte playerId)
@@ -296,6 +332,30 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
             if (jogador != null && jogador.PlayerId == playerId)
                 return jogador;
         return null;
+    }
+
+    private static PlayerControl EncontrarPorNetId(uint netId)
+    {
+        if (PlayerControl.AllPlayerControls == null) return null;
+        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+            if (jogador != null && jogador.NetId == netId)
+                return jogador;
+        return null;
+    }
+
+    internal static void ReceberRpc(MessageReader reader)
+    {
+        try
+        {
+            uint netId = reader.ReadPackedUInt32();
+            bool invisivel = reader.ReadByte() != 0;
+            AplicarVisualNoCliente(netId, invisivel);
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "[Invisibilidade] RPC personalizado inválido: " + ex);
+        }
     }
 
     internal static void Resetar()
@@ -314,9 +374,23 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
     [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.MurderPlayer))]
     private static class MorteImpostorInvisibilidadePatch
     {
-        private static void Postfix(PlayerControl __instance)
-        {
+        private static void Postfix(PlayerControl __instance) =>
             AoImpostorMatar(__instance);
-        }
+    }
+}
+
+[HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.HandleRpc))]
+internal static class EventoTodosFicamInvisiveisRpcPatch
+{
+    private const byte RpcInvisibilidade = 249;
+
+    [HarmonyPrefix]
+    private static bool Prefix(byte callId, MessageReader reader)
+    {
+        if (callId != RpcInvisibilidade)
+            return true;
+
+        EventoTodosFicamInvisiveis.ReceberRpc(reader);
+        return false;
     }
 }
