@@ -167,8 +167,9 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
                 writer.StartMessage(26); // GameData
                 writer.WritePacked(AmongUsClient.Instance.GameId);
                 writer.StartMessage(6); // GameDataTo
-                // GameDataTo contém somente o ClientId destinatário.
-                // O GameId já foi escrito no cabeçalho de GameData.
+                // Cada GameDataTo precisa conter seu próprio GameId,
+                // mesmo dentro de PackedGameDataTo (conforme o EHR).
+                writer.Write(AmongUsClient.Instance.GameId);
                 writer.WritePacked(espectador.OwnerId);
 
                 if (entrar)
