@@ -128,7 +128,7 @@ internal sealed class EventoRoomRush : EventoVotacao
             bool estaNaSala = salaJogador != null && salaJogador.RoomId == salaAlvo;
             string cor = estaNaSala ? "green" : segundosRestantes <= 5 ? "red" : "yellow";
             string aviso = "\n<color=" + cor + ">Sala: " +
-                NomeSala(salaAlvo) + "</color>";
+                NomeSala(salaAlvo) + " (" + segundosRestantes + "S)</color>";
             string nomeComAviso = nomeOriginal + aviso;
 
             try
