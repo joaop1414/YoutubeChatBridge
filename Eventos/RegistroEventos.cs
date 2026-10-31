@@ -12,7 +12,6 @@ internal static class RegistroEventos
         new EventoCongelarJogador(),
         new EventoTrocarPosicoes(),
         new EventoTrocarPosicoesTodos(),
-        new EventoTodosFicamInvisiveis(),
         new EventoSabotagemAleatoria(),
         new EventoFecharPortas(),
         new EventoFecharPortaAleatoria(),
