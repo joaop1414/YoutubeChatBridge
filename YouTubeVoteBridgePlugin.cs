@@ -464,6 +464,52 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
     }
 
+    // Sincroniza o estado do Room Rush somente com clientes que confirmaram
+    // possuir o mod. O RPC 247 é tratado pelo patch EventoRoomRushRpcPatch.
+    public static void SincronizarRoomRush(byte sala, float segundosRestantes, bool ativo)
+    {
+        if (!EhHost() || AmongUsClient.Instance == null ||
+            PlayerControl.LocalPlayer == null)
+            return;
+
+        foreach (int clientId in ClientesComMod.ToArray())
+        {
+            if (clientId == AmongUsClient.Instance.ClientId || clientId < 0)
+                continue;
+
+            MessageWriter writer = null;
+            try
+            {
+                writer = AmongUsClient.Instance.StartRpcImmediately(
+                    PlayerControl.LocalPlayer.NetId,
+                    247,
+                    SendOption.Reliable,
+                    clientId
+                );
+                writer.Write(ativo);
+                if (ativo)
+                {
+                    writer.Write(sala);
+                    writer.Write(segundosRestantes);
+                }
+                AmongUsClient.Instance.FinishRpcImmediately(writer);
+            }
+            catch (Exception ex)
+            {
+                Instance?.Log.LogWarning(
+                    "[Room Rush] Falha ao sincronizar com ClientId=" +
+                    clientId + ": " + ex.Message);
+            }
+            finally
+            {
+                if (writer != null)
+                {
+                    try { writer.Recycle(); } catch { }
+                }
+            }
+        }
+    }
+
     private static string CriarNomeComPlacar(string nomeOriginal)
     {
         int[] contagem = ContarVotos();
