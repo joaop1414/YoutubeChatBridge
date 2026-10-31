@@ -35,6 +35,18 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
 
     private static readonly List<SaidaPendente> saidasPendentes = new();
 
+    // Reaplica o SnapTo de rede após a morte/corpo falso para impedir que
+    // atualizações de física do assassinato sobrescrevam o teleporte.
+    private sealed class SnapAssassinoPendente
+    {
+        public byte PlayerId;
+        public Vector2 Posicao;
+        public float ExecutarEm;
+    }
+
+    private static readonly List<SnapAssassinoPendente> snapsAssassinoPendentes = new();
+    private static float proximaVerificacaoMortos;
+
     // Invisibilidade exclusivamente local no host: o ExitVent é recebido primeiro,
     // depois os renderers/nome são ocultados apenas na tela do host.
     private sealed class EstadoVisualHost
@@ -79,6 +91,8 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         armado = true;
         jogadoresNoDuto.Clear();
         saidasPendentes.Clear();
+        snapsAssassinoPendentes.Clear();
+        proximaVerificacaoMortos = Time.realtimeSinceStartup + 0.10f;
 
         if (ShipStatus.Instance != null)
             AplicarInvisibilidade("ativação do evento");
@@ -120,7 +134,7 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
             preparacaoPendente.Add(new JogadorPreparacao
             {
                 PlayerId = alvo.PlayerId,
-                PosicaoOriginal = (Vector2)alvo.transform.position
+                PosicaoOriginal = alvo.GetTruePosition()
             });
         }
 
@@ -419,10 +433,14 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
 
     private static void ProcessarSaidasPendentes()
     {
-        if (!ativo || !YouTubeVoteBridgePlugin.EhHost() || saidasPendentes.Count == 0)
+        if (!ativo || !YouTubeVoteBridgePlugin.EhHost())
             return;
 
         float agora = Time.realtimeSinceStartup;
+        ProcessarMortesDentroDosDutos(agora);
+
+        if (saidasPendentes.Count == 0)
+            return;
 
         for (int i = saidasPendentes.Count - 1; i >= 0; i--)
         {
@@ -511,6 +529,81 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
     }
 
 
+    private static void ProcessarMortesDentroDosDutos(float agora)
+    {
+        if (agora < proximaVerificacaoMortos || jogadoresNoDuto.Count == 0)
+            return;
+
+        proximaVerificacaoMortos = agora + 0.10f;
+
+        foreach (KeyValuePair<byte, int> entrada in new List<KeyValuePair<byte, int>>(jogadoresNoDuto))
+        {
+            PlayerControl alvo = EncontrarJogador(entrada.Key);
+            if (alvo == null || alvo.Data == null || alvo.Data.Disconnected)
+            {
+                jogadoresNoDuto.Remove(entrada.Key);
+                continue;
+            }
+
+            if (!alvo.Data.IsDead)
+                continue;
+
+            int saidas = 0;
+            foreach (PlayerControl espectador in PlayerControl.AllPlayerControls)
+            {
+                if (espectador == null || espectador.Data == null ||
+                    espectador.Data.Disconnected || espectador.OwnerId < 0)
+                    continue;
+
+                // A morte desfaz a dessincronização para todos: vivos, fantasmas
+                // e o próprio dono do jogador que morreu.
+                if (EnviarSaidaDutoDesync(alvo, entrada.Value, espectador))
+                    saidas++;
+            }
+
+            jogadoresNoDuto.Remove(entrada.Key);
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                $"[Invisibilidade] Jogador morreu durante o evento; saída do duto enviada " +
+                $"para {saidas} cliente(s). PlayerId={entrada.Key}; ventId={entrada.Value}.");
+        }
+    }
+
+    private static void ProcessarSnapsAssassino()
+    {
+        if (!ativo || !YouTubeVoteBridgePlugin.EhHost() || snapsAssassinoPendentes.Count == 0)
+            return;
+
+        float agora = Time.realtimeSinceStartup;
+        for (int i = snapsAssassinoPendentes.Count - 1; i >= 0; i--)
+        {
+            SnapAssassinoPendente pendente = snapsAssassinoPendentes[i];
+            if (agora < pendente.ExecutarEm)
+                continue;
+
+            snapsAssassinoPendentes.RemoveAt(i);
+            PlayerControl assassino = EncontrarJogador(pendente.PlayerId);
+            if (assassino == null || assassino.Data == null ||
+                assassino.Data.Disconnected || assassino.Data.IsDead ||
+                assassino.NetTransform == null)
+                continue;
+
+            try
+            {
+                // Segundo RPC confiável, depois que Die/corpo falso terminar.
+                assassino.NetTransform.RpcSnapTo(pendente.Posicao);
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    $"[Invisibilidade] SnapTo de rede reaplicado após a morte. " +
+                    $"Impostor={pendente.PlayerId}; posição={pendente.Posicao}.");
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    $"[Invisibilidade] Falha ao reaplicar SnapTo do impostor {pendente.PlayerId}: " +
+                    ex.GetBaseException().Message);
+            }
+        }
+    }
+
     // Usa o mesmo ponto de interceptação do evento F7:
     // CheckMurder é cancelado antes que o assassinato original seja executado.
     [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.CheckMurder))]
@@ -550,8 +643,7 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         {
             Vector2 posicaoVitima = vitima.GetTruePosition();
 
-            // O impostor permanece no local da vítima após o SnapTo.
-            // A restauração de posição vale somente para a preparação da invisibilidade.
+            // Primeiro SnapTo de rede para todos os clientes.
             assassino.NetTransform.RpcSnapTo(posicaoVitima);
 
             // Mesma reação do evento F7: escudo + FailedProtected para resetar
@@ -565,6 +657,15 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
 
             EventoCriarCorpoFalso.ExecutarParaJogadorNaPosicao(
                 vitima.PlayerId, posicaoVitima);
+
+            // A física da morte e a criação do corpo podem atualizar posições no
+            // mesmo frame. Reafirma o teleporte por RPC no próximo ciclo de rede.
+            snapsAssassinoPendentes.Add(new SnapAssassinoPendente
+            {
+                PlayerId = assassino.PlayerId,
+                Posicao = posicaoVitima,
+                ExecutarEm = Time.realtimeSinceStartup + 0.12f
+            });
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 $"[Invisibilidade] Assassinato original cancelado; morte pelo mecanismo do Tsunami " +
@@ -590,6 +691,7 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         indicePreparacao = 0;
         ventPreparacaoId = -1;
         saidasPendentes.Clear();
+        snapsAssassinoPendentes.Clear();
 
         int restaurados = 0;
         int saidasEnviadas = 0;
@@ -634,6 +736,7 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         ventPreparacaoId = -1;
         jogadoresNoDuto.Clear();
         saidasPendentes.Clear();
+        snapsAssassinoPendentes.Clear();
         RestaurarVisuaisHost();
     }
 
@@ -652,6 +755,7 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
             {
                 ProcessarPreparacao();
                 ProcessarSaidasPendentes();
+                ProcessarSnapsAssassino();
             }
         }
     }
