@@ -84,7 +84,9 @@ internal sealed class EventoRoomRush : EventoVotacao
 
             try
             {
-                PlainShipRoom salaJogador = jogador.GetPlainShipRoom();
+                // A sala é obtida pelo mapa usando a posição real do jogador.
+                // GetPlainShipRoom() não é um método de PlayerControl nesta versão.
+                PlainShipRoom salaJogador = ShipStatus.Instance.GetRoom(jogador.GetTruePosition());
                 if (salaJogador != null && salaJogador.RoomId == salaAlvo)
                     continue;
 
