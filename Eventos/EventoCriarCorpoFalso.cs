@@ -166,9 +166,18 @@ internal sealed class EventoCriarCorpoFalso : EventoVotacao
             Vector3 posicaoCorpo = posicao + deslocamento;
             posicaoCorpo.z = posicaoCorpo.y / 1000f;
 
-            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                $"Sala escolhida para o corpo falso: {salaEscolhida.RoomId}, " +
-                $"posição=({posicaoCorpo.x:0.00}, {posicaoCorpo.y:0.00}).");
+            if (posicaoJogadorForcada.HasValue)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    $"Corpo falso criado na posição forçada da vítima: " +
+                    $"posição=({posicaoCorpo.x:0.00}, {posicaoCorpo.y:0.00}).");
+            }
+            else
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    $"Sala escolhida para o corpo falso: {salaEscolhida.RoomId}, " +
+                    $"posição=({posicaoCorpo.x:0.00}, {posicaoCorpo.y:0.00}).");
+            }
 
             // O host cria o corpo localmente. Nos clientes, o RPC MurderPlayer
             // do jogador temporário fará o jogo criar o corpo correspondente.
