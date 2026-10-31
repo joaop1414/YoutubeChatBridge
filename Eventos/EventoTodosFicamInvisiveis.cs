@@ -8,7 +8,6 @@ namespace YouTubeVoteBridge;
 
 internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
 {
-    private const int VentId = 2;
     private const float AtrasoSaida = 0.5f;
 
     private static bool ativo;
@@ -59,25 +58,39 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         armado = false;
         int colocadosNoDuto = 0;
 
+        if (ShipStatus.Instance?.AllVents == null)
+            return;
+
         foreach (PlayerControl alvo in PlayerControl.AllPlayerControls)
         {
             if (!PodeFicarInvisivel(alvo) || jogadoresNoDuto.ContainsKey(alvo.PlayerId))
                 continue;
 
-            if (alvo.MyPhysics == null)
+            if (alvo.MyPhysics == null || alvo.NetTransform == null)
                 continue;
+
+            Vent vent = EncontrarDutoMaisProximo(alvo);
+            if (vent == null)
+                continue;
+
+            int ventId = vent.Id;
 
             try
             {
-                // Mesmo método nativo usado no EHR para colocar o jogador no duto.
-                // O RPC de entrada é replicado normalmente para todos os clientes.
-                alvo.MyPhysics.RpcEnterVent(VentId);
+                // Primeiro posiciona o jogador exatamente sobre a entrada do duto.
+                // O SnapTo evita depender de uma posição arbitrária ou de um VentId fixo.
+                Vector2 posicaoDuto = (Vector2)vent.transform.position;
+                ushort sequencia = (ushort)(alvo.NetTransform.lastSequenceId + 128);
+                alvo.NetTransform.SnapTo(posicaoDuto, sequencia);
 
-                jogadoresNoDuto[alvo.PlayerId] = VentId;
+                // Em seguida usa a entrada nativa no duto, preservando a sincronização.
+                alvo.MyPhysics.RpcEnterVent(ventId);
+
+                jogadoresNoDuto[alvo.PlayerId] = ventId;
                 saidasPendentes.Add(new SaidaPendente
                 {
                     PlayerId = alvo.PlayerId,
-                    VentId = VentId,
+                    VentId = ventId,
                     ExecutarEm = Time.realtimeSinceStartup + AtrasoSaida
                 });
 
@@ -91,7 +104,32 @@ internal sealed class EventoTodosFicamInvisiveis : EventoVotacao
         }
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"[Invisibilidade] Entrada nos dutos enviada. Motivo={motivo}; jogadores={colocadosNoDuto}; VentId={VentId}.");
+            $"[Invisibilidade] SnapTo + entrada nos dutos enviados. Motivo={motivo}; jogadores={colocadosNoDuto}.");
+    }
+
+    private static Vent EncontrarDutoMaisProximo(PlayerControl jogador)
+    {
+        if (jogador == null || ShipStatus.Instance?.AllVents == null)
+            return null;
+
+        Vent maisProximo = null;
+        float menorDistancia = float.MaxValue;
+        Vector2 posicaoJogador = jogador.transform.position;
+
+        foreach (Vent vent in ShipStatus.Instance.AllVents)
+        {
+            if (vent == null)
+                continue;
+
+            float distancia = Vector2.Distance(posicaoJogador, vent.transform.position);
+            if (distancia >= menorDistancia)
+                continue;
+
+            menorDistancia = distancia;
+            maisProximo = vent;
+        }
+
+        return maisProximo;
     }
 
     private static bool PodeFicarInvisivel(PlayerControl jogador) =>
