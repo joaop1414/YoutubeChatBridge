@@ -311,20 +311,8 @@ internal sealed class EventoTsunami : EventoVotacao
         }
 
         float agora = Time.realtimeSinceStartup;
-        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
-        {
-            if (jogador == null || jogador == indicador || jogador.Data == null ||
-                jogador.Data.Disconnected)
-                continue;
-            if (!nomesOriginais.ContainsKey(jogador.PlayerId))
-            {
-                // Prefere o nome de rede original; o texto visual pode já ter
-                // recebido o aviso em uma atualização anterior.
-                nomesOriginais[jogador.PlayerId] = jogador.Data.PlayerName ??
-                    jogador.cosmetics?.nameText?.text ?? "";
-            }
-            AtualizarNomeLocal(jogador, agora);
-        }
+        // Clientes com o mod mostram o aviso no LowerInfoText. O host só altera
+        // nomes nos clientes vanilla, por RPC direcionado ao dono do jogador.
         AtualizarAvisoNomesVanilla(agora);
         AtualizarSabotagemReator(agora);
         if (agora < proximaAtualizacao) return;
@@ -658,6 +646,18 @@ internal sealed class EventoTsunami : EventoVotacao
                 proximoSnapJogador.Remove(id);
             }
         }
+    }
+
+    internal static string ObterTextoAvisoHud()
+    {
+        if (!avisoLocalAtivo || ShipStatus.Instance == null ||
+            MeetingHud.Instance != null || ExileController.Instance != null)
+            return "";
+
+        string cor = ((int)(Time.realtimeSinceStartup * 2f) % 2 == 0)
+            ? "red"
+            : "yellow";
+        return "<color=" + cor + ">Um tsunami está vindo — vá para o duto mais próximo</color>";
     }
 
     private static void AtualizarAvisoNomesCliente()
