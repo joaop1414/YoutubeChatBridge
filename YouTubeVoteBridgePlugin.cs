@@ -3703,10 +3703,10 @@ public static class YouTubeVoteChatPatch
                         if (sourcePlayer.NetTransform == null)
                             throw new InvalidOperationException("NetTransform do jogador não está disponível.");
 
-                        sourcePlayer.NetTransform.SnapTo(
-                            destino,
-                            (ushort)(sourcePlayer.NetTransform.lastSequenceId + 328));
-                        sourcePlayer.NetTransform.SetDirtyBit(uint.MaxValue);
+                        // RpcSnapTo sincroniza o teleporte com os demais clientes.
+                        // SnapTo + SetDirtyBit apenas no host não garante a atualização
+                        // imediata da posição nos clientes remotos.
+                        sourcePlayer.NetTransform.RpcSnapTo(destino);
 
                         string confirmacao = comandoTpOut
                             ? "Você foi teleportado para fora do lobby."
