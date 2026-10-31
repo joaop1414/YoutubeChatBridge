@@ -676,35 +676,11 @@ internal sealed class EventoTsunami : EventoVotacao
         }
         catch { }
 
+        // Clientes com o mod exibem o aviso no LowerInfoText. Não alteramos
+        // o nome do jogador local nem os nomes dos demais jogadores.
         if (indicadorEncontrado)
         {
             avisoLocalAtivo = true;
-            float agora = Time.realtimeSinceStartup;
-            // Atualiza os nomes de todos os jogadores neste cliente, não só
-            // o nome local: o próprio nome geralmente não aparece sobre o próprio boneco.
-            foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
-            {
-                if (jogador == null ||
-                    jogador.PlayerId == PlayerIdIndicador || jogador.Data == null ||
-                    jogador.Data.Disconnected)
-                    continue;
-
-                // O SetName temporário da onda pode chegar antes do aviso.
-                // Não memorize esse texto como se fosse o nome real do jogador.
-                string nomeRede = jogador.Data.PlayerName ?? string.Empty;
-                string nomeVisual = jogador.cosmetics?.nameText?.text ?? string.Empty;
-                if (string.Equals(nomeRede, NomeOnda, StringComparison.Ordinal) ||
-                    string.Equals(nomeVisual, NomeOnda, StringComparison.Ordinal) ||
-                    nomeRede.Contains("<mark=#0099d1>") ||
-                    nomeVisual.Contains("<mark=#0099d1>"))
-                    continue;
-
-                if (!nomesOriginais.ContainsKey(jogador.PlayerId))
-                    nomesOriginais[jogador.PlayerId] = nomeRede.Length > 0
-                        ? nomeRede
-                        : nomeVisual;
-                AtualizarNomeLocal(jogador, agora);
-            }
         }
         else if (avisoLocalAtivo)
         {
