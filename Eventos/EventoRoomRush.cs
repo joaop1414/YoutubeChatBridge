@@ -1,5 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using Hazel;
+using InnerNet;
 using HarmonyLib;
 using UnityEngine;
 
@@ -202,9 +205,9 @@ internal sealed class EventoRoomRush : EventoVotacao
         return true;
     }
 
-    private static void AtualizarReparoReator()
+    private static void AtualizarReparoReator(bool forcar = false)
     {
-        if (!reparoReatorPendente || Time.realtimeSinceStartup < repararReatorAte)
+        if (!reparoReatorPendente || (!forcar && Time.realtimeSinceStartup < repararReatorAte))
             return;
 
         try
@@ -410,7 +413,7 @@ internal sealed class EventoRoomRush : EventoVotacao
 
         ativo = false;
         if (reparoReatorPendente)
-            AtualizarReparoReator();
+            AtualizarReparoReator(true);
         reparoReatorPendente = false;
         repararReatorAte = 0f;
         prazo = 0f;
