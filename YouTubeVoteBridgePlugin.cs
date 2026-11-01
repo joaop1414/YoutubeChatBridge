@@ -3855,39 +3855,18 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 // INTERCEPTAÇÃO DO COMANDO /youtube
 // ============================================================
 
-// Detecta a partida pelo estado de rede real. IsGameStarted pode não refletir
-// corretamente todas as transições; GameState == Started é o estado usado pelo
-// próprio jogo e também pelo sistema de tags do mod.
+// ShipStatus existe enquanto o cenário da partida está carregado.
+// Diferente de GameState/IsGameStarted, não depende do estado de conexão do lobby.
 public static class YouTubeVoteChatGameState
 {
     public static bool PartidaIniciada()
     {
         try
         {
-            if (AmongUsClient.Instance == null)
-                return false;
-
-            Type tipo = AmongUsClient.Instance.GetType();
-            PropertyInfo propriedade = tipo.GetProperty(
-                "GameState", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-            object estado = propriedade?.GetValue(AmongUsClient.Instance);
-
-            if (estado == null)
-            {
-                FieldInfo campo = tipo.GetField(
-                    "GameState", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-                estado = campo?.GetValue(AmongUsClient.Instance);
-            }
-
-            return string.Equals(
-                estado?.ToString(),
-                "Started",
-                StringComparison.OrdinalIgnoreCase);
+            return ShipStatus.Instance != null;
         }
-        catch (Exception ex)
+        catch
         {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "[Chat] Não foi possível detectar o estado da partida: " + ex.Message);
             return false;
         }
     }
@@ -3901,7 +3880,7 @@ public static class YouTubeVoteChatGameState
 [HarmonyPatch(typeof(ChatController), nameof(ChatController.SetVisible))]
 public static class YouTubeVoteChatVisibilityPatch
 {
-    public static bool Prefix(bool visible)
+    public static bool Prefix([HarmonyArgument(0)] bool visible)
     {
         if (!visible)
             return true;
@@ -4275,17 +4254,35 @@ public static class YouTubeVoteRequireF7SelectionPatch
 [HarmonyPatch(typeof(GameStartManager), nameof(GameStartManager.Update))]
 public static class YouTubeVoteMinimumPlayersPatch
 {
+    private static bool erroRegistrado;
+
     public static void Prefix(GameStartManager __instance)
     {
-        if (__instance == null || AmongUsClient.Instance == null ||
-            !AmongUsClient.Instance.AmHost)
-            return;
+        try
+        {
+            if (__instance == null || AmongUsClient.Instance == null ||
+                !AmongUsClient.Instance.AmHost)
+                return;
 
-        // O jogo controla o estado visual do botão; alteramos apenas o mínimo.
-        if (AmongUsClient.Instance.IsGameStarted || ShipStatus.Instance != null || GameData.Instance == null)
-            return;
+            // O jogo controla o estado visual do botão; alteramos apenas o mínimo.
+            if (AmongUsClient.Instance.IsGameStarted ||
+                ShipStatus.Instance != null ||
+                GameData.Instance == null)
+                return;
 
-        __instance.MinPlayers = 1;
+            __instance.MinPlayers = 1;
+        }
+        catch (Exception ex)
+        {
+            // Uma falha neste ajuste não pode interromper o Update original do jogo
+            // nem gerar uma mensagem por frame.
+            if (!erroRegistrado)
+            {
+                erroRegistrado = true;
+                YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                    "[Lobby] Falha ao ajustar MinPlayers para 1: " + ex);
+            }
+        }
     }
 }
 
