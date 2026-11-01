@@ -206,6 +206,10 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             "Indica se a leitura do chat está ativa."
         );
 
+        // O estado de conexão não pode sobreviver ao fechamento do jogo.
+        // O leitor HTTP é uma Task em memória e nunca continua conectado após reiniciar.
+        LiveConectada.Value = false;
+
         VotacaoAtiva = Config.Bind(
             "Votacao", "VotacaoAtiva", false,
             "Indica se a votação está ativa."
@@ -1987,11 +1991,14 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         Instance?.Log.LogInfo("[F7] Votação liberada novamente: " + motivo + ".");
     }
 
-    // Com a live conectada, a partida só pode começar depois que a votação
-    // F7 terminar e registrar um evento vencedor.
+    // Só exige um evento F7 quando o leitor HTTP está realmente conectado.
+    // LiveConectada é persistida pelo BepInEx, então sozinha pode conter um
+    // estado antigo de uma sessão anterior do jogo.
     internal static bool BloquearInicioSemEventoF7()
     {
-        if (!EhHost() || LiveConectada == null || !LiveConectada.Value)
+        if (!EhHost() ||
+            LiveConectada == null || !LiveConectada.Value ||
+            !ChatEmLeitura || !LeitorConectado)
             return false;
 
         bool eventoSelecionado =
