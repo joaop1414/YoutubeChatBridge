@@ -617,15 +617,15 @@ internal sealed class EventoTsunami : EventoVotacao
 
             try
             {
-                // O host deve ser o autor do RPC. Usar o próprio jogador remoto
-                // como autor (jogador.RpcMurderPlayer(...)) pode enviar um RPC
-                // em nome de outro OwnerId e fazer o servidor expulsar o cliente.
-                // O alvo continua sendo o jogador atingido pelo tsunami.
-                PlayerControl.LocalPlayer.RpcMurderPlayer(jogador, true);
+                // Mantém o mesmo método usado originalmente pelo Tsunami:
+                // Die com DeathReason.Kill, em vez de enviar RpcMurderPlayer.
+                jogador.Die(DeathReason.Kill, true);
+
+                mortosPeloTsunami.Add(id);
 
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "Tsunami: atraso concluído; o host enviou RpcMurderPlayer para PlayerId=" +
-                    id + " como alvo.");
+                    "Tsunami: atraso concluído; PlayerId=" + id +
+                    " morreu usando Die(DeathReason.Kill, true) e foi registrado para corpo falso na reunião.");
             }
             catch (Exception ex)
             {
