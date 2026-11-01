@@ -80,6 +80,8 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     // Limita a votação F7 a uma rodada por visita ao lobby; é liberada no fim da partida.
     private static bool VotacaoLobbyRealizada;
     private static string EventoF7Pendente;
+    private static int UltimoGameIdVotacao = int.MinValue;
+    private static bool PartidaEstavaAtivaVotacao;
     private static readonly List<string> EventosF7SelecionadosNaPartida = new();
     public static void RegistrarEventoF7Selecionado(string nome)
     {
@@ -1782,6 +1784,65 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         EventoF7Pendente = null;
         LimparEventosF7Selecionados();
         Instance?.Log.LogInfo("Votação do lobby liberada novamente após o fim da partida.");
+    }
+
+    // Detecta uma nova sala ou o retorno ao lobby sem depender exclusivamente
+    // de OnGameEnd (que não é chamado em todos os caminhos de saída/criação de sala).
+    internal static void AtualizarCicloVotacaoLobby()
+    {
+        if (!EhHost() || AmongUsClient.Instance == null)
+            return;
+
+        bool partidaAtiva = AmongUsClient.Instance.IsGameStarted || ShipStatus.Instance != null;
+        int gameId = AmongUsClient.Instance.GameId;
+
+        if (GameStartManager.Instance != null && !partidaAtiva &&
+            UltimoGameIdVotacao != gameId)
+        {
+            if (UltimoGameIdVotacao != int.MinValue)
+                ResetarVotacaoLobbyNovaSessao("nova sala");
+
+            UltimoGameIdVotacao = gameId;
+        }
+
+        if (!partidaAtiva && PartidaEstavaAtivaVotacao)
+            ResetarVotacaoLobbyNovaSessao("retorno ao lobby");
+
+        PartidaEstavaAtivaVotacao = partidaAtiva;
+    }
+
+    private static void ResetarVotacaoLobbyNovaSessao(string motivo)
+    {
+        if (RodadaAtiva && RodadaModoLobby)
+            EncerrarRodada();
+
+        VotacaoLobbyRealizada = false;
+        EventoF7Pendente = null;
+        LimparEventosF7Selecionados();
+        ProximaRodadaPermitida = Time.realtimeSinceStartup;
+        Instance?.Log.LogInfo("[F7] Votação liberada novamente: " + motivo + ".");
+    }
+
+    // Com a live conectada, a partida só pode começar depois que a votação
+    // F7 terminar e registrar um evento vencedor.
+    internal static bool BloquearInicioSemEventoF7()
+    {
+        if (!EhHost() || LiveConectada == null || !LiveConectada.Value)
+            return false;
+
+        bool eventoSelecionado =
+            !string.IsNullOrWhiteSpace(EventoF7Pendente) ||
+            EventosF7SelecionadosNaPartida.Count > 0;
+
+        if (eventoSelecionado)
+            return false;
+
+        AnunciarEventoLobby(
+            "<color=red>Não é possível iniciar a partida ainda.</color> " +
+            "A live está conectada, mas a votação F7 ainda não escolheu um evento. Aguarde o resultado.");
+        Instance?.Log.LogWarning(
+            "[F7] Início da partida bloqueado: live conectada e nenhum evento F7 escolhido.");
+        return true;
     }
 
     public static void AtualizarVotacao()
@@ -3987,6 +4048,17 @@ public static class YouTubeVoteChatPatch
     }
 }
 
+// Impede o início da partida enquanto a live estiver conectada e a votação
+// F7 ainda não tiver escolhido/registrado um evento.
+[HarmonyPatch(typeof(GameStartManager), nameof(GameStartManager.BeginGame))]
+public static class YouTubeVoteRequireF7SelectionPatch
+{
+    public static bool Prefix()
+    {
+        return !YouTubeVoteBridgePlugin.BloquearInicioSemEventoF7();
+    }
+}
+
 // Permite ao host iniciar a partida com apenas o próprio jogador na sala.
 // Segue o comportamento do EHR: MinPlayers é reduzido para 1 no ciclo do lobby.
 [HarmonyPatch(typeof(GameStartManager), nameof(GameStartManager.Update))]
@@ -4177,6 +4249,7 @@ public static class YouTubeVoteUpdatePatch
         EventoTesteMenu.ProcessarFilaExecucao();
         // Não enviar RPC customizado 248 para hosts vanilla: eles não conhecem esse RPC.
         YouTubeVoteBridgePlugin.AtualizarAvisos();
+        YouTubeVoteBridgePlugin.AtualizarCicloVotacaoLobby();
         YouTubeVoteBridgePlugin.AtualizarVotacao();
         RainbowColorTransition.Atualizar();
         YouTubeVoteBridgePlugin.AtualizarRainbow();
