@@ -758,10 +758,10 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 novoMapa = candidatos[Sorteador.Next(candidatos.Length)];
             }
 
-            // Segue o fluxo usado pelo EHR: altera as opções autoritativas
-            // do jogo diretamente e marca LogicOptions como modificada.
-            // A reflexão anterior podia acertar uma cópia das opções sem atualizar
-            // o objeto que o início da partida realmente utiliza.
+            // IGameOptions.MapId é somente leitura nesta versão do Among Us.
+            // O EHR altera Main.NormalOptions (a implementação concreta das opções)
+            // e depois marca LogicOptions como modificada. Reproduzimos esse fluxo:
+            // localizamos o setter MapId na implementação concreta de CurrentGameOptions.
             if (GameManager.Instance == null || GameOptionsManager.Instance == null)
             {
                 Instance?.Log.LogWarning("[Mapas] GameManager/GameOptionsManager ainda não está disponível.");
@@ -776,19 +776,27 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 return;
             }
 
-            currentOptions.MapId = novoMapa;
-            logicOptions.MapId = novoMapa;
-            logicOptions.SetDirty();
-
-            if (logicOptions.MapId != novoMapa || currentOptions.MapId != novoMapa)
+            const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+            PropertyInfo propriedadeMapa = currentOptions.GetType().GetProperty("MapId", flags);
+            MethodInfo setterMapa = propriedadeMapa?.GetSetMethod(true);
+            if (setterMapa == null)
             {
                 Instance?.Log.LogWarning(
-                    $"[Mapas] Falha ao confirmar MapId. Esperado={novoMapa}; " +
-                    $"LogicOptions={logicOptions.MapId}; CurrentOptions={currentOptions.MapId}.");
+                    $"[Mapas] A implementação {currentOptions.GetType().FullName} não expõe setter para MapId.");
                 return;
             }
 
-            const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+            setterMapa.Invoke(currentOptions, new object[] { novoMapa });
+            logicOptions.SetDirty();
+
+            int mapaAplicado = currentOptions.MapId;
+            if (mapaAplicado != novoMapa)
+            {
+                Instance?.Log.LogWarning(
+                    $"[Mapas] Falha ao confirmar MapId. Esperado={novoMapa}; CurrentOptions={mapaAplicado}; LogicOptions={logicOptions.MapId}.");
+                return;
+            }
+
             GameStartManager manager = GameStartManager.Instance;
             if (manager != null)
             {
@@ -803,7 +811,8 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
             string[] nomes = { "The Skeld", "Mira HQ", "Polus", "Dleks", "Airship", "The Fungle" };
             string nome = novoMapa >= 0 && novoMapa < nomes.Length ? nomes[novoMapa] : novoMapa.ToString();
-            Instance?.Log.LogInfo($"[Mapas] Mapa alterado ao iniciar: {nome} (MapId={novoMapa}; anterior={mapaAtual}).");
+            Instance?.Log.LogInfo(
+                $"[Mapas] Mapa alterado ao iniciar: {nome} (MapId={novoMapa}; anterior={mapaAtual}; LogicOptions={logicOptions.MapId}).");
         }
         catch (Exception ex)
         {
