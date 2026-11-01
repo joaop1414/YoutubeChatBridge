@@ -3855,25 +3855,58 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 // INTERCEPTAÇÃO DO COMANDO /youtube
 // ============================================================
 
+// Detecta a partida pelo estado de rede real. IsGameStarted pode não refletir
+// corretamente todas as transições; GameState == Started é o estado usado pelo
+// próprio jogo e também pelo sistema de tags do mod.
+public static class YouTubeVoteChatGameState
+{
+    public static bool PartidaIniciada()
+    {
+        try
+        {
+            if (AmongUsClient.Instance == null)
+                return false;
+
+            Type tipo = AmongUsClient.Instance.GetType();
+            PropertyInfo propriedade = tipo.GetProperty(
+                "GameState", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            object estado = propriedade?.GetValue(AmongUsClient.Instance);
+
+            if (estado == null)
+            {
+                FieldInfo campo = tipo.GetField(
+                    "GameState", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                estado = campo?.GetValue(AmongUsClient.Instance);
+            }
+
+            return string.Equals(
+                estado?.ToString(),
+                "Started",
+                StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[Chat] Não foi possível detectar o estado da partida: " + ex.Message);
+            return false;
+        }
+    }
+
+    public static bool PodeAbrirChat =>
+        !PartidaIniciada() || MeetingHud.Instance != null;
+}
+
 // O chat livre só pode ser aberto durante reuniões. O bloqueio em SetVisible
-// impede a abertura pela tecla/botão; o Update também fecha a interface caso
-// algum fluxo do jogo ou outro mod tente mantê-la aberta após a reunião.
+// impede a abertura pela tecla/botão; o Update fecha qualquer abertura indevida.
 [HarmonyPatch(typeof(ChatController), nameof(ChatController.SetVisible))]
 public static class YouTubeVoteChatVisibilityPatch
 {
-    public static bool Prefix(ChatController __instance, bool visible)
+    public static bool Prefix(bool visible)
     {
-        if (!visible || AmongUsClient.Instance == null)
+        if (!visible)
             return true;
 
-        bool partidaEmAndamento =
-            AmongUsClient.Instance.IsGameStarted &&
-            ShipStatus.Instance != null;
-
-        if (partidaEmAndamento && MeetingHud.Instance == null)
-            return false;
-
-        return true;
+        return YouTubeVoteChatGameState.PodeAbrirChat;
     }
 }
 
@@ -3882,9 +3915,7 @@ public static class YouTubeVoteChatCloseOutsideMeetingPatch
 {
     public static void Postfix()
     {
-        if (AmongUsClient.Instance == null ||
-            !AmongUsClient.Instance.IsGameStarted ||
-            ShipStatus.Instance == null ||
+        if (!YouTubeVoteChatGameState.PartidaIniciada() ||
             MeetingHud.Instance != null ||
             !HudManager.InstanceExists)
             return;
