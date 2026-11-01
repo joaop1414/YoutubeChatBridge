@@ -589,8 +589,8 @@ internal sealed class EventoTsunami : EventoVotacao
                 continue;
             }
 
-            // Uma reunião interrompe o transporte. Não antecipa mortes só porque
-            // a reunião começou: o prazo original de 2 segundos continua valendo.
+            // Uma reunião interrompe o transporte e cancela a morte que ainda
+            // não venceu, evitando executar Die durante a transição para a reunião.
             if (MeetingHud.Instance != null)
             {
                 RestaurarMovimento(jogador, id);
