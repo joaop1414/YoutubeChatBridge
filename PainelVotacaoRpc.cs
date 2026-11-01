@@ -18,6 +18,7 @@ internal static class PainelVotacaoRpc
     private static int segundos;
     private static bool ativo;
     private static bool votacaoLobby;
+    private static string eventoEscolhido = "";
     private static int tempoConfig = 40;
     private static int intervaloConfig = 15;
     private static int preparacaoConfig = 10;
@@ -30,6 +31,7 @@ internal static class PainelVotacaoRpc
     internal static bool VotacaoLobby => votacaoLobby;
     internal static int Rodada => rodada;
     internal static int Segundos => segundos;
+    internal static string EventoEscolhido => eventoEscolhido;
     internal static string[] Eventos => eventos;
     internal static int[] Votos => votos;
 
@@ -59,7 +61,8 @@ internal static class PainelVotacaoRpc
     }
 
     public static void Publicar(int numeroRodada, bool rodadaAtiva, int tempo,
-        string[] nomesEventos, int[] contagem, bool modoLobby = false)
+        string[] nomesEventos, int[] contagem, bool modoLobby = false,
+        string resultadoEvento = null)
     {
         if (AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost ||
             PlayerControl.LocalPlayer == null)
@@ -68,6 +71,8 @@ internal static class PainelVotacaoRpc
         rodada = numeroRodada;
         ativo = rodadaAtiva;
         votacaoLobby = modoLobby;
+        if (resultadoEvento != null)
+            eventoEscolhido = resultadoEvento;
         segundos = Math.Max(0, tempo);
         eventos = nomesEventos ?? Array.Empty<string>();
         votos = contagem ?? new int[4];
@@ -112,7 +117,8 @@ internal static class PainelVotacaoRpc
             {
                 rodada.ToString(), ativo ? "1" : "0", segundos.ToString(),
                 votacaoLobby ? "1" : "0", listaEventos, listaVotos,
-                tempoConfig.ToString(), intervaloConfig.ToString(), preparacaoConfig.ToString()
+                tempoConfig.ToString(), intervaloConfig.ToString(), preparacaoConfig.ToString(),
+                Convert.ToBase64String(Encoding.UTF8.GetBytes(eventoEscolhido ?? ""))
             });
 
             foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
@@ -182,7 +188,7 @@ internal static class PainelVotacaoRpc
         try
         {
             string[] p = payload.Split('|');
-            if (p.Length != 9) return;
+            if (p.Length != 9 && p.Length != 10) return;
             rodada = int.Parse(p[0]);
             ativo = p[1] == "1";
             segundos = Math.Max(0, int.Parse(p[2]));
@@ -194,6 +200,9 @@ internal static class PainelVotacaoRpc
             tempoConfig = int.Parse(p[6]);
             intervaloConfig = int.Parse(p[7]);
             preparacaoConfig = int.Parse(p[8]);
+            eventoEscolhido = p.Length >= 10
+                ? Encoding.UTF8.GetString(Convert.FromBase64String(p[9]))
+                : "";
             configuracaoRecebida = true;
         }
         catch (Exception ex)
@@ -353,7 +362,7 @@ internal sealed class PainelVotacaoOverlay : MonoBehaviour
         float largura = 420f * escala;
         float altura = (PainelVotacaoRpc.Ativo && PainelVotacaoRpc.Eventos.Length > 0
             ? 180f + PainelVotacaoRpc.Eventos.Length * 58f
-            : 160f) * escala;
+            : 190f) * escala;
 
         // GUIStyle guarda tamanhos absolutos; acompanhe a mesma escala do painel.
         estiloTitulo.fontSize = Mathf.Max(9, Mathf.RoundToInt(21f * escala));
@@ -430,12 +439,26 @@ internal sealed class PainelVotacaoOverlay : MonoBehaviour
         if (!PainelVotacaoRpc.Ativo || PainelVotacaoRpc.Eventos.Length == 0)
         {
             GUI.Label(new Rect(dentroX, atualY, larguraInterna, 22f * escala),
-                "PAINEL DE VOTAÇÃO", estiloSubtitulo);
-            atualY += 26f * escala;
-            GUI.Label(new Rect(dentroX, atualY, larguraInterna, 34f * escala),
-                "Aguardando a próxima votação...", estiloOpcao);
-            GUI.Label(new Rect(dentroX, atualY + 36f * escala, larguraInterna, 24f * escala),
-                "A votação começa automaticamente quando a live estiver ativa.", estiloPequeno);
+                "RESULTADO DA VOTAÇÃO", estiloSubtitulo);
+            atualY += 27f * escala;
+
+            if (!string.IsNullOrWhiteSpace(PainelVotacaoRpc.EventoEscolhido))
+            {
+                GUI.Label(new Rect(dentroX, atualY, larguraInterna, 22f * escala),
+                    "EVENTO ESCOLHIDO:", estiloPequeno);
+                atualY += 22f * escala;
+                GUI.Label(new Rect(dentroX, atualY, larguraInterna, 48f * escala),
+                    PainelVotacaoRpc.EventoEscolhido, estiloOpcao);
+                GUI.Label(new Rect(dentroX, atualY + 49f * escala, larguraInterna, 24f * escala),
+                    "Aguardando a próxima votação...", estiloPequeno);
+            }
+            else
+            {
+                GUI.Label(new Rect(dentroX, atualY, larguraInterna, 34f * escala),
+                    "Aguardando a próxima votação...", estiloOpcao);
+                GUI.Label(new Rect(dentroX, atualY + 36f * escala, larguraInterna, 24f * escala),
+                    "A votação começa automaticamente quando a live estiver ativa.", estiloPequeno);
+            }
             return;
         }
 
