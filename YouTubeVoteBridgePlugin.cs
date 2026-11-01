@@ -4360,6 +4360,13 @@ public static class YouTubeVotePastePatch
 [HarmonyPatch(typeof(AmongUsClient), nameof(AmongUsClient.CoStartGame))]
 public static class YouTubeVoteResetTaskEventsOnStartPatch
 {
+    // Segunda barreira: mesmo que outra rotina consiga contornar BeginGame,
+    // o início real da partida também é cancelado sem um vencedor F7.
+    public static bool Prefix()
+    {
+        return !YouTubeVoteBridgePlugin.BloquearInicioSemEventoF7();
+    }
+
     public static void Postfix()
     {
 
