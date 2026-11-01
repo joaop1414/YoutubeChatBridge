@@ -671,6 +671,21 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         FimExibicaoEventoEscolhido = 0f;
     }
 
+    internal static int ObterMapIdAtual()
+    {
+        try
+        {
+            // Apenas consulta o mapa atual; não altera as opções da sala.
+            var opcoes = GameOptionsManager.Instance?.currentNormalGameOptions;
+            return opcoes != null ? opcoes.MapId : -1;
+        }
+        catch (Exception ex)
+        {
+            Instance?.Log.LogDebug("Não foi possível ler o mapa atual: " + ex.Message);
+            return -1;
+        }
+    }
+
     // ========================================================
     // EXTRAÇÃO DE JSON
     // ========================================================
