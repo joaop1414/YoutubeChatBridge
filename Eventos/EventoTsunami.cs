@@ -585,7 +585,7 @@ internal sealed class EventoTsunami : EventoVotacao
             if (jogador.Data.IsDead)
             {
                 RestaurarMovimento(jogador, id);
-                RemoverMortePendente(id, null);
+                RemoverMortePendente(id);
                 continue;
             }
 
@@ -594,7 +594,7 @@ internal sealed class EventoTsunami : EventoVotacao
             if (MeetingHud.Instance != null)
             {
                 RestaurarMovimento(jogador, id);
-                RemoverMortePendente(id, null);
+                RemoverMortePendente(id);
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                     "Tsunami: morte pendente cancelada pela reunião; PlayerId=" + id + ".");
                 continue;
@@ -654,7 +654,7 @@ internal sealed class EventoTsunami : EventoVotacao
             finally
             {
                 RestaurarMovimento(jogador, id);
-                RemoverMortePendente(id, null);
+                RemoverMortePendente(id);
             }
         }
     }
