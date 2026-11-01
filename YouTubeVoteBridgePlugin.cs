@@ -47,6 +47,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     public static ConfigEntry<bool> EnterKeyToStartGame;
     public static ConfigEntry<bool> MultiTransmissaoAtiva;
     public static ConfigEntry<bool> PermitirIdsDeOutrosJogadores;
+    public static ConfigEntry<bool> TrocarMapaAoIniciar;
 
     // Permite que a ação manual "Encerrar partida" do menu F6 passe pelo bloqueio
     // de fim de jogo, mesmo quando a opção "Sem fim de jogo" está ativada.
@@ -250,6 +251,11 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         PermitirIdsDeOutrosJogadores = Config.Bind(
             "YouTube", "PermitirIdsDeOutrosJogadores", false,
             "Permite que jogadores solicitem a inclusão de suas lives; o host precisa aprovar cada pedido."
+        );
+
+        TrocarMapaAoIniciar = Config.Bind(
+            "Configurações do Mod", "TrocarMapaAoIniciar", false,
+            "Quando ativado, escolhe outro mapa aleatório ao iniciar a partida. Dleks tem 20% de chance."
         );
 
         LobbyTagManager.Initialize();
@@ -606,6 +612,67 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         {
             Instance?.Log.LogDebug("Não foi possível ler o mapa atual: " + ex.Message);
             return -1;
+        }
+    }
+
+    // Sorteia e aplica outro mapa somente quando o host inicia a partida.
+    internal static void AplicarTrocaMapaAoIniciar()
+    {
+        if (!EhHost() || TrocarMapaAoIniciar == null || !TrocarMapaAoIniciar.Value)
+            return;
+
+        try
+        {
+            if (GameManager.Instance == null || GameOptionsManager.Instance == null)
+            {
+                Instance?.Log.LogWarning("[Mapas] GameManager/GameOptionsManager ainda não está disponível.");
+                return;
+            }
+
+            var opcoes = GameOptionsManager.Instance.currentNormalGameOptions;
+            var logicOptions = GameManager.Instance.LogicOptions;
+            if (opcoes == null || logicOptions == null)
+            {
+                Instance?.Log.LogWarning("[Mapas] As opções normais da sala ainda não estão disponíveis.");
+                return;
+            }
+
+            int mapaAtual = opcoes.MapId;
+            int novoMapa;
+            if (mapaAtual != 3 && Sorteador.Next(100) < 20)
+            {
+                novoMapa = 3; // Dleks tem 20% de chance.
+            }
+            else
+            {
+                // Dleks só entra pelo sorteio especial de 20%.
+                int[] mapasNormais = { 0, 1, 2, 4, 5 };
+                int[] candidatos = mapasNormais.Where(id => id != mapaAtual).ToArray();
+                if (candidatos.Length == 0)
+                    candidatos = mapasNormais;
+                novoMapa = candidatos[Sorteador.Next(candidatos.Length)];
+            }
+
+            // Atualiza as opções nativas da sala, sem alterar LogicOptions manualmente.
+            opcoes.MapId = (byte)novoMapa;
+            logicOptions.SetDirty();
+
+            int mapaAplicado = opcoes.MapId;
+            if (mapaAplicado != novoMapa || logicOptions.MapId != novoMapa)
+            {
+                Instance?.Log.LogWarning(
+                    $"[Mapas] A configuração não confirmou o mapa sorteado. Esperado={novoMapa}; NormalOptions={mapaAplicado}; LogicOptions={logicOptions.MapId}.");
+                return;
+            }
+
+            string[] nomes = { "The Skeld", "Mira HQ", "Polus", "Dleks", "Airship", "The Fungle" };
+            string nome = novoMapa >= 0 && novoMapa < nomes.Length ? nomes[novoMapa] : novoMapa.ToString();
+            Instance?.Log.LogInfo(
+                $"[Mapas] Mapa da sala alterado para {nome} (MapId={novoMapa}; anterior={mapaAtual}).");
+        }
+        catch (Exception ex)
+        {
+            Instance?.Log.LogError("[Mapas] Falha ao alterar o mapa antes de iniciar: " + ex);
         }
     }
 
@@ -3963,6 +4030,16 @@ public static class YouTubeVoteChatPatch
 
         YouTubeVoteBridgePlugin.ProcessarComando(__instance, mensagem);
         return false;
+    }
+}
+
+[HarmonyPatch(typeof(GameStartManager), nameof(GameStartManager.BeginGame))]
+public static class YouTubeVoteRandomMapBeginGamePatch
+{
+    public static void Prefix()
+    {
+        // A seleção acontece imediatamente antes do jogo iniciar e somente no host.
+        YouTubeVoteBridgePlugin.AplicarTrocaMapaAoIniciar();
     }
 }
 
