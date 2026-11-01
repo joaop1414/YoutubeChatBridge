@@ -47,6 +47,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     public static ConfigEntry<bool> EnterKeyToStartGame;
     public static ConfigEntry<bool> MultiTransmissaoAtiva;
     public static ConfigEntry<bool> PermitirIdsDeOutrosJogadores;
+    public static ConfigEntry<bool> TrocarMapaAoIniciar;
 
     // Permite que a ação manual "Encerrar partida" do menu F6 passe pelo bloqueio
     // de fim de jogo, mesmo quando a opção "Sem fim de jogo" está ativada.
@@ -144,6 +145,8 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     private static readonly Dictionary<byte, string> NomesOriginaisPainel = new();
     private static string NomeHostOriginalPlacar;
     private static readonly Dictionary<byte, string> NomesOriginaisPlacarLocal = new();
+    private static readonly Dictionary<byte, string> NomesOriginaisEventoEscolhido = new();
+    private static float FimExibicaoEventoEscolhido;
     private static readonly HashSet<int> ClientesComMod = new();
     private static bool SinalModEnviado;
     // A transição é visual e detectada nos clientes pela sequência de cores.
@@ -252,6 +255,11 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         PermitirIdsDeOutrosJogadores = Config.Bind(
             "YouTube", "PermitirIdsDeOutrosJogadores", false,
             "Permite que jogadores solicitem a inclusão de suas lives; o host precisa aprovar cada pedido."
+        );
+
+        TrocarMapaAoIniciar = Config.Bind(
+            "Configurações do Mod", "TrocarMapaAoIniciar", false,
+            "Quando ativado, escolhe outro mapa aleatório a cada tentativa do host de iniciar a partida. Dleks tem 20% de chance."
         );
 
         LobbyTagManager.Initialize();
@@ -603,6 +611,16 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             string.IsNullOrWhiteSpace(nomeEvento))
             return;
 
+        // Se outro resultado ainda estiver sendo exibido, restaura-o antes de
+        // iniciar a nova janela de cinco segundos.
+        foreach (PlayerControl anterior in PlayerControl.AllPlayerControls)
+        {
+            if (anterior != null && NomesOriginaisEventoEscolhido.TryGetValue(
+                anterior.PlayerId, out string nomeAnterior))
+                DefinirNomeLocal(anterior, nomeAnterior);
+        }
+        NomesOriginaisEventoEscolhido.Clear();
+
         foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
         {
             if (jogador == null || jogador.Data == null || jogador.Data.Disconnected ||
@@ -611,19 +629,206 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 ClientesComMod.Contains(jogador.OwnerId))
                 continue;
 
-            if (!NomesOriginaisPlacarLocal.ContainsKey(jogador.PlayerId))
-                NomesOriginaisPlacarLocal[jogador.PlayerId] = jogador.Data.PlayerName;
-
+            string nomeOriginal = jogador.Data.PlayerName ?? string.Empty;
+            NomesOriginaisEventoEscolhido[jogador.PlayerId] = nomeOriginal;
             try
             {
-                string nomeOriginal = NomesOriginaisPlacarLocal[jogador.PlayerId];
-                DefinirNomeLocal(jogador, nomeOriginal + "\nEvento escolhido: " + nomeEvento);
+                DefinirNomeLocal(jogador,
+                    nomeOriginal + "\nEvento escolhido: " + nomeEvento);
             }
             catch (Exception ex)
             {
                 Instance?.Log.LogWarning(
                     $"Não foi possível mostrar o evento escolhido no nick do jogador {jogador.PlayerId}: {ex.Message}");
             }
+        }
+
+        FimExibicaoEventoEscolhido = Time.realtimeSinceStartup + 5f;
+    }
+
+    // Restaura o nick temporário depois de cinco segundos. O nome é enviado
+    // somente ao cliente proprietário, sem alterar o nome visto pelos demais.
+    internal static void AtualizarEventoEscolhidoNoNick()
+    {
+        if (NomesOriginaisEventoEscolhido.Count == 0 ||
+            Time.realtimeSinceStartup < FimExibicaoEventoEscolhido ||
+            !EhHost() || AmongUsClient.Instance == null)
+            return;
+
+        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+        {
+            if (jogador == null || jogador.Data == null ||
+                !NomesOriginaisEventoEscolhido.TryGetValue(jogador.PlayerId, out string nomeOriginal))
+                continue;
+
+            if (jogador.OwnerId < 0 ||
+                jogador.OwnerId == AmongUsClient.Instance.ClientId ||
+                ClientesComMod.Contains(jogador.OwnerId))
+                continue;
+
+            DefinirNomeLocal(jogador, nomeOriginal);
+        }
+
+        NomesOriginaisEventoEscolhido.Clear();
+        FimExibicaoEventoEscolhido = 0f;
+    }
+
+    // GameDataTo (tipo 6): altera o nome apenas na tela do cliente vanilla dono
+    // do personagem. Não usa GameData (tipo 5), que transmitiria a mudança a todos.
+    private static void DefinirNomeLocal(PlayerControl jogador, string nome)
+    {
+        if (!EhHost() || AmongUsClient.Instance == null || jogador == null ||
+            jogador.Data == null || jogador.OwnerId < 0 ||
+            jogador.OwnerId == AmongUsClient.Instance.ClientId)
+            return;
+
+        MessageWriter writer = null;
+        try
+        {
+            writer = MessageWriter.Get(SendOption.Reliable);
+            writer.StartMessage(6);
+            writer.Write(AmongUsClient.Instance.GameId);
+            writer.WritePacked(jogador.OwnerId);
+            writer.StartMessage(2);
+            writer.WritePacked(jogador.NetId);
+            writer.Write((byte)RpcCalls.SetName);
+            writer.Write(jogador.Data.NetId);
+            writer.Write(nome);
+            writer.EndMessage();
+            writer.EndMessage();
+            AmongUsClient.Instance.SendOrDisconnect(writer);
+            writer.Recycle();
+            writer = null;
+        }
+        catch (Exception ex)
+        {
+            Instance?.Log.LogWarning(
+                $"Falha ao definir nick local de PlayerId={jogador.PlayerId}: {ex.Message}");
+        }
+        finally
+        {
+            if (writer != null)
+            {
+                try { writer.Recycle(); } catch { }
+            }
+        }
+    }
+
+    private static object ObterSingletonJogo(string nomeTipo)
+    {
+        Type tipo = typeof(AmongUsClient).Assembly.GetType(nomeTipo);
+        if (tipo == null) return null;
+        const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
+        return tipo.GetProperty("Instance", flags)?.GetValue(null) ??
+            tipo.GetField("Instance", flags)?.GetValue(null);
+    }
+
+    private static object ObterMembro(object alvo, string nome)
+    {
+        if (alvo == null) return null;
+        const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+        Type tipo = alvo.GetType();
+        return tipo.GetProperty(nome, flags)?.GetValue(alvo) ??
+            tipo.GetField(nome, flags)?.GetValue(alvo);
+    }
+
+    private static bool DefinirMapId(object alvo, int mapId)
+    {
+        if (alvo == null) return false;
+        const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+        Type tipo = alvo.GetType();
+        PropertyInfo propriedade = tipo.GetProperty("MapId", flags);
+        if (propriedade != null && propriedade.CanWrite)
+        {
+            propriedade.SetValue(alvo, Convert.ChangeType(mapId, propriedade.PropertyType));
+            return true;
+        }
+
+        FieldInfo campo = tipo.GetField("MapId", flags) ?? tipo.GetField("mapId", flags);
+        if (campo == null) return false;
+        campo.SetValue(alvo, Convert.ChangeType(mapId, campo.FieldType));
+        return true;
+    }
+
+    internal static int ObterMapIdAtual()
+    {
+        try
+        {
+            object gerente = ObterSingletonJogo("GameManager");
+            object opcoes = ObterMembro(gerente, "LogicOptions");
+            if (opcoes == null)
+            {
+                object gerenteOpcoes = ObterSingletonJogo("GameOptionsManager");
+                opcoes = ObterMembro(gerenteOpcoes, "CurrentGameOptions");
+            }
+            object valor = ObterMembro(opcoes, "MapId");
+            if (valor != null)
+                return Convert.ToInt32(valor);
+        }
+        catch (Exception ex)
+        {
+            Instance?.Log.LogDebug("Não foi possível ler o mapa atual: " + ex.Message);
+        }
+        return -1;
+    }
+
+    // Chamado no BeginGame: escolhe outro mapa, com 20% de chance de Dleks.
+    internal static void AplicarTrocaMapaAoIniciar()
+    {
+        if (!EhHost() || TrocarMapaAoIniciar == null || !TrocarMapaAoIniciar.Value)
+            return;
+
+        try
+        {
+            int mapaAtual = ObterMapIdAtual();
+            int novoMapa;
+            if (Sorteador.Next(100) < 20)
+            {
+                novoMapa = 3; // Dleks
+            }
+            else
+            {
+                int[] mapasNormais = { 0, 1, 2, 4, 5 };
+                int[] candidatos = mapasNormais.Where(id => id != mapaAtual).ToArray();
+                if (candidatos.Length == 0)
+                    candidatos = mapasNormais;
+                novoMapa = candidatos[Sorteador.Next(candidatos.Length)];
+            }
+
+            object gerente = ObterSingletonJogo("GameManager");
+            object logicOptions = ObterMembro(gerente, "LogicOptions");
+            object gerenteOpcoes = ObterSingletonJogo("GameOptionsManager");
+            object currentOptions = ObterMembro(gerenteOpcoes, "CurrentGameOptions");
+            bool alterado = DefinirMapId(logicOptions, novoMapa);
+            alterado |= DefinirMapId(currentOptions, novoMapa);
+            if (!alterado)
+            {
+                Instance?.Log.LogWarning("[Mapas] Não foi possível alterar o MapId das opções atuais.");
+                return;
+            }
+
+            const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+            logicOptions?.GetType().GetMethod("SetDirty", flags, null, Type.EmptyTypes, null)?.Invoke(logicOptions, null);
+
+            GameStartManager manager = GameStartManager.Instance;
+            if (manager != null)
+            {
+                MethodInfo atualizarImagem = manager.GetType().GetMethods(flags)
+                    .FirstOrDefault(m => m.Name == "UpdateMapImage" && m.GetParameters().Length == 1);
+                if (atualizarImagem != null)
+                {
+                    Type tipoMapa = atualizarImagem.GetParameters()[0].ParameterType;
+                    atualizarImagem.Invoke(manager, new[] { Enum.ToObject(tipoMapa, novoMapa) });
+                }
+            }
+
+            string[] nomes = { "The Skeld", "Mira HQ", "Polus", "Dleks", "Airship", "The Fungle" };
+            string nome = novoMapa >= 0 && novoMapa < nomes.Length ? nomes[novoMapa] : novoMapa.ToString();
+            Instance?.Log.LogInfo($"[Mapas] Mapa alterado ao iniciar: {nome} (MapId={novoMapa}; anterior={mapaAtual}).");
+        }
+        catch (Exception ex)
+        {
+            Instance?.Log.LogError("[Mapas] Falha ao trocar o mapa antes de iniciar: " + ex);
         }
     }
 
@@ -4055,7 +4260,11 @@ public static class YouTubeVoteRequireF7SelectionPatch
 {
     public static bool Prefix()
     {
-        return !YouTubeVoteBridgePlugin.BloquearInicioSemEventoF7();
+        if (YouTubeVoteBridgePlugin.BloquearInicioSemEventoF7())
+            return false;
+
+        YouTubeVoteBridgePlugin.AplicarTrocaMapaAoIniciar();
+        return true;
     }
 }
 
@@ -4249,6 +4458,7 @@ public static class YouTubeVoteUpdatePatch
         EventoTesteMenu.ProcessarFilaExecucao();
         // Não enviar RPC customizado 248 para hosts vanilla: eles não conhecem esse RPC.
         YouTubeVoteBridgePlugin.AtualizarAvisos();
+        YouTubeVoteBridgePlugin.AtualizarEventoEscolhidoNoNick();
         YouTubeVoteBridgePlugin.AtualizarCicloVotacaoLobby();
         YouTubeVoteBridgePlugin.AtualizarVotacao();
         RainbowColorTransition.Atualizar();
