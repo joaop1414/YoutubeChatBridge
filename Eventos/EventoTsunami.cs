@@ -617,15 +617,15 @@ internal sealed class EventoTsunami : EventoVotacao
 
             try
             {
-                // Registra o jogador que o tsunami converteu para Ghost.
-                // Antes da reunião, PrepararAntesDaReuniao usa essa lista para
-                // criar o corpo falso e fazê-lo aparecer na seção "Mortos".
-                jogador.RpcMurderPlayer(jogador, true);
-                mortosPeloTsunami.Add(id);
+                // O host deve ser o autor do RPC. Usar o próprio jogador remoto
+                // como autor (jogador.RpcMurderPlayer(...)) pode enviar um RPC
+                // em nome de outro OwnerId e fazer o servidor expulsar o cliente.
+                // O alvo continua sendo o jogador atingido pelo tsunami.
+                PlayerControl.LocalPlayer.RpcMurderPlayer(jogador, true);
 
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "Tsunami: atraso concluído; PlayerId=" + id +
-                    " recebeu RpcMurderPlayer contra si mesmo e foi registrado para corpo falso na reunião.");
+                    "Tsunami: atraso concluído; o host enviou RpcMurderPlayer para PlayerId=" +
+                    id + " como alvo.");
             }
             catch (Exception ex)
             {
