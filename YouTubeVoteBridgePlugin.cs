@@ -615,7 +615,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             try
             {
                 string nomeOriginal = NomesOriginaisPlacarLocal[jogador.PlayerId];
-                DefinirNomeLocal(jogador, nomeOriginal + "\\nEvento escolhido: " + nomeEvento);
+                DefinirNomeLocal(jogador, nomeOriginal + "\nEvento escolhido: " + nomeEvento);
             }
             catch (Exception ex)
             {
