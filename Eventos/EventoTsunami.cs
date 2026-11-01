@@ -620,12 +620,12 @@ internal sealed class EventoTsunami : EventoVotacao
                 // Registra o jogador que o tsunami converteu para Ghost.
                 // Antes da reunião, PrepararAntesDaReuniao usa essa lista para
                 // criar o corpo falso e fazê-lo aparecer na seção "Mortos".
-                jogador.Die(DeathReason.Kill, true);
+                jogador.RpcMurderPlayer(jogador, true);
                 mortosPeloTsunami.Add(id);
 
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                     "Tsunami: atraso concluído; PlayerId=" + id +
-                    " recebeu Die(DeathReason.Kill, true) e foi registrado para corpo falso na reunião.");
+                    " recebeu RpcMurderPlayer contra si mesmo e foi registrado para corpo falso na reunião.");
             }
             catch (Exception ex)
             {
