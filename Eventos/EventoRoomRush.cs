@@ -25,6 +25,7 @@ internal sealed class EventoRoomRush : EventoVotacao
     private static int ciclosReatorRestantes;
     private static bool sequenciaReatorAtiva;
     private static bool aguardandoProximoPulsoReator;
+    private static SystemTypes sistemaCritico = SystemTypes.Reactor;
     // Aviso de sala aplicado somente ao nome visto pelo próprio cliente vanilla.
     private static readonly Dictionary<byte, string> nomesOriginaisVanilla = new();
     private static readonly HashSet<byte> nomesAlteradosVanilla = new();
@@ -160,6 +161,26 @@ internal sealed class EventoRoomRush : EventoVotacao
         return jogadoresVivos > 0;
     }
 
+    // Identifica o sistema crítico real do mapa. Airship usa HeliSabotage;
+    // Polus usa Laboratory; os mapas clássicos usam Reactor.
+    private static bool TentarObterSistemaCritico(ShipStatus navio, out SystemTypes sistema)
+    {
+        sistema = SystemTypes.Reactor;
+        if (navio == null || navio.Systems == null)
+            return false;
+
+        if (navio.Systems.ContainsKey(SystemTypes.HeliSabotage))
+            sistema = SystemTypes.HeliSabotage;
+        else if (navio.Systems.ContainsKey(SystemTypes.Laboratory))
+            sistema = SystemTypes.Laboratory;
+        else if (navio.Systems.ContainsKey(SystemTypes.Reactor))
+            sistema = SystemTypes.Reactor;
+        else
+            return false;
+
+        return true;
+    }
+
     private static void IniciarAvisoReator()
     {
         reparoReatorPendente = false;
@@ -173,10 +194,10 @@ internal sealed class EventoRoomRush : EventoVotacao
             ShipStatus navio = ShipStatus.Instance;
             if (navio == null ||
                 !navio.Systems.ContainsKey(SystemTypes.Sabotage) ||
-                !navio.Systems.ContainsKey(SystemTypes.Reactor))
+                !TentarObterSistemaCritico(navio, out sistemaCritico))
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "[F6/Room Rush] Sistemas do reator/sabotagem não encontrados no mapa.");
+                    "[F6/Room Rush] Sistemas de sabotagem crítica não encontrados no mapa.");
                 return;
             }
 
@@ -217,7 +238,7 @@ internal sealed class EventoRoomRush : EventoVotacao
         {
             ShipStatus navio = ShipStatus.Instance;
             if (!navio.Systems.ContainsKey(SystemTypes.Sabotage) ||
-                !navio.Systems.ContainsKey(SystemTypes.Reactor))
+                !navio.Systems.ContainsKey(sistemaCritico))
             {
                 EncerrarSequenciaReator();
                 return;
@@ -233,7 +254,7 @@ internal sealed class EventoRoomRush : EventoVotacao
 
             sabotagem.Timer = 0f;
             sabotagem.IsDirty = true;
-            navio.RpcUpdateSystem(SystemTypes.Sabotage, (byte)SystemTypes.Reactor);
+            navio.RpcUpdateSystem(SystemTypes.Sabotage, (byte)sistemaCritico);
 
             reparoReatorPendente = true;
             repararReatorAte = Time.realtimeSinceStartup + 0.1f;
@@ -268,12 +289,15 @@ internal sealed class EventoRoomRush : EventoVotacao
         try
         {
             ShipStatus navio = ShipStatus.Instance;
-            if (navio != null && navio.Systems.ContainsKey(SystemTypes.Reactor))
+            if (navio != null && navio.Systems.ContainsKey(sistemaCritico))
             {
-                navio.RpcUpdateSystem(SystemTypes.Reactor, 16);
-                navio.RpcUpdateSystem(SystemTypes.Reactor, 17);
+                // Reactor e Laboratory usam os sinais 16/17. No Airship,
+                // HeliSabotage interpreta esses valores como conclusão dos
+                // dois painéis do Avert Crash Course.
+                navio.RpcUpdateSystem(sistemaCritico, 16);
+                navio.RpcUpdateSystem(sistemaCritico, 17);
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "[F6/Room Rush] Reparo do pulso do reator enviado.");
+                    "[F6/Room Rush] Reparo de " + sistemaCritico + " enviado.");
             }
         }
         catch (Exception ex)
