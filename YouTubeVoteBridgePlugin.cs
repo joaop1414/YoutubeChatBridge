@@ -677,65 +677,25 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         FimExibicaoEventoEscolhido = 0f;
     }
 
-    private static object ObterSingletonJogo(string nomeTipo)
-    {
-        Type tipo = typeof(AmongUsClient).Assembly.GetType(nomeTipo);
-        if (tipo == null) return null;
-        const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
-        return tipo.GetProperty("Instance", flags)?.GetValue(null) ??
-            tipo.GetField("Instance", flags)?.GetValue(null);
-    }
-
-    private static object ObterMembro(object alvo, string nome)
-    {
-        if (alvo == null) return null;
-        const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
-        Type tipo = alvo.GetType();
-        return tipo.GetProperty(nome, flags)?.GetValue(alvo) ??
-            tipo.GetField(nome, flags)?.GetValue(alvo);
-    }
-
-    private static bool DefinirMapId(object alvo, int mapId)
-    {
-        if (alvo == null) return false;
-        const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
-        Type tipo = alvo.GetType();
-        PropertyInfo propriedade = tipo.GetProperty("MapId", flags);
-        if (propriedade != null && propriedade.CanWrite)
-        {
-            propriedade.SetValue(alvo, Convert.ChangeType(mapId, propriedade.PropertyType));
-            return true;
-        }
-
-        FieldInfo campo = tipo.GetField("MapId", flags) ?? tipo.GetField("mapId", flags);
-        if (campo == null) return false;
-        campo.SetValue(alvo, Convert.ChangeType(mapId, campo.FieldType));
-        return true;
-    }
-
     internal static int ObterMapIdAtual()
     {
         try
         {
-            object gerente = ObterSingletonJogo("GameManager");
-            object opcoes = ObterMembro(gerente, "LogicOptions");
-            if (opcoes == null)
-            {
-                object gerenteOpcoes = ObterSingletonJogo("GameOptionsManager");
-                opcoes = ObterMembro(gerenteOpcoes, "CurrentGameOptions");
-            }
-            object valor = ObterMembro(opcoes, "MapId");
-            if (valor != null)
-                return Convert.ToInt32(valor);
+            // Usa as opções normais concretas do jogo, como o EHR.
+            // CurrentGameOptions expõe IGameOptions (MapId somente leitura);
+            // currentNormalGameOptions é o objeto editável usado pelo menu de mapas.
+            var opcoes = GameOptionsManager.Instance?.currentNormalGameOptions;
+            return opcoes != null ? opcoes.MapId : -1;
         }
         catch (Exception ex)
         {
             Instance?.Log.LogDebug("Não foi possível ler o mapa atual: " + ex.Message);
+            return -1;
         }
-        return -1;
     }
 
-    // Chamado no BeginGame: escolhe outro mapa, com 20% de chance de Dleks.
+    // Chamado no BeginGame: altera a configuração nativa de mapa da sala,
+    // usando o mesmo objeto editável que o seletor de mapas do Among Us/EHR.
     internal static void AplicarTrocaMapaAoIniciar()
     {
         if (!EhHost() || TrocarMapaAoIniciar == null || !TrocarMapaAoIniciar.Value)
@@ -743,7 +703,21 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
         try
         {
-            int mapaAtual = ObterMapIdAtual();
+            if (GameManager.Instance == null || GameOptionsManager.Instance == null)
+            {
+                Instance?.Log.LogWarning("[Mapas] GameManager/GameOptionsManager ainda não está disponível.");
+                return;
+            }
+
+            var opcoes = GameOptionsManager.Instance.currentNormalGameOptions;
+            var logicOptions = GameManager.Instance.LogicOptions;
+            if (opcoes == null || logicOptions == null)
+            {
+                Instance?.Log.LogWarning("[Mapas] As opções normais da sala ainda não estão disponíveis.");
+                return;
+            }
+
+            int mapaAtual = opcoes.MapId;
             int novoMapa;
             if (mapaAtual != 3 && Sorteador.Next(100) < 20)
             {
@@ -751,6 +725,8 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             }
             else
             {
+                // Dleks não entra no sorteio comum; só pode ser escolhido
+                // pela chance específica de 20%.
                 int[] mapasNormais = { 0, 1, 2, 4, 5 };
                 int[] candidatos = mapasNormais.Where(id => id != mapaAtual).ToArray();
                 if (candidatos.Length == 0)
@@ -758,65 +734,28 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 novoMapa = candidatos[Sorteador.Next(candidatos.Length)];
             }
 
-            // IGameOptions.MapId é somente leitura nesta versão do Among Us.
-            // O EHR altera Main.NormalOptions (a implementação concreta das opções)
-            // e depois marca LogicOptions como modificada. Reproduzimos esse fluxo:
-            // localizamos o setter MapId na implementação concreta de CurrentGameOptions.
-            if (GameManager.Instance == null || GameOptionsManager.Instance == null)
-            {
-                Instance?.Log.LogWarning("[Mapas] GameManager/GameOptionsManager ainda não está disponível.");
-                return;
-            }
-
-            var logicOptions = GameManager.Instance.LogicOptions;
-            var currentOptions = GameOptionsManager.Instance.CurrentGameOptions;
-            if (logicOptions == null || currentOptions == null)
-            {
-                Instance?.Log.LogWarning("[Mapas] As opções atuais do jogo estão nulas.");
-                return;
-            }
-
-            const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
-            PropertyInfo propriedadeMapa = currentOptions.GetType().GetProperty("MapId", flags);
-            MethodInfo setterMapa = propriedadeMapa?.GetSetMethod(true);
-            if (setterMapa == null)
-            {
-                Instance?.Log.LogWarning(
-                    $"[Mapas] A implementação {currentOptions.GetType().FullName} não expõe setter para MapId.");
-                return;
-            }
-
-            setterMapa.Invoke(currentOptions, new object[] { novoMapa });
+            // Mesmo caminho usado pelo EHR: altera NormalGameOptions diretamente.
+            // Não usa IGameOptions.MapId, reflexão, setter privado ou alteração manual
+            // do objeto LogicOptions.
+            opcoes.MapId = novoMapa;
             logicOptions.SetDirty();
 
-            int mapaAplicado = currentOptions.MapId;
-            if (mapaAplicado != novoMapa)
+            int mapaAplicado = opcoes.MapId;
+            if (mapaAplicado != novoMapa || logicOptions.MapId != novoMapa)
             {
                 Instance?.Log.LogWarning(
-                    $"[Mapas] Falha ao confirmar MapId. Esperado={novoMapa}; CurrentOptions={mapaAplicado}; LogicOptions={logicOptions.MapId}.");
+                    $"[Mapas] A configuração não confirmou o mapa sorteado. Esperado={novoMapa}; NormalOptions={mapaAplicado}; LogicOptions={logicOptions.MapId}.");
                 return;
-            }
-
-            GameStartManager manager = GameStartManager.Instance;
-            if (manager != null)
-            {
-                MethodInfo atualizarImagem = manager.GetType().GetMethods(flags)
-                    .FirstOrDefault(m => m.Name == "UpdateMapImage" && m.GetParameters().Length == 1);
-                if (atualizarImagem != null)
-                {
-                    Type tipoMapa = atualizarImagem.GetParameters()[0].ParameterType;
-                    atualizarImagem.Invoke(manager, new[] { Enum.ToObject(tipoMapa, novoMapa) });
-                }
             }
 
             string[] nomes = { "The Skeld", "Mira HQ", "Polus", "Dleks", "Airship", "The Fungle" };
             string nome = novoMapa >= 0 && novoMapa < nomes.Length ? nomes[novoMapa] : novoMapa.ToString();
             Instance?.Log.LogInfo(
-                $"[Mapas] Mapa alterado ao iniciar: {nome} (MapId={novoMapa}; anterior={mapaAtual}; LogicOptions={logicOptions.MapId}).");
+                $"[Mapas] Configuração nativa da sala alterada: {nome} (MapId={novoMapa}; anterior={mapaAtual}).");
         }
         catch (Exception ex)
         {
-            Instance?.Log.LogError("[Mapas] Falha ao trocar o mapa antes de iniciar: " + ex);
+            Instance?.Log.LogError("[Mapas] Falha ao alterar a configuração de mapa antes de iniciar: " + ex);
         }
     }
 
