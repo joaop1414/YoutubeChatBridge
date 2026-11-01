@@ -85,6 +85,11 @@ namespace YouTubeVoteBridge
                                 CriarControle(__instance, modeloExistente, "Permitir IDs de outros jogadores", PREFIX + "PERMITIRIDS", yExistente);
                                 yExistente -= 0.52f;
                             }
+                            if (!existentes.Any(x => x.name == PREFIX + "TROCAMAPA"))
+                            {
+                                CriarControle(__instance, modeloExistente, "Escolher mapa aleatório ao iniciar (Dleks: 20%)", PREFIX + "TROCAMAPA", yExistente);
+                                yExistente -= 0.52f;
+                            }
 
                             if (__instance.scrollBar != null)
                                 __instance.scrollBar.SetYBoundsMax(Math.Max(6f, -yExistente + 2.6f));
@@ -139,6 +144,8 @@ namespace YouTubeVoteBridge
                 CriarControle(__instance, modelo, "Multitransmissão", PREFIX + "MULTI", y);
                 y -= 0.52f;
                 CriarControle(__instance, modelo, "Permitir IDs de outros jogadores", PREFIX + "PERMITIRIDS", y);
+                y -= 0.52f;
+                CriarControle(__instance, modelo, "Escolher mapa aleatório ao iniciar (Dleks: 20%)", PREFIX + "TROCAMAPA", y);
                 y -= 0.52f;
 
                 AtualizarControles(__instance);
@@ -212,7 +219,8 @@ namespace YouTubeVoteBridge
                 YouTubeVoteBridgePlugin.PularFaseVotosJuiz == null ||
                 YouTubeVoteBridgePlugin.SemFimDeJogo == null ||
                 YouTubeVoteBridgePlugin.MultiTransmissaoAtiva == null ||
-                YouTubeVoteBridgePlugin.PermitirIdsDeOutrosJogadores == null)
+                YouTubeVoteBridgePlugin.PermitirIdsDeOutrosJogadores == null ||
+                YouTubeVoteBridgePlugin.TrocarMapaAoIniciar == null)
                 return;
 
             if (option.name == PREFIX + "TEMPO")
@@ -232,6 +240,8 @@ namespace YouTubeVoteBridge
                 YouTubeVoteBridgePlugin.MultiTransmissaoAtiva.Value = delta > 0;
             else if (option.name == PREFIX + "PERMITIRIDS")
                 YouTubeVoteBridgePlugin.PermitirIdsDeOutrosJogadores.Value = delta > 0;
+            else if (option.name == PREFIX + "TROCAMAPA")
+                YouTubeVoteBridgePlugin.TrocarMapaAoIniciar.Value = delta > 0;
             else
                 return;
 
@@ -325,6 +335,16 @@ namespace YouTubeVoteBridge
                 bool ativado = YouTubeVoteBridgePlugin.PermitirIdsDeOutrosJogadores != null &&
                     YouTubeVoteBridgePlugin.PermitirIdsDeOutrosJogadores.Value;
                 option.TitleText.text = "Permitir IDs de outros jogadores";
+                option.Value = ativado ? 1 : 0;
+                option.oldValue = ativado ? 1 : 0;
+                option.ValueText.text = ativado ? "Ativado" : "Desativado";
+                return;
+            }
+            else if (option.name == PREFIX + "TROCAMAPA")
+            {
+                bool ativado = YouTubeVoteBridgePlugin.TrocarMapaAoIniciar != null &&
+                    YouTubeVoteBridgePlugin.TrocarMapaAoIniciar.Value;
+                option.TitleText.text = "Escolher mapa aleatório ao iniciar (Dleks: 20%)";
                 option.Value = ativado ? 1 : 0;
                 option.oldValue = ativado ? 1 : 0;
                 option.ValueText.text = ativado ? "Ativado" : "Desativado";
