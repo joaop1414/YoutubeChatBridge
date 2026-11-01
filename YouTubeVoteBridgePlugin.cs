@@ -47,7 +47,6 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     public static ConfigEntry<bool> EnterKeyToStartGame;
     public static ConfigEntry<bool> MultiTransmissaoAtiva;
     public static ConfigEntry<bool> PermitirIdsDeOutrosJogadores;
-    public static ConfigEntry<bool> TrocarMapaAoIniciar;
 
     // Permite que a ação manual "Encerrar partida" do menu F6 passe pelo bloqueio
     // de fim de jogo, mesmo quando a opção "Sem fim de jogo" está ativada.
@@ -259,11 +258,6 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         PermitirIdsDeOutrosJogadores = Config.Bind(
             "YouTube", "PermitirIdsDeOutrosJogadores", false,
             "Permite que jogadores solicitem a inclusão de suas lives; o host precisa aprovar cada pedido."
-        );
-
-        TrocarMapaAoIniciar = Config.Bind(
-            "Configurações do Mod", "TrocarMapaAoIniciar", false,
-            "Quando ativado, escolhe outro mapa aleatório a cada tentativa do host de iniciar a partida. Dleks tem 20% de chance."
         );
 
         LobbyTagManager.Initialize();
@@ -675,88 +669,6 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
         NomesOriginaisEventoEscolhido.Clear();
         FimExibicaoEventoEscolhido = 0f;
-    }
-
-    internal static int ObterMapIdAtual()
-    {
-        try
-        {
-            // Usa as opções normais concretas do jogo, como o EHR.
-            // CurrentGameOptions expõe IGameOptions (MapId somente leitura);
-            // currentNormalGameOptions é o objeto editável usado pelo menu de mapas.
-            var opcoes = GameOptionsManager.Instance?.currentNormalGameOptions;
-            return opcoes != null ? opcoes.MapId : -1;
-        }
-        catch (Exception ex)
-        {
-            Instance?.Log.LogDebug("Não foi possível ler o mapa atual: " + ex.Message);
-            return -1;
-        }
-    }
-
-    // Chamado no BeginGame: altera a configuração nativa de mapa da sala,
-    // usando o mesmo objeto editável que o seletor de mapas do Among Us/EHR.
-    internal static void AplicarTrocaMapaAoIniciar()
-    {
-        if (!EhHost() || TrocarMapaAoIniciar == null || !TrocarMapaAoIniciar.Value)
-            return;
-
-        try
-        {
-            if (GameManager.Instance == null || GameOptionsManager.Instance == null)
-            {
-                Instance?.Log.LogWarning("[Mapas] GameManager/GameOptionsManager ainda não está disponível.");
-                return;
-            }
-
-            var opcoes = GameOptionsManager.Instance.currentNormalGameOptions;
-            var logicOptions = GameManager.Instance.LogicOptions;
-            if (opcoes == null || logicOptions == null)
-            {
-                Instance?.Log.LogWarning("[Mapas] As opções normais da sala ainda não estão disponíveis.");
-                return;
-            }
-
-            int mapaAtual = opcoes.MapId;
-            int novoMapa;
-            if (mapaAtual != 3 && Sorteador.Next(100) < 20)
-            {
-                novoMapa = 3; // Dleks (20% de chance quando não é o mapa atual)
-            }
-            else
-            {
-                // Dleks não entra no sorteio comum; só pode ser escolhido
-                // pela chance específica de 20%.
-                int[] mapasNormais = { 0, 1, 2, 4, 5 };
-                int[] candidatos = mapasNormais.Where(id => id != mapaAtual).ToArray();
-                if (candidatos.Length == 0)
-                    candidatos = mapasNormais;
-                novoMapa = candidatos[Sorteador.Next(candidatos.Length)];
-            }
-
-            // Mesmo caminho usado pelo EHR: altera NormalGameOptions diretamente.
-            // Não usa IGameOptions.MapId, reflexão, setter privado ou alteração manual
-            // do objeto LogicOptions.
-            opcoes.MapId = (byte)novoMapa;
-            logicOptions.SetDirty();
-
-            int mapaAplicado = opcoes.MapId;
-            if (mapaAplicado != novoMapa || logicOptions.MapId != novoMapa)
-            {
-                Instance?.Log.LogWarning(
-                    $"[Mapas] A configuração não confirmou o mapa sorteado. Esperado={novoMapa}; NormalOptions={mapaAplicado}; LogicOptions={logicOptions.MapId}.");
-                return;
-            }
-
-            string[] nomes = { "The Skeld", "Mira HQ", "Polus", "Dleks", "Airship", "The Fungle" };
-            string nome = novoMapa >= 0 && novoMapa < nomes.Length ? nomes[novoMapa] : novoMapa.ToString();
-            Instance?.Log.LogInfo(
-                $"[Mapas] Configuração nativa da sala alterada: {nome} (MapId={novoMapa}; anterior={mapaAtual}).");
-        }
-        catch (Exception ex)
-        {
-            Instance?.Log.LogError("[Mapas] Falha ao alterar a configuração de mapa antes de iniciar: " + ex);
-        }
     }
 
     // ========================================================
@@ -4244,7 +4156,6 @@ public static class YouTubeVoteRequireF7SelectionPatch
         if (YouTubeVoteBridgePlugin.BloquearInicioSemEventoF7())
             return false;
 
-        YouTubeVoteBridgePlugin.AplicarTrocaMapaAoIniciar();
         return true;
     }
 }
