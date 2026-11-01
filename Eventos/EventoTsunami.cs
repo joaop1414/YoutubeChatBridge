@@ -22,7 +22,9 @@ internal sealed class EventoTsunami : EventoVotacao
     private const float Velocidade = 3.0f;
     // Atualizações mais frequentes reduzem os saltos visuais ao carregar jogadores.
     // 25 atualizações/s; Velocidade * Intervalo mantém a velocidade física da onda.
-    private const float Intervalo = 0.04f;
+    private const float Intervalo = 0.08f;
+// Transporte das vítimas em frequência menor para reduzir RPCs de SnapTo.
+    private const float IntervaloSnapJogador = 0.16f;
     private const float ProtecaoDuto = 1.0f;
     private const float AlcanceDutoTsunami = 0.65f;
     private const float AlcanceIdentificarDutoTsunami = 0.85f;
@@ -561,91 +563,118 @@ internal sealed class EventoTsunami : EventoVotacao
         if (!YouTubeVoteBridgePlugin.EhHost() || mortesPendentes.Count == 0)
             return;
 
+        // Trabalha sobre uma cópia porque os registros são removidos durante o processamento.
         foreach (byte id in new List<byte>(mortesPendentes.Keys))
         {
-            PlayerControl jogador = null;
-            foreach (PlayerControl candidato in PlayerControl.AllPlayerControls)
-            {
-                if (candidato != null && candidato.PlayerId == id)
-                {
-                    jogador = candidato;
-                    break;
-                }
-            }
+            PlayerControl jogador = PlayerControl.AllPlayerControls
+                .ToArray()
+                .FirstOrDefault(p => p != null && p.PlayerId == id);
 
             if (jogador == null || jogador.Data == null || jogador.Data.Disconnected)
             {
-                mortesPendentes.Remove(id);
-                alturaAoAtingir.Remove(id);
-                movimentoOriginal.Remove(id);
-                proximoSnapJogador.Remove(id);
+                RemoverMortePendente(id, null);
                 continue;
             }
 
-            if (MeetingHud.Instance == null && ativo && indicador != null && jogador.MyPhysics != null)
+            // Nunca tenta matar novamente alguém que já morreu por outra causa.
+            if (jogador.Data.IsDead)
+            {
+                RestaurarMovimento(jogador, id);
+                RemoverMortePendente(id, null);
+                continue;
+            }
+
+            // Uma reunião interrompe o transporte. Não antecipa mortes só porque
+            // a reunião começou: o prazo original de 2 segundos continua valendo.
+            if (MeetingHud.Instance != null)
+            {
+                RestaurarMovimento(jogador, id);
+                RemoverMortePendente(id, null);
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "Tsunami: morte pendente cancelada pela reunião; PlayerId=" + id + ".");
+                continue;
+            }
+
+            // Enquanto a onda estiver ativa, carrega a vítima no eixo X.
+            // O SnapTo é limitado a 6,25 chamadas por segundo por jogador.
+            if (ativo && indicador != null && jogador.NetTransform != null)
             {
                 try
                 {
-                    float y = alturaAoAtingir.TryGetValue(id, out float altura)
-                        ? altura : jogador.GetTruePosition().y;
-                    Vector2 destino = new Vector2(posicao.x, y);
-
-                    // Reutiliza a mesma chamada de teleporte do evento de duto,
-                    // que já foi validada neste projeto: RpcSnapTo publica o SnapTo
-                    // pela API do jogo em vez de montar o RPC manualmente.
-                    // Limita a frequência para não inundar a rede (12,5 atualizações/s).
                     if (!proximoSnapJogador.TryGetValue(id, out float proximo) || agora >= proximo)
                     {
-                        jogador.NetTransform.RpcSnapTo(destino);
-                        proximoSnapJogador[id] = agora + Intervalo;
+                        float y = alturaAoAtingir.TryGetValue(id, out float altura)
+                            ? altura
+                            : jogador.GetTruePosition().y;
 
-                        YouTubeVoteBridgePlugin.Instance?.Log.LogDebug(
-                            "Tsunami: RpcSnapTo de PlayerId=" + id +
-                            " para X=" + destino.x.ToString("0.00") +
-                            ", Y=" + destino.y.ToString("0.00") + ".");
+                        Vector2 destino = new Vector2(posicao.x, y);
+                        jogador.NetTransform.RpcSnapTo(destino);
+                        proximoSnapJogador[id] = agora + IntervaloSnapJogador;
                     }
                 }
                 catch (Exception ex)
                 {
                     YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                        "Tsunami: falha ao carregar PlayerId=" + id + ": " + ex.Message);
+                        "Tsunami: falha ao transportar PlayerId=" + id + ": " + ex.Message);
                 }
             }
 
-            if (agora < mortesPendentes[id] && MeetingHud.Instance == null)
+            // A vítima só morre quando o prazo realmente termina.
+            if (agora < mortesPendentes[id])
                 continue;
 
             try
             {
-                // Mantém o mesmo método usado originalmente pelo Tsunami:
-                // Die com DeathReason.Kill, em vez de enviar RpcMurderPlayer.
                 jogador.Die(DeathReason.Kill, true);
 
-                mortosPeloTsunami.Add(id);
-
-                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "Tsunami: atraso concluído; PlayerId=" + id +
-                    " morreu usando Die(DeathReason.Kill, true) e foi registrado para corpo falso na reunião.");
+                if (jogador.Data != null && jogador.Data.IsDead)
+                {
+                    mortosPeloTsunami.Add(id);
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                        "Tsunami: PlayerId=" + id +
+                        " morreu após o atraso e foi registrado para o corpo da reunião.");
+                }
+                else
+                {
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                        "Tsunami: Die foi chamado, mas o jogo ainda não marcou PlayerId=" +
+                        id + " como morto.");
+                }
             }
             catch (Exception ex)
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                    "Tsunami: falha ao trocar PlayerId=" + id + " para Ghost: " + ex);
+                    "Tsunami: falha ao matar PlayerId=" + id + ": " + ex);
             }
             finally
             {
-                try
-                {
-                    if (movimentoOriginal.TryGetValue(id, out bool moveable))
-                        jogador.moveable = moveable;
-                }
-                catch { }
-                mortesPendentes.Remove(id);
-                alturaAoAtingir.Remove(id);
-                movimentoOriginal.Remove(id);
-                proximoSnapJogador.Remove(id);
+                RestaurarMovimento(jogador, id);
+                RemoverMortePendente(id, null);
             }
         }
+    }
+
+    private static void RestaurarMovimento(PlayerControl jogador, byte id)
+    {
+        if (jogador == null) return;
+
+        try
+        {
+            if (movimentoOriginal.TryGetValue(id, out bool moveable))
+                jogador.moveable = moveable;
+        }
+        catch { }
+    }
+
+    private static void RemoverMortePendente(byte id, PlayerControl jogador)
+    {
+        if (jogador != null)
+            RestaurarMovimento(jogador, id);
+
+        mortesPendentes.Remove(id);
+        alturaAoAtingir.Remove(id);
+        movimentoOriginal.Remove(id);
+        proximoSnapJogador.Remove(id);
     }
 
     internal static string ObterTextoAvisoHud()
