@@ -615,6 +615,28 @@ internal sealed class EventoRoomRush : EventoVotacao
         if (ativo && YouTubeVoteBridgePlugin.EhHost())
             YouTubeVoteBridgePlugin.SincronizarRoomRush(0, 0f, false);
 
+        // Se a rodada terminar durante os 0,1s de espera, não deixa a
+        // sabotagem crítica recém-acionada ativa no mapa.
+        if (sequenciaReatorAtiva && reparoReatorPendente &&
+            ShipStatus.Instance != null &&
+            ShipStatus.Instance.Systems.ContainsKey(sistemaCritico))
+        {
+            try
+            {
+                ShipStatus.Instance.RpcUpdateSystem(sistemaCritico, 16);
+                ShipStatus.Instance.RpcUpdateSystem(sistemaCritico, 17);
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[F6/Room Rush] Sistema crítico " + sistemaCritico +
+                    " reparado durante a limpeza do evento.");
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[F6/Room Rush] Falha ao reparar " + sistemaCritico +
+                    " durante a limpeza: " + ex.Message);
+            }
+        }
+
         ativo = false;
         EncerrarSequenciaReator();
         prazo = 0f;
