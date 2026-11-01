@@ -758,21 +758,37 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 novoMapa = candidatos[Sorteador.Next(candidatos.Length)];
             }
 
-            object gerente = ObterSingletonJogo("GameManager");
-            object logicOptions = ObterMembro(gerente, "LogicOptions");
-            object gerenteOpcoes = ObterSingletonJogo("GameOptionsManager");
-            object currentOptions = ObterMembro(gerenteOpcoes, "CurrentGameOptions");
-            bool alterado = DefinirMapId(logicOptions, novoMapa);
-            alterado |= DefinirMapId(currentOptions, novoMapa);
-            if (!alterado)
+            // Segue o fluxo usado pelo EHR: altera as opções autoritativas
+            // do jogo diretamente e marca LogicOptions como modificada.
+            // A reflexão anterior podia acertar uma cópia das opções sem atualizar
+            // o objeto que o início da partida realmente utiliza.
+            if (GameManager.Instance == null || GameOptionsManager.Instance == null)
             {
-                Instance?.Log.LogWarning("[Mapas] Não foi possível alterar o MapId das opções atuais.");
+                Instance?.Log.LogWarning("[Mapas] GameManager/GameOptionsManager ainda não está disponível.");
+                return;
+            }
+
+            var logicOptions = GameManager.Instance.LogicOptions;
+            var currentOptions = GameOptionsManager.Instance.CurrentGameOptions;
+            if (logicOptions == null || currentOptions == null)
+            {
+                Instance?.Log.LogWarning("[Mapas] As opções atuais do jogo estão nulas.");
+                return;
+            }
+
+            currentOptions.MapId = novoMapa;
+            logicOptions.MapId = novoMapa;
+            logicOptions.SetDirty();
+
+            if (logicOptions.MapId != novoMapa || currentOptions.MapId != novoMapa)
+            {
+                Instance?.Log.LogWarning(
+                    $"[Mapas] Falha ao confirmar MapId. Esperado={novoMapa}; " +
+                    $"LogicOptions={logicOptions.MapId}; CurrentOptions={currentOptions.MapId}.");
                 return;
             }
 
             const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
-            logicOptions?.GetType().GetMethod("SetDirty", flags, null, Type.EmptyTypes, null)?.Invoke(logicOptions, null);
-
             GameStartManager manager = GameStartManager.Instance;
             if (manager != null)
             {
@@ -4222,6 +4238,7 @@ public static class YouTubeVoteChatPatch
 // Impede o início da partida enquanto a live estiver conectada e a votação
 // F7 ainda não tiver escolhido/registrado um evento.
 [HarmonyPatch(typeof(GameStartManager), nameof(GameStartManager.BeginGame))]
+[HarmonyPriority(Priority.First)]
 public static class YouTubeVoteRequireF7SelectionPatch
 {
     public static bool Prefix()
