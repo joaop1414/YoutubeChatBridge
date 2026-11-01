@@ -80,8 +80,6 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     // Limita a votação F7 a uma rodada por visita ao lobby; é liberada no fim da partida.
     private static bool VotacaoLobbyRealizada;
     private static string EventoF7Pendente;
-    private static int UltimoGameIdVotacao = int.MinValue;
-    private static bool PartidaEstavaAtivaVotacao;
     private static readonly List<string> EventosF7SelecionadosNaPartida = new();
     public static void RegistrarEventoF7Selecionado(string nome)
     {
@@ -144,8 +142,6 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     private static readonly Dictionary<byte, string> NomesOriginaisPainel = new();
     private static string NomeHostOriginalPlacar;
     private static readonly Dictionary<byte, string> NomesOriginaisPlacarLocal = new();
-    private static readonly Dictionary<byte, string> NomesOriginaisEventoEscolhido = new();
-    private static float FimExibicaoEventoEscolhido;
     private static readonly HashSet<int> ClientesComMod = new();
     private static bool SinalModEnviado;
     // A transição é visual e detectada nos clientes pela sequência de cores.
@@ -204,10 +200,6 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             "YouTube", "LiveConectada", false,
             "Indica se a leitura do chat está ativa."
         );
-
-        // O estado de conexão não pode sobreviver ao fechamento do jogo.
-        // O leitor HTTP é uma Task em memória e nunca continua conectado após reiniciar.
-        LiveConectada.Value = false;
 
         VotacaoAtiva = Config.Bind(
             "Votacao", "VotacaoAtiva", false,
@@ -599,91 +591,6 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         }
 
         NomesOriginaisPlacarLocal.Clear();
-    }
-
-    // Exibe o resultado da votação no nick de cada jogador vanilla,
-    // usando GameDataTo para que a alteração seja local e não afete os demais.
-    private static void MostrarEventoEscolhidoNoNick(string nomeEvento)
-    {
-        if (!EhHost() || AmongUsClient.Instance == null ||
-            string.IsNullOrWhiteSpace(nomeEvento))
-            return;
-
-        // Se outro resultado ainda estiver sendo exibido, restaura-o antes de
-        // iniciar a nova janela de cinco segundos.
-        foreach (PlayerControl anterior in PlayerControl.AllPlayerControls)
-        {
-            if (anterior != null && NomesOriginaisEventoEscolhido.TryGetValue(
-                anterior.PlayerId, out string nomeAnterior))
-                DefinirNomeLocal(anterior, nomeAnterior);
-        }
-        NomesOriginaisEventoEscolhido.Clear();
-
-        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
-        {
-            if (jogador == null || jogador.Data == null || jogador.Data.Disconnected ||
-                jogador.OwnerId < 0 ||
-                jogador.OwnerId == AmongUsClient.Instance.ClientId ||
-                ClientesComMod.Contains(jogador.OwnerId))
-                continue;
-
-            string nomeOriginal = jogador.Data.PlayerName ?? string.Empty;
-            NomesOriginaisEventoEscolhido[jogador.PlayerId] = nomeOriginal;
-            try
-            {
-                DefinirNomeLocal(jogador,
-                    nomeOriginal + "\nEvento escolhido: " + nomeEvento);
-            }
-            catch (Exception ex)
-            {
-                Instance?.Log.LogWarning(
-                    $"Não foi possível mostrar o evento escolhido no nick do jogador {jogador.PlayerId}: {ex.Message}");
-            }
-        }
-
-        FimExibicaoEventoEscolhido = Time.realtimeSinceStartup + 5f;
-    }
-
-    // Restaura o nick temporário depois de cinco segundos. O nome é enviado
-    // somente ao cliente proprietário, sem alterar o nome visto pelos demais.
-    internal static void AtualizarEventoEscolhidoNoNick()
-    {
-        if (NomesOriginaisEventoEscolhido.Count == 0 ||
-            Time.realtimeSinceStartup < FimExibicaoEventoEscolhido ||
-            !EhHost() || AmongUsClient.Instance == null)
-            return;
-
-        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
-        {
-            if (jogador == null || jogador.Data == null ||
-                !NomesOriginaisEventoEscolhido.TryGetValue(jogador.PlayerId, out string nomeOriginal))
-                continue;
-
-            if (jogador.OwnerId < 0 ||
-                jogador.OwnerId == AmongUsClient.Instance.ClientId ||
-                ClientesComMod.Contains(jogador.OwnerId))
-                continue;
-
-            DefinirNomeLocal(jogador, nomeOriginal);
-        }
-
-        NomesOriginaisEventoEscolhido.Clear();
-        FimExibicaoEventoEscolhido = 0f;
-    }
-
-    internal static int ObterMapIdAtual()
-    {
-        try
-        {
-            // Apenas consulta o mapa atual; não altera as opções da sala.
-            var opcoes = GameOptionsManager.Instance?.currentNormalGameOptions;
-            return opcoes != null ? opcoes.MapId : -1;
-        }
-        catch (Exception ex)
-        {
-            Instance?.Log.LogDebug("Não foi possível ler o mapa atual: " + ex.Message);
-            return -1;
-        }
     }
 
     // ========================================================
@@ -1568,8 +1475,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         bool eraVotacaoLobby = RodadaModoLobby;
         RodadaAtiva = false;
         PainelVotacaoRpc.Publicar(
-            NumeroRodada, false, 0, Array.Empty<string>(), new int[4],
-            eraVotacaoLobby, "");
+            NumeroRodada, false, 0, Array.Empty<string>(), new int[4], eraVotacaoLobby);
         Votos.Clear();
         Opcoes.Clear();
         RodadaModoLobby = false;
@@ -1688,11 +1594,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
         RodadaAtiva = false;
         PainelVotacaoRpc.Publicar(
-            NumeroRodada, false, 0, Array.Empty<string>(), new int[4],
-            eraVotacaoLobby, eventoVencedor.Nome);
-
-        // O resultado fica visível no nick dos jogadores sem mod até a próxima votação.
-        MostrarEventoEscolhidoNoNick(eventoVencedor.Nome);
+            NumeroRodada, false, 0, Array.Empty<string>(), new int[4], eraVotacaoLobby);
 
         if (eraVotacaoLobby)
         {
@@ -1843,68 +1745,6 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         EventoF7Pendente = null;
         LimparEventosF7Selecionados();
         Instance?.Log.LogInfo("Votação do lobby liberada novamente após o fim da partida.");
-    }
-
-    // Detecta uma nova sala ou o retorno ao lobby sem depender exclusivamente
-    // de OnGameEnd (que não é chamado em todos os caminhos de saída/criação de sala).
-    internal static void AtualizarCicloVotacaoLobby()
-    {
-        if (!EhHost() || AmongUsClient.Instance == null)
-            return;
-
-        bool partidaAtiva = AmongUsClient.Instance.IsGameStarted || ShipStatus.Instance != null;
-        int gameId = AmongUsClient.Instance.GameId;
-
-        if (GameStartManager.Instance != null && !partidaAtiva &&
-            UltimoGameIdVotacao != gameId)
-        {
-            if (UltimoGameIdVotacao != int.MinValue)
-                ResetarVotacaoLobbyNovaSessao("nova sala");
-
-            UltimoGameIdVotacao = gameId;
-        }
-
-        if (!partidaAtiva && PartidaEstavaAtivaVotacao)
-            ResetarVotacaoLobbyNovaSessao("retorno ao lobby");
-
-        PartidaEstavaAtivaVotacao = partidaAtiva;
-    }
-
-    private static void ResetarVotacaoLobbyNovaSessao(string motivo)
-    {
-        if (RodadaAtiva && RodadaModoLobby)
-            EncerrarRodada();
-
-        VotacaoLobbyRealizada = false;
-        EventoF7Pendente = null;
-        LimparEventosF7Selecionados();
-        ProximaRodadaPermitida = Time.realtimeSinceStartup;
-        Instance?.Log.LogInfo("[F7] Votação liberada novamente: " + motivo + ".");
-    }
-
-    // Só exige um evento F7 quando o leitor HTTP está realmente conectado.
-    // LiveConectada é persistida pelo BepInEx, então sozinha pode conter um
-    // estado antigo de uma sessão anterior do jogo.
-    internal static bool BloquearInicioSemEventoF7()
-    {
-        if (!EhHost() ||
-            LiveConectada == null || !LiveConectada.Value ||
-            !ChatEmLeitura || !LeitorConectado)
-            return false;
-
-        bool eventoSelecionado =
-            !string.IsNullOrWhiteSpace(EventoF7Pendente) ||
-            EventosF7SelecionadosNaPartida.Count > 0;
-
-        if (eventoSelecionado)
-            return false;
-
-        AnunciarEventoLobby(
-            "<color=red>Não é possível iniciar a partida ainda.</color> " +
-            "A live está conectada, mas a votação F7 ainda não escolheu um evento. Aguarde o resultado.");
-        Instance?.Log.LogWarning(
-            "[F7] Início da partida bloqueado: live conectada e nenhum evento F7 escolhido.");
-        return true;
     }
 
     public static void AtualizarVotacao()
@@ -3782,56 +3622,6 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 // INTERCEPTAÇÃO DO COMANDO /youtube
 // ============================================================
 
-// ShipStatus existe enquanto o cenário da partida está carregado.
-// Diferente de GameState/IsGameStarted, não depende do estado de conexão do lobby.
-public static class YouTubeVoteChatGameState
-{
-    public static bool PartidaIniciada()
-    {
-        try
-        {
-            return ShipStatus.Instance != null;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    public static bool PodeAbrirChat =>
-        !PartidaIniciada() || MeetingHud.Instance != null;
-}
-
-// O chat livre só pode ser aberto durante reuniões. O bloqueio em SetVisible
-// impede a abertura pela tecla/botão; o Update fecha qualquer abertura indevida.
-[HarmonyPatch(typeof(ChatController), nameof(ChatController.SetVisible))]
-public static class YouTubeVoteChatVisibilityPatch
-{
-    public static bool Prefix([HarmonyArgument(0)] bool visible)
-    {
-        if (!visible)
-            return true;
-
-        return YouTubeVoteChatGameState.PodeAbrirChat;
-    }
-}
-
-[HarmonyPatch(typeof(HudManager), nameof(HudManager.Update))]
-public static class YouTubeVoteChatCloseOutsideMeetingPatch
-{
-    public static void Postfix()
-    {
-        if (!YouTubeVoteChatGameState.PartidaIniciada() ||
-            MeetingHud.Instance != null ||
-            !HudManager.InstanceExists)
-            return;
-
-        ChatController chat = HudManager.Instance.Chat;
-        if (chat != null && chat.IsOpenOrOpening)
-            chat.SetVisible(false);
-    }
-}
-
 [HarmonyPatch(typeof(ChatController), nameof(ChatController.AddChat))]
 public static class YouTubeVoteChatPatch
 {
@@ -4160,55 +3950,22 @@ public static class YouTubeVoteChatPatch
     }
 }
 
-// Impede o início da partida enquanto a live estiver conectada e a votação
-// F7 ainda não tiver escolhido/registrado um evento.
-[HarmonyPatch(typeof(GameStartManager), nameof(GameStartManager.BeginGame))]
-[HarmonyPriority(Priority.First)]
-public static class YouTubeVoteRequireF7SelectionPatch
-{
-    public static bool Prefix()
-    {
-        if (YouTubeVoteBridgePlugin.BloquearInicioSemEventoF7())
-            return false;
-
-        return true;
-    }
-}
-
 // Permite ao host iniciar a partida com apenas o próprio jogador na sala.
 // Segue o comportamento do EHR: MinPlayers é reduzido para 1 no ciclo do lobby.
 [HarmonyPatch(typeof(GameStartManager), nameof(GameStartManager.Update))]
 public static class YouTubeVoteMinimumPlayersPatch
 {
-    private static bool erroRegistrado;
-
     public static void Prefix(GameStartManager __instance)
     {
-        try
-        {
-            if (__instance == null || AmongUsClient.Instance == null ||
-                !AmongUsClient.Instance.AmHost)
-                return;
+        if (__instance == null || AmongUsClient.Instance == null ||
+            !AmongUsClient.Instance.AmHost)
+            return;
 
-            // O jogo controla o estado visual do botão; alteramos apenas o mínimo.
-            if (AmongUsClient.Instance.IsGameStarted ||
-                ShipStatus.Instance != null ||
-                GameData.Instance == null)
-                return;
+        // O jogo controla o estado visual do botão; alteramos apenas o mínimo.
+        if (AmongUsClient.Instance.IsGameStarted || ShipStatus.Instance != null || GameData.Instance == null)
+            return;
 
-            __instance.MinPlayers = 1;
-        }
-        catch (Exception ex)
-        {
-            // Uma falha neste ajuste não pode interromper o Update original do jogo
-            // nem gerar uma mensagem por frame.
-            if (!erroRegistrado)
-            {
-                erroRegistrado = true;
-                YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                    "[Lobby] Falha ao ajustar MinPlayers para 1: " + ex);
-            }
-        }
+        __instance.MinPlayers = 1;
     }
 }
 
@@ -4383,8 +4140,6 @@ public static class YouTubeVoteUpdatePatch
         EventoTesteMenu.ProcessarFilaExecucao();
         // Não enviar RPC customizado 248 para hosts vanilla: eles não conhecem esse RPC.
         YouTubeVoteBridgePlugin.AtualizarAvisos();
-        YouTubeVoteBridgePlugin.AtualizarEventoEscolhidoNoNick();
-        YouTubeVoteBridgePlugin.AtualizarCicloVotacaoLobby();
         YouTubeVoteBridgePlugin.AtualizarVotacao();
         RainbowColorTransition.Atualizar();
         YouTubeVoteBridgePlugin.AtualizarRainbow();
@@ -4495,13 +4250,6 @@ public static class YouTubeVotePastePatch
 [HarmonyPatch(typeof(AmongUsClient), nameof(AmongUsClient.CoStartGame))]
 public static class YouTubeVoteResetTaskEventsOnStartPatch
 {
-    // Segunda barreira: mesmo que outra rotina consiga contornar BeginGame,
-    // o início real da partida também é cancelado sem um vencedor F7.
-    public static bool Prefix()
-    {
-        return !YouTubeVoteBridgePlugin.BloquearInicioSemEventoF7();
-    }
-
     public static void Postfix()
     {
 
