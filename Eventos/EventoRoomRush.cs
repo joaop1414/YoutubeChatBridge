@@ -10,7 +10,6 @@ namespace YouTubeVoteBridge;
 
 internal sealed class EventoRoomRush : EventoVotacao
 {
-    private const float TEMPO_POR_RODADA = 15f;
     private const float INTERVALO_SINCRONIZACAO = 0.5f;
 
     private static bool ativo;
@@ -33,6 +32,21 @@ internal sealed class EventoRoomRush : EventoVotacao
 
     public override string Nome => "Vá para a sala ou morra";
 
+    private static float ObterTempoPorMapa()
+    {
+        // MapId: 0=Skeld, 1=Mira, 2=Polus, 3=Dleks, 4=Airship, 5=Fungle.
+        return YouTubeVoteBridgePlugin.ObterMapIdAtual() switch
+        {
+            0 => 15f, // The Skeld
+            1 => 20f, // Mira HQ
+            2 => 25f, // Polus
+            3 => 15f, // Dleks
+            4 => 30f, // Airship
+            5 => 40f, // The Fungle
+            _ => 15f
+        };
+    }
+
     public void Executar()
     {
         if (!YouTubeVoteBridgePlugin.EhHost())
@@ -53,15 +67,18 @@ internal sealed class EventoRoomRush : EventoVotacao
             return;
         }
 
+        float tempoRodada = ObterTempoPorMapa();
+
         ativo = true;
         IniciarAvisoReator();
         AplicarEscudoERomperParaTodos();
-        prazo = Time.realtimeSinceStartup + TEMPO_POR_RODADA;
+        prazo = Time.realtimeSinceStartup + tempoRodada;
         proximaSincronizacao = 0f;
-        ReceberEstadoLocal(salaAlvo, TEMPO_POR_RODADA, true);
+        ReceberEstadoLocal(salaAlvo, tempoRodada, true);
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            "[F6/Room Rush] Iniciado. Os jogadores devem chegar à sala indicada em 15 segundos.");
+            "[F6/Room Rush] Iniciado. Os jogadores devem chegar à sala indicada em " +
+            tempoRodada.ToString("0") + " segundos.");
         SincronizarEstado();
     }
 
