@@ -737,7 +737,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             // Mesmo caminho usado pelo EHR: altera NormalGameOptions diretamente.
             // Não usa IGameOptions.MapId, reflexão, setter privado ou alteração manual
             // do objeto LogicOptions.
-            opcoes.MapId = novoMapa;
+            opcoes.MapId = (byte)novoMapa;
             logicOptions.SetDirty();
 
             int mapaAplicado = opcoes.MapId;
