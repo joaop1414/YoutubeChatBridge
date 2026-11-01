@@ -87,7 +87,7 @@ namespace YouTubeVoteBridge
                             }
                             if (!existentes.Any(x => x.name == PREFIX + "TROCAMAPA"))
                             {
-                                CriarControle(__instance, modeloExistente, "Trocar mapa ao iniciar (Dleks: 20%)", PREFIX + "TROCAMAPA", yExistente);
+                                CriarControle(__instance, modeloExistente, "Escolher mapa aleatório ao clicar em Iniciar (Dleks: 20%)", PREFIX + "TROCAMAPA", yExistente);
                                 yExistente -= 0.52f;
                             }
 
@@ -145,7 +145,7 @@ namespace YouTubeVoteBridge
                 y -= 0.52f;
                 CriarControle(__instance, modelo, "Permitir IDs de outros jogadores", PREFIX + "PERMITIRIDS", y);
                 y -= 0.52f;
-                CriarControle(__instance, modelo, "Trocar mapa ao iniciar (Dleks: 20%)", PREFIX + "TROCAMAPA", y);
+                CriarControle(__instance, modelo, "Escolher mapa aleatório ao clicar em Iniciar (Dleks: 20%)", PREFIX + "TROCAMAPA", y);
                 y -= 0.52f;
 
                 AtualizarControles(__instance);
@@ -344,7 +344,7 @@ namespace YouTubeVoteBridge
             {
                 bool ativado = YouTubeVoteBridgePlugin.TrocarMapaAoIniciar != null &&
                     YouTubeVoteBridgePlugin.TrocarMapaAoIniciar.Value;
-                option.TitleText.text = "Trocar mapa ao iniciar (Dleks: 20%)";
+                option.TitleText.text = "Escolher mapa aleatório ao clicar em Iniciar (Dleks: 20%)";
                 option.Value = ativado ? 1 : 0;
                 option.oldValue = ativado ? 1 : 0;
                 option.ValueText.text = ativado ? "Ativado" : "Desativado";
