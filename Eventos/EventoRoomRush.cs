@@ -86,6 +86,17 @@ internal sealed class EventoRoomRush : EventoVotacao
         if (agora >= proximaSincronizacao)
             SincronizarEstado();
 
+        // Se todos os jogadores vivos já chegaram, encerra a rodada imediatamente
+        // sem esperar o cronômetro e sem eliminar ninguém.
+        if (TodosJogadoresVivosNaSala())
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[F6/Room Rush] Todos os jogadores vivos chegaram à sala " +
+                NomeSala(salaAlvo) + ". Rodada concluída antecipadamente.");
+            Resetar();
+            return;
+        }
+
         if (agora < prazo)
             return;
 
@@ -118,6 +129,35 @@ internal sealed class EventoRoomRush : EventoVotacao
             "[F6/Room Rush] Rodada encerrada! " + mortos +
             " jogador(es) eliminado(s) por não chegar à sala.");
         Resetar();
+    }
+
+    private static bool TodosJogadoresVivosNaSala()
+    {
+        int jogadoresVivos = 0;
+
+        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+        {
+            if (jogador == null || jogador.Data == null ||
+                jogador.Data.IsDead || jogador.Data.Disconnected ||
+                jogador.notRealPlayer)
+                continue;
+
+            jogadoresVivos++;
+
+            try
+            {
+                PlainShipRoom salaJogador = ObterSalaJogador(jogador.GetTruePosition());
+                if (salaJogador == null || salaJogador.RoomId != salaAlvo)
+                    return false;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        // Não encerra a rodada caso não exista nenhum jogador vivo.
+        return jogadoresVivos > 0;
     }
 
     private static void IniciarAvisoReator()
