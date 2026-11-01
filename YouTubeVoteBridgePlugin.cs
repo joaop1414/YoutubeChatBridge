@@ -593,6 +593,22 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         NomesOriginaisPlacarLocal.Clear();
     }
 
+    // Consulta o mapa atual para eventos que precisam adaptar seu comportamento.
+    // Este método não altera a seleção nem as opções de mapa da sala.
+    internal static int ObterMapIdAtual()
+    {
+        try
+        {
+            var opcoes = GameOptionsManager.Instance?.currentNormalGameOptions;
+            return opcoes != null ? opcoes.MapId : -1;
+        }
+        catch (Exception ex)
+        {
+            Instance?.Log.LogDebug("Não foi possível ler o mapa atual: " + ex.Message);
+            return -1;
+        }
+    }
+
     // ========================================================
     // EXTRAÇÃO DE JSON
     // ========================================================
