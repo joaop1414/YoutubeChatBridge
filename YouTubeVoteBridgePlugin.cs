@@ -782,9 +782,9 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         {
             int mapaAtual = ObterMapIdAtual();
             int novoMapa;
-            if (Sorteador.Next(100) < 20)
+            if (mapaAtual != 3 && Sorteador.Next(100) < 20)
             {
-                novoMapa = 3; // Dleks
+                novoMapa = 3; // Dleks (20% de chance quando não é o mapa atual)
             }
             else
             {
