@@ -3855,6 +3855,46 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 // INTERCEPTAÇÃO DO COMANDO /youtube
 // ============================================================
 
+// O chat livre só pode ser aberto durante reuniões. O bloqueio em SetVisible
+// impede a abertura pela tecla/botão; o Update também fecha a interface caso
+// algum fluxo do jogo ou outro mod tente mantê-la aberta após a reunião.
+[HarmonyPatch(typeof(ChatController), nameof(ChatController.SetVisible))]
+public static class YouTubeVoteChatVisibilityPatch
+{
+    public static bool Prefix(ChatController __instance, bool visible)
+    {
+        if (!visible || AmongUsClient.Instance == null)
+            return true;
+
+        bool partidaEmAndamento =
+            AmongUsClient.Instance.IsGameStarted &&
+            ShipStatus.Instance != null;
+
+        if (partidaEmAndamento && MeetingHud.Instance == null)
+            return false;
+
+        return true;
+    }
+}
+
+[HarmonyPatch(typeof(HudManager), nameof(HudManager.Update))]
+public static class YouTubeVoteChatCloseOutsideMeetingPatch
+{
+    public static void Postfix()
+    {
+        if (AmongUsClient.Instance == null ||
+            !AmongUsClient.Instance.IsGameStarted ||
+            ShipStatus.Instance == null ||
+            MeetingHud.Instance != null ||
+            !HudManager.InstanceExists)
+            return;
+
+        ChatController chat = HudManager.Instance.Chat;
+        if (chat != null && chat.IsOpenOrOpening)
+            chat.SetVisible(false);
+    }
+}
+
 [HarmonyPatch(typeof(ChatController), nameof(ChatController.AddChat))]
 public static class YouTubeVoteChatPatch
 {
