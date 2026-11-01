@@ -565,9 +565,15 @@ internal sealed class EventoTsunami : EventoVotacao
         // Trabalha sobre uma cópia porque os registros são removidos durante o processamento.
         foreach (byte id in new List<byte>(mortesPendentes.Keys))
         {
-            PlayerControl jogador = PlayerControl.AllPlayerControls
-                .ToArray()
-                .FirstOrDefault(p => p != null && p.PlayerId == id);
+            PlayerControl jogador = null;
+            foreach (PlayerControl candidato in PlayerControl.AllPlayerControls)
+            {
+                if (candidato != null && candidato.PlayerId == id)
+                {
+                    jogador = candidato;
+                    break;
+                }
+            }
 
             if (jogador == null || jogador.Data == null || jogador.Data.Disconnected)
             {
