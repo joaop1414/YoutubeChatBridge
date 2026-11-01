@@ -43,6 +43,7 @@ internal sealed class EventoTsunami : EventoVotacao
     private static float proximaSabotagem;
     private static float repararReatorAte;
     private static bool reparoPendente;
+    private static SystemTypes sistemaCritico = SystemTypes.Reactor;
     private static readonly Dictionary<byte, string> nomesOriginais = new();
     private static readonly HashSet<byte> nomesAlteradosRede = new();
     private static readonly HashSet<byte> atingidos = new();
@@ -831,6 +832,34 @@ internal sealed class EventoTsunami : EventoVotacao
         nomesAlteradosRede.Clear();
     }
 
+    // Airship possui dois painéis independentes; Polus usa o sistema Laboratory.
+    // Nos demais mapas compatíveis, a sabotagem crítica continua em Reactor.
+    private static bool TentarObterSistemaCritico(ShipStatus navio, out SystemTypes sistema)
+    {
+        sistema = SystemTypes.Reactor;
+        if (navio == null || navio.Systems == null)
+            return false;
+
+        if (navio.Systems.ContainsKey(SystemTypes.HeliSabotage))
+            sistema = SystemTypes.HeliSabotage;
+        else if (navio.Systems.ContainsKey(SystemTypes.Laboratory))
+            sistema = SystemTypes.Laboratory;
+        else if (navio.Systems.ContainsKey(SystemTypes.Reactor))
+            sistema = SystemTypes.Reactor;
+        else
+            return false;
+
+        return true;
+    }
+
+    private static void RepararSistemaCritico(ShipStatus navio, SystemTypes sistema)
+    {
+        // No HeliSabotage, 16 e 17 concluem os painéis 0 e 1 do Airship.
+        // Reactor e Laboratory usam os mesmos valores para os dois consoles.
+        navio.RpcUpdateSystem(sistema, 16);
+        navio.RpcUpdateSystem(sistema, 17);
+    }
+
     private static void AtualizarSabotagemReator(float agora)
     {
         if (!ativo || !YouTubeVoteBridgePlugin.EhHost() ||
@@ -841,7 +870,7 @@ internal sealed class EventoTsunami : EventoVotacao
         {
             ShipStatus navio = ShipStatus.Instance;
             if (!navio.Systems.ContainsKey(SystemTypes.Sabotage) ||
-                !navio.Systems.ContainsKey(SystemTypes.Reactor))
+                !TentarObterSistemaCritico(navio, out sistemaCritico))
                 return;
 
             SabotageSystemType sistema = navio.Systems[SystemTypes.Sabotage]
@@ -852,8 +881,7 @@ internal sealed class EventoTsunami : EventoVotacao
             {
                 if (agora < repararReatorAte) return;
 
-                navio.RpcUpdateSystem(SystemTypes.Reactor, 16);
-                navio.RpcUpdateSystem(SystemTypes.Reactor, 17);
+                RepararSistemaCritico(navio, sistemaCritico);
                 FlashOverlay.DefinirFlashTsunami(false);
                 reparoPendente = false;
                 proximaSabotagem = agora + IntervaloCicloReator;
@@ -871,11 +899,12 @@ internal sealed class EventoTsunami : EventoVotacao
 
             sistema.Timer = 0f;
             sistema.IsDirty = true;
-            navio.RpcUpdateSystem(SystemTypes.Sabotage, (byte)SystemTypes.Reactor);
+            navio.RpcUpdateSystem(SystemTypes.Sabotage, (byte)sistemaCritico);
             reparoPendente = true;
             repararReatorAte = agora + 0.5f;
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "Tsunami: sabotagem do reator iniciada; reparo programado para 0,5 segundo.");
+                "Tsunami: sabotagem crítica " + sistemaCritico +
+                " iniciada; reparo programado para 0,5 segundo.");
         }
         catch (Exception ex)
         {
@@ -1061,11 +1090,10 @@ internal sealed class EventoTsunami : EventoVotacao
         try
         {
             ShipStatus navio = ShipStatus.Instance;
-            if (navio == null || !navio.Systems.ContainsKey(SystemTypes.Reactor))
+            if (navio == null || !TentarObterSistemaCritico(navio, out sistemaCritico))
                 return;
 
-            navio.RpcUpdateSystem(SystemTypes.Reactor, 16);
-            navio.RpcUpdateSystem(SystemTypes.Reactor, 17);
+            RepararSistemaCritico(navio, sistemaCritico);
             reparoPendente = false;
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 "Tsunami: sinais finais de reparo do reator enviados.");
