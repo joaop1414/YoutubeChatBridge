@@ -20,10 +20,9 @@ internal sealed class EventoTsunami : EventoVotacao
     public static bool AvisoAtivo => ativo || avisoLocalAtivo;
     private const byte PlayerIdIndicador = CompatibilidadeClientes.PlayerIdIndicadorTsunami;
     private const float Velocidade = 3.0f;
-    // Atualizações mais frequentes reduzem os saltos visuais ao carregar jogadores.
-    // 25 atualizações/s; Velocidade * Intervalo mantém a velocidade física da onda.
+    // Atualização da onda em 12,5 quadros/s, mantendo a velocidade em unidades/s.
     private const float Intervalo = 0.08f;
-// Transporte das vítimas em frequência menor para reduzir RPCs de SnapTo.
+    // Transporte das vítimas em frequência menor para reduzir RPCs de SnapTo.
     private const float IntervaloSnapJogador = 0.16f;
     private const float ProtecaoDuto = 1.0f;
     private const float AlcanceDutoTsunami = 0.65f;
@@ -572,7 +571,7 @@ internal sealed class EventoTsunami : EventoVotacao
 
             if (jogador == null || jogador.Data == null || jogador.Data.Disconnected)
             {
-                RemoverMortePendente(id, null);
+                RemoverMortePendente(id);
                 continue;
             }
 
@@ -666,11 +665,8 @@ internal sealed class EventoTsunami : EventoVotacao
         catch { }
     }
 
-    private static void RemoverMortePendente(byte id, PlayerControl jogador)
+    private static void RemoverMortePendente(byte id)
     {
-        if (jogador != null)
-            RestaurarMovimento(jogador, id);
-
         mortesPendentes.Remove(id);
         alturaAoAtingir.Remove(id);
         movimentoOriginal.Remove(id);
