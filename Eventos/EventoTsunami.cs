@@ -51,7 +51,7 @@ internal sealed class EventoTsunami : EventoVotacao
     private static readonly Dictionary<byte, float> mortesPendentes = new();
     private static readonly Dictionary<byte, float> alturaAoAtingir = new();
     private static readonly Dictionary<byte, bool> movimentoOriginal = new();
-    private static readonly Dictionary<byte, float> proximoSnapJogador = new();
+    private static readonly Dictionary<byte, Vector2> velocidadeOriginal = new();
     private static bool reuniaoAguardandoFim;
     private static bool reuniaoFoiAberta;
     private static readonly Dictionary<byte, float> protegidos = new();
@@ -518,6 +518,8 @@ internal sealed class EventoTsunami : EventoVotacao
                 mortesPendentes[id] = agora + AtrasoMorteTsunami;
                 alturaAoAtingir[id] = p.y;
                 movimentoOriginal[id] = jogador.moveable;
+                if (jogador.NetTransform != null && jogador.NetTransform.body != null)
+                    velocidadeOriginal[id] = jogador.NetTransform.body.velocity;
                 jogador.moveable = false;
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                     "Tsunami atingiu " + jogador.Data.PlayerName +
@@ -600,27 +602,22 @@ internal sealed class EventoTsunami : EventoVotacao
                 continue;
             }
 
-            // Enquanto a onda estiver ativa, carrega a vítima no eixo X.
-            // O SnapTo é limitado a 6,25 chamadas por segundo por jogador.
-            if (ativo && indicador != null && jogador.NetTransform != null)
+            // Teste de movimento contínuo pela física do CustomNetworkTransform.
+            // Em vez de enviar SnapTo repetidamente, aplicamos velocidade ao Rigidbody2D
+            // sincronizado pelo componente de rede. O host reafirma a velocidade a cada
+            // atualização enquanto a vítima estiver sendo carregada.
+            if (ativo && indicador != null && jogador.NetTransform != null &&
+                jogador.NetTransform.body != null)
             {
                 try
                 {
-                    if (!proximoSnapJogador.TryGetValue(id, out float proximo) || agora >= proximo)
-                    {
-                        float y = alturaAoAtingir.TryGetValue(id, out float altura)
-                            ? altura
-                            : jogador.GetTruePosition().y;
-
-                        Vector2 destino = new Vector2(posicao.x, y);
-                        jogador.NetTransform.RpcSnapTo(destino);
-                        proximoSnapJogador[id] = agora + IntervaloSnapJogador;
-                    }
+                    jogador.NetTransform.body.velocity = new Vector2(Velocidade, 0f);
                 }
                 catch (Exception ex)
                 {
                     YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                        "Tsunami: falha ao transportar PlayerId=" + id + ": " + ex.Message);
+                        "Tsunami: falha ao aplicar velocidade pelo CustomNetworkTransform em PlayerId=" +
+                        id + ": " + ex.Message);
                 }
             }
 
@@ -665,6 +662,14 @@ internal sealed class EventoTsunami : EventoVotacao
 
         try
         {
+            if (jogador.NetTransform != null && jogador.NetTransform.body != null &&
+                velocidadeOriginal.TryGetValue(id, out Vector2 velocidade))
+                jogador.NetTransform.body.velocity = velocidade;
+        }
+        catch { }
+
+        try
+        {
             if (movimentoOriginal.TryGetValue(id, out bool moveable))
                 jogador.moveable = moveable;
         }
@@ -676,7 +681,7 @@ internal sealed class EventoTsunami : EventoVotacao
         mortesPendentes.Remove(id);
         alturaAoAtingir.Remove(id);
         movimentoOriginal.Remove(id);
-        proximoSnapJogador.Remove(id);
+        velocidadeOriginal.Remove(id);
     }
 
     internal static string ObterTextoAvisoHud()
@@ -1024,7 +1029,7 @@ internal sealed class EventoTsunami : EventoVotacao
             mortesPendentes.Clear();
             alturaAoAtingir.Clear();
             movimentoOriginal.Clear();
-            proximoSnapJogador.Clear();
+            velocidadeOriginal.Clear();
         }
         if (indicador != null && AmongUsClient.Instance != null &&
             YouTubeVoteBridgePlugin.EhHost())
@@ -1093,7 +1098,7 @@ internal sealed class EventoTsunami : EventoVotacao
         mortesPendentes.Clear();
         alturaAoAtingir.Clear();
         movimentoOriginal.Clear();
-        proximoSnapJogador.Clear();
+        velocidadeOriginal.Clear();
         protegidos.Clear();
         dutosProtegidos.Clear();
         posicaoXProtegida.Clear();
