@@ -593,6 +593,38 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         NomesOriginaisPlacarLocal.Clear();
     }
 
+    // Exibe o resultado da votação no nick de cada jogador vanilla,
+    // usando GameDataTo para que a alteração seja local e não afete os demais.
+    private static void MostrarEventoEscolhidoNoNick(string nomeEvento)
+    {
+        if (!EhHost() || AmongUsClient.Instance == null ||
+            string.IsNullOrWhiteSpace(nomeEvento))
+            return;
+
+        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+        {
+            if (jogador == null || jogador.Data == null || jogador.Data.Disconnected ||
+                jogador.OwnerId < 0 ||
+                jogador.OwnerId == AmongUsClient.Instance.ClientId ||
+                ClientesComMod.Contains(jogador.OwnerId))
+                continue;
+
+            if (!NomesOriginaisPlacarLocal.ContainsKey(jogador.PlayerId))
+                NomesOriginaisPlacarLocal[jogador.PlayerId] = jogador.Data.PlayerName;
+
+            try
+            {
+                string nomeOriginal = NomesOriginaisPlacarLocal[jogador.PlayerId];
+                DefinirNomeLocal(jogador, nomeOriginal + "\\nEvento escolhido: " + nomeEvento);
+            }
+            catch (Exception ex)
+            {
+                Instance?.Log.LogWarning(
+                    $"Não foi possível mostrar o evento escolhido no nick do jogador {jogador.PlayerId}: {ex.Message}");
+            }
+        }
+    }
+
     // ========================================================
     // EXTRAÇÃO DE JSON
     // ========================================================
@@ -1475,7 +1507,8 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         bool eraVotacaoLobby = RodadaModoLobby;
         RodadaAtiva = false;
         PainelVotacaoRpc.Publicar(
-            NumeroRodada, false, 0, Array.Empty<string>(), new int[4], eraVotacaoLobby);
+            NumeroRodada, false, 0, Array.Empty<string>(), new int[4],
+            eraVotacaoLobby, "");
         Votos.Clear();
         Opcoes.Clear();
         RodadaModoLobby = false;
@@ -1594,7 +1627,11 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
         RodadaAtiva = false;
         PainelVotacaoRpc.Publicar(
-            NumeroRodada, false, 0, Array.Empty<string>(), new int[4], eraVotacaoLobby);
+            NumeroRodada, false, 0, Array.Empty<string>(), new int[4],
+            eraVotacaoLobby, eventoVencedor.Nome);
+
+        // O resultado fica visível no nick dos jogadores sem mod até a próxima votação.
+        MostrarEventoEscolhidoNoNick(eventoVencedor.Nome);
 
         if (eraVotacaoLobby)
         {
