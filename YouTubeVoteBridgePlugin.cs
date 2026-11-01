@@ -673,47 +673,6 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         FimExibicaoEventoEscolhido = 0f;
     }
 
-    // GameDataTo (tipo 6): altera o nome apenas na tela do cliente vanilla dono
-    // do personagem. Não usa GameData (tipo 5), que transmitiria a mudança a todos.
-    private static void DefinirNomeLocal(PlayerControl jogador, string nome)
-    {
-        if (!EhHost() || AmongUsClient.Instance == null || jogador == null ||
-            jogador.Data == null || jogador.OwnerId < 0 ||
-            jogador.OwnerId == AmongUsClient.Instance.ClientId)
-            return;
-
-        MessageWriter writer = null;
-        try
-        {
-            writer = MessageWriter.Get(SendOption.Reliable);
-            writer.StartMessage(6);
-            writer.Write(AmongUsClient.Instance.GameId);
-            writer.WritePacked(jogador.OwnerId);
-            writer.StartMessage(2);
-            writer.WritePacked(jogador.NetId);
-            writer.Write((byte)RpcCalls.SetName);
-            writer.Write(jogador.Data.NetId);
-            writer.Write(nome);
-            writer.EndMessage();
-            writer.EndMessage();
-            AmongUsClient.Instance.SendOrDisconnect(writer);
-            writer.Recycle();
-            writer = null;
-        }
-        catch (Exception ex)
-        {
-            Instance?.Log.LogWarning(
-                $"Falha ao definir nick local de PlayerId={jogador.PlayerId}: {ex.Message}");
-        }
-        finally
-        {
-            if (writer != null)
-            {
-                try { writer.Recycle(); } catch { }
-            }
-        }
-    }
-
     private static object ObterSingletonJogo(string nomeTipo)
     {
         Type tipo = typeof(AmongUsClient).Assembly.GetType(nomeTipo);
