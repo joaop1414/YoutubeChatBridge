@@ -143,15 +143,17 @@ internal static class RoleSwitchAPI
     private static bool ExecutarAtribuicoes(List<TrocaPendente> trocas, string origem)
     {
         AmongUsClient cliente = AmongUsClient.Instance;
+        PlayerControl local = PlayerControl.LocalPlayer;
+
         if (cliente == null || !cliente.AmHost)
         {
             LogAviso("A atribuição de funções exige que o cliente seja o host.");
             return false;
         }
 
-        if (RoleManager.Instance == null)
+        if (RoleManager.Instance == null || local == null)
         {
-            LogErro("RoleManager.Instance está nulo.");
+            LogErro("RoleManager.Instance ou PlayerControl.LocalPlayer está nulo.");
             return false;
         }
 
@@ -175,67 +177,67 @@ internal static class RoleSwitchAPI
         }
 
         loteEmAndamento = true;
-        List<MessageWriter> writersCriados = new();
 
         try
         {
-            // Atualiza primeiro a visão autoritativa do host. Usamos true para
-            // que CoSetRole também possa substituir uma função já marcada como atribuída.
             foreach (TrocaPendente troca in trocas)
             {
                 troca.Jogador.StartCoroutine(
                     troca.Jogador.CoSetRole(troca.Funcao, true));
             }
 
-            // Um pacote GameDataTo por cliente remoto. A ordem é essencial:
-            // primeiro todos os outros jogadores e, por último, o próprio cliente.
-            // O SetRole próprio é o que permite ao cliente montar corretamente
-            // sua tela de introdução/equipe.
-            HashSet<int> clientesEnviados = new();
+            local.StartCoroutine(EnviarAtribuicoesCoroutine(trocas, origem));
+            return true;
+        }
+        catch (Exception ex)
+        {
+            loteEmAndamento = false;
+            LogErro("Não foi possível iniciar a distribuição das funções: " + ex);
+            return false;
+        }
+    }
+
+    private static System.Collections.IEnumerator EnviarAtribuicoesCoroutine(
+        List<TrocaPendente> trocas, string origem)
+    {
+        yield return null;
+
+        int clientesEnviados = 0;
+
+        try
+        {
+            AmongUsClient cliente = AmongUsClient.Instance;
+            HashSet<int> clientesVisitados = new();
 
             foreach (PlayerControl observador in PlayerControl.AllPlayerControls)
             {
                 if (observador == null || observador.Data == null ||
                     observador.Data.Disconnected || observador.OwnerId < 0 ||
                     observador.OwnerId == cliente.ClientId ||
-                    !clientesEnviados.Add(observador.OwnerId))
+                    !clientesVisitados.Add(observador.OwnerId))
                     continue;
 
-                MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
-                writersCriados.Add(writer);
+                RoleSwitchCustomRpcSender sender = RoleSwitchCustomRpcSender.Create(
+                    "RoleSwitchAPI / SetRole", SendOption.Reliable);
 
-                writer.StartMessage(6); // GameDataTo
-                writer.Write(cliente.GameId);
-                writer.WritePacked(observador.OwnerId);
-
-                // Papéis dos demais jogadores.
                 foreach (TrocaPendente troca in trocas)
                 {
                     if (troca.Jogador.PlayerId == observador.PlayerId)
                         continue;
 
-                    EscreverRpcSetRole(writer, troca);
+                    sender.RpcSetRole(troca.Jogador, troca.Funcao, observador.OwnerId);
                 }
 
-                // Papel próprio sempre por último.
                 TrocaPendente papelProprio = trocas.FirstOrDefault(
                     x => x.Jogador.PlayerId == observador.PlayerId);
 
                 if (papelProprio != null)
-                    EscreverRpcSetRole(writer, papelProprio);
+                    sender.RpcSetRole(papelProprio.Jogador, papelProprio.Funcao, observador.OwnerId);
 
-                writer.EndMessage(); // GameDataTo
+                sender.SendMessage();
+                clientesEnviados++;
+                yield return new UnityEngine.WaitForSeconds(0.1f);
             }
-
-            // Os pacotes já estão completos. Enviamos um por cliente.
-            // Cada cliente recebe sua sequência individual, sem broadcast
-            // de papéis que possam ser diferentes entre observadores.
-            foreach (MessageWriter writer in writersCriados)
-            {
-                cliente.SendOrDisconnect(writer);
-                writer.Recycle();
-            }
-            writersCriados.Clear();
 
             AtualizarHudDaFuncaoLocal(trocas);
 
@@ -244,37 +246,16 @@ internal static class RoleSwitchAPI
                 LogInfo($"Função distribuída: PlayerId={troca.Jogador.PlayerId}, OwnerId={troca.Jogador.OwnerId}, função={troca.Funcao}.");
             }
 
-            LogInfo($"Atribuição concluída ({origem}): {trocas.Count} jogador(es), {clientesEnviados.Count} cliente(s) remoto(s), canOverrideRole=true.");
-            return true;
+            LogInfo($"Atribuição concluída ({origem}): {trocas.Count} jogador(es), {clientesEnviados} cliente(s) remoto(s), CustomRpcSender, canOverrideRole=true.");
         }
         catch (Exception ex)
         {
-            LogErro("Falha no pipeline de atribuição de funções: " + ex);
-            return false;
+            LogErro("Falha ao distribuir funções com CustomRpcSender: " + ex);
         }
         finally
         {
-            foreach (MessageWriter writer in writersCriados)
-            {
-                if (writer == null)
-                    continue;
-
-                try { writer.Recycle(); }
-                catch { }
-            }
-
             loteEmAndamento = false;
         }
-    }
-
-    private static void EscreverRpcSetRole(MessageWriter writer, TrocaPendente troca)
-    {
-        writer.StartMessage(2); // RPC
-        writer.WritePacked(troca.Jogador.NetId);
-        writer.Write((byte)RpcCalls.SetRole);
-        writer.Write((ushort)troca.Funcao);
-        writer.Write(true); // canOverrideRole
-        writer.EndMessage();
     }
 
     private static void AtualizarHudDaFuncaoLocal(List<TrocaPendente> trocas)
@@ -310,6 +291,140 @@ internal static class RoleSwitchAPI
 
     private static void LogErro(string mensagem) =>
         YouTubeVoteBridgePlugin.Instance?.Log.LogError("[RoleSwitchAPI] " + mensagem);
+}
+
+/// <summary>
+/// Sender direcionado inspirado no CustomRpcSender do EHR.
+/// </summary>
+internal sealed class RoleSwitchCustomRpcSender
+{
+    private readonly SendOption opcao;
+    private MessageWriter writer;
+    private int clienteAlvo = -2;
+    private bool mensagemAberta;
+    private bool rpcAberto;
+    private bool finalizado;
+
+    private RoleSwitchCustomRpcSender(SendOption opcao)
+    {
+        this.opcao = opcao;
+        writer = MessageWriter.Get(opcao);
+    }
+
+    internal static RoleSwitchCustomRpcSender Create(
+        string nome = "RoleSwitchAPI", SendOption opcao = SendOption.Reliable)
+    {
+        return new RoleSwitchCustomRpcSender(opcao);
+    }
+
+    internal RoleSwitchCustomRpcSender AutoStartRpc(
+        uint netId, RpcCalls chamada, int targetClientId)
+    {
+        if (finalizado)
+            throw new InvalidOperationException("O CustomRpcSender já foi finalizado.");
+
+        if (rpcAberto)
+            throw new InvalidOperationException("O RPC anterior ainda não foi encerrado.");
+
+        if (mensagemAberta && writer.Length > 500)
+            FecharMensagemEContinuar();
+
+        if (!mensagemAberta || clienteAlvo != targetClientId)
+        {
+            if (mensagemAberta)
+                FecharMensagem();
+
+            clienteAlvo = targetClientId;
+            writer.StartMessage(6);
+            writer.Write(AmongUsClient.Instance.GameId);
+            writer.WritePacked(targetClientId);
+            mensagemAberta = true;
+        }
+
+        writer.StartMessage(2);
+        writer.WritePacked(netId);
+        writer.Write((byte)chamada);
+        rpcAberto = true;
+        return this;
+    }
+
+    internal RoleSwitchCustomRpcSender Write(ushort valor)
+    {
+        GarantirRpcAberto();
+        writer.Write(valor);
+        return this;
+    }
+
+    internal RoleSwitchCustomRpcSender Write(bool valor)
+    {
+        GarantirRpcAberto();
+        writer.Write(valor);
+        return this;
+    }
+
+    internal RoleSwitchCustomRpcSender EndRpc()
+    {
+        GarantirRpcAberto();
+        writer.EndMessage();
+        rpcAberto = false;
+        return this;
+    }
+
+    internal bool RpcSetRole(PlayerControl jogador, RoleTypes funcao, int targetClientId)
+    {
+        if (jogador == null)
+            return false;
+
+        AutoStartRpc(jogador.NetId, RpcCalls.SetRole, targetClientId)
+            .Write((ushort)funcao)
+            .Write(true)
+            .EndRpc();
+
+        return true;
+    }
+
+    internal void SendMessage()
+    {
+        if (finalizado)
+            return;
+
+        if (rpcAberto)
+            throw new InvalidOperationException("Não é possível enviar com um RPC aberto.");
+
+        if (mensagemAberta)
+            FecharMensagem();
+
+        if (writer.Length > 0)
+            AmongUsClient.Instance.SendOrDisconnect(writer);
+
+        writer.Recycle();
+        finalizado = true;
+    }
+
+    private void FecharMensagemEContinuar()
+    {
+        FecharMensagem();
+        writer.EndMessage();
+        writer.StartMessage(6);
+        writer.Write(AmongUsClient.Instance.GameId);
+        writer.WritePacked(clienteAlvo);
+        mensagemAberta = true;
+    }
+
+    private void FecharMensagem()
+    {
+        if (!mensagemAberta || rpcAberto)
+            return;
+
+        writer.EndMessage();
+        mensagemAberta = false;
+    }
+
+    private void GarantirRpcAberto()
+    {
+        if (!rpcAberto)
+            throw new InvalidOperationException("Não existe um RPC aberto para escrita.");
+    }
 }
 
 /// <summary>
