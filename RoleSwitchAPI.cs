@@ -295,6 +295,7 @@ internal static class RoleSwitchAPI
 internal sealed class RoleSwitchCustomRpcSender
 {
     private readonly SendOption opcao;
+    private readonly List<MessageWriter> doneStreams = new();
     private MessageWriter writer;
     private int clienteAlvo = -2;
     private bool mensagemAberta;
@@ -390,6 +391,13 @@ internal sealed class RoleSwitchCustomRpcSender
         if (mensagemAberta)
             FecharMensagem();
 
+        foreach (MessageWriter completed in doneStreams)
+        {
+            AmongUsClient.Instance.SendOrDisconnect(completed);
+            completed.Recycle();
+        }
+        doneStreams.Clear();
+
         if (writer.Length > 0)
             AmongUsClient.Instance.SendOrDisconnect(writer);
 
@@ -400,6 +408,8 @@ internal sealed class RoleSwitchCustomRpcSender
     private void FecharMensagemEContinuar()
     {
         FecharMensagem();
+        doneStreams.Add(writer);
+        writer = MessageWriter.Get(opcao);
         writer.StartMessage(6);
         writer.Write(AmongUsClient.Instance.GameId);
         writer.WritePacked(clienteAlvo);
