@@ -312,14 +312,25 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     public static void Responder(ChatController chat, string mensagem)
     {
         mensagem = RemoverPrefixosAtalho(mensagem);
-        PlayerControl remetente = PlayerControl.LocalPlayer;
-        if (chat == null || remetente == null || string.IsNullOrWhiteSpace(mensagem))
+        if (chat == null || PlayerControl.LocalPlayer == null ||
+            string.IsNullOrWhiteSpace(mensagem))
             return;
 
-        // A resposta é enfileirada para o próximo Update. Assim, quando um
-        // comando do host também é mantido no chat, primeiro aparece o comando
-        // original e depois uma nova mensagem local do mod.
+        // A resposta é processada no próximo Update para aparecer depois
+        // da mensagem original do comando, usando o nome temporário do sistema.
         RespostasLocaisPendentes.Enqueue(mensagem);
+    }
+
+    private static void DefinirNomeTemporarioLocal(PlayerControl jogador, string nome)
+    {
+        if (jogador == null || jogador.Data == null)
+            return;
+
+        jogador.SetName(nome);
+        jogador.Data.PlayerName = nome;
+
+        if (jogador.cosmetics != null && jogador.cosmetics.nameText != null)
+            jogador.cosmetics.nameText.text = nome;
     }
 
     public static void ProcessarRespostasLocaisPendentes()
@@ -334,11 +345,22 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
 
         while (RespostasLocaisPendentes.TryDequeue(out string mensagem))
         {
-            if (string.IsNullOrWhiteSpace(mensagem))
+            if (string.IsNullOrWhiteSpace(mensagem) ||
+                remetente.Data == null)
                 continue;
 
-            // AddChat local: não altera nem replica o nome do jogador.
-            chat.AddChat(remetente, TITULO_SISTEMA + ": " + mensagem, false);
+            string nomeOriginal = remetente.Data.PlayerName ?? string.Empty;
+
+            try
+            {
+                // O nome só muda localmente enquanto AddChat cria a linha.
+                DefinirNomeTemporarioLocal(remetente, TITULO_SISTEMA);
+                chat.AddChat(remetente, mensagem, false);
+            }
+            finally
+            {
+                DefinirNomeTemporarioLocal(remetente, nomeOriginal);
+            }
         }
     }
 
@@ -386,9 +408,31 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             string.IsNullOrWhiteSpace(mensagem))
             return;
 
-        // Mensagem privada no padrão do EHR:
-        // GameDataTo (tipo 6) + OwnerId do destinatário.
-        // Diferente do tipo 5 (GameData), este pacote não é transmitido a todos.
+        PlayerControl remetente = PlayerControl.LocalPlayer;
+        if (remetente.Data == null)
+            return;
+
+        string nomeOriginal = remetente.Data.PlayerName ?? string.Empty;
+
+        // Para o host, a troca de nome é somente local e dura apenas
+        // o tempo necessário para o jogo montar a linha do chat.
+        if (destinatario.AmOwner)
+        {
+            if (!HudManager.InstanceExists || HudManager.Instance.Chat == null)
+                return;
+
+            try
+            {
+                DefinirNomeTemporarioLocal(remetente, TITULO_SISTEMA);
+                HudManager.Instance.Chat.AddChat(remetente, mensagem, false);
+            }
+            finally
+            {
+                DefinirNomeTemporarioLocal(remetente, nomeOriginal);
+            }
+            return;
+        }
+
         int targetClientId = destinatario.OwnerId;
         if (targetClientId < 0)
         {
@@ -397,30 +441,39 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             return;
         }
 
-        // A resposta é executada no próprio cliente destinatário.
-        // Enviamos um SendChat local dentro de GameDataTo, usando o NetId
-        // do próprio jogador. Assim, a linha aparece como uma nova mensagem
-        // dele, sem o host trocar o próprio nome nem responder em seu lugar.
-        if (destinatario.AmOwner)
-        {
-            if (HudManager.InstanceExists && HudManager.Instance.Chat != null)
-                Responder(HudManager.Instance.Chat, mensagem);
-            return;
-        }
-
+        // Replica somente para o cliente destinatário: renomeia visualmente
+        // o host, envia a mensagem sem prefixo e restaura o nome original,
+        // tudo no mesmo GameDataTo. Os outros clientes nunca veem a troca.
         MessageWriter writer = null;
 
         try
         {
             writer = MessageWriter.Get(SendOption.Reliable);
-            writer.StartMessage(6); // GameDataTo: somente o cliente destinatário
+            writer.StartMessage(6); // GameDataTo: somente o destinatário
             writer.Write(AmongUsClient.Instance.GameId);
             writer.WritePacked(targetClientId);
 
-            writer.StartMessage(2); // RPC SendChat local do destinatário
-            writer.WritePacked(destinatario.NetId);
+            // 1) Nome temporário do remetente.
+            writer.StartMessage(2);
+            writer.WritePacked(remetente.NetId);
+            writer.Write((byte)RpcCalls.SetName);
+            writer.Write(remetente.Data.NetId);
+            writer.Write(TITULO_SISTEMA);
+            writer.EndMessage();
+
+            // 2) Mensagem normal no chat, sem o nome do mod no texto.
+            writer.StartMessage(2);
+            writer.WritePacked(remetente.NetId);
             writer.Write((byte)RpcCalls.SendChat);
-            writer.Write(TITULO_SISTEMA + ": " + mensagem);
+            writer.Write(mensagem);
+            writer.EndMessage();
+
+            // 3) Restaura o nome original imediatamente após a mensagem.
+            writer.StartMessage(2);
+            writer.WritePacked(remetente.NetId);
+            writer.Write((byte)RpcCalls.SetName);
+            writer.Write(remetente.Data.NetId);
+            writer.Write(nomeOriginal);
             writer.EndMessage();
 
             writer.EndMessage();
@@ -429,11 +482,11 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             writer = null;
 
             Instance?.Log.LogInfo(
-                $"Resposta local enviada ao próprio jogador PlayerId={destinatario.PlayerId}, ClientId={targetClientId}.");
+                $"Resposta privada enviada com nome temporário ao PlayerId={destinatario.PlayerId}, ClientId={targetClientId}.");
         }
         catch (Exception ex)
         {
-            Instance?.Log.LogError("Erro ao criar resposta local no cliente destinatário: " + ex);
+            Instance?.Log.LogError("Erro ao enviar resposta privada com nome temporário: " + ex);
         }
         finally
         {
