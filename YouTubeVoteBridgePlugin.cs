@@ -3877,7 +3877,7 @@ public static class YouTubeVoteChatPatch
                     YouTubeVoteBridgePlugin.Responder(__instance, "O nome precisa ter entre 1 e 15 caracteres.");
                 else if (host)
                     YouTubeVoteBridgePlugin.EnviarMensagemIndividual(sourcePlayer, "O nome precisa ter entre 1 e 15 caracteres.");
-                return false;
+                return ehLocal;
             }
 
             if (host)
