@@ -47,7 +47,8 @@ internal sealed class EventoTsunami : EventoVotacao
     private static readonly Dictionary<byte, string> nomesOriginais = new();
     private static readonly HashSet<byte> nomesAlteradosRede = new();
     private static readonly HashSet<byte> atingidos = new();
-    // Mantido para fluxos antigos; a ejeção Exiled do teste atual não gera corpo falso.
+    // Jogadores ejetados pelo tsunami que receberão um corpo visual falso
+    // quando uma reunião for chamada.
     private static readonly HashSet<byte> mortosPeloTsunami = new();
     private static readonly Dictionary<byte, float> mortesPendentes = new();
     private static readonly Dictionary<byte, float> alturaAoAtingir = new();
@@ -642,9 +643,12 @@ internal sealed class EventoTsunami : EventoVotacao
 
                 if (jogador.Data != null && jogador.Data.IsDead)
                 {
+                    // A ejeção não cria um corpo reportável. Guardamos o ID
+                    // para criar o corpo fake quando a reunião for chamada.
+                    mortosPeloTsunami.Add(id);
                     YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                         "Tsunami: PlayerId=" + id +
-                        " foi ejetado pelo RPC Exiled; nenhum corpo será criado.");
+                        " foi ejetado pelo RPC Exiled; corpo fake agendado para a reunião.");
                 }
                 else
                 {
@@ -998,12 +1002,12 @@ internal sealed class EventoTsunami : EventoVotacao
         // Processa apenas os prazos que já venceram no relógio real.
         AtualizarJogadoresAtingidos(Time.realtimeSinceStartup);
 
-        // Só cria corpos falsos para registros de fluxos antigos que realmente
-        // solicitaram a troca para Ghost. O teste atual via Exiled não adiciona IDs aqui.
+        // Cria corpos falsos para todos os jogadores que o tsunami conseguiu
+        // ejetar/matar. A ejeção Exiled não cria um corpo reportável por conta própria.
         List<byte> ids = new(mortosPeloTsunami);
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             "Tsunami: criando " + ids.Count +
-            " corpo(s) falso(s) de jogadores convertidos para Ghost. Atingidos=" +
+            " corpo(s) falso(s) de jogadores mortos pelo tsunami. Atingidos=" +
             atingidos.Count + ", pendentes=" + mortesPendentes.Count + ".");
 
         // Para a onda e restaura os nomes antes de publicar os corpos.
