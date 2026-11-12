@@ -30,7 +30,7 @@ internal sealed class EventoTsunami : EventoVotacao
     private const float Alcance = 0.85f;
     private const float IntervaloCicloReator = 1.5f;
     private const float AtrasoInicialReator = 1.0f;
-    private const float AtrasoMorteTsunami = 2.0f;
+    private const float AtrasoMorteTsunami = 0.0f;
 
     private static PlayerControl indicador;
     private static Vector2 posicao;
