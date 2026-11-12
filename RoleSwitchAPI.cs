@@ -9,12 +9,11 @@ using InnerNet;
 namespace YouTubeVoteBridge;
 
 /// <summary>
-/// Atribuição de funções no estilo do pipeline do EHR:
-/// - bloqueia RpcSetRole vanilla apenas durante a preparação;
-/// - aplica a função no estado local do host sem disparar o RPC vanilla;
-/// - prepara um GameDataTo por cliente observador;
-/// - agrupa os SetRole no mesmo pacote confiável;
-/// - libera o bloqueio antes de enviar os pacotes.
+/// Atribuição de funções vanilla usando o roteamento por observador do EHR:
+/// - atualiza a cópia do host sem RPC vanilla concorrente;
+/// - envia para cada cliente remoto as funções dos OUTROS jogadores;
+/// - envia a função própria de cada jogador remoto por RPC direcionado
+///   diretamente ao OwnerId dele, como o RpcSetRoleDesync do EHR.
 /// </summary>
 internal static class RoleSwitchAPI
 {
@@ -56,9 +55,9 @@ internal static class RoleSwitchAPI
     }
 
     /// <summary>
-    /// Aplica várias funções em uma única transação de rede.
-    /// É o equivalente adaptado do StartReplace/AssignNormalRoles/
-    /// SendRpcForNormal/Release do EHR para funções vanilla uniformes.
+    /// Troca funções vanilla para todos os observadores.
+    /// Cada cliente recebe as funções dos outros jogadores em um GameDataTo;
+    /// a função do próprio jogador é enviada separadamente ao cliente dono.
     /// </summary>
     internal static bool TrocarFuncoes(
         IEnumerable<KeyValuePair<PlayerControl, RoleTypes>> atribuicoes)
@@ -110,14 +109,15 @@ internal static class RoleSwitchAPI
         }
 
         Dictionary<int, MessageWriter> senders = new();
+        HashSet<int> clientesObservadores = new();
+
         loteEmAndamento = true;
         bloqueandoRpcSetRole = true;
 
         try
         {
-            // Um pacote GameDataTo confiável por cliente, como o EHR faz
-            // com um CustomRpcSender por observador.
-            HashSet<int> clientesObservadores = new();
+            // Um GameDataTo por cliente observador. O EHR organiza os
+            // senders por jogador-alvo e roteia cada RPC para o OwnerId dele.
             foreach (PlayerControl observador in PlayerControl.AllPlayerControls)
             {
                 if (observador == null || observador.Data == null ||
@@ -135,43 +135,78 @@ internal static class RoleSwitchAPI
                 senders.Add(observador.OwnerId, writer);
             }
 
-            // Atualiza a cópia local do host para os demais jogadores.
-            // O papel do próprio host é aplicado somente depois de liberar o
-            // bloqueio, como no estágio SetRoleSelf do EHR.
+            // Atualiza a visão local do host sobre os jogadores remotos,
+            // sem disparar um RpcSetRole vanilla adicional.
             foreach (TrocaPendente troca in trocas)
             {
                 if (troca.Jogador.OwnerId == cliente.ClientId)
                     continue;
 
-                troca.Jogador.StartCoroutine(troca.Jogador.CoSetRole(troca.Funcao, false));
+                troca.Jogador.StartCoroutine(
+                    troca.Jogador.CoSetRole(troca.Funcao, false));
             }
 
-            // Prepara os RPCs de cada jogador para cada cliente remoto.
-            foreach (MessageWriter writer in senders.Values)
+            // Como no SendRpcForNormal do EHR: para cada cliente observador,
+            // enviamos a função de cada jogador EXCETO a função própria dele.
+            foreach (KeyValuePair<int, MessageWriter> item in senders)
             {
+                int ownerObservador = item.Key;
+                MessageWriter writer = item.Value;
+
+                PlayerControl jogadorObservador = PlayerControl.AllPlayerControls
+                    .ToArray()
+                    .FirstOrDefault(p => p != null && p.OwnerId == ownerObservador);
+
                 foreach (TrocaPendente troca in trocas)
                 {
+                    if (jogadorObservador != null &&
+                        troca.Jogador.PlayerId == jogadorObservador.PlayerId)
+                        continue;
+
                     writer.StartMessage(2); // RPC
                     writer.WritePacked(troca.Jogador.NetId);
                     writer.Write((byte)RpcCalls.SetRole);
                     writer.Write((ushort)troca.Funcao);
-                    writer.Write(true); // canOverrideRole, como no EHR
+                    writer.Write(true); // canOverrideRole
                     writer.EndMessage();
                 }
 
                 writer.EndMessage(); // GameDataTo
             }
 
-            // O EHR também libera o bloqueio antes de enviar os pacotes.
+            // O EHR trata o papel próprio separadamente: SetRole direcionado
+            // ao OwnerId do jogador, em vez de incluí-lo no pacote dos outros.
+            foreach (TrocaPendente troca in trocas)
+            {
+                int ownerId = troca.Jogador.OwnerId;
+                if (ownerId < 0 || ownerId == cliente.ClientId)
+                    continue;
+
+                MessageWriter selfWriter = cliente.StartRpcImmediately(
+                    troca.Jogador.NetId,
+                    (byte)RpcCalls.SetRole,
+                    SendOption.Reliable,
+                    ownerId);
+
+                selfWriter.Write((ushort)troca.Funcao);
+                selfWriter.Write(true); // canOverrideRole
+                cliente.FinishRpcImmediately(selfWriter);
+            }
+
+            // O host é dono do próprio PlayerControl: aplica a função local
+            // depois da fase protegida, como no estágio SetRoleSelf do EHR.
             bloqueandoRpcSetRole = false;
 
-            // A função do host é aplicada localmente após a fase protegida.
             foreach (TrocaPendente troca in trocas)
             {
                 if (troca.Jogador.OwnerId == cliente.ClientId)
-                    troca.Jogador.StartCoroutine(troca.Jogador.CoSetRole(troca.Funcao, true));
+                {
+                    troca.Jogador.StartCoroutine(
+                        troca.Jogador.CoSetRole(troca.Funcao, true));
+                }
             }
 
+            // Envia os pacotes de observadores após preparar todos os RPCs.
             foreach (KeyValuePair<int, MessageWriter> item in senders)
             {
                 MessageWriter writer = item.Value;
@@ -181,12 +216,13 @@ internal static class RoleSwitchAPI
             }
 
             AtualizarHudDaFuncaoLocal(trocas);
+
             foreach (TrocaPendente troca in trocas)
             {
                 LogInfo($"Função preparada: PlayerId={troca.Jogador.PlayerId}, OwnerId={troca.Jogador.OwnerId}, função={troca.Funcao}.");
             }
 
-            LogInfo($"Atribuição concluída: {trocas.Count} jogador(es), {clientesObservadores.Count} cliente(s) remoto(s).");
+            LogInfo($"Atribuição concluída: {trocas.Count} jogador(es), {clientesObservadores.Count} cliente(s) remoto(s), com RPC próprio direcionado.");
             return true;
         }
         catch (Exception ex)
