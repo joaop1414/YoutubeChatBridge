@@ -9,17 +9,12 @@ using InnerNet;
 namespace YouTubeVoteBridge;
 
 /// <summary>
-/// Atribuição de funções vanilla usando o roteamento por observador do EHR:
-/// - atualiza a cópia do host sem RPC vanilla concorrente;
-/// - envia para cada cliente remoto as funções dos OUTROS jogadores;
-/// - envia a função própria de cada jogador remoto por RPC direcionado
-///   diretamente ao OwnerId dele, como o RpcSetRoleDesync do EHR.
+/// Captura a atribuição vanilla feita por RoleManager.SelectRoles e substitui
+/// somente o transporte de RpcSetRole. O RoleManager continua decidindo quais
+/// funções serão atribuídas, respeitando as opções e probabilidades do jogo.
 /// </summary>
 internal static class RoleSwitchAPI
 {
-    private static bool bloqueandoRpcSetRole;
-    private static bool loteEmAndamento;
-
     private sealed class TrocaPendente
     {
         public PlayerControl Jogador;
@@ -30,6 +25,66 @@ internal static class RoleSwitchAPI
             Jogador = jogador;
             Funcao = funcao;
         }
+    }
+
+    private static bool capturandoSelecaoVanilla;
+    private static bool loteEmAndamento;
+    private static readonly Dictionary<byte, TrocaPendente> funcoesCapturadas = new();
+
+    /// <summary>
+    /// Chamado imediatamente antes de RoleManager.SelectRoles.
+    /// </summary>
+    internal static void IniciarCapturaSelecaoVanilla()
+    {
+        AmongUsClient cliente = AmongUsClient.Instance;
+        if (cliente == null || !cliente.AmHost)
+            return;
+
+        funcoesCapturadas.Clear();
+        capturandoSelecaoVanilla = true;
+        LogInfo("Captura iniciada: o sorteador vanilla continuará escolhendo as funções.");
+    }
+
+    /// <summary>
+    /// Intercepta somente RpcSetRole disparado durante SelectRoles.
+    /// Retorna true quando a chamada foi capturada e deve ser bloqueada.
+    /// </summary>
+    internal static bool TentarCapturarRpcSetRole(PlayerControl jogador, RoleTypes funcao)
+    {
+        if (!capturandoSelecaoVanilla || jogador == null ||
+            jogador.Data == null || jogador.Data.Disconnected)
+            return false;
+
+        funcoesCapturadas[jogador.PlayerId] = new TrocaPendente(jogador, funcao);
+        LogInfo($"Função vanilla capturada: PlayerId={jogador.PlayerId}, função={funcao}.");
+        return true;
+    }
+
+    /// <summary>
+    /// Chamado depois de RoleManager.SelectRoles. Distribui os papéis que o
+    /// próprio jogo escolheu, usando canOverrideRole=true em todos os clientes.
+    /// </summary>
+    internal static void FinalizarCapturaSelecaoVanilla()
+    {
+        if (!capturandoSelecaoVanilla)
+            return;
+
+        capturandoSelecaoVanilla = false;
+
+        List<TrocaPendente> trocas = funcoesCapturadas.Values
+            .Where(x => x != null && x.Jogador != null)
+            .ToList();
+
+        funcoesCapturadas.Clear();
+
+        if (trocas.Count == 0)
+        {
+            LogAviso("SelectRoles terminou sem nenhuma chamada RpcSetRole capturada. A atribuição vanilla não foi substituída.");
+            return;
+        }
+
+        LogInfo($"Seleção vanilla concluída: {trocas.Count} função(ões) capturada(s). Iniciando distribuição.");
+        ExecutarAtribuicoes(trocas, "seleção vanilla");
     }
 
     internal static bool TrocarFuncao(PlayerControl jogador, string nomeFuncao)
@@ -55,32 +110,12 @@ internal static class RoleSwitchAPI
     }
 
     /// <summary>
-    /// Troca funções vanilla para todos os observadores.
-    /// Cada cliente recebe as funções dos outros jogadores em um GameDataTo;
-    /// a função do próprio jogador é enviada separadamente ao cliente dono.
+    /// API pública interna para eventos/testes que precisam trocar funções
+    /// depois do início da partida.
     /// </summary>
     internal static bool TrocarFuncoes(
         IEnumerable<KeyValuePair<PlayerControl, RoleTypes>> atribuicoes)
     {
-        AmongUsClient cliente = AmongUsClient.Instance;
-        if (cliente == null || !cliente.AmHost)
-        {
-            LogAviso("Atribuição em lote exige que o cliente seja o host.");
-            return false;
-        }
-
-        if (RoleManager.Instance == null)
-        {
-            LogErro("RoleManager.Instance está nulo.");
-            return false;
-        }
-
-        if (loteEmAndamento)
-        {
-            LogAviso("Já existe uma atribuição de funções em andamento.");
-            return false;
-        }
-
         List<TrocaPendente> trocas = new();
         HashSet<byte> idsAdicionados = new();
 
@@ -102,127 +137,114 @@ internal static class RoleSwitchAPI
             }
         }
 
+        return ExecutarAtribuicoes(trocas, "solicitação manual");
+    }
+
+    private static bool ExecutarAtribuicoes(List<TrocaPendente> trocas, string origem)
+    {
+        AmongUsClient cliente = AmongUsClient.Instance;
+        if (cliente == null || !cliente.AmHost)
+        {
+            LogAviso("A atribuição de funções exige que o cliente seja o host.");
+            return false;
+        }
+
+        if (RoleManager.Instance == null)
+        {
+            LogErro("RoleManager.Instance está nulo.");
+            return false;
+        }
+
+        if (loteEmAndamento)
+        {
+            LogAviso("Já existe uma atribuição de funções em andamento.");
+            return false;
+        }
+
+        trocas = trocas?
+            .Where(x => x != null && x.Jogador != null &&
+                        x.Jogador.Data != null && !x.Jogador.Data.Disconnected)
+            .GroupBy(x => x.Jogador.PlayerId)
+            .Select(g => g.Last())
+            .ToList() ?? new List<TrocaPendente>();
+
         if (trocas.Count == 0)
         {
             LogAviso("Nenhuma atribuição válida foi recebida.");
             return false;
         }
 
-        Dictionary<int, MessageWriter> senders = new();
-        HashSet<int> clientesObservadores = new();
-
         loteEmAndamento = true;
-        bloqueandoRpcSetRole = true;
+        List<MessageWriter> writersCriados = new();
 
         try
         {
-            // Um GameDataTo por cliente observador. O EHR organiza os
-            // senders por jogador-alvo e roteia cada RPC para o OwnerId dele.
+            // Atualiza primeiro a visão autoritativa do host. Usamos true para
+            // que CoSetRole também possa substituir uma função já marcada como atribuída.
+            foreach (TrocaPendente troca in trocas)
+            {
+                troca.Jogador.StartCoroutine(
+                    troca.Jogador.CoSetRole(troca.Funcao, true));
+            }
+
+            // Um pacote GameDataTo por cliente remoto. A ordem é essencial:
+            // primeiro todos os outros jogadores e, por último, o próprio cliente.
+            // O SetRole próprio é o que permite ao cliente montar corretamente
+            // sua tela de introdução/equipe.
+            HashSet<int> clientesEnviados = new();
+
             foreach (PlayerControl observador in PlayerControl.AllPlayerControls)
             {
                 if (observador == null || observador.Data == null ||
                     observador.Data.Disconnected || observador.OwnerId < 0 ||
-                    observador.OwnerId == cliente.ClientId)
-                    continue;
-
-                if (!clientesObservadores.Add(observador.OwnerId))
+                    observador.OwnerId == cliente.ClientId ||
+                    !clientesEnviados.Add(observador.OwnerId))
                     continue;
 
                 MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
+                writersCriados.Add(writer);
+
                 writer.StartMessage(6); // GameDataTo
                 writer.Write(cliente.GameId);
                 writer.WritePacked(observador.OwnerId);
-                senders.Add(observador.OwnerId, writer);
-            }
 
-            // Atualiza a visão local do host sobre os jogadores remotos,
-            // sem disparar um RpcSetRole vanilla adicional.
-            foreach (TrocaPendente troca in trocas)
-            {
-                if (troca.Jogador.OwnerId == cliente.ClientId)
-                    continue;
-
-                troca.Jogador.StartCoroutine(
-                    troca.Jogador.CoSetRole(troca.Funcao, false));
-            }
-
-            // Como no SendRpcForNormal do EHR: para cada cliente observador,
-            // enviamos a função de cada jogador EXCETO a função própria dele.
-            foreach (KeyValuePair<int, MessageWriter> item in senders)
-            {
-                int ownerObservador = item.Key;
-                MessageWriter writer = item.Value;
-
-                PlayerControl jogadorObservador = PlayerControl.AllPlayerControls
-                    .ToArray()
-                    .FirstOrDefault(p => p != null && p.OwnerId == ownerObservador);
-
+                // Papéis dos demais jogadores.
                 foreach (TrocaPendente troca in trocas)
                 {
-                    if (jogadorObservador != null &&
-                        troca.Jogador.PlayerId == jogadorObservador.PlayerId)
+                    if (troca.Jogador.PlayerId == observador.PlayerId)
                         continue;
 
-                    writer.StartMessage(2); // RPC
-                    writer.WritePacked(troca.Jogador.NetId);
-                    writer.Write((byte)RpcCalls.SetRole);
-                    writer.Write((ushort)troca.Funcao);
-                    writer.Write(true); // canOverrideRole
-                    writer.EndMessage();
+                    EscreverRpcSetRole(writer, troca);
                 }
+
+                // Papel próprio sempre por último.
+                TrocaPendente papelProprio = trocas.FirstOrDefault(
+                    x => x.Jogador.PlayerId == observador.PlayerId);
+
+                if (papelProprio != null)
+                    EscreverRpcSetRole(writer, papelProprio);
 
                 writer.EndMessage(); // GameDataTo
             }
 
-            // O EHR trata o papel próprio separadamente: SetRole direcionado
-            // ao OwnerId do jogador, em vez de incluí-lo no pacote dos outros.
-            foreach (TrocaPendente troca in trocas)
+            // Os pacotes já estão completos. Enviamos um por cliente.
+            // Cada cliente recebe sua sequência individual, sem broadcast
+            // de papéis que possam ser diferentes entre observadores.
+            foreach (MessageWriter writer in writersCriados)
             {
-                int ownerId = troca.Jogador.OwnerId;
-                if (ownerId < 0 || ownerId == cliente.ClientId)
-                    continue;
-
-                MessageWriter selfWriter = cliente.StartRpcImmediately(
-                    troca.Jogador.NetId,
-                    (byte)RpcCalls.SetRole,
-                    SendOption.Reliable,
-                    ownerId);
-
-                selfWriter.Write((ushort)troca.Funcao);
-                selfWriter.Write(true); // canOverrideRole
-                cliente.FinishRpcImmediately(selfWriter);
-            }
-
-            // O host é dono do próprio PlayerControl: aplica a função local
-            // depois da fase protegida, como no estágio SetRoleSelf do EHR.
-            bloqueandoRpcSetRole = false;
-
-            foreach (TrocaPendente troca in trocas)
-            {
-                if (troca.Jogador.OwnerId == cliente.ClientId)
-                {
-                    troca.Jogador.StartCoroutine(
-                        troca.Jogador.CoSetRole(troca.Funcao, true));
-                }
-            }
-
-            // Envia os pacotes de observadores após preparar todos os RPCs.
-            foreach (KeyValuePair<int, MessageWriter> item in senders)
-            {
-                MessageWriter writer = item.Value;
                 cliente.SendOrDisconnect(writer);
                 writer.Recycle();
-                senders[item.Key] = null;
             }
+            writersCriados.Clear();
 
             AtualizarHudDaFuncaoLocal(trocas);
 
             foreach (TrocaPendente troca in trocas)
             {
-                LogInfo($"Função preparada: PlayerId={troca.Jogador.PlayerId}, OwnerId={troca.Jogador.OwnerId}, função={troca.Funcao}.");
+                LogInfo($"Função distribuída: PlayerId={troca.Jogador.PlayerId}, OwnerId={troca.Jogador.OwnerId}, função={troca.Funcao}.");
             }
 
-            LogInfo($"Atribuição concluída: {trocas.Count} jogador(es), {clientesObservadores.Count} cliente(s) remoto(s), com RPC próprio direcionado.");
+            LogInfo($"Atribuição concluída ({origem}): {trocas.Count} jogador(es), {clientesEnviados.Count} cliente(s) remoto(s), canOverrideRole=true.");
             return true;
         }
         catch (Exception ex)
@@ -232,10 +254,7 @@ internal static class RoleSwitchAPI
         }
         finally
         {
-            bloqueandoRpcSetRole = false;
-            loteEmAndamento = false;
-
-            foreach (MessageWriter writer in senders.Values)
+            foreach (MessageWriter writer in writersCriados)
             {
                 if (writer == null)
                     continue;
@@ -243,7 +262,19 @@ internal static class RoleSwitchAPI
                 try { writer.Recycle(); }
                 catch { }
             }
+
+            loteEmAndamento = false;
         }
+    }
+
+    private static void EscreverRpcSetRole(MessageWriter writer, TrocaPendente troca)
+    {
+        writer.StartMessage(2); // RPC
+        writer.WritePacked(troca.Jogador.NetId);
+        writer.Write((byte)RpcCalls.SetRole);
+        writer.Write((ushort)troca.Funcao);
+        writer.Write(true); // canOverrideRole
+        writer.EndMessage();
     }
 
     private static void AtualizarHudDaFuncaoLocal(List<TrocaPendente> trocas)
@@ -269,7 +300,7 @@ internal static class RoleSwitchAPI
         }
     }
 
-    internal static bool RpcSetRoleEstaBloqueado() => bloqueandoRpcSetRole;
+    internal static bool CapturandoSelecaoVanilla => capturandoSelecaoVanilla;
 
     private static void LogInfo(string mensagem) =>
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo("[RoleSwitchAPI] " + mensagem);
@@ -282,14 +313,36 @@ internal static class RoleSwitchAPI
 }
 
 /// <summary>
-/// Bloqueia apenas chamadas vanilla concorrentes enquanto os pacotes do lote
-/// estão sendo preparados. Não força canOverrideRole globalmente.
+/// Abre e fecha a captura ao redor do sorteador vanilla. Não substituímos
+/// RoleManager.SelectRoles nem LogicRoleSelectionNormal.
+/// </summary>
+[HarmonyPatch(typeof(RoleManager), nameof(RoleManager.SelectRoles))]
+internal static class RoleSwitchVanillaSelectionPatch
+{
+    private static void Prefix()
+    {
+        RoleSwitchAPI.IniciarCapturaSelecaoVanilla();
+    }
+
+    private static void Postfix()
+    {
+        RoleSwitchAPI.FinalizarCapturaSelecaoVanilla();
+    }
+}
+
+/// <summary>
+/// Durante SelectRoles, captura as chamadas do jogo em vez de transmitir
+/// os RPCs vanilla. Fora desse momento, RpcSetRole continua funcionando normal.
 /// </summary>
 [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.RpcSetRole))]
+[HarmonyPriority(Priority.High)]
 internal static class RoleSwitchRpcSetRolePatch
 {
-    private static bool Prefix()
+    private static bool Prefix(
+        PlayerControl __instance,
+        RoleTypes roleType,
+        bool canOverrideRole)
     {
-        return !RoleSwitchAPI.RpcSetRoleEstaBloqueado();
+        return !RoleSwitchAPI.TentarCapturarRpcSetRole(__instance, roleType);
     }
 }
