@@ -143,7 +143,7 @@ internal static class RoleSwitchAPI
                 if (troca.Jogador.OwnerId == cliente.ClientId)
                     continue;
 
-                troca.Jogador.SetRole(troca.Funcao, false);
+                troca.Jogador.StartCoroutine(troca.Jogador.CoSetRole(troca.Funcao, false));
             }
 
             // Prepara os RPCs de cada jogador para cada cliente remoto.
@@ -169,7 +169,7 @@ internal static class RoleSwitchAPI
             foreach (TrocaPendente troca in trocas)
             {
                 if (troca.Jogador.OwnerId == cliente.ClientId)
-                    troca.Jogador.SetRole(troca.Funcao);
+                    troca.Jogador.StartCoroutine(troca.Jogador.CoSetRole(troca.Funcao, true));
             }
 
             foreach (KeyValuePair<int, MessageWriter> item in senders)
