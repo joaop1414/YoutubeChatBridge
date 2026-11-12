@@ -3726,13 +3726,13 @@ public static class YouTubeVoteChatPatch
                     YouTubeVoteBridgePlugin.Responder(__instance, aviso);
                 else if (host)
                     YouTubeVoteBridgePlugin.EnviarMensagemIndividual(sourcePlayer, aviso);
-                return false;
+                return ehLocal;
             }
 
             if (host)
             {
                 YouTubeVoteBridgePlugin.ProcessarComandoCor(__instance, sourcePlayer, mensagem);
-                return false;
+                return ehLocal;
             }
 
             // Clientes com o mod ocultam comandos recebidos de outros jogadores,
@@ -3758,9 +3758,9 @@ public static class YouTubeVoteChatPatch
                 YouTubeVoteBridgePlugin.EnviarMensagemIndividual(
                     sourcePlayer, PainelVotacaoRpc.ObterTextoConfiguracoes());
             }
-            // Em clientes que não são host, não exibir a configuração local:
-            // o host também recebe a mensagem e envia a resposta correta.
-            return false;
+            // O comando digitado localmente permanece no histórico; o host
+            // processa as consultas dos demais jogadores e responde no cliente deles.
+            return !host || ehLocal;
         }
 
         if (mensagem.Equals("/evento", StringComparison.OrdinalIgnoreCase) ||
@@ -3771,9 +3771,7 @@ public static class YouTubeVoteChatPatch
                 YouTubeVoteBridgePlugin.Responder(__instance, YouTubeVoteBridgePlugin.ObterResumoEventosF7());
             else if (host)
                 YouTubeVoteBridgePlugin.EnviarMensagemIndividual(sourcePlayer, YouTubeVoteBridgePlugin.ObterResumoEventosF7());
-            else if (ehLocal)
-                YouTubeVoteBridgePlugin.Responder(__instance, "O comando /evento está disponível na sala do host.");
-            return false;
+            return !host || ehLocal;
         }
 
         // Comandos de lobby inspirados no EHR: mover o próprio jogador para fora/dentro
@@ -3792,7 +3790,7 @@ public static class YouTubeVoteChatPatch
                     YouTubeVoteBridgePlugin.Responder(__instance, "Esses comandos só podem ser usados no lobby.");
                 else if (host)
                     YouTubeVoteBridgePlugin.EnviarMensagemIndividual(sourcePlayer, "Esses comandos só podem ser usados no lobby.");
-                return false;
+                return ehLocal;
             }
 
             // O cliente que digitou o comando pode executá-lo para si; o host também
@@ -3836,7 +3834,7 @@ public static class YouTubeVoteChatPatch
                             YouTubeVoteBridgePlugin.EnviarMensagemIndividual(sourcePlayer, "Não foi possível teleportar.");
                     }
                 }
-                return false;
+                return ehLocal;
             }
 
             string[] partesRename = mensagem.Split(new[] { ' ' }, 2, StringSplitOptions.RemoveEmptyEntries);
@@ -3846,7 +3844,7 @@ public static class YouTubeVoteChatPatch
                     YouTubeVoteBridgePlugin.Responder(__instance, "Uso: /rn <nome> ou /rename <nome>");
                 else if (host)
                     YouTubeVoteBridgePlugin.EnviarMensagemIndividual(sourcePlayer, "Uso: /rn <nome> ou /rename <nome>");
-                return false;
+                return ehLocal;
             }
 
             string novoNome = Regex.Replace(partesRename[1], @"<size=[^>]*>", string.Empty, RegexOptions.IgnoreCase).Trim();
@@ -3909,7 +3907,7 @@ public static class YouTubeVoteChatPatch
                         YouTubeVoteBridgePlugin.EnviarMensagemIndividual(sourcePlayer, "Não foi possível alterar o nome.");
                 }
             }
-            return false;
+            return ehLocal;
         }
 
         if (Regex.IsMatch(mensagem, @"^/live(\s+|$)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
@@ -3922,7 +3920,7 @@ public static class YouTubeVoteChatPatch
             if (idSolicitado.Length == 0)
                 idSolicitado = entradaLive;
             YouTubeVoteBridgePlugin.ProcessarPedidoLive(__instance, sourcePlayer, idSolicitado);
-            return false;
+            return ehLocal;
         }
 
         if (mensagem.Equals("/help", StringComparison.OrdinalIgnoreCase) ||
@@ -3943,7 +3941,7 @@ public static class YouTubeVoteChatPatch
                 YouTubeVoteBridgePlugin.EnviarMensagemIndividual(sourcePlayer, ajuda2);
                 YouTubeVoteBridgePlugin.EnviarMensagemIndividual(sourcePlayer, ajuda3);
             }
-            return false;
+            return ehLocal;
         }
 
         if (mensagem.Equals("/tag update", StringComparison.OrdinalIgnoreCase))
@@ -3954,12 +3952,12 @@ public static class YouTubeVoteChatPatch
                     YouTubeVoteBridgePlugin.Responder(__instance, "<color=red>Somente o host pode usar /tag update.");
                 else if (host)
                     YouTubeVoteBridgePlugin.EnviarMensagemIndividual(sourcePlayer, "<color=red>Somente o host pode usar /tag update.");
-                return false;
+                return ehLocal;
             }
 
             LobbyTagManager.AtualizarTagsRemotas();
             YouTubeVoteBridgePlugin.Responder(__instance, "Atualização das tags solicitada. Aguarde o download do GitHub.");
-            return false;
+            return ehLocal;
         }
 
         if (!mensagem.StartsWith("/youtube", StringComparison.OrdinalIgnoreCase))
@@ -3997,12 +3995,20 @@ public static class YouTubeVoteChatPatch
                 return false;
             }
 
-            // No cliente de quem digitou, deixa o chat enviar a solicitação ao host.
+            // O próprio host processa o comando localmente; a mensagem original
+            // continua visível e a resposta é adicionada como uma nova entrada.
+            if (host && ehLocal)
+            {
+                string idLocal = YouTubeVoteBridgePlugin.ExtrairLiveId(entradaPedidoYoutube);
+                YouTubeVoteBridgePlugin.ProcessarPedidoLive(__instance, sourcePlayer, idLocal);
+                return true;
+            }
+
+            // No cliente de quem digitou, deixa a solicitação chegar ao host.
             if (!host && ehLocal)
                 return true;
 
-            // Não mostrar comandos de solicitação enviados por outros jogadores
-            // como texto comum nos clientes com o mod.
+            // Oculta a cópia recebida dos outros jogadores nos clientes com mod.
             return false;
         }
 
@@ -4014,11 +4020,11 @@ public static class YouTubeVoteChatPatch
                 YouTubeVoteBridgePlugin.Responder(__instance, avisoPermissao);
             else if (host)
                 YouTubeVoteBridgePlugin.EnviarMensagemIndividual(sourcePlayer, avisoPermissao);
-            return false;
+            return ehLocal;
         }
 
         YouTubeVoteBridgePlugin.ProcessarComando(__instance, mensagem);
-        return false;
+        return true;
     }
 }
 
