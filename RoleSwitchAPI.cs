@@ -1,26 +1,40 @@
 using System;
-using System.Reflection;
+using System.Collections.Generic;
 using System.Linq;
 using AmongUs.GameOptions;
+using HarmonyLib;
 using Hazel;
+using InnerNet;
 
 namespace YouTubeVoteBridge;
 
 /// <summary>
-/// Troca de função inspirada no CustomRpcSender do EHR:
-/// envia SetRole somente ao cliente dono do jogador, com canOverrideRole=true.
-/// Se o jogador pertence ao próprio host, aplica localmente com SetRole.
+/// Atribuição de funções no estilo do pipeline do EHR:
+/// - bloqueia RpcSetRole vanilla apenas durante a preparação;
+/// - aplica a função no estado local do host sem disparar o RPC vanilla;
+/// - prepara um GameDataTo por cliente observador;
+/// - agrupa os SetRole no mesmo pacote confiável;
+/// - libera o bloqueio antes de enviar os pacotes.
 /// </summary>
 internal static class RoleSwitchAPI
 {
+    private static bool bloqueandoRpcSetRole;
+    private static bool loteEmAndamento;
+
+    private sealed class TrocaPendente
+    {
+        public PlayerControl Jogador;
+        public RoleTypes Funcao;
+
+        public TrocaPendente(PlayerControl jogador, RoleTypes funcao)
+        {
+            Jogador = jogador;
+            Funcao = funcao;
+        }
+    }
+
     internal static bool TrocarFuncao(PlayerControl jogador, string nomeFuncao)
     {
-        if (jogador == null || jogador.Data == null || jogador.Data.Disconnected)
-        {
-            LogAviso("Troca cancelada: jogador inválido ou desconectado.");
-            return false;
-        }
-
         if (!Enum.TryParse(typeof(RoleTypes), nomeFuncao, true, out object valor))
         {
             LogAviso($"RoleTypes não contém a função '{nomeFuncao}'.");
@@ -32,213 +46,186 @@ internal static class RoleSwitchAPI
 
     internal static bool TrocarFuncao(PlayerControl jogador, RoleTypes funcao)
     {
-        if (jogador == null || jogador.Data == null || jogador.Data.Disconnected)
-        {
-            LogAviso("Troca cancelada: jogador inválido ou desconectado.");
+        if (jogador == null)
             return false;
-        }
 
-        try
+        return TrocarFuncoes(new[]
         {
-            InspecionarEstadoPapel("ANTES_TROCA", jogador, funcao);
-
-            var cliente = AmongUsClient.Instance;
-            if (cliente == null)
-            {
-                LogErro("AmongUsClient.Instance está nulo.");
-                return false;
-            }
-
-            // Use o método oficial do jogo para trocar a função e replicá-la.
-            // Montar o RPC SetRole manualmente pode não reproduzir todo o fluxo
-            // de atualização usado pelo PlayerControl.
-            if (cliente.AmHost)
-            {
-                if (RoleManager.Instance == null)
-                {
-                    LogErro("RoleManager.Instance está nulo.");
-                    return false;
-                }
-
-                LogInfo($"Chamando PlayerControl.RpcSetRole: jogador={jogador.PlayerId}, OwnerId={jogador.OwnerId}, função={funcao}.");
-                jogador.RpcSetRole(funcao, true);
-
-                if (PlayerControl.LocalPlayer != null &&
-                    jogador.PlayerId == PlayerControl.LocalPlayer.PlayerId &&
-                    HudManager.Instance?.ReportButton != null)
-                {
-                    HudManager.Instance.ReportButton.gameObject.SetActive(
-                        !RoleManager.IsGhostRole(funcao));
-                }
-
-                InspecionarMetodosPapel(jogador);
-                InspecionarEstadoPapel("DEPOIS_RPCSETROLE", jogador, funcao);
-                LogInfo($"PlayerControl.RpcSetRole chamado: jogador={jogador.PlayerId}, função={funcao}, canOverrideRole=true.");
-                return true;
-            }
-
-            // Em cliente não host, só permite a chamada para o próprio jogador.
-            if (cliente.ClientId == jogador.OwnerId)
-            {
-                LogInfo($"Cliente dono chamando PlayerControl.RpcSetRole: jogador={jogador.PlayerId}, função={funcao}.");
-                jogador.RpcSetRole(funcao, true);
-
-                if (PlayerControl.LocalPlayer != null &&
-                    jogador.PlayerId == PlayerControl.LocalPlayer.PlayerId &&
-                    HudManager.Instance?.ReportButton != null)
-                {
-                    HudManager.Instance.ReportButton.gameObject.SetActive(
-                        !RoleManager.IsGhostRole(funcao));
-                }
-
-                InspecionarEstadoPapel("DEPOIS_RPCSETROLE_LOCAL", jogador, funcao);
-                return true;
-            }
-
-            LogAviso("Cliente não host não pode atribuir função a outro jogador por esta API.");
-            return false;
-        }
-        catch (Exception ex)
-        {
-            LogErro($"Exceção ao trocar função do jogador={jogador.PlayerId}: {ex}");
-            return false;
-        }
+            new KeyValuePair<PlayerControl, RoleTypes>(jogador, funcao)
+        });
     }
 
     /// <summary>
-    /// Tentativa de recuperação baseada no FixBlackScreen do EHR.
-    /// O método do EHR é uma extensão estática; procuramos por reflexão para
-    /// não adicionar uma dependência obrigatória ao EHR.
+    /// Aplica várias funções em uma única transação de rede.
+    /// É o equivalente adaptado do StartReplace/AssignNormalRoles/
+    /// SendRpcForNormal/Release do EHR para funções vanilla uniformes.
     /// </summary>
-    internal static void TentarCorrigirTelaPretaTodos()
+    internal static bool TrocarFuncoes(
+        IEnumerable<KeyValuePair<PlayerControl, RoleTypes>> atribuicoes)
     {
-        try
+        AmongUsClient cliente = AmongUsClient.Instance;
+        if (cliente == null || !cliente.AmHost)
         {
-            Type tipoPlayer = typeof(PlayerControl);
-            MethodInfo metodoFix = null;
+            LogAviso("Atribuição em lote exige que o cliente seja o host.");
+            return false;
+        }
 
-            foreach (Assembly assembly in AppDomain.CurrentDomain.GetAssemblies())
+        if (RoleManager.Instance == null)
+        {
+            LogErro("RoleManager.Instance está nulo.");
+            return false;
+        }
+
+        if (loteEmAndamento)
+        {
+            LogAviso("Já existe uma atribuição de funções em andamento.");
+            return false;
+        }
+
+        List<TrocaPendente> trocas = new();
+        HashSet<byte> idsAdicionados = new();
+
+        if (atribuicoes != null)
+        {
+            foreach (KeyValuePair<PlayerControl, RoleTypes> item in atribuicoes)
             {
-                Type[] tipos;
-                try { tipos = assembly.GetTypes(); }
-                catch (ReflectionTypeLoadException ex) { tipos = ex.Types.Where(t => t != null).ToArray(); }
-                catch { continue; }
-
-                foreach (Type tipo in tipos)
-                {
-                    MethodInfo candidato = tipo.GetMethod(
-                        "FixBlackScreen",
-                        BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic,
-                        null,
-                        new[] { tipoPlayer },
-                        null);
-
-                    if (candidato == null || candidato.ReturnType != typeof(void))
-                        continue;
-
-                    metodoFix = candidato;
-                    break;
-                }
-
-                if (metodoFix != null)
-                    break;
-            }
-
-            if (metodoFix == null)
-            {
-                LogAviso("Tentativa FixBlackScreen: método do EHR não está carregado; nenhuma correção externa foi executada.");
-                return;
-            }
-
-            int tentativas = 0;
-            foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
-            {
+                PlayerControl jogador = item.Key;
                 if (jogador == null || jogador.Data == null || jogador.Data.Disconnected)
+                {
+                    LogAviso("Uma atribuição foi ignorada porque o jogador é inválido ou está desconectado.");
+                    continue;
+                }
+
+                if (!idsAdicionados.Add(jogador.PlayerId))
                     continue;
 
-                try
-                {
-                    metodoFix.Invoke(null, new object[] { jogador });
-                    tentativas++;
-                    LogInfo($"FixBlackScreen do EHR chamado para PlayerId={jogador.PlayerId}, OwnerId={jogador.OwnerId}.");
-                }
-                catch (Exception ex)
-                {
-                    LogAviso($"FixBlackScreen falhou para PlayerId={jogador.PlayerId}: {(ex.InnerException ?? ex).Message}");
-                }
+                trocas.Add(new TrocaPendente(jogador, item.Value));
             }
-
-            LogInfo($"Tentativa de correção de tela preta concluída; chamadas solicitadas={tentativas}.");
         }
-        catch (Exception ex)
+
+        if (trocas.Count == 0)
         {
-            LogErro("Erro na tentativa de recuperação FixBlackScreen: " + ex);
+            LogAviso("Nenhuma atribuição válida foi recebida.");
+            return false;
         }
-    }
 
-    // Inspetor temporário: apenas registra dados e assinaturas; não invoca métodos extras.
-    private static void InspecionarEstadoPapel(string etapa, PlayerControl jogador, RoleTypes destino)
-    {
+        Dictionary<int, MessageWriter> senders = new();
+        loteEmAndamento = true;
+        bloqueandoRpcSetRole = true;
+
         try
         {
-            object roleData = jogador?.Data?.Role;
-            LogInfo($"[INSPECTOR][{etapa}] PlayerId={jogador?.PlayerId}, OwnerId={jogador?.OwnerId}, " +
-                $"ClientIdLocal={AmongUsClient.Instance?.ClientId}, Destino={destino}, " +
-                $"PapelAtual={LerFuncao(jogador)}, RoleDataTipo={roleData?.GetType().FullName ?? "null"}, " +
-                $"DataNula={jogador?.Data == null}, Desconectado={jogador?.Data?.Disconnected}, " +
-                $"Morto={jogador?.Data?.IsDead}, NetId={jogador?.NetId}");
-        }
-        catch (Exception ex)
-        {
-            LogAviso($"[INSPECTOR][{etapa}] Falha ao ler estado: {ex.Message}");
-        }
-    }
-
-    private static void InspecionarMetodosPapel(PlayerControl jogador)
-    {
-        try
-        {
-            Type tipo = jogador?.GetType();
-            if (tipo == null)
-                return;
-
-            foreach (MethodInfo metodo in tipo.GetMethods(
-                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            // Um pacote GameDataTo confiável por cliente, como o EHR faz
+            // com um CustomRpcSender por observador.
+            HashSet<int> clientesObservadores = new();
+            foreach (PlayerControl observador in PlayerControl.AllPlayerControls)
             {
-                if (metodo.Name.IndexOf("Role", StringComparison.OrdinalIgnoreCase) < 0 &&
-                    metodo.Name.IndexOf("Murder", StringComparison.OrdinalIgnoreCase) < 0 &&
-                    metodo.Name.IndexOf("BlackScreen", StringComparison.OrdinalIgnoreCase) < 0)
+                if (observador == null || observador.Data == null ||
+                    observador.Data.Disconnected || observador.OwnerId < 0 ||
+                    observador.OwnerId == cliente.ClientId)
                     continue;
 
-                string parametros = string.Join(", ", metodo.GetParameters().Select(p =>
-                    p.ParameterType.Name + " " + p.Name));
-                LogInfo($"[INSPECTOR][METHOD] {metodo.DeclaringType?.FullName}.{metodo.Name}({parametros}) -> {metodo.ReturnType.FullName}");
+                if (!clientesObservadores.Add(observador.OwnerId))
+                    continue;
+
+                MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
+                writer.StartMessage(6); // GameDataTo
+                writer.Write(cliente.GameId);
+                writer.WritePacked(observador.OwnerId);
+                senders.Add(observador.OwnerId, writer);
             }
+
+            // Atualiza a visão local do host sem chamar RpcSetRole vanilla.
+            foreach (TrocaPendente troca in trocas)
+            {
+                bool jogadorEhHost = troca.Jogador.OwnerId == cliente.ClientId;
+                if (jogadorEhHost)
+                    troca.Jogador.SetRole(troca.Funcao);
+                else
+                    troca.Jogador.SetRole(troca.Funcao, false);
+            }
+
+            // Prepara os RPCs de cada jogador para cada cliente remoto.
+            foreach (MessageWriter writer in senders.Values)
+            {
+                foreach (TrocaPendente troca in trocas)
+                {
+                    writer.StartMessage(2); // RPC
+                    writer.WritePacked(troca.Jogador.NetId);
+                    writer.Write((byte)RpcCalls.SetRole);
+                    writer.Write((ushort)troca.Funcao);
+                    writer.Write(true); // canOverrideRole, como no EHR
+                    writer.EndMessage();
+                }
+
+                writer.EndMessage(); // GameDataTo
+            }
+
+            // O EHR também libera o bloqueio antes de enviar os pacotes.
+            bloqueandoRpcSetRole = false;
+
+            foreach (KeyValuePair<int, MessageWriter> item in senders)
+            {
+                MessageWriter writer = item.Value;
+                cliente.SendOrDisconnect(writer);
+                writer.Recycle();
+                senders[item.Key] = null;
+            }
+
+            AtualizarHudDaFuncaoLocal(trocas);
+            foreach (TrocaPendente troca in trocas)
+            {
+                LogInfo($"Função preparada: PlayerId={troca.Jogador.PlayerId}, OwnerId={troca.Jogador.OwnerId}, função={troca.Funcao}.");
+            }
+
+            LogInfo($"Atribuição concluída: {trocas.Count} jogador(es), {clientesObservadores.Count} cliente(s) remoto(s).");
+            return true;
         }
         catch (Exception ex)
         {
-            LogAviso("[INSPECTOR] Falha ao enumerar métodos: " + ex.Message);
+            LogErro("Falha no pipeline de atribuição de funções: " + ex);
+            return false;
+        }
+        finally
+        {
+            bloqueandoRpcSetRole = false;
+            loteEmAndamento = false;
+
+            foreach (MessageWriter writer in senders.Values)
+            {
+                if (writer == null)
+                    continue;
+
+                try { writer.Recycle(); }
+                catch { }
+            }
         }
     }
 
-    private static string LerFuncao(PlayerControl jogador)
+    private static void AtualizarHudDaFuncaoLocal(List<TrocaPendente> trocas)
     {
+        PlayerControl local = PlayerControl.LocalPlayer;
+        if (local == null || HudManager.Instance?.ReportButton == null)
+            return;
+
+        TrocaPendente propria = trocas.FirstOrDefault(x =>
+            x.Jogador != null && x.Jogador.PlayerId == local.PlayerId);
+
+        if (propria == null)
+            return;
+
         try
         {
-            object roleData = jogador?.Data?.Role;
-            if (roleData == null)
-                return "desconhecida";
-
-            Type tipo = roleData.GetType();
-            object papel = tipo.GetProperty("Role", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?.GetValue(roleData);
-            papel ??= tipo.GetField("Role", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?.GetValue(roleData);
-            return papel?.ToString() ?? "desconhecida";
+            HudManager.Instance.ReportButton.gameObject.SetActive(
+                !RoleManager.IsGhostRole(propria.Funcao));
         }
-        catch
+        catch (Exception ex)
         {
-            return "indisponível";
+            LogAviso("Não foi possível atualizar o botão de reporte após a troca: " + ex.Message);
         }
     }
+
+    internal static bool RpcSetRoleEstaBloqueado() => bloqueandoRpcSetRole;
 
     private static void LogInfo(string mensagem) =>
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo("[RoleSwitchAPI] " + mensagem);
@@ -248,4 +235,17 @@ internal static class RoleSwitchAPI
 
     private static void LogErro(string mensagem) =>
         YouTubeVoteBridgePlugin.Instance?.Log.LogError("[RoleSwitchAPI] " + mensagem);
+}
+
+/// <summary>
+/// Bloqueia apenas chamadas vanilla concorrentes enquanto os pacotes do lote
+/// estão sendo preparados. Não força canOverrideRole globalmente.
+/// </summary>
+[HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.RpcSetRole))]
+internal static class RoleSwitchRpcSetRolePatch
+{
+    private static bool Prefix()
+    {
+        return !RoleSwitchAPI.RpcSetRoleEstaBloqueado();
+    }
 }
