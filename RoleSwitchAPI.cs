@@ -248,10 +248,6 @@ internal static class RoleSwitchAPI
 
             LogInfo($"Atribuição concluída ({origem}): {trocas.Count} jogador(es), {clientesEnviados} cliente(s) remoto(s), CustomRpcSender, canOverrideRole=true.");
         }
-        catch (Exception ex)
-        {
-            LogErro("Falha ao distribuir funções com CustomRpcSender: " + ex);
-        }
         finally
         {
             loteEmAndamento = false;
@@ -404,7 +400,6 @@ internal sealed class RoleSwitchCustomRpcSender
     private void FecharMensagemEContinuar()
     {
         FecharMensagem();
-        writer.EndMessage();
         writer.StartMessage(6);
         writer.Write(AmongUsClient.Instance.GameId);
         writer.WritePacked(clienteAlvo);
