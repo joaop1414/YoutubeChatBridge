@@ -62,6 +62,8 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     private const string TITULO_SISTEMA =
         "<color=blue>YouTubeChatBridge</color>";
 
+    private static readonly ConcurrentQueue<string> RespostasLocaisPendentes = new();
+
     private static readonly Dictionary<int, float> AvisosPendentes = new();
     private static readonly HashSet<int> AvisosEnviados = new();
     private sealed class VotoRecebido { public string Autor; public int Opcao; public VotoRecebido(string a, int o) { Autor = a; Opcao = o; } }
@@ -314,10 +316,30 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         if (chat == null || remetente == null || string.IsNullOrWhiteSpace(mensagem))
             return;
 
-        // Cria uma entrada nova somente na interface local. Não altera o nome
-        // do jogador nem usa SetName temporariamente, evitando que a resposta
-        // pareça substituir/renomear a mensagem ou o próprio host.
-        chat.AddChat(remetente, TITULO_SISTEMA + ": " + mensagem, false);
+        // A resposta é enfileirada para o próximo Update. Assim, quando um
+        // comando do host também é mantido no chat, primeiro aparece o comando
+        // original e depois uma nova mensagem local do mod.
+        RespostasLocaisPendentes.Enqueue(mensagem);
+    }
+
+    public static void ProcessarRespostasLocaisPendentes()
+    {
+        if (PlayerControl.LocalPlayer == null ||
+            !HudManager.InstanceExists ||
+            HudManager.Instance.Chat == null)
+            return;
+
+        ChatController chat = HudManager.Instance.Chat;
+        PlayerControl remetente = PlayerControl.LocalPlayer;
+
+        while (RespostasLocaisPendentes.TryDequeue(out string mensagem))
+        {
+            if (string.IsNullOrWhiteSpace(mensagem))
+                continue;
+
+            // AddChat local: não altera nem replica o nome do jogador.
+            chat.AddChat(remetente, TITULO_SISTEMA + ": " + mensagem, false);
+        }
     }
 
     // Escolhe um remetente que ainda esteja vivo. Se o host morreu,
@@ -4263,6 +4285,7 @@ public static class YouTubeVoteUpdatePatch
         // ClientesComMod permanece vazio e os eventos tratam todos como vanilla.
         YouTubeVoteBridgePlugin.EnviarSinalModAoHost();
 
+        YouTubeVoteBridgePlugin.ProcessarRespostasLocaisPendentes();
         LobbyTagManager.Update();
         EventoAdicionarTarefas.AtualizarRestauracoesAgendadas();
 
