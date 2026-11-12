@@ -188,7 +188,7 @@ internal static class RoleSwitchAPI
                     troca.Jogador.CoSetRole(troca.Funcao, true));
             }
 
-            local.StartCoroutine(EnviarAtribuicoesCoroutine(trocas, origem));
+            MonoBehaviourExtensions.StartCoroutine(local, EnviarAtribuicoesCoroutine(trocas, origem));
             return true;
         }
         catch (Exception ex)
