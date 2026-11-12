@@ -294,21 +294,10 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         if (chat == null || remetente == null || string.IsNullOrWhiteSpace(mensagem))
             return;
 
-        string nomeOriginal = remetente.Data != null
-            ? remetente.Data.PlayerName
-            : remetente.name;
-
-        try
-        {
-            // Mesmo padrão usado pelo EHR em Utils.SendMessage:
-            // o título vira o nome do remetente somente enquanto o chat cria a entrada.
-            remetente.SetName(TITULO_SISTEMA);
-            chat.AddChat(remetente, mensagem, false);
-        }
-        finally
-        {
-            remetente.SetName(nomeOriginal);
-        }
+        // Cria uma entrada nova somente na interface local. Não altera o nome
+        // do jogador nem usa SetName temporariamente, evitando que a resposta
+        // pareça substituir/renomear a mensagem ou o próprio host.
+        chat.AddChat(remetente, TITULO_SISTEMA + ": " + mensagem, false);
     }
 
     // Escolhe um remetente que ainda esteja vivo. Se o host morreu,
@@ -370,9 +359,10 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         if (remetente == null || remetente.Data == null)
             return;
 
-        // O EHR faz a troca do nome somente no cliente destinatário:
-        // SetName(TITULO) -> SendChat(texto) -> SetName(nome original),
-        // tudo no mesmo pacote GameDataTo direcionado ao cliente.
+        // A resposta é executada no próprio cliente destinatário.
+        // Enviamos um SendChat local dentro de GameDataTo, usando o NetId
+        // do próprio jogador. Assim, a linha aparece como uma nova mensagem
+        // dele, sem o host trocar o próprio nome nem responder em seu lugar.
         if (destinatario.AmOwner)
         {
             if (HudManager.InstanceExists && HudManager.Instance.Chat != null)
@@ -381,36 +371,18 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         }
 
         MessageWriter writer = null;
-        string nomeOriginalRemetente = remetente.Data.PlayerName;
 
         try
         {
             writer = MessageWriter.Get(SendOption.Reliable);
-            writer.StartMessage(6); // GameDataTo: apenas o cliente destinatário
+            writer.StartMessage(6); // GameDataTo: somente o cliente destinatário
             writer.Write(AmongUsClient.Instance.GameId);
             writer.WritePacked(targetClientId);
 
-            // 1. Define o título como nome apenas na tela do destinatário.
-            writer.StartMessage(2);
-            writer.WritePacked(remetente.NetId);
-            writer.Write((byte)RpcCalls.SetName);
-            writer.Write(remetente.Data.NetId);
-            writer.Write(TITULO_SISTEMA);
-            writer.EndMessage();
-
-            // 2. Envia o texto da resposta com o título já exibido como remetente.
-            writer.StartMessage(2);
-            writer.WritePacked(remetente.NetId);
+            writer.StartMessage(2); // RPC SendChat local do destinatário
+            writer.WritePacked(destinatario.NetId);
             writer.Write((byte)RpcCalls.SendChat);
-            writer.Write(mensagem);
-            writer.EndMessage();
-
-            // 3. Restaura o nome original antes de terminar o mesmo pacote.
-            writer.StartMessage(2);
-            writer.WritePacked(remetente.NetId);
-            writer.Write((byte)RpcCalls.SetName);
-            writer.Write(remetente.Data.NetId);
-            writer.Write(nomeOriginalRemetente);
+            writer.Write(TITULO_SISTEMA + ": " + mensagem);
             writer.EndMessage();
 
             writer.EndMessage();
@@ -419,11 +391,11 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             writer = null;
 
             Instance?.Log.LogInfo(
-                $"Mensagem individual enviada para PlayerId={destinatario.PlayerId}, ClientId={targetClientId} usando SetName/SendChat/SetName direcionado.");
+                $"Resposta local enviada ao próprio jogador PlayerId={destinatario.PlayerId}, ClientId={targetClientId}.");
         }
         catch (Exception ex)
         {
-            Instance?.Log.LogError("Erro ao enviar mensagem individual via GameDataTo: " + ex);
+            Instance?.Log.LogError("Erro ao criar resposta local no cliente destinatário: " + ex);
         }
         finally
         {
@@ -431,7 +403,8 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             {
                 try { writer.Recycle(); } catch { }
             }
-        }    }
+        }
+    }
 
     // Clientes com o mod enviam um sinal ao host. Os clientes que não
     // responderem são tratados como vanilla e recebem a alteração local do nick.
@@ -4127,10 +4100,59 @@ public static class YouTubeVoteLobbyKeybindPatch
 }
 
 
-// Impede os critérios normais de vitória quando a opção "Sem fim de jogo" está ativa.
-// O comportamento padrão do jogo continua intacto quando a opção está desativada.
+// O host controla o encerramento: enquanto "Sem fim de jogo" estiver ativo,
+// as condições automáticas vanilla não podem finalizar a partida.
 [HarmonyPatch(typeof(LogicGameFlowNormal), nameof(LogicGameFlowNormal.CheckEndCriteria))]
 public static class YouTubeVoteSemFimDeJogoCriteriaPatch
+{
+    public static bool Prefix()
+    {
+        if (!YouTubeVoteBridgePlugin.EhHost())
+            return true;
+
+        return YouTubeVoteBridgePlugin.PermitirFimDeJogoForcado ||
+               YouTubeVoteBridgePlugin.SemFimDeJogo == null ||
+               !YouTubeVoteBridgePlugin.SemFimDeJogo.Value;
+    }
+}
+
+// Impede também a vitória automática por conclusão de tarefas.
+[HarmonyPatch(typeof(GameManager), nameof(GameManager.CheckEndGameViaTasks))]
+public static class YouTubeVoteSemFimDeJogoTasksPatch
+{
+    public static bool Prefix(ref bool __result)
+    {
+        if (!YouTubeVoteBridgePlugin.EhHost() ||
+            YouTubeVoteBridgePlugin.PermitirFimDeJogoForcado ||
+            YouTubeVoteBridgePlugin.SemFimDeJogo == null ||
+            !YouTubeVoteBridgePlugin.SemFimDeJogo.Value)
+            return true;
+
+        __result = false;
+        return false;
+    }
+}
+
+// Proteção equivalente caso a sala esteja usando o fluxo Hide and Seek.
+[HarmonyPatch(typeof(LogicGameFlowHnS), nameof(LogicGameFlowHnS.CheckEndCriteria))]
+public static class YouTubeVoteSemFimDeJogoHnSPatch
+{
+    public static bool Prefix()
+    {
+        if (!YouTubeVoteBridgePlugin.EhHost())
+            return true;
+
+        return YouTubeVoteBridgePlugin.PermitirFimDeJogoForcado ||
+               YouTubeVoteBridgePlugin.SemFimDeJogo == null ||
+               !YouTubeVoteBridgePlugin.SemFimDeJogo.Value;
+    }
+}
+
+// Bloqueia qualquer RPC vanilla de encerramento enquanto a opção estiver ativa.
+// O F6 continua liberado porque ativa PermitirFimDeJogoForcado apenas durante
+// a chamada explícita de RpcEndGame.
+[HarmonyPatch(typeof(GameManager), nameof(GameManager.RpcEndGame))]
+public static class YouTubeVoteSemFimDeJogoRpcPatch
 {
     public static bool Prefix()
     {
@@ -4140,18 +4162,14 @@ public static class YouTubeVoteSemFimDeJogoCriteriaPatch
     }
 }
 
-// Também bloqueia um RPC de fim de jogo iniciado por outra rotina enquanto a opção
-// estiver ativa. Quando desativada, o método original é executado normalmente.
-[HarmonyPatch(typeof(GameManager), nameof(GameManager.RpcEndGame))]
-public static class YouTubeVoteSemFimDeJogoRpcPatch
+// O mod permite que chamadas futuras de RpcSetRole sobrescrevam a função atual.
+// Isso é necessário para eventos que precisem trocar funções durante a partida.
+[HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.RpcSetRole))]
+public static class YouTubeVoteCanOverrideRolePatch
 {
-    public static bool Prefix()
+    public static void Prefix([HarmonyArgument(1)] ref bool canOverrideRole)
     {
-        // A permissão só fica ativa durante uma chamada explícita de encerramento
-        // (por exemplo, o botão F6). As rotinas normais continuam bloqueadas.
-        return YouTubeVoteBridgePlugin.PermitirFimDeJogoForcado ||
-               YouTubeVoteBridgePlugin.SemFimDeJogo == null ||
-               !YouTubeVoteBridgePlugin.SemFimDeJogo.Value;
+        canOverrideRole = true;
     }
 }
 
