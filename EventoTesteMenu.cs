@@ -821,6 +821,7 @@ internal sealed class EventoTesteMenu : MonoBehaviour
         RoleTypes papel = (RoleTypes)valorPapel;
         int total = 0;
         int falhas = 0;
+        List<KeyValuePair<PlayerControl, RoleTypes>> atribuicoes = new();
 
         foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
         {
@@ -828,21 +829,14 @@ internal sealed class EventoTesteMenu : MonoBehaviour
                 continue;
 
             total++;
-            try
-            {
-                // Usa a API central de troca de função, baseada nos padrões
-                // observados no Hydra/EHR: SetRole local no host + RPC global
-                // com canOverrideRole=true. Não usa CoSetRole nesta troca.
-                if (!RoleSwitchAPI.TrocarFuncao(jogador, papel))
-                    falhas++;
-            }
-            catch (Exception ex)
-            {
-                falhas++;
-                YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                    $"[Menu de teste] Falha ao atribuir {nomePapel} a PlayerId={jogador.PlayerId}: {ex}");
-            }
+            atribuicoes.Add(new KeyValuePair<PlayerControl, RoleTypes>(jogador, papel));
         }
+
+        // Prepara todos os SetRole em um único lote por cliente, seguindo
+        // a sequência StartReplace -> Assign -> SendRpc -> Release do EHR.
+        bool sucesso = RoleSwitchAPI.TrocarFuncoes(atribuicoes);
+        if (!sucesso)
+            falhas = total;
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             $"[Menu de teste] Teste {descricao}: atribuídos={total - falhas}/{total}, falhas={falhas}.");
