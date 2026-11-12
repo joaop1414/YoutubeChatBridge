@@ -47,7 +47,7 @@ internal sealed class EventoTsunami : EventoVotacao
     private static readonly Dictionary<byte, string> nomesOriginais = new();
     private static readonly HashSet<byte> nomesAlteradosRede = new();
     private static readonly HashSet<byte> atingidos = new();
-    // Só jogadores que realmente chegaram à etapa de troca para Ghost podem gerar corpo falso.
+    // Mantido para fluxos antigos; a ejeção Exiled do teste atual não gera corpo falso.
     private static readonly HashSet<byte> mortosPeloTsunami = new();
     private static readonly Dictionary<byte, float> mortesPendentes = new();
     private static readonly Dictionary<byte, float> alturaAoAtingir = new();
@@ -628,19 +628,28 @@ internal sealed class EventoTsunami : EventoVotacao
 
             try
             {
-                jogador.Die(DeathReason.Kill, true);
+                // Reproduz o fluxo usado pelo EHR: aplica a ejeção no host
+                // e transmite o RPC Exiled nativo para os demais clientes.
+                // Diferente de MurderPlayer/Die, esse fluxo não cria DeadBody.
+                jogador.Exiled();
+
+                MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
+                    jogador.NetId,
+                    (byte)RpcCalls.Exiled,
+                    SendOption.Reliable,
+                    -1);
+                AmongUsClient.Instance.FinishRpcImmediately(writer);
 
                 if (jogador.Data != null && jogador.Data.IsDead)
                 {
-                    mortosPeloTsunami.Add(id);
                     YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                         "Tsunami: PlayerId=" + id +
-                        " morreu após o atraso e foi registrado para o corpo da reunião.");
+                        " foi ejetado pelo RPC Exiled; nenhum corpo será criado.");
                 }
                 else
                 {
                     YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                        "Tsunami: Die foi chamado, mas o jogo ainda não marcou PlayerId=" +
+                        "Tsunami: Exiled foi chamado, mas o jogo ainda não marcou PlayerId=" +
                         id + " como morto.");
                 }
             }
@@ -989,8 +998,8 @@ internal sealed class EventoTsunami : EventoVotacao
         // Processa apenas os prazos que já venceram no relógio real.
         AtualizarJogadoresAtingidos(Time.realtimeSinceStartup);
 
-        // Corpos falsos só para jogadores cuja troca para Ghost já foi solicitada
-        // após o atraso normal. Os demais não devem virar corpos só por abrir reunião.
+        // Só cria corpos falsos para registros de fluxos antigos que realmente
+        // solicitaram a troca para Ghost. O teste atual via Exiled não adiciona IDs aqui.
         List<byte> ids = new(mortosPeloTsunami);
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             "Tsunami: criando " + ids.Count +
