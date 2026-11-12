@@ -169,7 +169,7 @@ internal static class YouTubeVoteRoleAssignmentFlowDiagnostics
                     for (int i = 0; i < limite; i++)
                     {
                         object item = getItem.Invoke(value, new object[] { i });
-                        itens.Add(SafeString(item));
+                        itens.Add(DescribeCollectionItem(item));
                     }
 
                     if (count.Value > limite)
@@ -185,6 +185,21 @@ internal static class YouTubeVoteRoleAssignmentFlowDiagnostics
         }
 
         return value.GetType().FullName + "=" + SafeString(value);
+    }
+
+    private static string DescribeCollectionItem(object item)
+    {
+        if (item == null)
+            return "null";
+
+        object playerId = ReadMember(item, "PlayerId");
+        object playerName = ReadMember(item, "PlayerName");
+        object dataRole = ReadMember(item, "Role");
+
+        if (playerId != null || playerName != null)
+            return $"PlayerId={SafeString(playerId)}, Name={SafeString(playerName)}, Role={SafeString(dataRole)}";
+
+        return SafeString(item);
     }
 
     private static string DescribePlayer(PlayerControl player)
