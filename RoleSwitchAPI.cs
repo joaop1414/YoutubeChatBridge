@@ -135,14 +135,15 @@ internal static class RoleSwitchAPI
                 senders.Add(observador.OwnerId, writer);
             }
 
-            // Atualiza a visão local do host sem chamar RpcSetRole vanilla.
+            // Atualiza a cópia local do host para os demais jogadores.
+            // O papel do próprio host é aplicado somente depois de liberar o
+            // bloqueio, como no estágio SetRoleSelf do EHR.
             foreach (TrocaPendente troca in trocas)
             {
-                bool jogadorEhHost = troca.Jogador.OwnerId == cliente.ClientId;
-                if (jogadorEhHost)
-                    troca.Jogador.SetRole(troca.Funcao);
-                else
-                    troca.Jogador.SetRole(troca.Funcao, false);
+                if (troca.Jogador.OwnerId == cliente.ClientId)
+                    continue;
+
+                troca.Jogador.SetRole(troca.Funcao, false);
             }
 
             // Prepara os RPCs de cada jogador para cada cliente remoto.
@@ -163,6 +164,13 @@ internal static class RoleSwitchAPI
 
             // O EHR também libera o bloqueio antes de enviar os pacotes.
             bloqueandoRpcSetRole = false;
+
+            // A função do host é aplicada localmente após a fase protegida.
+            foreach (TrocaPendente troca in trocas)
+            {
+                if (troca.Jogador.OwnerId == cliente.ClientId)
+                    troca.Jogador.SetRole(troca.Funcao);
+            }
 
             foreach (KeyValuePair<int, MessageWriter> item in senders)
             {
