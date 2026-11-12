@@ -5,6 +5,7 @@ using AmongUs.GameOptions;
 using HarmonyLib;
 using Hazel;
 using InnerNet;
+using BepInEx.Unity.IL2CPP.Utils.Collections;
 
 namespace YouTubeVoteBridge;
 
@@ -186,7 +187,7 @@ internal static class RoleSwitchAPI
                     troca.Jogador.CoSetRole(troca.Funcao, true));
             }
 
-            AmongUsClient.Instance.StartCoroutine(EnviarAtribuicoesCoroutine(trocas, origem));
+            local.StartCoroutine(EnviarAtribuicoesCoroutine(trocas, origem));
             return true;
         }
         catch (Exception ex)
