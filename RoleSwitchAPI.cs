@@ -443,12 +443,12 @@ internal static class RoleSwitchVanillaSelectionPatch
 {
     private static void Prefix()
     {
-        RoleSwitchAPI.IniciarCapturaSelecaoVanilla();
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo("[RoleRevealDiag] RoleManager.SelectRoles PREFIX (vanilla liberado; captura desativada).");
     }
 
     private static void Postfix()
     {
-        RoleSwitchAPI.FinalizarCapturaSelecaoVanilla();
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo("[RoleRevealDiag] RoleManager.SelectRoles POSTFIX (vanilla liberado; captura desativada).");
     }
 }
 
@@ -465,6 +465,18 @@ internal static class RoleSwitchRpcSetRolePatch
         RoleTypes roleType,
         bool canOverrideRole)
     {
-        return !RoleSwitchAPI.TentarCapturarRpcSetRole(__instance, roleType);
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"[RoleRevealDiag] RpcSetRole PREFIX playerId={__instance?.PlayerId} ownerId={__instance?.OwnerId} role={roleType} canOverride={canOverrideRole} host={AmongUsClient.Instance?.AmHost}");
+        return true; // Não bloquear nem substituir o RPC vanilla durante o diagnóstico.
+    }
+
+    private static void Postfix(PlayerControl __instance, RoleTypes roleType, bool canOverrideRole)
+    {
+        string roleAtual = "(Data.Role nulo)";
+        try { roleAtual = __instance?.Data?.Role?.Role.ToString() ?? "(Role nulo)"; }
+        catch (Exception ex) { roleAtual = "<erro:" + ex.GetType().Name + ">"; }
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"[RoleRevealDiag] RpcSetRole POSTFIX playerId={__instance?.PlayerId} roleSolicitada={roleType} roleAtual={roleAtual} canOverride={canOverrideRole}");
     }
 }
