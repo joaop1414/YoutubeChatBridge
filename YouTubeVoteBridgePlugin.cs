@@ -4259,16 +4259,8 @@ public static class YouTubeVoteSemFimDeJogoRpcPatch
     }
 }
 
-// O mod permite que chamadas futuras de RpcSetRole sobrescrevam a função atual.
-// Isso é necessário para eventos que precisem trocar funções durante a partida.
-[HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.RpcSetRole))]
-public static class YouTubeVoteCanOverrideRolePatch
-{
-    public static void Prefix([HarmonyArgument(1)] ref bool canOverrideRole)
-    {
-        canOverrideRole = true;
-    }
-}
+// A atribuição de funções usa o pipeline por cliente implementado em RoleSwitchAPI.cs.
+// Não forçamos canOverrideRole globalmente: isso interferia na atribuição vanilla.
 
 // ============================================================
 // AVISO PRIVADO QUANDO UM JOGADOR ENTRA
