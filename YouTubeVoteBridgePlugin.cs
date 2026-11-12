@@ -274,6 +274,26 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                AmongUsClient.Instance.AmHost;
     }
 
+    // API central para eventos e ferramentas do mod encerrarem a partida
+    // mesmo quando "Sem fim de jogo" está ativo. A permissão vale somente
+    // durante a ação recebida e sempre é restaurada, inclusive em exceções.
+    public static void ExecutarFimDeJogoAutorizado(Action acao)
+    {
+        if (acao == null)
+            return;
+
+        bool permissaoAnterior = PermitirFimDeJogoForcado;
+        try
+        {
+            PermitirFimDeJogoForcado = true;
+            acao();
+        }
+        finally
+        {
+            PermitirFimDeJogoForcado = permissaoAnterior;
+        }
+    }
+
     // ========================================================
     // RESPOSTAS NO CHAT DO JOGO
     // ========================================================
@@ -354,10 +374,6 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 $"Mensagem individual cancelada: OwnerId inválido para PlayerId={destinatario.PlayerId}.");
             return;
         }
-
-        PlayerControl remetente = ObterRemetenteMensagens();
-        if (remetente == null || remetente.Data == null)
-            return;
 
         // A resposta é executada no próprio cliente destinatário.
         // Enviamos um SendChat local dentro de GameDataTo, usando o NetId
