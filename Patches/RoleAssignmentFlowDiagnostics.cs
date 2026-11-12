@@ -84,8 +84,7 @@ internal static class YouTubeVoteRoleAssignmentFlowDiagnostics
     private static void Postfix(
         MethodBase __originalMethod,
         object __instance,
-        object[] __args,
-        object __result)
+        object[] __args)
     {
         try
         {
@@ -99,17 +98,17 @@ internal static class YouTubeVoteRoleAssignmentFlowDiagnostics
 
             if (__instance is PlayerControl player)
             {
-                Log($"EXIT {nome} | {DescribePlayer(player)} | resultType={__result?.GetType().FullName ?? "null"}");
+                Log($"EXIT {nome} | {DescribePlayer(player)}");
                 return;
             }
 
             if (__instance is IntroCutscene)
             {
-                Log($"EXIT {nome} | resultType={__result?.GetType().FullName ?? "null"}");
+                Log($"EXIT {nome} | IntroCutscene");
                 return;
             }
 
-            Log($"EXIT {nome} | resultType={__result?.GetType().FullName ?? "null"}");
+            Log($"EXIT {nome}");
         }
         catch (Exception ex)
         {
