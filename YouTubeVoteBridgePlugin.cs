@@ -4259,8 +4259,8 @@ public static class YouTubeVoteSemFimDeJogoRpcPatch
     }
 }
 
-// A atribuição de funções permanece totalmente vanilla. O patch em RoleSwitchAPI.cs
-// apenas força canOverrideRole=true nas chamadas originais de RpcSetRole.
+// O seletor de funções continua vanilla. RoleSwitchAPI.cs captura os RpcSetRole
+// durante SelectRoles e os redistribui por RPC direcionado com canOverrideRole=false.
 
 // ============================================================
 // AVISO PRIVADO QUANDO UM JOGADOR ENTRA
