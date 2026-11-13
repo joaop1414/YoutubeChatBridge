@@ -149,10 +149,12 @@ internal static class RoleSwitchAPI
             }
         }
 
-        return ExecutarAtribuicoes(trocas, "solicitação manual");
+        // Trocas solicitadas durante a partida usam canOverrideRole=true.
+        // A atribuição inicial vanilla segue um caminho separado e usa false.
+        return ExecutarAtribuicoes(trocas, "troca durante a partida", true);
     }
 
-    private static bool ExecutarAtribuicoes(List<TrocaPendente> trocas, string origem, bool canOverrideRole = true)
+    private static bool ExecutarAtribuicoes(List<TrocaPendente> trocas, string origem, bool canOverrideRole)
     {
         AmongUsClient cliente = AmongUsClient.Instance;
         PlayerControl local = PlayerControl.LocalPlayer;
