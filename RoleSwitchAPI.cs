@@ -30,6 +30,7 @@ internal static class RoleSwitchAPI
     }
 
     private static bool capturandoSelecaoVanilla;
+    private static bool bloqueandoSetRole;
     private static bool loteEmAndamento;
     private static readonly Dictionary<byte, TrocaPendente> funcoesCapturadas = new();
 
@@ -44,6 +45,7 @@ internal static class RoleSwitchAPI
 
         funcoesCapturadas.Clear();
         capturandoSelecaoVanilla = true;
+        bloqueandoSetRole = true;
         LogInfo("Captura iniciada: o sorteador vanilla continuará escolhendo as funções.");
     }
 
@@ -53,12 +55,18 @@ internal static class RoleSwitchAPI
     /// </summary>
     internal static bool TentarCapturarRpcSetRole(PlayerControl jogador, RoleTypes funcao)
     {
-        if (!capturandoSelecaoVanilla || jogador == null ||
-            jogador.Data == null || jogador.Data.Disconnected)
+        if (!bloqueandoSetRole)
             return false;
 
-        funcoesCapturadas[jogador.PlayerId] = new TrocaPendente(jogador, funcao);
-        LogInfo($"Função vanilla capturada: PlayerId={jogador.PlayerId}, função={funcao}.");
+        if (capturandoSelecaoVanilla && jogador != null &&
+            jogador.Data != null && !jogador.Data.Disconnected)
+        {
+            funcoesCapturadas[jogador.PlayerId] = new TrocaPendente(jogador, funcao);
+            LogInfo($"Função vanilla capturada: PlayerId={jogador.PlayerId}, função={funcao}.");
+        }
+
+        // Durante a preparação e o envio, qualquer SetRole vanilla adicional
+        // também fica bloqueado. O lote personalizado assume a distribuição.
         return true;
     }
 
@@ -81,12 +89,14 @@ internal static class RoleSwitchAPI
 
         if (trocas.Count == 0)
         {
+            bloqueandoSetRole = false;
             LogAviso("SelectRoles terminou sem nenhuma chamada RpcSetRole capturada. A atribuição vanilla não foi substituída.");
             return;
         }
 
-        LogInfo($"Seleção vanilla concluída: {trocas.Count} função(ões) capturada(s). Iniciando distribuição.");
-        ExecutarAtribuicoes(trocas, "seleção vanilla", false);
+        LogInfo($"Seleção vanilla concluída: {trocas.Count} função(ões) capturada(s). Iniciando distribuição com canOverrideRole=false.");
+        if (!ExecutarAtribuicoes(trocas, "seleção vanilla", false))
+            bloqueandoSetRole = false;
     }
 
     internal static bool TrocarFuncao(PlayerControl jogador, string nomeFuncao)
@@ -194,6 +204,7 @@ internal static class RoleSwitchAPI
         catch (Exception ex)
         {
             loteEmAndamento = false;
+            bloqueandoSetRole = false;
             LogErro("Não foi possível iniciar a distribuição das funções: " + ex);
             return false;
         }
@@ -253,6 +264,7 @@ internal static class RoleSwitchAPI
         finally
         {
             loteEmAndamento = false;
+            bloqueandoSetRole = false;
         }
     }
 
