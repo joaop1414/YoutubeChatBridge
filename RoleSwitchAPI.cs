@@ -239,11 +239,8 @@ internal static class RoleSwitchAPI
                     sender.RpcSetRole(troca.Jogador, troca.Funcao, observador.OwnerId, canOverrideRole);
                 }
 
-                TrocaPendente papelProprio = trocas.FirstOrDefault(
-                    x => x.Jogador.PlayerId == observador.PlayerId);
-
-                if (papelProprio != null)
-                    sender.RpcSetRole(papelProprio.Jogador, papelProprio.Funcao, observador.OwnerId, canOverrideRole);
+                // Como no EHR, não enviamos ao cliente o SetRole do próprio jogador.
+                // O estado local desse jogador já foi aplicado pelo CoSetRole no host.
 
                 sender.SendMessage();
                 clientesEnviados++;
