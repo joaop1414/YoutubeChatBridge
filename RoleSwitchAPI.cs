@@ -233,14 +233,11 @@ internal static class RoleSwitchAPI
 
                 foreach (TrocaPendente troca in trocas)
                 {
-                    if (troca.Jogador.PlayerId == observador.PlayerId)
-                        continue;
-
+                    // Envia também o SetRole do próprio jogador para este cliente.
+                    // O CoSetRole executado no host altera somente o estado local do host;
+                    // cada cliente remoto precisa aplicar sua própria função ao receber o RPC.
                     sender.RpcSetRole(troca.Jogador, troca.Funcao, observador.OwnerId, canOverrideRole);
                 }
-
-                // Como no EHR, não enviamos ao cliente o SetRole do próprio jogador.
-                // O estado local desse jogador já foi aplicado pelo CoSetRole no host.
 
                 sender.SendMessage();
                 clientesEnviados++;
