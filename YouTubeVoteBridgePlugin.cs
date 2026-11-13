@@ -2852,11 +2852,11 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             if (string.IsNullOrWhiteSpace(nomeFuncaoInterno) || nomeFuncaoInterno == "None")
                 nomeFuncaoInterno = "Crewmate";
 
-            // A Víbora e outras funções impostoras vanilla precisam ser identificadas
-            // pelo tipo real da função, não apenas pela palavra "Impostor" no nome.
-            bool impostor = EhFuncaoDaEquipeImpostora(nomeFuncaoInterno);
+            // Usa o time real informado pelo jogo, independentemente da função.
+            bool impostor = jogador.Data.Role.IsImpostor;
             string nomeFuncao = TraduzirNomeFuncaoVanilla(nomeFuncaoInterno);
-            string cor = impostor ? "red" : "#00fffb";
+            Color corTime = impostor ? Palette.ImpostorRed : Palette.CrewmateBlue;
+            string cor = "#" + ColorUtility.ToHtmlStringRGB(corTime);
 
             string nomeOriginal = NomesOriginaisRainbow.TryGetValue(id, out string nomeRainbow)
                 ? nomeRainbow : (jogador.Data.PlayerName ?? string.Empty);
