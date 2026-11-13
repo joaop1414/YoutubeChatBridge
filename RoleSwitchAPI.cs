@@ -213,8 +213,6 @@ internal static class RoleSwitchAPI
     private static System.Collections.IEnumerator EnviarAtribuicoesCoroutine(
         List<TrocaPendente> trocas, string origem, bool canOverrideRole)
     {
-        yield return null;
-
         int clientesEnviados = 0;
 
         try
@@ -249,7 +247,6 @@ internal static class RoleSwitchAPI
 
                 sender.SendMessage();
                 clientesEnviados++;
-                yield return new UnityEngine.WaitForSeconds(0.1f);
             }
 
             AtualizarHudDaFuncaoLocal(trocas);
@@ -266,6 +263,8 @@ internal static class RoleSwitchAPI
             loteEmAndamento = false;
             bloqueandoSetRole = false;
         }
+
+        yield break;
     }
 
     private static void AtualizarHudDaFuncaoLocal(List<TrocaPendente> trocas)
