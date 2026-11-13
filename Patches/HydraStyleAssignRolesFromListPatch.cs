@@ -66,9 +66,9 @@ internal static class HydraStyleAssignRolesFromListPatch
 
             hostAtribuidoNestaSelecao = true;
 
-            // Mantém o RPC vanilla original, mas ativa canOverrideRole=true
-            // somente nesta atribuição controlada do host.
-            PlayerControl.LocalPlayer.RpcSetRole(RoleTypes.Impostor, true);
+            // Mantém o comportamento que já foi testado sem tela preta.
+            // O override será investigado separadamente para trocas em partida.
+            PlayerControl.LocalPlayer.RpcSetRole(RoleTypes.Impostor, false);
             rolesAssigned++;
 
             Registrar($"HYDRA TESTE: host recebeu Impostor. players restantes={players.Count}, roles restantes={roleList.Count}, rolesAssigned={rolesAssigned}.");
