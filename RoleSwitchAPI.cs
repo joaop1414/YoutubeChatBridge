@@ -86,7 +86,7 @@ internal static class RoleSwitchAPI
         }
 
         LogInfo($"Seleção vanilla concluída: {trocas.Count} função(ões) capturada(s). Iniciando distribuição.");
-        ExecutarAtribuicoes(trocas, "seleção vanilla");
+        ExecutarAtribuicoes(trocas, "seleção vanilla", false);
     }
 
     internal static bool TrocarFuncao(PlayerControl jogador, string nomeFuncao)
@@ -142,7 +142,7 @@ internal static class RoleSwitchAPI
         return ExecutarAtribuicoes(trocas, "solicitação manual");
     }
 
-    private static bool ExecutarAtribuicoes(List<TrocaPendente> trocas, string origem)
+    private static bool ExecutarAtribuicoes(List<TrocaPendente> trocas, string origem, bool canOverrideRole = true)
     {
         AmongUsClient cliente = AmongUsClient.Instance;
         PlayerControl local = PlayerControl.LocalPlayer;
@@ -185,10 +185,10 @@ internal static class RoleSwitchAPI
             foreach (TrocaPendente troca in trocas)
             {
                 troca.Jogador.StartCoroutine(
-                    troca.Jogador.CoSetRole(troca.Funcao, true));
+                    troca.Jogador.CoSetRole(troca.Funcao, canOverrideRole));
             }
 
-            MonoBehaviourExtensions.StartCoroutine(local, EnviarAtribuicoesCoroutine(trocas, origem));
+            MonoBehaviourExtensions.StartCoroutine(local, EnviarAtribuicoesCoroutine(trocas, origem, canOverrideRole));
             return true;
         }
         catch (Exception ex)
@@ -200,7 +200,7 @@ internal static class RoleSwitchAPI
     }
 
     private static System.Collections.IEnumerator EnviarAtribuicoesCoroutine(
-        List<TrocaPendente> trocas, string origem)
+        List<TrocaPendente> trocas, string origem, bool canOverrideRole)
     {
         yield return null;
 
@@ -227,14 +227,14 @@ internal static class RoleSwitchAPI
                     if (troca.Jogador.PlayerId == observador.PlayerId)
                         continue;
 
-                    sender.RpcSetRole(troca.Jogador, troca.Funcao, observador.OwnerId);
+                    sender.RpcSetRole(troca.Jogador, troca.Funcao, observador.OwnerId, canOverrideRole);
                 }
 
                 TrocaPendente papelProprio = trocas.FirstOrDefault(
                     x => x.Jogador.PlayerId == observador.PlayerId);
 
                 if (papelProprio != null)
-                    sender.RpcSetRole(papelProprio.Jogador, papelProprio.Funcao, observador.OwnerId);
+                    sender.RpcSetRole(papelProprio.Jogador, papelProprio.Funcao, observador.OwnerId, canOverrideRole);
 
                 sender.SendMessage();
                 clientesEnviados++;
@@ -248,7 +248,7 @@ internal static class RoleSwitchAPI
                 LogInfo($"Função distribuída: PlayerId={troca.Jogador.PlayerId}, OwnerId={troca.Jogador.OwnerId}, função={troca.Funcao}.");
             }
 
-            LogInfo($"Atribuição concluída ({origem}): {trocas.Count} jogador(es), {clientesEnviados} cliente(s) remoto(s), CustomRpcSender, canOverrideRole=true.");
+            LogInfo($"Atribuição concluída ({origem}): {trocas.Count} jogador(es), {clientesEnviados} cliente(s) remoto(s), CustomRpcSender, canOverrideRole={canOverrideRole}.");
         }
         finally
         {
@@ -369,14 +369,14 @@ internal sealed class RoleSwitchCustomRpcSender
         return this;
     }
 
-    internal bool RpcSetRole(PlayerControl jogador, RoleTypes funcao, int targetClientId)
+    internal bool RpcSetRole(PlayerControl jogador, RoleTypes funcao, int targetClientId, bool canOverrideRole = true)
     {
         if (jogador == null)
             return false;
 
         AutoStartRpc(jogador.NetId, RpcCalls.SetRole, targetClientId)
             .Write((ushort)funcao)
-            .Write(true)
+            .Write(canOverrideRole)
             .EndRpc();
 
         return true;
@@ -443,12 +443,12 @@ internal static class RoleSwitchVanillaSelectionPatch
 {
     private static void Prefix()
     {
-        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo("[RoleRevealDiag] RoleManager.SelectRoles PREFIX (vanilla liberado; captura desativada).");
+        RoleSwitchAPI.IniciarCapturaSelecaoVanilla();
     }
 
     private static void Postfix()
     {
-        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo("[RoleRevealDiag] RoleManager.SelectRoles POSTFIX (vanilla liberado; captura desativada).");
+        RoleSwitchAPI.FinalizarCapturaSelecaoVanilla();
     }
 }
 
@@ -465,9 +465,14 @@ internal static class RoleSwitchRpcSetRolePatch
         RoleTypes roleType,
         bool canOverrideRole)
     {
-        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"[RoleRevealDiag] RpcSetRole PREFIX playerId={__instance?.PlayerId} ownerId={__instance?.OwnerId} role={roleType} canOverride={canOverrideRole} host={AmongUsClient.Instance?.AmHost}");
-        return true; // Não bloquear nem substituir o RPC vanilla durante o diagnóstico.
+        if (RoleSwitchAPI.TentarCapturarRpcSetRole(__instance, roleType))
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                $"[RoleSwitchAPI] RpcSetRole vanilla bloqueado durante Role Reveal: playerId={__instance?.PlayerId}, role={roleType}, canOverrideOriginal={canOverrideRole}.");
+            return false;
+        }
+
+        return true;
     }
 
     private static void Postfix(PlayerControl __instance, RoleTypes roleType, bool canOverrideRole)
