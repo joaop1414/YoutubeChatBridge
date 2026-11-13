@@ -63,8 +63,8 @@ internal static class RoleSwitchAPI
     }
 
     /// <summary>
-    /// Chamado depois de RoleManager.SelectRoles. Distribui os papéis que o
-    /// próprio jogo escolheu, usando canOverrideRole=true em todos os clientes.
+    /// Chamado depois de RoleManager.SelectRoles. Aplica localmente e distribui
+    /// os papéis escolhidos pelo vanilla com canOverrideRole=false, como no EHR.
     /// </summary>
     internal static void FinalizarCapturaSelecaoVanilla()
     {
@@ -453,8 +453,9 @@ internal static class RoleSwitchVanillaSelectionPatch
 }
 
 /// <summary>
-/// Durante SelectRoles, captura as chamadas do jogo em vez de transmitir
-/// os RPCs vanilla. Fora desse momento, RpcSetRole continua funcionando normal.
+/// Durante SelectRoles, captura e bloqueia o transporte automático do RpcSetRole.
+/// Depois, envia os papéis por RPC direcionado. Fora desse momento, o método
+/// original continua funcionando normalmente.
 /// </summary>
 [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.RpcSetRole))]
 [HarmonyPriority(Priority.High)]
