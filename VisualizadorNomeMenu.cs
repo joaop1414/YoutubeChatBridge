@@ -310,7 +310,9 @@ internal static class ControladorPartidaMenu
         if (!ValidarHostEPartida()) return;
         List<PlayerControl> vivos = new();
         foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
-            if (jogador != null && jogador.Data != null && !jogador.Data.IsDead && !jogador.Data.Disconnected)
+            if (jogador != null && jogador.Data != null &&
+                !jogador.Data.IsDead && !jogador.Data.Disconnected &&
+                !jogador.notRealPlayer)
                 vivos.Add(jogador);
         if (vivos.Count == 0)
         {
