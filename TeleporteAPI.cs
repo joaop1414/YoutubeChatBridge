@@ -19,7 +19,7 @@ public static class TeleporteAPI
     public static bool Teleportar(PlayerControl jogador, Vector2 destino)
     {
         if (jogador == null || jogador.NetTransform == null ||
-            AmongUsClient.Instance == null)
+            AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost)
         {
             return false;
         }
