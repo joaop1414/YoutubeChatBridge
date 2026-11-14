@@ -4814,11 +4814,11 @@ public static class YouTubeVoteTranslateJudgeEjectionWrapUpPatch
 // calcular/transmitir o resultado normal, preservando os votos existentes.
 public static class YouTubeVotePularVotacaoJuizHelper
 {
-    public static void TentarEncerrar(MeetingHud meeting)
+    public static void TentarEncerrar(MeetingHud meeting, bool forcar = false)
     {
         if (!YouTubeVoteBridgePlugin.EhHost() ||
-            YouTubeVoteBridgePlugin.PularFaseVotosJuiz == null ||
-            !YouTubeVoteBridgePlugin.PularFaseVotosJuiz.Value ||
+            (!forcar && (YouTubeVoteBridgePlugin.PularFaseVotosJuiz == null ||
+            !YouTubeVoteBridgePlugin.PularFaseVotosJuiz.Value)) ||
             meeting == null ||
             meeting.playerStates == null)
             return;
