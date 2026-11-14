@@ -139,6 +139,110 @@ internal static class ConfiguradorFuncoesMenu
         }
     }
 
+    private static readonly object travaFuncoesSala = new();
+    private static HashSet<RoleTypes> funcoesHabilitadasNaSala = new();
+    private static bool snapshotFuncoesSalaValido;
+
+    // A lista é congelada quando o host confirma o início, antes do sorteio.
+    internal static void CapturarFuncoesHabilitadasNaSala()
+    {
+        HashSet<RoleTypes> habilitadas = new()
+        {
+            RoleTypes.Crewmate,
+            RoleTypes.Impostor
+        };
+
+        try
+        {
+            object opcoes = GameOptionsManager.Instance?.CurrentGameOptions;
+            if (opcoes == null)
+                throw new InvalidOperationException("CurrentGameOptions está nulo.");
+
+            const System.Reflection.BindingFlags flags =
+                System.Reflection.BindingFlags.Instance |
+                System.Reflection.BindingFlags.Public |
+                System.Reflection.BindingFlags.NonPublic;
+
+            object opcoesFuncoes = null;
+            var propriedade = opcoes.GetType().GetProperty("RoleOptions", flags);
+            if (propriedade != null)
+                opcoesFuncoes = propriedade.GetValue(opcoes);
+            else
+            {
+                var campo = opcoes.GetType().GetField("RoleOptions", flags);
+                if (campo != null)
+                    opcoesFuncoes = campo.GetValue(opcoes);
+            }
+
+            if (opcoesFuncoes == null)
+                throw new InvalidOperationException("A coleção RoleOptions não foi encontrada.");
+
+            var metodoQuantidade = opcoesFuncoes.GetType().GetMethods(flags)
+                .FirstOrDefault(m => m.Name == "GetNumPerGame" && m.GetParameters().Length == 1);
+            var metodoChance = opcoesFuncoes.GetType().GetMethods(flags)
+                .FirstOrDefault(m => m.Name == "GetChancePerGame" && m.GetParameters().Length == 1);
+
+            if (metodoQuantidade == null || metodoChance == null)
+                throw new InvalidOperationException("GetNumPerGame/GetChancePerGame não foram encontrados em RoleOptions.");
+
+            foreach (RoleTypes funcao in Enum.GetValues(typeof(RoleTypes)))
+            {
+                if (funcao == RoleTypes.None ||
+                    funcao == RoleTypes.Crewmate ||
+                    funcao == RoleTypes.Impostor)
+                    continue;
+
+                try
+                {
+                    int quantidade = Convert.ToInt32(
+                        metodoQuantidade.Invoke(opcoesFuncoes, new object[] { funcao }));
+                    int chance = Convert.ToInt32(
+                        metodoChance.Invoke(opcoesFuncoes, new object[] { funcao }));
+
+                    if (quantidade > 0 && chance > 0)
+                        habilitadas.Add(funcao);
+                }
+                catch
+                {
+                    // Alguns papéis especiais não possuem opções próprias nesta versão.
+                }
+            }
+
+            lock (travaFuncoesSala)
+            {
+                funcoesHabilitadasNaSala = habilitadas;
+                snapshotFuncoesSalaValido = true;
+            }
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[Configurador de funções] Lista de funções capturada antes do sorteio: " +
+                string.Join(", ", habilitadas.OrderBy(x => x.ToString())) + ".");
+        }
+        catch (Exception ex)
+        {
+            lock (travaFuncoesSala)
+            {
+                funcoesHabilitadasNaSala = new HashSet<RoleTypes>();
+                snapshotFuncoesSalaValido = false;
+            }
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "[Configurador de funções] Não foi possível capturar as funções da sala; as trocas F8 serão canceladas por segurança. " + ex);
+        }
+    }
+
+    internal static bool SnapshotFuncoesSalaValido
+    {
+        get { lock (travaFuncoesSala) return snapshotFuncoesSalaValido; }
+    }
+
+    internal static HashSet<RoleTypes> ObterCopiaFuncoesHabilitadasNaSala()
+    {
+        lock (travaFuncoesSala)
+            return new HashSet<RoleTypes>(funcoesHabilitadasNaSala);
+    }
+
+
     private static void AtualizarListaJogadores()
     {
         List<(byte Id, string Nome)> lista = new();
@@ -414,10 +518,21 @@ internal static class ConfiguradorFuncoesMenu
 
 
 /// <summary>
-/// Aplica somente as substituições escolhidas no configurador depois que o
-/// RoleManager termina a seleção vanilla. Assim o jogo calcula normalmente
-/// a quantidade de impostores e as demais funções; o menu sobrescreve apenas
-/// os jogadores configurados manualmente.
+/// Congela as funções permitidas pela configuração da sala antes do sorteio vanilla.
+/// </summary>
+[HarmonyPatch(typeof(GameStartManager), nameof(GameStartManager.BeginGame))]
+internal static class ConfiguradorFuncoesInicioPartidaPatch
+{
+    private static void Prefix()
+    {
+        if (AmongUsClient.Instance != null && AmongUsClient.Instance.AmHost)
+            ConfiguradorFuncoesMenu.CapturarFuncoesHabilitadasNaSala();
+    }
+}
+
+/// <summary>
+/// Faz trocas em pares após o sorteio vanilla. A função só é atribuída se
+/// outro jogador realmente a recebeu, preservando a quantidade de cada papel.
 /// </summary>
 [HarmonyPatch(typeof(RoleManager), nameof(RoleManager.SelectRoles))]
 internal static class ConfiguradorFuncoesSelecaoInicialPatch
@@ -433,32 +548,114 @@ internal static class ConfiguradorFuncoesSelecaoInicialPatch
         if (configuracoes.Count == 0)
             return;
 
-        List<KeyValuePair<PlayerControl, RoleTypes>> atribuicoes = new();
-
-        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+        if (!ConfiguradorFuncoesMenu.SnapshotFuncoesSalaValido)
         {
-            if (jogador == null || jogador.Data == null || jogador.Data.Disconnected)
-                continue;
-
-            if (configuracoes.TryGetValue(jogador.PlayerId, out RoleTypes funcao))
-                atribuicoes.Add(new KeyValuePair<PlayerControl, RoleTypes>(jogador, funcao));
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "[Configurador de funções] Trocas canceladas: não foi possível capturar a lista de funções da sala antes do início.");
+            return;
         }
 
-        if (atribuicoes.Count == 0)
+        HashSet<RoleTypes> habilitadas =
+            ConfiguradorFuncoesMenu.ObterCopiaFuncoesHabilitadasNaSala();
+
+        List<PlayerControl> jogadores = PlayerControl.AllPlayerControls
+            .ToArray()
+            .Where(j => j != null && j.Data != null && !j.Data.Disconnected)
+            .ToList();
+
+        int foraDaConfiguracao = jogadores.Count(j =>
+        {
+            RoleTypes papel = j.Data.Role != null ? j.Data.Role.Role : RoleTypes.None;
+            return papel != RoleTypes.None && !habilitadas.Contains(papel);
+        });
+
+        if (foraDaConfiguracao > 2)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "[Configurador de funções] Nenhum jogador configurado participou da seleção inicial.");
+                "[Configurador de funções] Nenhuma troca foi feita: " + foraDaConfiguracao +
+                " jogadores receberam funções ausentes da configuração da sala (limite permitido: 2).");
+            return;
+        }
+
+        Dictionary<byte, RoleTypes> papeisAtuais = jogadores.ToDictionary(
+            j => j.PlayerId,
+            j => j.Data.Role != null ? j.Data.Role.Role : RoleTypes.None);
+
+        HashSet<byte> envolvidos = new();
+        List<KeyValuePair<PlayerControl, RoleTypes>> trocas = new();
+
+        foreach (var configuracao in configuracoes)
+        {
+            PlayerControl jogadorConfigurado =
+                jogadores.FirstOrDefault(j => j.PlayerId == configuracao.Key);
+
+            if (jogadorConfigurado == null ||
+                !papeisAtuais.TryGetValue(configuracao.Key, out RoleTypes papelAtual) ||
+                papelAtual == RoleTypes.None)
+                continue;
+
+            RoleTypes papelDesejado = configuracao.Value;
+
+            if (!habilitadas.Contains(papelDesejado))
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[Configurador de funções] " + jogadorConfigurado.Data.PlayerName +
+                    " manteve " + papelAtual + ": " + papelDesejado +
+                    " não estava habilitada nas configurações capturadas da sala.");
+                continue;
+            }
+
+            if (papelAtual == papelDesejado || envolvidos.Contains(jogadorConfigurado.PlayerId))
+                continue;
+
+            PlayerControl parceiro = jogadores.FirstOrDefault(j =>
+                j.PlayerId != jogadorConfigurado.PlayerId &&
+                !envolvidos.Contains(j.PlayerId) &&
+                papeisAtuais.TryGetValue(j.PlayerId, out RoleTypes papelParceiro) &&
+                papelParceiro == papelDesejado);
+
+            if (parceiro == null)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[Configurador de funções] " + jogadorConfigurado.Data.PlayerName +
+                    " manteve " + papelAtual + ": nenhum outro jogador recebeu " +
+                    papelDesejado + " no sorteio.");
+                continue;
+            }
+
+            RoleTypes papelParceiroAtual = papeisAtuais[parceiro.PlayerId];
+
+            trocas.Add(new KeyValuePair<PlayerControl, RoleTypes>(
+                jogadorConfigurado, papelDesejado));
+            trocas.Add(new KeyValuePair<PlayerControl, RoleTypes>(
+                parceiro, papelAtual));
+
+            papeisAtuais[jogadorConfigurado.PlayerId] = papelDesejado;
+            papeisAtuais[parceiro.PlayerId] = papelAtual;
+            envolvidos.Add(jogadorConfigurado.PlayerId);
+            envolvidos.Add(parceiro.PlayerId);
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[Configurador de funções] Troca planejada: " +
+                jogadorConfigurado.Data.PlayerName + " (" + papelAtual + ") <-> " +
+                parceiro.Data.PlayerName + " (" + papelParceiroAtual + ").");
+        }
+
+        if (trocas.Count == 0)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[Configurador de funções] Nenhuma troca válida foi encontrada.");
             return;
         }
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            "[Configurador de funções] Aplicando " + atribuicoes.Count +
-            " substituição(ões) após a seleção vanilla, sem interceptar a distribuição inicial.");
+            "[Configurador de funções] Executando " + (trocas.Count / 2) +
+            " troca(s) em pares, sem alterar a quantidade de funções.");
 
-        if (!RoleSwitchAPI.TrocarFuncoes(atribuicoes))
+        if (!RoleSwitchAPI.TrocarFuncoes(trocas))
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[Configurador de funções] A seleção vanilla ocorreu, mas não foi possível aplicar as funções manuais.");
+                "[Configurador de funções] A seleção vanilla terminou, mas a API não conseguiu aplicar as trocas em pares.");
         }
     }
 }
