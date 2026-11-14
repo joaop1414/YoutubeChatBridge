@@ -15,7 +15,7 @@ namespace YouTubeVoteBridge;
 internal sealed class EventoSeguidorMortal : EventoVotacao
 {
     private const byte PlayerIdSeguidor = 249;
-    private const float Velocidade = 2.25f;
+    private const float Velocidade = 1.75f;
     private const float AlcanceMorte = 0.48f;
     private const float IntervaloTrocaAlvo = 0.25f;
     private const string NomeSeguidor = "<color=red>NPC ASSASINO</color>";
@@ -28,7 +28,6 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private static float proximaBuscaAlvo;
     private static PlayerControl seguidor;
     private static PlayerControl alvoAtual;
-    private static Vector2 posicaoInicialSeguidor;
 
     // Evita repetir chamadas de transporte enquanto a animação vanilla está ativa.
     private static bool transporteEmAndamento;
@@ -36,20 +35,16 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private static float proximoTransporte;
 
     // Caminho A*: recalculado periodicamente e quando o alvo muda de posição.
-    private const float TamanhoCelula = 0.30f;
+    private const float TamanhoCelula = 0.35f;
     private const float RaioColisao = 0.18f;
-    private const float IntervaloRecalculoCaminho = 0.35f;
-    private const float DistanciaRecalculoAlvo = 0.35f;
+    private const float IntervaloRecalculoCaminho = 0.65f;
+    private const float DistanciaRecalculoAlvo = 0.65f;
     private static readonly Vector2Int[] DirecoesCaminho =
     {
         new Vector2Int(1, 0), new Vector2Int(-1, 0),
         new Vector2Int(0, 1), new Vector2Int(0, -1),
         new Vector2Int(1, 1), new Vector2Int(1, -1),
-        new Vector2Int(-1, 1), new Vector2Int(-1, -1),
-        new Vector2Int(2, 1), new Vector2Int(2, -1),
-        new Vector2Int(-2, 1), new Vector2Int(-2, -1),
-        new Vector2Int(1, 2), new Vector2Int(1, -2),
-        new Vector2Int(-1, 2), new Vector2Int(-1, -2)
+        new Vector2Int(-1, 1), new Vector2Int(-1, -1)
     };
     private static List<Vector2> caminhoAtual = new();
     private static int indiceCaminho;
@@ -109,7 +104,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
         aguardandoFimRoleReveal = false;
 
-        if (!TentarObterCentroSalaInicial(out Vector2 posicaoInicial, out _))
+        if (!TentarObterCentroSalaInicial(out Vector2 posicaoInicial, out SystemTypes salaInicial))
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
                 "[F7/Seguidor] Não foi possível localizar a sala de spawn configurada para este mapa.");
@@ -119,23 +114,16 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
         try
         {
-            // Mesmo padrão do Raio/Tsunami: cria o PlayerControl fora do mapa,
-            // configura a aparência antes do Spawn e só depois o posiciona na sala.
-            posicaoInicialSeguidor = posicaoInicial;
-            Vector2 posicaoOculta = new Vector2(-1000f, 0f);
-
             seguidor = UnityEngine.Object.Instantiate(
                 AmongUsClient.Instance.PlayerPrefab,
-                posicaoOculta,
+                posicaoInicial,
                 Quaternion.identity);
 
             seguidor.PlayerId = PlayerIdSeguidor;
             seguidor.isNew = false;
             seguidor.notRealPlayer = true;
-            seguidor.NetTransform.SnapTo(posicaoOculta);
+            seguidor.NetTransform.SnapTo(posicaoInicial);
 
-            // A aparência é definida no próprio outfit antes do Spawn,
-            // igual ao NPC original que já funcionava.
             var outfit = seguidor.Data?.Outfits[PlayerOutfitType.Default];
             if (outfit != null)
             {
@@ -154,8 +142,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             }
             catch { }
 
-            // Mesmas etapas temporizadas do Tsunami e do Raio:
-            // Spawn -> espera -> associação -> espera -> aparência -> posição real.
+            // Mesmo fluxo em etapas do Raio/Tsunami:
+            // criar localmente -> Spawn -> associar NetId/PlayerId -> aparência.
             etapaInicializacao = 1;
             proximaEtapa = Time.realtimeSinceStartup + 0.12f;
             proximaBuscaAlvo = 0f;
@@ -190,7 +178,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         salaDesejada = mapa switch
         {
             0 => SystemTypes.Shields,       // The Skeld
-            1 => SystemTypes.Cafeteria,    // MIRA HQ
+            1 => SystemTypes.Reactor,       // MIRA HQ
             2 => SystemTypes.Specimens,     // Polus
             4 => SystemTypes.Electrical,     // Airship
             5 => SystemTypes.Laboratory,    // The Fungle
@@ -293,9 +281,9 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         {
             try
             {
-                // Mesma chamada padrão usada pelo Raio: Spawn oculto e remoção
-                // da lista local de jogadores antes da associação por cliente.
-                CustomNetObject.EnviarSpawn(seguidor);
+                CustomNetObject.EnviarSpawn(seguidor, ocultarVisual: false);
+                if (PlayerControl.AllPlayerControls.Contains(seguidor))
+                    PlayerControl.AllPlayerControls.Remove(seguidor);
 
                 etapaInicializacao = 2;
                 proximaEtapa = Time.realtimeSinceStartup + 0.12f;
@@ -320,8 +308,6 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             {
                 int clientes = CustomNetObject.AssociarClientes(seguidor, PlayerIdSeguidor);
 
-                // Reproduz o procedimento do Raio/EHR para os fluxos de cosméticos
-                // e Shapeshift conseguirem renderizar o PlayerControl artificial.
                 if (PlayerControl.LocalPlayer?.Data != null)
                     seguidor.CachedPlayerData = PlayerControl.LocalPlayer.Data;
 
@@ -346,24 +332,18 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         {
             try
             {
-                // A aparência já foi configurada antes do Spawn, como no
-                // NPC original. O Raio/Tsunami também usa EnviarPosicao para
-                // publicar o posicionamento final depois da associação.
-                CustomNetObject.EnviarPosicao(seguidor, posicaoInicialSeguidor);
-
-                try
-                {
-                    seguidor.SetName(NomeSeguidor);
-                    if (seguidor.cosmetics?.nameText != null)
-                        seguidor.cosmetics.nameText.text = NomeSeguidor;
-                }
-                catch { }
-
+                CustomNetObject.EnviarAparencia(
+                    seguidor,
+                    NomeSeguidor,
+                    0,
+                    "hat_pk02_TenGallonHat",
+                    "skin_Wall",
+                    "pet_EmptyPet",
+                    "visor_EmptyVisor");
                 etapaInicializacao = 4;
 
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "[F7/Seguidor] Aparência publicada e NPC reposicionado no mapa: " +
-                    posicaoInicialSeguidor + ".");
+                    "[F7/Seguidor] Aparência publicada: " + NomeSeguidor);
             }
             catch (Exception ex)
             {
@@ -746,10 +726,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 if (!PodePassarEntre(pontoAtual, pontoVizinho))
                     continue;
 
-                // Distância euclidiana permite também passos diagonais longos
-                // (2x1 e 1x2), sem favorecer rotas artificialmente curtas.
-                float custoPasso = Mathf.Sqrt(
-                    direcao.x * direcao.x + direcao.y * direcao.y);
+                float custoPasso = direcao.x != 0 && direcao.y != 0 ? 1.4142135f : 1f;
                 float novoCusto = custos[atual] + custoPasso;
 
                 if (custos.TryGetValue(vizinho, out float custoExistente) &&
@@ -916,7 +893,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     {
         int dx = Mathf.Abs(a.x - b.x);
         int dy = Mathf.Abs(a.y - b.y);
-        return Mathf.Sqrt(dx * dx + dy * dy);
+        return Mathf.Max(dx, dy) + 0.4142135f * Mathf.Min(dx, dy);
     }
 
     private static List<Vector2> ReconstruirCaminho(
@@ -994,7 +971,6 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
         {
             if (jogador == null || jogador == seguidor ||
-                jogador.PlayerId == PlayerIdSeguidor ||
                 jogador.Data == null ||
                 jogador.Data.IsDead ||
                 jogador.Data.Disconnected)
@@ -1084,7 +1060,6 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         }
 
         seguidor = null;
-        posicaoInicialSeguidor = Vector2.zero;
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             "[F7/Seguidor] Estado reiniciado.");
     }
