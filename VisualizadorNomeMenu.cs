@@ -176,13 +176,22 @@ internal static class ControladorPartidaMenu
 
     public static void VerificarTecla()
     {
-        if (!Input.GetKeyDown(KeyCode.F8)) return;
+        if (!Input.GetKeyDown(KeyCode.F8))
+            return;
 
         if (AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost ||
-            PlayerControl.LocalPlayer == null || ShipStatus.Instance == null)
+            PlayerControl.LocalPlayer == null)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[Controlador F8] F8 disponível somente para o host durante uma partida.");
+                "[Controlador F8] F8 disponível somente para o host.");
+            return;
+        }
+
+        // Antes de ShipStatus existir, F8 abre o antigo configurador de funções
+        // do lobby. Depois que o mapa é carregado, abre o controlador da partida.
+        if (ShipStatus.Instance == null)
+        {
+            ConfiguradorFuncoesMenu.Abrir();
             return;
         }
 
