@@ -380,7 +380,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
         try
         {
-            CustomNetworkTransform transformacao = seguidor.NetTransform;
+            var transformacao = seguidor.NetTransform;
             Vector2 posicao = seguidor.GetTruePosition();
 
             // O SnapTo local não desloca o NPC para outro ponto: usa a posição
