@@ -492,7 +492,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     // O host informa aos clientes com o mod qual jogador está sendo perseguido.
     // O PlayerId permite que cada cliente acompanhe a posição atual desse jogador,
     // sem precisar receber uma coordenada nova a cada frame.
-    private static void EnviarDestinoAosClientesComMod(PlayerControl alvo)
+    private static void EnviarDestinoAosClientesComMod(PlayerControl alvo, Vector2? destinoForcado = null)
     {
         if (!YouTubeVoteBridgePlugin.EhHost() ||
             seguidor == null ||
@@ -501,7 +501,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             return;
 
         byte playerIdAlvo = alvo != null ? alvo.PlayerId : byte.MaxValue;
-        Vector2 destino = alvo != null ? alvo.GetTruePosition() : seguidor.GetTruePosition();
+        Vector2 destino = destinoForcado ?? (alvo != null ? alvo.GetTruePosition() : seguidor.GetTruePosition());
 
         try
         {
@@ -605,8 +605,18 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
         if (alvoReplicadoCliente == byte.MaxValue)
         {
-            npc.NetTransform.body.velocity = Vector2.zero;
-            LimparCaminho();
+            Vector2 destinoPatrulhaCliente = destinoReplicadoCliente;
+            if (Vector2.Distance(npc.GetTruePosition(), destinoPatrulhaCliente) <= DistanciaChegadaPatrulha)
+            {
+                npc.NetTransform.body.velocity = Vector2.zero;
+                LimparCaminho();
+            }
+            else
+            {
+                // Quando não há alvo, o destino replicado representa a sala
+                // que o NPC está visitando durante a patrulha.
+                MoverAte(destinoPatrulhaCliente);
+            }
             return;
         }
 
@@ -1604,6 +1614,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             ultimaSalaPatrulha = salaEscolhida;
             possuiUltimaSalaPatrulha = true;
             proximaTentativaDestinoPatrulha = Time.realtimeSinceStartup + 0.25f;
+
+            EnviarDestinoAosClientesComMod(null, destinoPatrulha);
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 "[F7/Seguidor] NPC patrulhando para o centro da sala " +
