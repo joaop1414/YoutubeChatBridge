@@ -2261,8 +2261,36 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         if (cachePenalidades.TryGetValue(celula, out float penalidadeCacheada))
             return penalidadeCacheada;
 
-        // Penaliza células encostadas em obstáculos. Não bloqueia corredores
-        // estreitos: apenas faz o A* preferir uma rota com mais espaço quando existe.
+        Vector2 centro = CentroCelula(celula, minimo);
+
+        // Clearance (folga): mede a distância real até colisões próximas.
+        // O custo é gradual, não uma proibição: corredores estreitos continuam
+        // utilizáveis, mas quando há espaço o caminho tende ao meio.
+        const float raioAmostra = 0.72f;
+        const float folgaPreferida = 0.48f;
+        const float pesoFolga = 1.65f;
+        float menorDistancia = raioAmostra;
+
+        Collider2D[] proximos = Physics2D.OverlapCircleAll(
+            centro, raioAmostra, Constants.ShipAndAllObjectsMask);
+
+        foreach (Collider2D colisor in proximos)
+        {
+            if (colisor == null || colisor.isTrigger ||
+                colisor.transform.IsChildOf(seguidor.transform))
+                continue;
+
+            Vector2 pontoMaisProximo = colisor.ClosestPoint(centro);
+            float distancia = Vector2.Distance(centro, pontoMaisProximo);
+            if (distancia < menorDistancia)
+                menorDistancia = distancia;
+        }
+
+        float faltaFolga = Mathf.Max(0f, folgaPreferida - menorDistancia);
+        float penalidadeFolga = faltaFolga * pesoFolga;
+
+        // Pequena penalidade adicional junto a células bloqueadas, útil para
+        // bordas/quinas que a consulta de distância pode não representar bem.
         int vizinhosBloqueados = 0;
         Vector2Int[] laterais =
         {
@@ -2279,7 +2307,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 vizinhosBloqueados++;
         }
 
-        float penalidade = vizinhosBloqueados * PenalidadeProximidadeParede;
+        float penalidade = penalidadeFolga +
+            vizinhosBloqueados * (PenalidadeProximidadeParede * 0.35f);
         cachePenalidades[celula] = penalidade;
         return penalidade;
     }
