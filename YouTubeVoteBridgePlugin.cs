@@ -4254,8 +4254,8 @@ public static class YouTubeVoteSemFimDeJogoRpcPatch
     }
 }
 
-// O seletor de funções continua vanilla. RoleSwitchAPI.cs captura os RpcSetRole
-// durante SelectRoles e os redistribui por RPC direcionado com canOverrideRole=false.
+// A seleção inicial de funções é totalmente vanilla: RoleSwitchAPI não intercepta
+// RoleManager.SelectRoles nem bloqueia os RpcSetRole originais.
 
 // ============================================================
 // AVISO PRIVADO QUANDO UM JOGADOR ENTRA
@@ -4451,6 +4451,7 @@ public static class YouTubeVoteResetTaskEventsOnStartPatch
     {
 
         EventoTesteMenu.ResetarEstadoPartida("início de partida");
+        ControladorPartidaMenu.ResetarEstadoPartida("início de partida");
         TeleporteAPI.Resetar();
         YouTubeVoteBridgePlugin.LimparRegistroTarefasShapeshift();
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
@@ -4477,6 +4478,7 @@ public static class YouTubeVoteResetTaskEventsOnEndPatch
 
         YouTubeVoteBridgePlugin.ResetarVotacaoLobbyFimDePartida();
         EventoTesteMenu.ResetarEstadoPartida("fim de partida");
+        ControladorPartidaMenu.ResetarEstadoPartida("fim de partida");
         TeleporteAPI.Resetar();
         YouTubeVoteBridgePlugin.LimparRegistroTarefasShapeshift();
         YouTubeVoteBridgePlugin.ResetarRainbowFimDePartida();
