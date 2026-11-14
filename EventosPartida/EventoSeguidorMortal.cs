@@ -36,7 +36,9 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
     // Caminho A*: recalculado periodicamente e quando o alvo muda de posição.
     private const float TamanhoCelula = 0.35f;
-    private const float RaioColisao = 0.18f;
+    // Margem um pouco maior que o raio usado antes para o NPC não raspar nas paredes.
+    // O mesmo valor é usado no A*, na suavização e na validação dos movimentos.
+    private const float RaioColisao = 0.24f;
     private const float IntervaloRecalculoCaminho = 0.65f;
     private const float DistanciaRecalculoAlvo = 0.65f;
     private static readonly Vector2Int[] DirecoesCaminho =
