@@ -330,7 +330,8 @@ internal static class ControladorPartidaMenu
                 throw new MissingMethodException("RpcStartMeeting(NetworkedPlayerInfo) não foi encontrado.");
 
             YouTubeVoteBridgePlugin.EnviarMensagemAnfitriao(
-                "<color=blue>ESSA REUNIÃO FOI CHAMADA PELO ANFITRIÃO</color>");
+                "<color=blue>ESSA REUNIÃO FOI CHAMADA PELO ANFITRIÃO</color>",
+                reporter);
             DefinirStatus("Reunião iniciada por auto-report de " +
                 (reporter.Data.PlayerName ?? ("ID " + reporter.PlayerId)) + ".");
         }
