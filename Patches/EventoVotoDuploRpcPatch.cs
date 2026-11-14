@@ -11,6 +11,7 @@ namespace YouTubeVoteBridge;
 // Assim, clientes vanilla recebem dois registros do mesmo eleitor e o
 // anfitrião recalcula a ejeção usando a mesma lista de votos.
 [HarmonyPatch]
+[HarmonyPriority(Priority.First)]
 internal static class EventoVotoDuploRpcPatch
 {
     private static MethodBase TargetMethod()
