@@ -41,6 +41,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private static bool resolvendoOutraSabotagem;
     private static SystemTypes sabotagemAtual;
     private static Vector2 destinoOutraSabotagem;
+    private static int consoleO2Atual;
+    private static bool aguardandoSegundoJogadorReator;
     private static float proximaTentativaReparo;
     private static float aguardarPerseguicaoAte;
     private const float PausaAposSabotagem = 8f;
@@ -2922,6 +2924,43 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         return true;
     }
 
+    // O2 exige concluir os dois teclados separadamente. A ordem dos IDs
+    // segue o protocolo vanilla: Skeld (0 Admin, 1 O2), Mira (0 Greenhouse, 1 Hallway).
+    private static bool TentarObterDestinoConsoleO2(int consoleId, out Vector2 destino)
+    {
+        destino = Vector2.zero;
+        int mapa = GameOptionsManager.Instance?.CurrentGameOptions?.MapId ?? -1;
+
+        string[] nomesSala = mapa == 1
+            ? (consoleId == 0
+                ? new[] { "Greenhouse" }
+                : new[] { "Hallway" })
+            : (consoleId == 0
+                ? new[] { "Admin" }
+                : new[] { "O2", "Oxygen" });
+
+        foreach (string nome in nomesSala)
+        {
+            PlainShipRoom sala = ShipStatus.Instance.AllRooms.FirstOrDefault(r =>
+                r != null && r.roomArea != null &&
+                r.RoomId.ToString().IndexOf(nome, StringComparison.OrdinalIgnoreCase) >= 0);
+
+            if (sala == null)
+                continue;
+
+            if (TentarObterDestinoPainelSala(
+                SystemTypes.LifeSupp, sala.roomArea.bounds, out destino))
+                return true;
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Seguidor] Sala " + nome +
+                " encontrada para o teclado O2 " + consoleId +
+                ", mas o painel não foi localizado.");
+        }
+
+        return false;
+    }
+
     private static bool TentarObterDestinoSalaSabotagem(
         SystemTypes sabotagem, out Vector2 destino)
     {
@@ -2993,6 +3032,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             if (resolvendoOutraSabotagem)
             {
                 resolvendoOutraSabotagem = false;
+                consoleO2Atual = 0;
+                aguardandoSegundoJogadorReator = false;
                 proximaTentativaReparo = 0f;
                 aguardarPerseguicaoAte = Time.realtimeSinceStartup + PausaAposSabotagem;
                 seguidor.NetTransform.body.velocity = Vector2.zero;
@@ -3010,7 +3051,11 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
         if (!resolvendoOutraSabotagem || sabotagemAtual != ativa.Value)
         {
-            if (!TentarObterDestinoSalaSabotagem(ativa.Value, out destinoOutraSabotagem))
+            bool encontrouDestino = ativa.Value == SystemTypes.LifeSupp
+                ? TentarObterDestinoConsoleO2(0, out destinoOutraSabotagem)
+                : TentarObterDestinoSalaSabotagem(ativa.Value, out destinoOutraSabotagem);
+
+            if (!encontrouDestino)
             {
                 if (!avisoSabotagemSemSala || ultimaSabotagemSemSala != ativa.Value)
                 {
@@ -3029,6 +3074,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
             sabotagemAtual = ativa.Value;
             resolvendoOutraSabotagem = true;
+            consoleO2Atual = 0;
+            aguardandoSegundoJogadorReator = false;
             avisoSabotagemSemSala = false;
             ultimaSabotagemSemSala = SystemTypes.Hallway;
             possuiDestinoPatrulha = false;
@@ -3039,6 +3086,17 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 "[F7/Seguidor] Sabotagem " + sabotagemAtual +
                 " detectada; NPC indo para " + destinoOutraSabotagem + ".");
+        }
+
+        // No reator/seismic, o NPC ocupa apenas o scanner 0. O scanner 1
+        // precisa ser acionado por outro jogador real; enquanto isso, fica parado
+        // e mantém a sabotagem como prioridade sem repetir RPCs.
+        if ((sabotagemAtual == SystemTypes.Reactor ||
+             sabotagemAtual == SystemTypes.Laboratory) &&
+            aguardandoSegundoJogadorReator)
+        {
+            seguidor.NetTransform.body.velocity = Vector2.zero;
+            return true;
         }
 
         if (Vector2.Distance(seguidor.GetTruePosition(), destinoOutraSabotagem) >
@@ -3060,17 +3118,54 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             {
                 case SystemTypes.Reactor:
                 case SystemTypes.Laboratory:
-                    // Esses sistemas usam dois scanners: 0x40 marca a mão
-                    // no console 0 e 0x41 no console 1. Depois enviamos 0x10,
-                    // que representa a conclusão do reparo no protocolo vanilla.
+                    // 0x40 = mão no scanner 0. Não envia o segundo scanner
+                    // nem o sinal 0x10: outro jogador precisa completar o par.
                     ShipStatus.Instance.UpdateSystem(sabotagemAtual, seguidor, 0x40);
-                    ShipStatus.Instance.UpdateSystem(sabotagemAtual, seguidor, 0x41);
-                    ShipStatus.Instance.UpdateSystem(sabotagemAtual, seguidor, 0x10);
-                    break;
+                    aguardandoSegundoJogadorReator = true;
+                    proximaTentativaReparo = float.MaxValue;
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                        "[F7/Seguidor] NPC ocupou o scanner 0 de " + sabotagemAtual +
+                        "; aguardando outro jogador no scanner 1.");
+                    return true;
 
                 case SystemTypes.LifeSupp:
-                    ShipStatus.Instance.UpdateSystem(sabotagemAtual, seguidor, 0x10);
-                    break;
+                    // 0x40 | consoleId conclui apenas o teclado indicado.
+                    // O NPC então atravessa o mapa até o segundo teclado.
+                    ShipStatus.Instance.UpdateSystem(
+                        SystemTypes.LifeSupp, seguidor, 0x40 | consoleO2Atual);
+
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                        "[F7/Seguidor] NPC concluiu o teclado O2 " +
+                        consoleO2Atual + "/1.");
+
+                    consoleO2Atual++;
+                    if (consoleO2Atual < 2)
+                    {
+                        if (TentarObterDestinoConsoleO2(
+                            consoleO2Atual, out destinoOutraSabotagem))
+                        {
+                            LimparCaminho();
+                            proximaTentativaReparo = agora + 0.5f;
+                            EnviarDestinoAosClientesComMod(null, destinoOutraSabotagem);
+                            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                                "[F7/Seguidor] Indo para o segundo teclado O2: " +
+                                destinoOutraSabotagem + ".");
+                        }
+                        else
+                        {
+                            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                                "[F7/Seguidor] Não encontrou o segundo teclado O2. " +
+                                "Mantendo a sabotagem como prioridade.");
+                            consoleO2Atual = 2;
+                        }
+                    }
+                    else
+                    {
+                        // Os dois teclados foram concluídos; aguarda o sistema
+                        // vanilla atualizar e confirmar o fim da sabotagem.
+                        proximaTentativaReparo = float.MaxValue;
+                    }
+                    return true;
 
                 case SystemTypes.Comms:
                     // Mira HQ e The Fungle usam dois consoles de comunicação.
@@ -3500,6 +3595,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         resolvendoOutraSabotagem = false;
         sabotagemAtual = SystemTypes.Hallway;
         destinoOutraSabotagem = Vector2.zero;
+        consoleO2Atual = 0;
+        aguardandoSegundoJogadorReator = false;
         proximaTentativaReparo = 0f;
         aguardarPerseguicaoAte = 0f;
         ultimaSabotagemSemSala = SystemTypes.Hallway;
