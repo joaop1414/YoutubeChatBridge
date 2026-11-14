@@ -84,8 +84,8 @@ internal static class RoleSwitchAPI
             }
         }
 
-        // Trocas solicitadas durante a partida usam canOverrideRole=true.
-        // A atribuição inicial vanilla segue um caminho separado e usa false.
+        // Somente operações explícitas durante a partida chegam aqui.
+        // A seleção inicial é executada integralmente pelo jogo.
         return ExecutarAtribuicoes(trocas);
     }
 
@@ -166,9 +166,11 @@ internal static class RoleSwitchAPI
                     continue;
 
                 NetworkedPlayerInfo dados = GameData.Instance.GetPlayerById(troca.Jogador.PlayerId);
-                if (dados == null || !dados.IsDead)
+                if (dados == null)
                     continue;
 
+                // Reenvia o estado vivo mesmo que o host já o considere vivo:
+                // alguns clientes podem ter marcado o jogador como morto durante SetRole.
                 dados.IsDead = false;
                 dados.SetDirtyBit(1u << troca.Jogador.PlayerId);
                 cliente.SendAllStreamedObjects();
