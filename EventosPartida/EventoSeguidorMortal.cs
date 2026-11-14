@@ -34,6 +34,23 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private static float limiteTransporte;
     private static float proximoTransporte;
 
+    // Caminho A*: recalculado periodicamente e quando o alvo muda de posição.
+    private const float TamanhoCelula = 0.35f;
+    private const float RaioColisao = 0.18f;
+    private const float IntervaloRecalculoCaminho = 0.65f;
+    private const float DistanciaRecalculoAlvo = 0.65f;
+    private static readonly Vector2Int[] DirecoesCaminho =
+    {
+        new Vector2Int(1, 0), new Vector2Int(-1, 0),
+        new Vector2Int(0, 1), new Vector2Int(0, -1),
+        new Vector2Int(1, 1), new Vector2Int(1, -1),
+        new Vector2Int(-1, 1), new Vector2Int(-1, -1)
+    };
+    private static List<Vector2> caminhoAtual = new();
+    private static int indiceCaminho;
+    private static Vector2 destinoCaminhoAnterior;
+    private static float proximoRecalculoCaminho;
+
     public override string Nome => "NPC seguidor mortal";
 
     public void Executar()
@@ -138,6 +155,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             proximoTransporte = 0f;
             transporteEmAndamento = false;
             alvoAtual = null;
+            LimparCaminho();
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 "[F7/Seguidor] Role Reveal encerrada. NPC ASSASINO criado; iniciando sincronização. PlayerId=" +
@@ -295,8 +313,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         if (TentarUsarEscadaOuTirolesa(alvo))
             return;
 
-        Vector2 direcao = diferenca / distancia;
-        seguidor.NetTransform.body.velocity = direcao * Velocidade;
+        MoverAte(destino);
     }
 
     /// <summary>
@@ -404,8 +421,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         float distanciaEntrada = Vector2.Distance(origem, pontoEntrada);
         if (distanciaEntrada > alcance)
         {
-            Vector2 direcaoEntrada = (pontoEntrada - origem).normalized;
-            seguidor.NetTransform.body.velocity = direcaoEntrada * Velocidade;
+            MoverAte(pontoEntrada);
             return true;
         }
 
@@ -457,6 +473,315 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 "[F7/Seguidor] Não foi possível iniciar transporte: " + ex.Message);
             return false;
         }
+    }
+
+    /// <summary>
+    /// Calcula uma rota A* usando os colliders reais do mapa. O NPC segue
+    /// os pontos da rota e recalcula quando o alvo se desloca ou o caminho expira.
+    /// </summary>
+    private static void MoverAte(Vector2 destino)
+    {
+        if (seguidor?.NetTransform?.body == null)
+            return;
+
+        Vector2 origem = seguidor.GetTruePosition();
+        float agora = Time.realtimeSinceStartup;
+
+        bool precisaRecalcular =
+            caminhoAtual.Count == 0 ||
+            indiceCaminho >= caminhoAtual.Count ||
+            agora >= proximoRecalculoCaminho ||
+            Vector2.Distance(destino, destinoCaminhoAnterior) >= DistanciaRecalculoAlvo;
+
+        if (precisaRecalcular)
+        {
+            List<Vector2> novoCaminho = CalcularCaminhoAStar(origem, destino);
+            destinoCaminhoAnterior = destino;
+            proximoRecalculoCaminho = agora + IntervaloRecalculoCaminho;
+
+            if (novoCaminho == null || novoCaminho.Count == 0)
+            {
+                caminhoAtual.Clear();
+                indiceCaminho = 0;
+                seguidor.NetTransform.body.velocity = Vector2.zero;
+                return;
+            }
+
+            caminhoAtual = novoCaminho;
+            indiceCaminho = 0;
+        }
+
+        while (indiceCaminho < caminhoAtual.Count &&
+               Vector2.Distance(origem, caminhoAtual[indiceCaminho]) <= 0.16f)
+            indiceCaminho++;
+
+        if (indiceCaminho >= caminhoAtual.Count)
+        {
+            seguidor.NetTransform.body.velocity = Vector2.zero;
+            return;
+        }
+
+        // Tenta avançar diretamente para o ponto mais distante que ainda
+        // tenha linha livre, evitando movimentos desnecessários em zigue-zague.
+        int melhorIndice = indiceCaminho;
+        for (int i = caminhoAtual.Count - 1; i > indiceCaminho; i--)
+        {
+            if (PodeMoverEntre(origem, caminhoAtual[i]))
+            {
+                melhorIndice = i;
+                break;
+            }
+        }
+
+        Vector2 proximoPonto = caminhoAtual[melhorIndice];
+        Vector2 direcao = proximoPonto - origem;
+        if (direcao.sqrMagnitude < 0.0001f)
+        {
+            seguidor.NetTransform.body.velocity = Vector2.zero;
+            return;
+        }
+
+        seguidor.NetTransform.body.velocity = direcao.normalized * Velocidade;
+    }
+
+    private static List<Vector2> CalcularCaminhoAStar(Vector2 inicio, Vector2 destino)
+    {
+        if (ShipStatus.Instance == null || seguidor == null)
+            return null;
+
+        Bounds limites = new Bounds();
+        bool possuiSala = false;
+
+        foreach (var sala in ShipStatus.Instance.AllRooms)
+        {
+            if (sala == null || !sala.roomArea)
+                continue;
+
+            if (possuiSala)
+                limites.Encapsulate(sala.roomArea.bounds);
+            else
+            {
+                limites = sala.roomArea.bounds;
+                possuiSala = true;
+            }
+        }
+
+        if (!possuiSala)
+            return null;
+
+        limites.Expand(TamanhoCelula * 2f);
+        Vector2 minimo = limites.min;
+        int largura = Mathf.CeilToInt(limites.size.x / TamanhoCelula);
+        int altura = Mathf.CeilToInt(limites.size.y / TamanhoCelula);
+
+        if (largura <= 0 || altura <= 0 || largura * altura > 30000)
+            return null;
+
+        Vector2Int inicioGrid = ParaGrid(inicio, minimo, largura, altura);
+        Vector2Int destinoGrid = ParaGrid(destino, minimo, largura, altura);
+
+        if (!EncontrarCelulaLivre(ref inicioGrid, inicio, minimo, largura, altura) ||
+            !EncontrarCelulaLivre(ref destinoGrid, destino, minimo, largura, altura))
+            return null;
+
+        var abertos = new PriorityQueue<Vector2Int, float>();
+        var custos = new Dictionary<Vector2Int, float>();
+        var anteriores = new Dictionary<Vector2Int, Vector2Int>();
+        var fechados = new HashSet<Vector2Int>();
+
+        custos[inicioGrid] = 0f;
+        abertos.Enqueue(inicioGrid, Heuristica(inicioGrid, destinoGrid));
+
+        int expandidos = 0;
+        while (abertos.Count > 0 && expandidos < 12000)
+        {
+            Vector2Int atual = abertos.Dequeue();
+            if (!fechados.Add(atual))
+                continue;
+
+            expandidos++;
+            if (atual == destinoGrid)
+                return ReconstruirCaminho(inicioGrid, destinoGrid, anteriores, minimo);
+
+            foreach (Vector2Int direcao in DirecoesCaminho)
+            {
+                Vector2Int vizinho = atual + direcao;
+                if (vizinho.x < 0 || vizinho.y < 0 ||
+                    vizinho.x >= largura || vizinho.y >= altura ||
+                    fechados.Contains(vizinho))
+                    continue;
+
+                Vector2 pontoAtual = CentroCelula(atual, minimo);
+                Vector2 pontoVizinho = CentroCelula(vizinho, minimo);
+
+                if (!PodeMoverEntre(pontoAtual, pontoVizinho))
+                    continue;
+
+                float custoPasso = direcao.x != 0 && direcao.y != 0 ? 1.4142135f : 1f;
+                float novoCusto = custos[atual] + custoPasso;
+
+                if (custos.TryGetValue(vizinho, out float custoExistente) &&
+                    novoCusto >= custoExistente)
+                    continue;
+
+                custos[vizinho] = novoCusto;
+                anteriores[vizinho] = atual;
+                abertos.Enqueue(vizinho, novoCusto + Heuristica(vizinho, destinoGrid));
+            }
+        }
+
+        return null;
+    }
+
+    private static Vector2Int ParaGrid(Vector2 ponto, Vector2 minimo, int largura, int altura)
+    {
+        return new Vector2Int(
+            Mathf.Clamp(Mathf.FloorToInt((ponto.x - minimo.x) / TamanhoCelula), 0, largura - 1),
+            Mathf.Clamp(Mathf.FloorToInt((ponto.y - minimo.y) / TamanhoCelula), 0, altura - 1));
+    }
+
+    private static Vector2 CentroCelula(Vector2Int celula, Vector2 minimo)
+    {
+        return minimo + new Vector2(
+            (celula.x + 0.5f) * TamanhoCelula,
+            (celula.y + 0.5f) * TamanhoCelula);
+    }
+
+    private static bool EncontrarCelulaLivre(
+        ref Vector2Int celula, Vector2 origem, Vector2 minimo, int largura, int altura)
+    {
+        Vector2 centro = CentroCelula(celula, minimo);
+        if (PodeMoverEntre(origem, centro))
+            return true;
+
+        float menor = float.MaxValue;
+        Vector2Int melhor = celula;
+
+        for (int raio = 1; raio <= 5; raio++)
+        {
+            for (int x = -raio; x <= raio; x++)
+            for (int y = -raio; y <= raio; y++)
+            {
+                if (Mathf.Abs(x) != raio && Mathf.Abs(y) != raio)
+                    continue;
+
+                Vector2Int candidato = celula + new Vector2Int(x, y);
+                if (candidato.x < 0 || candidato.y < 0 ||
+                    candidato.x >= largura || candidato.y >= altura)
+                    continue;
+
+                Vector2 posicao = CentroCelula(candidato, minimo);
+                if (!PodeMoverEntre(origem, posicao))
+                    continue;
+
+                float distancia = Vector2.Distance(origem, posicao);
+                if (distancia < menor)
+                {
+                    menor = distancia;
+                    melhor = candidato;
+                }
+            }
+
+            if (menor < float.MaxValue)
+            {
+                celula = melhor;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool PodeMoverEntre(Vector2 origem, Vector2 destino)
+    {
+        if (seguidor == null)
+            return false;
+
+        int mascara = Constants.ShipAndAllObjectsMask;
+        Collider2D[] sobreposicoes = Physics2D.OverlapCircleAll(destino, RaioColisao, mascara);
+
+        foreach (Collider2D colisor in sobreposicoes)
+        {
+            if (colisor == null || colisor.transform.IsChildOf(seguidor.transform))
+                continue;
+            return false;
+        }
+
+        Vector2 delta = destino - origem;
+        float distancia = delta.magnitude;
+        if (distancia <= 0.001f)
+            return true;
+
+        RaycastHit2D[] impactos = Physics2D.CircleCastAll(
+            origem, RaioColisao, delta / distancia, distancia, mascara);
+
+        foreach (RaycastHit2D impacto in impactos)
+        {
+            Collider2D colisor = impacto.collider;
+            if (colisor == null || colisor.transform.IsChildOf(seguidor.transform))
+                continue;
+            return false;
+        }
+
+        return true;
+    }
+
+    private static float Heuristica(Vector2Int a, Vector2Int b)
+    {
+        int dx = Mathf.Abs(a.x - b.x);
+        int dy = Mathf.Abs(a.y - b.y);
+        return Mathf.Max(dx, dy) + 0.4142135f * Mathf.Min(dx, dy);
+    }
+
+    private static List<Vector2> ReconstruirCaminho(
+        Vector2Int inicio, Vector2Int fim,
+        Dictionary<Vector2Int, Vector2Int> anteriores, Vector2 minimo)
+    {
+        var caminho = new List<Vector2>();
+        Vector2Int atual = fim;
+        caminho.Add(CentroCelula(atual, minimo));
+
+        while (atual != inicio)
+        {
+            if (!anteriores.TryGetValue(atual, out Vector2Int anterior))
+                return null;
+
+            atual = anterior;
+            caminho.Add(CentroCelula(atual, minimo));
+        }
+
+        caminho.Reverse();
+
+        // Suaviza a rota: remove pontos intermediários quando existe
+        // uma linha de movimento desobstruída entre dois pontos mais distantes.
+        var suavizado = new List<Vector2>();
+        int indice = 0;
+        while (indice < caminho.Count)
+        {
+            suavizado.Add(caminho[indice]);
+            int maisDistante = indice + 1;
+
+            for (int teste = caminho.Count - 1; teste > indice + 1; teste--)
+            {
+                if (PodeMoverEntre(caminho[indice], caminho[teste]))
+                {
+                    maisDistante = teste;
+                    break;
+                }
+            }
+
+            indice = maisDistante;
+        }
+
+        return suavizado;
+    }
+
+    private static void LimparCaminho()
+    {
+        caminhoAtual.Clear();
+        indiceCaminho = 0;
+        destinoCaminhoAnterior = Vector2.zero;
+        proximoRecalculoCaminho = 0f;
     }
 
     private static PlayerControl ObterAlvoAtual()
@@ -547,6 +872,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         transporteEmAndamento = false;
         limiteTransporte = 0f;
         proximoTransporte = 0f;
+        LimparCaminho();
 
         if (seguidor != null)
         {
