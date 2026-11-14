@@ -1631,12 +1631,18 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         Vector2 direcao = ObterDirecaoComDeslizamento(origem, proximoPonto);
         if (direcao.sqrMagnitude < 0.0001f)
         {
+            // Não insiste por 1,25s numa direção sem saída. Para o corpo e
+            // força uma nova rota em breve, evitando que ele fique empurrando a parede.
             corpo.velocity = Vector2.zero;
+            direcaoDeslizamentoCache = Vector2.zero;
+            proximaReavaliacaoDeslizamento = 0f;
+            caminhoAtual.Clear();
+            indiceCaminho = 0;
+            proximoRecalculoCaminho = agora + 0.20f;
             return;
         }
 
-        // Quando a linha até o próximo ponto está bloqueada, percorre a parede
-        // pela tangente livre que mais aproxima o NPC do destino.
+        // Mantém o movimento pela tangente da superfície detectada.
         corpo.velocity = direcao * Velocidade;
     }
 
@@ -1772,57 +1778,108 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         bool destinoSemelhante =
             Vector2.Distance(destino, destinoDeslizamentoCache) < 0.40f;
 
-        // A direção armazenada só é reutilizada se houver espaço em vários
-        // segmentos consecutivos, não apenas no primeiro passo curto.
+        // Reaproveita a direção apenas se o corredor continuar realmente livre.
         if (direcaoDeslizamentoCache.sqrMagnitude > 0.001f &&
             agora < proximaReavaliacaoDeslizamento &&
             destinoSemelhante &&
-            TestarCorredorDeslizamento(origem, direcaoDeslizamentoCache, 0.60f) >= 0.45f)
+            TestarCorredorDeslizamento(origem, direcaoDeslizamentoCache, 0.70f) >= 0.55f)
             return direcaoDeslizamentoCache;
 
-        Vector2 melhorDirecao = Vector2.zero;
-        float melhorPontuacao = float.NegativeInfinity;
-        const float passo = 0.20f;
-        const float previsaoMaxima = 1.00f;
-        int passosPrevisao = Mathf.CeilToInt(previsaoMaxima / passo);
+        var candidatas = new List<Vector2>();
 
-        // Avalia o corredor à frente em pequenos segmentos. Uma direção que
-        // só permite um avanço curto recebe pontuação menor que uma lateral
-        // com espaço contínuo para contornar a parede.
-        for (int angulo = 15; angulo <= 180; angulo += (int)PassoAngularDeslizamento)
+        // Em vez de adivinhar o lado da parede por vários ângulos, usa a
+        // normal retornada pela física para calcular a tangente de deslizamento.
+        RaycastHit2D[] impactos = ObterColisoesNoDeslocamento(
+            origem, desejada, delta.magnitude, Constants.ShipAndAllObjectsMask);
+
+        foreach (RaycastHit2D impacto in impactos.OrderBy(hit => hit.distance))
         {
-            for (int lado = -1; lado <= 1; lado += 2)
+            Collider2D colisor = impacto.collider;
+            if (colisor == null || colisor.isTrigger ||
+                colisor.transform.IsChildOf(seguidor.transform))
+                continue;
+
+            Vector2 normal = impacto.normal;
+            if (normal.sqrMagnitude < 0.0001f)
+                continue;
+
+            normal.Normalize();
+            Vector2 tangente = desejada - Vector2.Dot(desejada, normal) * normal;
+
+            if (tangente.sqrMagnitude < 0.0001f)
+                tangente = new Vector2(-normal.y, normal.x);
+
+            tangente.Normalize();
+            candidatas.Add(tangente);
+            candidatas.Add(-tangente);
+
+            // Um pequeno componente em direção ao destino evita que o NPC
+            // fique apenas raspando paralelamente à parede sem contorná-la.
+            Vector2 inclinadaA = (tangente + desejada * 0.25f).normalized;
+            Vector2 inclinadaB = (-tangente + desejada * 0.25f).normalized;
+            candidatas.Add(inclinadaA);
+            candidatas.Add(inclinadaB);
+
+            // A primeira colisão normalmente é a parede que bloqueia a rota.
+            // As demais normais podem ser de objetos próximos, então limitamos
+            // a análise às duas primeiras superfícies relevantes.
+            if (candidatas.Count >= 8)
+                break;
+        }
+
+        // Fallback para casos em que o cast começa encostado/penetrando
+        // levemente em um collider e a física não fornece uma normal útil.
+        if (candidatas.Count == 0)
+        {
+            for (int angulo = 30; angulo <= 150; angulo += 30)
             {
-                float radianos = lado * angulo * Mathf.Deg2Rad;
+                float radianos = angulo * Mathf.Deg2Rad;
                 Vector2 candidata = new Vector2(
                     desejada.x * Mathf.Cos(radianos) - desejada.y * Mathf.Sin(radianos),
                     desejada.x * Mathf.Sin(radianos) + desejada.y * Mathf.Cos(radianos));
+                candidatas.Add(candidata);
+                candidatas.Add(-candidata);
+            }
+        }
 
-                float distanciaLivre = TestarCorredorDeslizamento(
-                    origem, candidata, passosPrevisao * passo);
-                if (distanciaLivre < 0.20f)
-                    continue;
+        Vector2 melhorDirecao = Vector2.zero;
+        float melhorPontuacao = float.NegativeInfinity;
 
-                Vector2 pontoFinal = origem + candidata * distanciaLivre;
-                float reducaoDistancia = delta.magnitude -
-                    Vector2.Distance(pontoFinal, destino);
+        foreach (Vector2 candidataBruta in candidatas)
+        {
+            if (candidataBruta.sqrMagnitude < 0.0001f)
+                continue;
 
-                // Prioriza espaço contínuo, mas ainda favorece direções que
-                // aproximam o NPC do destino. Uma leve preferência pela direção
-                // anterior evita oscilações entre os dois lados da parede.
-                float continuidade = direcaoDeslizamentoCache.sqrMagnitude > 0.001f
-                    ? Vector2.Dot(candidata, direcaoDeslizamentoCache.normalized) * 0.08f
-                    : 0f;
-                float pontuacao =
-                    distanciaLivre * 0.70f +
-                    reducaoDistancia * 0.30f +
-                    continuidade;
+            Vector2 candidata = candidataBruta.normalized;
+            float progresso = Vector2.Dot(candidata, desejada);
+            if (progresso < -0.20f)
+                continue;
 
-                if (pontuacao > melhorPontuacao)
-                {
-                    melhorPontuacao = pontuacao;
-                    melhorDirecao = candidata;
-                }
+            float distanciaLivre = TestarCorredorDeslizamento(
+                origem, candidata, 0.90f);
+            if (distanciaLivre < 0.20f)
+                continue;
+
+            Vector2 pontoFinal = origem + candidata * distanciaLivre;
+            float reducaoDistancia = delta.magnitude -
+                Vector2.Distance(pontoFinal, destino);
+
+            float continuidade = direcaoDeslizamentoCache.sqrMagnitude > 0.001f
+                ? Vector2.Dot(candidata, direcaoDeslizamentoCache.normalized) * 0.12f
+                : 0f;
+
+            // Espaço livre é o fator principal. Progresso e continuidade
+            // desempatarão caminhos que conseguem contornar a mesma parede.
+            float pontuacao =
+                distanciaLivre * 1.10f +
+                reducaoDistancia * 0.35f +
+                progresso * 0.10f +
+                continuidade;
+
+            if (pontuacao > melhorPontuacao)
+            {
+                melhorPontuacao = pontuacao;
+                melhorDirecao = candidata;
             }
         }
 
