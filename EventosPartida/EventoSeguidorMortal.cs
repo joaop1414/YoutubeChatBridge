@@ -91,7 +91,9 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private static float proximaTentativaVent;
 
     // Caminho A*: recalculado periodicamente e quando o alvo muda de posição.
-    private const float TamanhoCelula = 0.30f;
+    // Grade mais ampla reduz os micro-waypoints e as curvas do A*; a suavização
+    // ainda valida cada atalho com o collider real para não atravessar obstáculos.
+    private const float TamanhoCelula = 0.40f;
     // Fallback usado somente antes de o prefab do NPC disponibilizar seu collider.
     // Durante a navegação, as consultas usam o formato e as dimensões do collider real.
     private const float RaioColisaoFallback = 0.15f;
