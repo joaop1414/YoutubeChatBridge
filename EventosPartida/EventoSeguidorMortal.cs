@@ -21,7 +21,6 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 {
     private const byte PlayerIdSeguidor = 249;
     private const float Velocidade = 1.35f;
-    private const float AceleracaoMovimento = 8.0f;
     private const float PenalidadeProximidadeParede = 0.42f;
     private const float AlcanceMorte = 0.48f;
     private const float IntervaloTrocaAlvo = 0.25f;
@@ -96,7 +95,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     // Fallback usado somente antes de o prefab do NPC disponibilizar seu collider.
     // Durante a navegação, as consultas usam o formato e as dimensões do collider real.
     private const float RaioColisaoFallback = 0.15f;
-    // A navegação considera o collider físico completo mais 5% de margem.
+    // A navegação considera o collider físico completo mais 15% de margem.
     // Isso não altera o collider nem a colisão física do NPC no jogo.
     private const float FatorEscalaColisaoNavegacao = 1.15f;
     private static Collider2D colliderFisicoNpc;
@@ -1456,13 +1455,9 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     }
 
     /// <summary>
-    /// Calcula uma rota A* usando os colliders reais do mapa. O NPC segue
-    /// os pontos da rota e recalcula quando o alvo se desloca ou o caminho expira.
-    /// </summary>
-    /// <summary>
-    /// Navegação conservadora: segue apenas segmentos validados pelo collider real,
+    /// Navegação conservadora: segue segmentos validados pelo collider real,
     /// reduz a velocidade perto de obstáculos e para antes de tentar contornar uma parede.
-    /// O A* escolhe a rota; a camada de movimento nunca tenta "raspar" pela parede.
+    /// O A* escolhe a rota; a camada de movimento não tenta raspar pela parede.
     /// </summary>
     private static void MoverAte(Vector2 destino)
     {
