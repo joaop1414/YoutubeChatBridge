@@ -43,7 +43,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private static Vector2 destinoOutraSabotagem;
     private static float proximaTentativaReparo;
     private static float aguardarPerseguicaoAte;
-    private const float PausaAposSabotagem = 3f;
+    private const float PausaAposSabotagem = 8f;
     private static SystemTypes ultimaSabotagemSemSala;
     private static bool avisoSabotagemSemSala;
     private static readonly HashSet<SystemTypes> sistemasSemEstadoAtivoDiagnosticados = new();
@@ -2817,6 +2817,111 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         }
     }
 
+    // Localiza o objeto físico do painel e escolhe um ponto livre imediatamente
+    // à sua frente. Assim o NPC não tenta reparar apenas por estar dentro da sala.
+    private static bool TentarObterDestinoPainelSala(
+        SystemTypes sabotagem, Bounds limitesSala, out Vector2 destino)
+    {
+        destino = Vector2.zero;
+        if (ShipStatus.Instance == null)
+            return false;
+
+        string[] termos = sabotagem switch
+        {
+            SystemTypes.Electrical => new[] { "switch", "panel" },
+            SystemTypes.Reactor => new[] { "reactor", "scanner", "console", "panel" },
+            SystemTypes.Laboratory => new[] { "stabilizer", "scanner", "console", "panel" },
+            SystemTypes.LifeSupp => new[] { "oxygen", "o2", "keypad", "console", "panel" },
+            SystemTypes.Comms => new[] { "comms", "communication", "console", "panel" },
+            SystemTypes.HeliSabotage => new[] { "crash", "gap", "code", "console", "panel" },
+            _ => new[] { "console", "panel" }
+        };
+
+        Transform[] transforms = ShipStatus.Instance.GetComponentsInChildren<Transform>(true);
+        Transform melhorPainel = null;
+        float menorDistancia = float.MaxValue;
+        Vector2 centroSala = limitesSala.center;
+
+        foreach (Transform item in transforms)
+        {
+            if (item == null || !limitesSala.Contains(item.position))
+                continue;
+
+            string nome = item.name ?? string.Empty;
+            bool parecePainel = nome.IndexOf("console", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                nome.IndexOf("panel", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                nome.IndexOf("switch", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                nome.IndexOf("scanner", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                nome.IndexOf("stabilizer", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                nome.IndexOf("keypad", StringComparison.OrdinalIgnoreCase) >= 0;
+
+            if (!parecePainel)
+                continue;
+
+            bool corresponde = termos.Any(termo =>
+                nome.IndexOf(termo, StringComparison.OrdinalIgnoreCase) >= 0);
+
+            if (!corresponde)
+                continue;
+
+            float distancia = Vector2.Distance(item.position, centroSala);
+            if (distancia < menorDistancia)
+            {
+                menorDistancia = distancia;
+                melhorPainel = item;
+            }
+        }
+
+        if (melhorPainel == null)
+            return false;
+
+        Vector2 posicaoPainel = melhorPainel.position;
+        Vector2 cima = ((Vector2)melhorPainel.up).normalized;
+        Vector2 lado = ((Vector2)melhorPainel.right).normalized;
+        if (cima.sqrMagnitude < 0.01f)
+            cima = Vector2.up;
+        if (lado.sqrMagnitude < 0.01f)
+            lado = Vector2.right;
+
+        Vector2[] direcoes =
+        {
+            cima, -cima, lado, -lado,
+            (cima + lado).normalized, (cima - lado).normalized,
+            (-cima + lado).normalized, (-cima - lado).normalized
+        };
+
+        float melhorDistanciaPainel = float.MaxValue;
+        bool encontrou = false;
+
+        foreach (Vector2 direcao in direcoes)
+        {
+            Vector2 candidato = posicaoPainel + direcao * 0.62f;
+            if (!limitesSala.Contains(candidato))
+                continue;
+
+            if (!TentarEncontrarPontoLivreNaSala(
+                limitesSala, candidato, out Vector2 pontoLivre))
+                continue;
+
+            float distanciaPainel = Vector2.Distance(posicaoPainel, pontoLivre);
+            if (distanciaPainel < 0.30f || distanciaPainel > 1.15f ||
+                distanciaPainel >= melhorDistanciaPainel)
+                continue;
+
+            melhorDistanciaPainel = distanciaPainel;
+            destino = pontoLivre;
+            encontrou = true;
+        }
+
+        if (!encontrou)
+            return false;
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            "[F7/Seguidor] Painel " + sabotagem + " localizado em " +
+            posicaoPainel + "; ponto de interação=" + destino + ".");
+        return true;
+    }
+
     private static bool TentarObterDestinoSalaSabotagem(
         SystemTypes sabotagem, out Vector2 destino)
     {
@@ -2847,8 +2952,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 continue;
 
             Bounds limites = sala.roomArea.bounds;
-            if (TentarEncontrarPontoLivreNaSala(
-                limites, limites.center, out destino))
+            if (TentarObterDestinoPainelSala(sabotagem, limites, out destino))
                 return true;
         }
 
@@ -2956,8 +3060,16 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             {
                 case SystemTypes.Reactor:
                 case SystemTypes.Laboratory:
+                    // Esses sistemas usam dois scanners: 0x40 marca a mão
+                    // no console 0 e 0x41 no console 1. Depois enviamos 0x10,
+                    // que representa a conclusão do reparo no protocolo vanilla.
+                    ShipStatus.Instance.UpdateSystem(sabotagemAtual, seguidor, 0x40);
+                    ShipStatus.Instance.UpdateSystem(sabotagemAtual, seguidor, 0x41);
+                    ShipStatus.Instance.UpdateSystem(sabotagemAtual, seguidor, 0x10);
+                    break;
+
                 case SystemTypes.LifeSupp:
-                    ShipStatus.Instance.UpdateSystem(sabotagemAtual, seguidor, 16);
+                    ShipStatus.Instance.UpdateSystem(sabotagemAtual, seguidor, 0x10);
                     break;
 
                 case SystemTypes.Comms:
@@ -3136,9 +3248,9 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                     sala.RoomId == SystemTypes.Electrical);
 
             if (salaEletrica == null ||
-                !TentarEncontrarPontoLivreNaSala(
+                !TentarObterDestinoPainelSala(
+                    SystemTypes.Electrical,
                     salaEletrica.roomArea.bounds,
-                    salaEletrica.roomArea.bounds.center,
                     out destinoEletrica))
             {
                 if (!avisoSabotagemSemSala || ultimaSabotagemSemSala != SystemTypes.Electrical)
