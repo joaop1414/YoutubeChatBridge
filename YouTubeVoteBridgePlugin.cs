@@ -4847,25 +4847,30 @@ public static class YouTubeVotePularVotacaoJuizHelper
 
         try
         {
+            int semVoto = 0;
+
             foreach (PlayerVoteArea area in meeting.playerStates)
             {
                 if (area == null || area.DidVote)
                     continue;
 
-                // 253 é skip. Também é necessário marcar DidVote:
-                // só preencher VotedForId não satisfaz a condição de fim da votação.
-                area.VotedForId = 253;
+                // 255 é o valor de "não votou". Marcamos apenas DidVote para
+                // liberar a conclusão da votação, sem converter a ausência em
+                // voto no jogador ou em skip (253).
+                area.VotedForId = byte.MaxValue;
                 area.DidVote = true;
+                semVoto++;
             }
 
             meeting.CheckForEndVoting();
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "Opção do Juiz: solicitação para encerrar a fase de votação processada.");
+                "Pular votação: fase encerrada sem atribuir voto ou skip aos " +
+                semVoto + " jogador(es) que ainda não tinham votado.");
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "Falha ao encerrar a votação após a habilidade do Juiz: " + ex);
+                "Falha ao encerrar a votação: " + ex);
         }
     }
 }
