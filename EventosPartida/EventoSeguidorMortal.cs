@@ -39,6 +39,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private static SystemTypes sabotagemAtual;
     private static Vector2 destinoOutraSabotagem;
     private static float proximaTentativaReparo;
+    private static SystemTypes ultimaSabotagemSemSala;
+    private static bool avisoSabotagemSemSala;
     private static PlayerControl seguidor;
     private static PlayerControl alvoAtual;
 
@@ -2465,14 +2467,21 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         {
             if (!TentarObterDestinoSalaSabotagem(ativa.Value, out destinoOutraSabotagem))
             {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "[F7/Seguidor] Sabotagem " + ativa.Value +
-                    " ativa, mas não foi possível localizar sua sala de reparo.");
+                if (!avisoSabotagemSemSala || ultimaSabotagemSemSala != ativa.Value)
+                {
+                    avisoSabotagemSemSala = true;
+                    ultimaSabotagemSemSala = ativa.Value;
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                        "[F7/Seguidor] Sabotagem " + ativa.Value +
+                        " ativa, mas não foi possível localizar sua sala de reparo.");
+                }
                 return false;
             }
 
             sabotagemAtual = ativa.Value;
             resolvendoOutraSabotagem = true;
+            avisoSabotagemSemSala = false;
+            ultimaSabotagemSemSala = SystemTypes.Hallway;
             possuiDestinoPatrulha = false;
             proximaTentativaReparo = 0f;
             LimparCaminho();
@@ -2918,6 +2927,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         sabotagemAtual = SystemTypes.Hallway;
         destinoOutraSabotagem = Vector2.zero;
         proximaTentativaReparo = 0f;
+        ultimaSabotagemSemSala = SystemTypes.Hallway;
+        avisoSabotagemSemSala = false;
         transporteEmAndamento = false;
         aguardandoSaidaVent = false;
         ventEntradaAtual = null;
