@@ -7,6 +7,7 @@ using AmongUs.GameOptions;
 using UnityEngine;
 using Hazel;
 using InnerNet;
+using Il2CppInterop.Runtime.InteropTypes;
 
 namespace YouTubeVoteBridge;
 
@@ -42,6 +43,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private static SystemTypes ultimaSabotagemSemSala;
     private static bool avisoSabotagemSemSala;
     private static readonly HashSet<SystemTypes> sistemasSemEstadoAtivoDiagnosticados = new();
+    // EHR mantém wrappers concretos dos sistemas, pois Systems pode expor apenas ISystemType.
+    private static readonly Dictionary<SystemTypes, object> sistemasTipadosCache = new();
     private static PlayerControl seguidor;
     private static PlayerControl alvoAtual;
 
@@ -125,6 +128,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private const float TempoParaConsiderarTravado = 2.0f;
     private const float TempoParaTrocarAlvoTravado = 6.0f;
     private const float DeslocamentoMinimoMonitoramento = 0.06f;
+    private const float DistanciaDeslizamentoParede = 0.65f;
+    private const float PassoAngularDeslizamento = 15f;
     private static bool emManobraDestravamento;
     private static Vector2 pontoDestravamento;
     private static float limiteManobraDestravamento;
@@ -1619,13 +1624,16 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         }
 
         Vector2 proximoPonto = caminhoAtual[melhorIndice];
-        Vector2 direcao = proximoPonto - origem;        if (direcao.sqrMagnitude < 0.0001f)
+        Vector2 direcao = ObterDirecaoComDeslizamento(origem, proximoPonto);
+        if (direcao.sqrMagnitude < 0.0001f)
         {
-            seguidor.NetTransform.body.velocity = Vector2.zero;
+            corpo.velocity = Vector2.zero;
             return;
         }
 
-        corpo.velocity = direcao.normalized * Velocidade;
+        // Quando a linha até o próximo ponto está bloqueada, percorre a parede
+        // pela tangente livre que mais aproxima o NPC do destino.
+        corpo.velocity = direcao * Velocidade;
     }
 
     /// <summary>
@@ -1742,12 +1750,65 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         return false;
     }
 
+    private static Vector2 ObterDirecaoComDeslizamento(Vector2 origem, Vector2 destino)
+    {
+        Vector2 delta = destino - origem;
+        if (delta.sqrMagnitude < 0.0001f)
+            return Vector2.zero;
+
+        Vector2 desejada = delta.normalized;
+        if (PodePassarEntre(origem, destino))
+            return desejada;
+
+        Vector2 melhorDirecao = Vector2.zero;
+        float melhorProgresso = float.NegativeInfinity;
+        float[] distanciasTeste = { DistanciaDeslizamentoParede, 0.45f, 0.30f };
+
+        // Testa ambos os lados da parede. Ângulos de 90 graus permitem
+        // deslizar paralelamente; ângulos menores preservam avanço diagonal.
+        for (int angulo = 15; angulo <= 180; angulo += (int)PassoAngularDeslizamento)
+        {
+            for (int lado = -1; lado <= 1; lado += 2)
+            {
+                float radianos = lado * angulo * Mathf.Deg2Rad;
+                Vector2 candidata = new Vector2(
+                    desejada.x * Mathf.Cos(radianos) - desejada.y * Mathf.Sin(radianos),
+                    desejada.x * Mathf.Sin(radianos) + desejada.y * Mathf.Cos(radianos));
+
+                float progresso = Vector2.Dot(candidata, desejada);
+                if (progresso < -0.05f || progresso < melhorProgresso)
+                    continue;
+
+                foreach (float distanciaTeste in distanciasTeste)
+                {
+                    Vector2 pontoTeste = origem + candidata * distanciaTeste;
+                    if (!EstaDentroDosLimitesDoMapa(pontoTeste) ||
+                        !PodeMoverEntre(origem, pontoTeste))
+                        continue;
+
+                    melhorProgresso = progresso;
+                    melhorDirecao = candidata;
+                    break;
+                }
+            }
+        }
+
+        return melhorDirecao;
+    }
+
     private static bool TentarEncontrarPontoDestravamento(
         Vector2 origem, Vector2 destino, out Vector2 melhorPonto)
     {
         melhorPonto = origem;
-        float[] distancias = { 0.80f, 0.60f, 0.40f, 0.24f };
-        var direcoes = DirecoesCaminho.OrderBy(_ => UnityEngine.Random.value).ToArray();
+        float[] distancias = { 0.65f, 0.45f, 0.30f, 0.20f };
+        Vector2 direcaoDestino = (destino - origem).normalized;
+
+        // Prioriza saídas laterais que ainda façam progresso em direção ao destino.
+        // Isso evita o antigo escape aleatório, que podia jogar o NPC contra outra parede.
+        var direcoes = DirecoesCaminho
+            .OrderByDescending(v => Vector2.Dot(
+                new Vector2(v.x, v.y).normalized, direcaoDestino))
+            .ToArray();
 
         foreach (float distancia in distancias)
         {
@@ -1755,12 +1816,15 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             {
                 Vector2 direcao = new Vector2(vetor.x, vetor.y).normalized;
                 Vector2 candidato = origem + direcao * distancia;
-                if (!EstaDentroDosLimitesDoMapa(candidato) || !PodeMoverEntre(origem, candidato))
+                if (!EstaDentroDosLimitesDoMapa(candidato) ||
+                    !PodeMoverEntre(origem, candidato))
                     continue;
+
                 melhorPonto = candidato;
                 return true;
             }
         }
+
         return false;
     }
 
@@ -2427,6 +2491,57 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         return true;
     }
 
+    /// <summary>
+    /// Converte o proxy ISystemType para o wrapper IL2CPP concreto, seguindo
+    /// a mesma estratégia usada pelo EHR (CastFast): reutiliza o ponteiro nativo.
+    /// </summary>
+    private static T ObterSistemaTipado<T>(SystemTypes tipo) where T : Il2CppObjectBase
+    {
+        if (sistemasTipadosCache.TryGetValue(tipo, out object cacheado) &&
+            cacheado is T sistemaCacheado)
+            return sistemaCacheado;
+
+        if (ShipStatus.Instance?.Systems == null ||
+            !ShipStatus.Instance.Systems.ContainsKey(tipo))
+            return null;
+
+        object sistemaOriginal = ShipStatus.Instance.Systems[tipo];
+        if (sistemaOriginal is T sistemaDireto)
+        {
+            sistemasTipadosCache[tipo] = sistemaDireto;
+            return sistemaDireto;
+        }
+
+        if (sistemaOriginal is not Il2CppObjectBase objetoIl2Cpp ||
+            objetoIl2Cpp.Pointer == IntPtr.Zero)
+            return null;
+
+        try
+        {
+            // Os wrappers gerados pelo IL2CPP possuem construtor IntPtr.
+            // A instância criada aponta para o mesmo objeto nativo do jogo.
+            ConstructorInfo construtor = typeof(T).GetConstructor(
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                null, new[] { typeof(IntPtr) }, null);
+
+            if (construtor == null)
+                return null;
+
+            T convertido = construtor.Invoke(new object[] { objetoIl2Cpp.Pointer }) as T;
+            if (convertido != null)
+                sistemasTipadosCache[tipo] = convertido;
+
+            return convertido;
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Seguidor] Falha ao converter sistema " + tipo +
+                " para " + typeof(T).Name + ": " + ex.Message);
+            return null;
+        }
+    }
+
     private static bool SistemaEstaAtivo(SystemTypes tipo)
     {
         try
@@ -2435,38 +2550,53 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 !ShipStatus.Instance.Systems.ContainsKey(tipo))
                 return false;
 
-            object sistema = ShipStatus.Instance.Systems[tipo];
-            object estado = LerMembro(sistema, "IsActive", "isActive");
-            if (estado is bool ativoSistema)
-                return ativoSistema;
+            int mapa = GameOptionsManager.Instance?.CurrentGameOptions?.MapId ?? -1;
 
-            // Algumas versões/classes podem expor IsActive como método sem parâmetros.
-            if (sistema != null)
+            // Mesma seleção por mapa e pelos tipos concretos usada pelo EHR.
+            // Não tentamos refletir IsActive no proxy ISystemType.
+            switch (tipo)
             {
-                const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
-                MethodInfo metodo = sistema.GetType().GetMethod("IsActive", flags,
-                    null, Type.EmptyTypes, null);
-                if (metodo != null && metodo.ReturnType == typeof(bool))
-                    return (bool)metodo.Invoke(sistema, null);
+                case SystemTypes.Electrical:
+                    if (mapa == 5) return false;
+                    return ObterSistemaTipado<SwitchSystem>(tipo)?.IsActive ?? false;
 
-                if (sistemasSemEstadoAtivoDiagnosticados.Add(tipo))
-                {
-                    string interfaces = string.Join(", ",
-                        sistema.GetType().GetInterfaces().Select(i => i.Name));
-                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                        "[F7/Seguidor] Não foi possível ler IsActive do sistema " + tipo +
-                        ". Tipo=" + sistema.GetType().FullName +
-                        "; interfaces=" + interfaces + ". A detecção dessa sabotagem pode falhar.");
-                }
+                case SystemTypes.Reactor:
+                    if (mapa == 2) return false;
+                    if (mapa == 4)
+                        return ObterSistemaTipado<HeliSabotageSystem>(tipo)?.IsActive ?? false;
+                    return ObterSistemaTipado<ReactorSystemType>(tipo)?.IsActive ?? false;
+
+                case SystemTypes.Laboratory:
+                    if (mapa != 2) return false;
+                    return ObterSistemaTipado<ReactorSystemType>(tipo)?.IsActive ?? false;
+
+                case SystemTypes.LifeSupp:
+                    if (mapa == 2 || mapa == 4 || mapa == 5) return false;
+                    return ObterSistemaTipado<LifeSuppSystemType>(tipo)?.IsActive ?? false;
+
+                case SystemTypes.Comms:
+                    if (mapa == 1 || mapa == 5)
+                        return ObterSistemaTipado<HqHudSystemType>(tipo)?.IsActive ?? false;
+                    return ObterSistemaTipado<HudOverrideSystemType>(tipo)?.IsActive ?? false;
+
+                case SystemTypes.HeliSabotage:
+                    if (mapa != 4) return false;
+                    return ObterSistemaTipado<HeliSabotageSystem>(tipo)?.IsActive ?? false;
+
+                case SystemTypes.MushroomMixupSabotage:
+                    if (mapa != 5) return false;
+                    return ObterSistemaTipado<MushroomMixupSabotageSystem>(tipo)?.IsActive ?? false;
+
+                default:
+                    return false;
             }
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
                 "[F7/Seguidor] Falha ao consultar estado da sabotagem " + tipo + ": " + ex.Message);
+            return false;
         }
-
-        return false;
     }
 
     private static bool TentarObterDestinoSalaSabotagem(
@@ -3051,6 +3181,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         ultimaSabotagemSemSala = SystemTypes.Hallway;
         avisoSabotagemSemSala = false;
         sistemasSemEstadoAtivoDiagnosticados.Clear();
+        sistemasTipadosCache.Clear();
         transporteEmAndamento = false;
         aguardandoSaidaVent = false;
         ventEntradaAtual = null;
