@@ -89,7 +89,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     // A navegação usa uma margem menor que o collider físico real do NPC.
     private const float FatorEscalaColisaoNavegacao = 0.50f;
     private static Collider2D colliderFisicoNpc;
-    private const float IntervaloRecalculoCaminho = 0.65f;
+    private const float IntervaloRecalculoCaminho = 1.25f;
     private const float DistanciaRecalculoAlvo = 0.65f;
     // A busca usa os 8 vizinhos do grid. A suavização posterior remove
     // pontos intermediários quando a linha está livre, permitindo trajetórias
@@ -121,6 +121,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private static float inicioSemDeslocamento;
     private static bool avisoMonitoramentoMovimento;
     private const float TempoParaConsiderarTravado = 2.0f;
+    private const float TempoParaTrocarAlvoTravado = 6.0f;
     private const float DeslocamentoMinimoMonitoramento = 0.06f;
     private static bool emManobraDestravamento;
     private static Vector2 pontoDestravamento;
@@ -1017,15 +1018,34 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
         Type tipo = instancia.GetType();
 
-        foreach (string nome in nomes)
+        // Primeiro percorre a classe concreta e suas classes-base.
+        // Algumas implementações do jogo expõem membros herdados ou privados.
+        for (Type atual = tipo; atual != null; atual = atual.BaseType)
         {
-            PropertyInfo propriedade = tipo.GetProperty(nome, flags);
-            if (propriedade != null)
-                return propriedade.GetValue(instancia);
+            foreach (string nome in nomes)
+            {
+                PropertyInfo propriedade = atual.GetProperty(
+                    nome, flags | BindingFlags.DeclaredOnly);
+                if (propriedade != null && propriedade.GetIndexParameters().Length == 0)
+                    return propriedade.GetValue(instancia);
 
-            FieldInfo campo = tipo.GetField(nome, flags);
-            if (campo != null)
-                return campo.GetValue(instancia);
+                FieldInfo campo = atual.GetField(
+                    nome, flags | BindingFlags.DeclaredOnly);
+                if (campo != null)
+                    return campo.GetValue(instancia);
+            }
+        }
+
+        // IsActive e outros membros podem estar declarados explicitamente
+        // em interfaces (por exemplo, ISystemType), não na classe concreta.
+        foreach (Type interfaceTipo in tipo.GetInterfaces())
+        {
+            foreach (string nome in nomes)
+            {
+                PropertyInfo propriedade = interfaceTipo.GetProperty(nome, flags);
+                if (propriedade != null && propriedade.GetIndexParameters().Length == 0)
+                    return propriedade.GetValue(instancia);
+            }
         }
 
         return null;
@@ -1487,6 +1507,34 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             }
             else if (agora - inicioSemDeslocamento >= TempoParaConsiderarTravado)
             {
+                // Se o alvo atual estiver prendendo o NPC em uma rota sem saída,
+                // tenta outro jogador visível antes de continuar insistindo no escape.
+                if (alvoAtual != null &&
+                    !resolvendoSabotagemLuzes && !resolvendoOutraSabotagem &&
+                    agora - inicioSemDeslocamento >= TempoParaTrocarAlvoTravado)
+                {
+                    byte alvoAnterior = alvoAtual.PlayerId;
+                    PlayerControl novoAlvo = ObterJogadorVivoMaisProximo(origem, alvoAnterior);
+                    if (novoAlvo != null)
+                    {
+                        alvoAtual = novoAlvo;
+                        proximaBuscaAlvo = agora + IntervaloTrocaAlvo;
+                        corpo.velocity = Vector2.zero;
+                        emManobraDestravamento = false;
+                        monitoramentoMovimentoIniciado = false;
+                        avisoMonitoramentoMovimento = false;
+                        LimparCaminho();
+                        proximoRecalculoCaminho = 0f;
+                        EnviarDestinoAosClientesComMod(novoAlvo);
+                        YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                            "[F7/Seguidor] NPC ficou preso por " +
+                            (agora - inicioSemDeslocamento).ToString("F1") +
+                            "s. Trocando o alvo PlayerId=" + alvoAnterior +
+                            " por PlayerId=" + novoAlvo.PlayerId + ".");
+                        return;
+                    }
+                }
+
                 if (!avisoMonitoramentoMovimento)
                 {
                     avisoMonitoramentoMovimento = true;
@@ -1513,7 +1561,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 LimparCaminho();
                 proximoRecalculoCaminho = 0f;
                 corpo.velocity = Vector2.zero;
-                inicioSemDeslocamento = agora;
+                // Mantém o início do período sem deslocamento. Assim o NPC pode
+                // atingir o limite de troca de alvo mesmo quando não há ponto de escape.
 
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
                     "[F7/Seguidor] Nenhum escape aleatório seguro encontrado. A* será tentado novamente.");
@@ -1804,7 +1853,9 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         abertos.Enqueue(inicioGrid, Heuristica(inicioGrid, destinoGrid));
 
         int expandidos = 0;
-        while (abertos.Count > 0 && expandidos < 12000)
+        // Limite menor para evitar picos de CPU quando a rota atravessa
+        // grande parte do mapa; a grade mais grossa reduz consultas físicas.
+        while (abertos.Count > 0 && expandidos < 5000)
         {
             Vector2Int atual = abertos.Dequeue();
             if (!fechados.Add(atual))
@@ -2186,6 +2237,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     internal static bool AlternarVisualizacaoCaminho()
     {
         mostrarCaminhoNpc = !mostrarCaminhoNpc;
+        if (mostrarCaminhoNpc && seguidor != null)
+            GarantirRenderizadorCaminho();
         if (!mostrarCaminhoNpc)
             OcultarRenderizacaoCaminho();
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
@@ -2194,10 +2247,35 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         return mostrarCaminhoNpc;
     }
 
+    private static void GarantirRenderizadorCaminho()
+    {
+        if (renderizadorCaminhoNpc != null)
+            return;
+
+        GameObject objeto = new GameObject("YouTubeVoteBridge_NPC_Path");
+        objeto.hideFlags = HideFlags.DontSave;
+        renderizadorCaminhoNpc = objeto.AddComponent<LineRenderer>();
+        renderizadorCaminhoNpc.useWorldSpace = true;
+        renderizadorCaminhoNpc.loop = false;
+        renderizadorCaminhoNpc.widthMultiplier = 0.055f;
+        renderizadorCaminhoNpc.numCapVertices = 4;
+        renderizadorCaminhoNpc.numCornerVertices = 4;
+        renderizadorCaminhoNpc.startColor = new Color(0.1f, 0.9f, 1f, 1f);
+        renderizadorCaminhoNpc.endColor = new Color(0.2f, 1f, 0.35f, 1f);
+        renderizadorCaminhoNpc.sortingOrder = 5000;
+
+        Shader shader = Shader.Find("Sprites/Default");
+        if (shader != null)
+        {
+            materialCaminhoNpc = new Material(shader);
+            renderizadorCaminhoNpc.material = materialCaminhoNpc;
+        }
+        renderizadorCaminhoNpc.enabled = false;
+    }
+
     private static void AtualizarRenderizacaoCaminho()
     {
-        if (!mostrarCaminhoNpc || seguidor == null ||
-            caminhoAtual == null || caminhoAtual.Count == 0)
+        if (!mostrarCaminhoNpc || seguidor == null)
         {
             OcultarRenderizacaoCaminho();
             return;
@@ -2205,38 +2283,17 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
         try
         {
-            if (renderizadorCaminhoNpc == null)
-            {
-                GameObject objeto = new GameObject("YouTubeVoteBridge_NPC_Path");
-                renderizadorCaminhoNpc = objeto.AddComponent<LineRenderer>();
-                renderizadorCaminhoNpc.useWorldSpace = true;
-                renderizadorCaminhoNpc.loop = false;
-                renderizadorCaminhoNpc.widthMultiplier = 0.045f;
-                renderizadorCaminhoNpc.numCapVertices = 2;
-                renderizadorCaminhoNpc.numCornerVertices = 2;
-                renderizadorCaminhoNpc.startColor = new Color(0.1f, 0.9f, 1f, 0.95f);
-                renderizadorCaminhoNpc.endColor = new Color(0.2f, 1f, 0.35f, 0.95f);
-                renderizadorCaminhoNpc.sortingOrder = 500;
-                Shader shader = Shader.Find("Sprites/Default");
-                if (shader != null)
-                {
-                    materialCaminhoNpc = new Material(shader);
-                    renderizadorCaminhoNpc.material = materialCaminhoNpc;
-                }
-            }
+            GarantirRenderizadorCaminho();
 
             int primeiroIndice = Mathf.Clamp(indiceCaminho, 0, caminhoAtual.Count);
             int pontosRestantes = caminhoAtual.Count - primeiroIndice;
-            int quantidade = pontosRestantes + 1;
-            if (quantidade < 2)
-            {
-                OcultarRenderizacaoCaminho();
-                return;
-            }
-
+            // Mesmo enquanto o A* recalcula, mantém uma linha de referência
+            // até o destino atual em vez de fazer o botão parecer inoperante.
+            int quantidade = pontosRestantes + 2;
             renderizadorCaminhoNpc.positionCount = quantidade;
+
             Vector3 posicaoNpc = seguidor.transform.position;
-            posicaoNpc.z -= 0.15f;
+            posicaoNpc.z -= 0.25f;
             renderizadorCaminhoNpc.SetPosition(0, posicaoNpc);
             for (int i = 0; i < pontosRestantes; i++)
             {
@@ -2244,7 +2301,13 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 renderizadorCaminhoNpc.SetPosition(i + 1,
                     new Vector3(ponto.x, ponto.y, posicaoNpc.z));
             }
-            renderizadorCaminhoNpc.enabled = true;
+
+            Vector2 destinoReferencia = pontosRestantes > 0
+                ? caminhoAtual[caminhoAtual.Count - 1]
+                : (alvoAtual != null ? alvoAtual.GetTruePosition() : posicaoNpc);
+            renderizadorCaminhoNpc.SetPosition(quantidade - 1,
+                new Vector3(destinoReferencia.x, destinoReferencia.y, posicaoNpc.z));
+            renderizadorCaminhoNpc.enabled = quantidade >= 2;
         }
         catch (Exception ex)
         {
@@ -2822,7 +2885,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         return alvoAtual;
     }
 
-    private static PlayerControl ObterJogadorVivoMaisProximo(Vector2 origem)
+    private static PlayerControl ObterJogadorVivoMaisProximo(
+        Vector2 origem, byte ignorarPlayerId = byte.MaxValue)
     {
         PlayerControl melhor = null;
         float menorDistancia = float.MaxValue;
@@ -2830,6 +2894,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
         {
             if (jogador == null || jogador == seguidor ||
+                jogador.PlayerId == ignorarPlayerId ||
                 jogador.Data == null ||
                 jogador.Data.IsDead ||
                 jogador.Data.Disconnected ||
