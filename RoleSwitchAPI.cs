@@ -7,13 +7,14 @@ using Hazel;
 using InnerNet;
 using BepInEx.Unity.IL2CPP.Utils;
 using BepInEx.Unity.IL2CPP.Utils.Collections;
+using UnityEngine;
 
 namespace YouTubeVoteBridge;
 
 /// <summary>
-/// Captura a atribuição vanilla feita por RoleManager.SelectRoles e substitui
-/// somente o transporte de RpcSetRole. O RoleManager continua decidindo quais
-/// funções serão atribuídas, respeitando as opções e probabilidades do jogo.
+/// Troca funções somente quando solicitada explicitamente pelo host durante a partida.
+/// A seleção inicial permanece inteiramente vanilla para preservar a quantidade
+/// de impostores e as opções de função da sala.
 /// </summary>
 internal static class RoleSwitchAPI
 {
@@ -21,108 +22,17 @@ internal static class RoleSwitchAPI
     {
         public PlayerControl Jogador;
         public RoleTypes Funcao;
+        public bool EstavaVivo;
 
         public TrocaPendente(PlayerControl jogador, RoleTypes funcao)
         {
             Jogador = jogador;
             Funcao = funcao;
+            EstavaVivo = jogador != null && jogador.Data != null && !jogador.Data.IsDead;
         }
     }
 
-    private static bool capturandoSelecaoVanilla;
-    private static bool bloqueandoSetRole;
     private static bool loteEmAndamento;
-    private static readonly Dictionary<byte, TrocaPendente> funcoesCapturadas = new();
-
-    /// <summary>
-    /// Chamado imediatamente antes de RoleManager.SelectRoles.
-    /// </summary>
-    internal static void IniciarCapturaSelecaoVanilla()
-    {
-        AmongUsClient cliente = AmongUsClient.Instance;
-        if (cliente == null || !cliente.AmHost)
-            return;
-
-        funcoesCapturadas.Clear();
-        capturandoSelecaoVanilla = true;
-        bloqueandoSetRole = true;
-        LogInfo("Captura iniciada: o sorteador vanilla continuará escolhendo as funções.");
-    }
-
-    /// <summary>
-    /// Intercepta somente RpcSetRole disparado durante SelectRoles.
-    /// Retorna true quando a chamada foi capturada e deve ser bloqueada.
-    /// </summary>
-    internal static bool TentarCapturarRpcSetRole(PlayerControl jogador, RoleTypes funcao)
-    {
-        if (!bloqueandoSetRole)
-            return false;
-
-        if (capturandoSelecaoVanilla && jogador != null &&
-            jogador.Data != null && !jogador.Data.Disconnected)
-        {
-            funcoesCapturadas[jogador.PlayerId] = new TrocaPendente(jogador, funcao);
-            LogInfo($"Função vanilla capturada: PlayerId={jogador.PlayerId}, função={funcao}.");
-        }
-
-        // Durante a preparação e o envio, qualquer SetRole vanilla adicional
-        // também fica bloqueado. O lote personalizado assume a distribuição.
-        return true;
-    }
-
-    /// <summary>
-    /// Chamado depois de RoleManager.SelectRoles. Aplica localmente e distribui
-    /// os papéis escolhidos pelo vanilla com canOverrideRole=false, como no EHR.
-    /// </summary>
-    internal static void FinalizarCapturaSelecaoVanilla()
-    {
-        if (!capturandoSelecaoVanilla)
-            return;
-
-        capturandoSelecaoVanilla = false;
-
-        List<TrocaPendente> trocas = funcoesCapturadas.Values
-            .Where(x => x != null && x.Jogador != null)
-            .ToList();
-
-        funcoesCapturadas.Clear();
-
-        if (trocas.Count == 0)
-        {
-            bloqueandoSetRole = false;
-            LogAviso("SelectRoles terminou sem nenhuma chamada RpcSetRole capturada. A atribuição vanilla não foi substituída.");
-            return;
-        }
-
-        // Consome as escolhas feitas no configurador F8. Somente jogadores
-        // explicitamente configurados substituem o resultado vanilla; todos
-        // os demais mantêm exatamente a função sorteada pelo RoleManager.
-        Dictionary<byte, RoleTypes> configuracoes =
-            ConfiguradorFuncoesMenu.ConsumirConfiguracoes();
-        int aplicadas = 0;
-
-        foreach (TrocaPendente troca in trocas)
-        {
-            if (configuracoes.TryGetValue(troca.Jogador.PlayerId, out RoleTypes funcaoManual))
-            {
-                LogInfo($"Sobrescrevendo seleção vanilla: PlayerId={troca.Jogador.PlayerId}, " +
-                    $"função vanilla={troca.Funcao}, função manual={funcaoManual}.");
-                troca.Funcao = funcaoManual;
-                aplicadas++;
-            }
-        }
-
-        foreach (byte playerId in configuracoes.Keys)
-        {
-            if (!trocas.Any(x => x.Jogador != null && x.Jogador.PlayerId == playerId))
-                LogAviso($"Configuração F8 ignorada: PlayerId={playerId} não participou da seleção capturada.");
-        }
-
-        LogInfo($"Seleção vanilla concluída: {trocas.Count} função(ões), " +
-            $"{aplicadas} sobrescrita(s) manual(is). Iniciando distribuição com canOverrideRole=false.");
-        if (!ExecutarAtribuicoes(trocas, "seleção vanilla", false))
-            bloqueandoSetRole = false;
-    }
 
     internal static bool TrocarFuncao(PlayerControl jogador, string nomeFuncao)
     {
@@ -228,6 +138,8 @@ internal static class RoleSwitchAPI
                     RpcSetRoleGlobal(troca.Jogador, troca.Funcao);
 
                 AtualizarHudDaFuncaoLocal(trocas);
+                MonoBehaviourExtensions.StartCoroutine(
+                    local, RestaurarJogadoresVivosAposTroca(trocas));
                 loteEmAndamento = false;
                 return true;
             }
@@ -244,9 +156,37 @@ internal static class RoleSwitchAPI
         catch (Exception ex)
         {
             loteEmAndamento = false;
-            bloqueandoSetRole = false;
+
             LogErro("Não foi possível iniciar a distribuição das funções: " + ex);
             return false;
+        }
+    }
+
+    private static System.Collections.IEnumerator RestaurarJogadoresVivosAposTroca(
+        List<TrocaPendente> trocas)
+    {
+        yield return new WaitForSecondsRealtime(0.75f);
+
+        AmongUsClient cliente = AmongUsClient.Instance;
+        if (cliente == null || !cliente.AmHost || GameData.Instance == null)
+            yield break;
+
+        foreach (TrocaPendente troca in trocas)
+        {
+            if (troca == null || !troca.EstavaVivo || troca.Jogador == null ||
+                troca.Jogador.Data == null || troca.Jogador.Data.Disconnected)
+                continue;
+
+            NetworkedPlayerInfo dados = GameData.Instance.GetPlayerById(troca.Jogador.PlayerId);
+            if (dados == null || !dados.IsDead)
+                continue;
+
+            dados.IsDead = false;
+            dados.SetDirtyBit(1u << troca.Jogador.PlayerId);
+            cliente.SendAllStreamedObjects();
+
+            LogInfo($"Estado vivo restaurado pela rede após troca de função: PlayerId={troca.Jogador.PlayerId}.");
+            yield return new WaitForSecondsRealtime(0.08f);
         }
     }
 
@@ -295,7 +235,7 @@ internal static class RoleSwitchAPI
         finally
         {
             loteEmAndamento = false;
-            bloqueandoSetRole = false;
+
         }
 
         yield break;
@@ -392,8 +332,6 @@ internal static class RoleSwitchAPI
             LogAviso("Não foi possível atualizar o botão de reporte após a troca: " + ex.Message);
         }
     }
-
-    internal static bool CapturandoSelecaoVanilla => capturandoSelecaoVanilla;
 
     private static void LogInfo(string mensagem) =>
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo("[RoleSwitchAPI] " + mensagem);
@@ -549,47 +487,11 @@ internal sealed class RoleSwitchCustomRpcSender
 }
 
 /// <summary>
-/// Abre e fecha a captura ao redor do sorteador vanilla. Não substituímos
-/// RoleManager.SelectRoles nem LogicRoleSelectionNormal.
-/// </summary>
-[HarmonyPatch(typeof(RoleManager), nameof(RoleManager.SelectRoles))]
-internal static class RoleSwitchVanillaSelectionPatch
-{
-    private static void Prefix()
-    {
-        RoleSwitchAPI.IniciarCapturaSelecaoVanilla();
-    }
-
-    private static void Postfix()
-    {
-        RoleSwitchAPI.FinalizarCapturaSelecaoVanilla();
-    }
-}
-
-/// <summary>
-/// Durante SelectRoles, captura e bloqueia o transporte automático do RpcSetRole.
-/// Depois, envia os papéis por RPC direcionado. Fora desse momento, o método
-/// original continua funcionando normalmente.
+/// Diagnóstico passivo de RpcSetRole. Não intercepta nem altera o sorteio vanilla.
 /// </summary>
 [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.RpcSetRole))]
-[HarmonyPriority(Priority.High)]
 internal static class RoleSwitchRpcSetRolePatch
 {
-    private static bool Prefix(
-        PlayerControl __instance,
-        RoleTypes roleType,
-        bool canOverrideRole)
-    {
-        if (RoleSwitchAPI.TentarCapturarRpcSetRole(__instance, roleType))
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                $"[RoleSwitchAPI] RpcSetRole vanilla bloqueado durante Role Reveal: playerId={__instance?.PlayerId}, role={roleType}, canOverrideOriginal={canOverrideRole}.");
-            return false;
-        }
-
-        return true;
-    }
-
     private static void Postfix(PlayerControl __instance, RoleTypes roleType, bool canOverrideRole)
     {
         string roleAtual = "(Data.Role nulo)";
@@ -597,6 +499,6 @@ internal static class RoleSwitchRpcSetRolePatch
         catch (Exception ex) { roleAtual = "<erro:" + ex.GetType().Name + ">"; }
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"[RoleRevealDiag] RpcSetRole POSTFIX playerId={__instance?.PlayerId} roleSolicitada={roleType} roleAtual={roleAtual} canOverride={canOverrideRole}");
+            $"[RoleRevealDiag] RpcSetRole playerId={__instance?.PlayerId} roleSolicitada={roleType} roleAtual={roleAtual} canOverride={canOverrideRole}");
     }
 }
