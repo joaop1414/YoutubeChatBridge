@@ -935,9 +935,10 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         if (etapaInicializacao < 5)
             return;
 
-        // Mantém os clientes remotos informados da posição aproximada do NPC.
-        // O movimento contínuo continua sendo controlado pelo Rigidbody2D no host.
-        EnviarSnapToRedePeriodico();
+        // Não enviar SnapTo manual periódico aos clientes vanilla.
+        // O CustomNetworkTransform do NPC já replica o movimento contínuo do Rigidbody2D.
+        // Um RPC SnapTo paralelo com sequência artificial disputa com a sequência nativa
+        // do transform e pode fazer clientes remotos aplicarem posições incorretas.
 
         // Corrige a associação dos dados e restaura somente o registro do ID 249.
         AtualizarRegistroVidaNpc();
