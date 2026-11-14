@@ -17,6 +17,7 @@ internal static class EventosPartidaInicioPatch
         EventoTrocaDeDestinos.IniciarPartida();
         EventoUltimoSuspiro.IniciarPartida();
         EventoDutosInstaveis.IniciarPartida();
+        EventoSeguidorMortal.IniciarPartida();
         EventoImpostorSuicidaAoTentarMatar.IniciarPartida();
     }
 }
@@ -28,6 +29,7 @@ internal static class EventosPartidaAtualizarPatch
     {
         EventoTrocaDeDestinos.Atualizar();
         EventoDutosInstaveis.Atualizar();
+        EventoSeguidorMortal.Atualizar();
     }
 }
 
@@ -73,6 +75,7 @@ internal static class EventosPartidaFimPatch
         EventoTrocaDeDestinos.Resetar();
         EventoUltimoSuspiro.Resetar();
         EventoDutosInstaveis.Resetar();
+        EventoSeguidorMortal.Resetar();
         EventoImpostorSuicidaAoTentarMatar.Resetar();
     }
 }
