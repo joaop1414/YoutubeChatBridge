@@ -1772,24 +1772,23 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         bool destinoSemelhante =
             Vector2.Distance(destino, destinoDeslizamentoCache) < 0.40f;
 
-        // Reutiliza por alguns instantes a direção lateral já validada.
-        // Isso evita dezenas de consultas Physics2D em todos os frames.
+        // A direção armazenada só é reutilizada se houver espaço em vários
+        // segmentos consecutivos, não apenas no primeiro passo curto.
         if (direcaoDeslizamentoCache.sqrMagnitude > 0.001f &&
             agora < proximaReavaliacaoDeslizamento &&
             destinoSemelhante &&
-            PodeMoverEntre(
-                origem,
-                origem + direcaoDeslizamentoCache * 0.35f))
+            TestarCorredorDeslizamento(origem, direcaoDeslizamentoCache, 0.60f) >= 0.45f)
             return direcaoDeslizamentoCache;
 
         Vector2 melhorDirecao = Vector2.zero;
         float melhorPontuacao = float.NegativeInfinity;
-        float[] distanciasTeste = { DistanciaDeslizamentoParede, 0.45f, 0.30f };
+        const float passo = 0.20f;
+        const float previsaoMaxima = 1.00f;
+        int passosPrevisao = Mathf.CeilToInt(previsaoMaxima / passo);
 
-        // Testa ambos os lados da parede. Ângulos de 90 graus permitem
-        // deslizar paralelamente; ângulos menores preservam avanço diagonal.
-        // A pontuação considera tanto o progresso até o destino quanto o
-        // comprimento livre, evitando escolher um avanço curto que termina na parede.
+        // Avalia o corredor à frente em pequenos segmentos. Uma direção que
+        // só permite um avanço curto recebe pontuação menor que uma lateral
+        // com espaço contínuo para contornar a parede.
         for (int angulo = 15; angulo <= 180; angulo += (int)PassoAngularDeslizamento)
         {
             for (int lado = -1; lado <= 1; lado += 2)
@@ -1799,24 +1798,30 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                     desejada.x * Mathf.Cos(radianos) - desejada.y * Mathf.Sin(radianos),
                     desejada.x * Mathf.Sin(radianos) + desejada.y * Mathf.Cos(radianos));
 
-                float progresso = Vector2.Dot(candidata, desejada);
-                if (progresso < -0.05f)
+                float distanciaLivre = TestarCorredorDeslizamento(
+                    origem, candidata, passosPrevisao * passo);
+                if (distanciaLivre < 0.20f)
                     continue;
 
-                foreach (float distanciaTeste in distanciasTeste)
-                {
-                    Vector2 pontoTeste = origem + candidata * distanciaTeste;
-                    if (!EstaDentroDosLimitesDoMapa(pontoTeste) ||
-                        !PodeMoverEntre(origem, pontoTeste))
-                        continue;
+                Vector2 pontoFinal = origem + candidata * distanciaLivre;
+                float reducaoDistancia = delta.magnitude -
+                    Vector2.Distance(pontoFinal, destino);
 
-                    float pontuacao = progresso * 0.7f +
-                        (distanciaTeste / DistanciaDeslizamentoParede) * 0.3f;
-                    if (pontuacao > melhorPontuacao)
-                    {
-                        melhorPontuacao = pontuacao;
-                        melhorDirecao = candidata;
-                    }
+                // Prioriza espaço contínuo, mas ainda favorece direções que
+                // aproximam o NPC do destino. Uma leve preferência pela direção
+                // anterior evita oscilações entre os dois lados da parede.
+                float continuidade = direcaoDeslizamentoCache.sqrMagnitude > 0.001f
+                    ? Vector2.Dot(candidata, direcaoDeslizamentoCache.normalized) * 0.08f
+                    : 0f;
+                float pontuacao =
+                    distanciaLivre * 0.70f +
+                    reducaoDistancia * 0.30f +
+                    continuidade;
+
+                if (pontuacao > melhorPontuacao)
+                {
+                    melhorPontuacao = pontuacao;
+                    melhorDirecao = candidata;
                 }
             }
         }
@@ -1825,6 +1830,35 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         destinoDeslizamentoCache = destino;
         proximaReavaliacaoDeslizamento = agora + IntervaloReavaliacaoDeslizamento;
         return melhorDirecao;
+    }
+
+    // Retorna o comprimento realmente livre em uma direção, verificando
+    // cada trecho com o collider completo do NPC. Interrompe antes da parede.
+    private static float TestarCorredorDeslizamento(
+        Vector2 origem, Vector2 direcao, float distanciaMaxima)
+    {
+        if (direcao.sqrMagnitude < 0.0001f)
+            return 0f;
+
+        Vector2 pontoAnterior = origem;
+        float percorrida = 0f;
+        const float passo = 0.20f;
+        int quantidade = Mathf.CeilToInt(distanciaMaxima / passo);
+
+        for (int i = 1; i <= quantidade; i++)
+        {
+            float distancia = Mathf.Min(i * passo, distanciaMaxima);
+            Vector2 ponto = origem + direcao.normalized * distancia;
+
+            if (!EstaDentroDosLimitesDoMapa(ponto) ||
+                !PodeMoverEntre(pontoAnterior, ponto))
+                break;
+
+            percorrida = distancia;
+            pontoAnterior = ponto;
+        }
+
+        return percorrida;
     }
 
     private static bool TentarEncontrarPontoDestravamento(
