@@ -15,7 +15,7 @@ namespace YouTubeVoteBridge;
 internal sealed class EventoSeguidorMortal : EventoVotacao
 {
     private const byte PlayerIdSeguidor = 249;
-    private const float Velocidade = 1.75f;
+    private const float Velocidade = 2.25f;
     private const float AlcanceMorte = 0.48f;
     private const float IntervaloTrocaAlvo = 0.25f;
     private const string NomeSeguidor = "<color=red>NPC ASSASINO</color>";
@@ -35,16 +35,20 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private static float proximoTransporte;
 
     // Caminho A*: recalculado periodicamente e quando o alvo muda de posição.
-    private const float TamanhoCelula = 0.35f;
+    private const float TamanhoCelula = 0.30f;
     private const float RaioColisao = 0.18f;
-    private const float IntervaloRecalculoCaminho = 0.65f;
-    private const float DistanciaRecalculoAlvo = 0.65f;
+    private const float IntervaloRecalculoCaminho = 0.35f;
+    private const float DistanciaRecalculoAlvo = 0.35f;
     private static readonly Vector2Int[] DirecoesCaminho =
     {
         new Vector2Int(1, 0), new Vector2Int(-1, 0),
         new Vector2Int(0, 1), new Vector2Int(0, -1),
         new Vector2Int(1, 1), new Vector2Int(1, -1),
-        new Vector2Int(-1, 1), new Vector2Int(-1, -1)
+        new Vector2Int(-1, 1), new Vector2Int(-1, -1),
+        new Vector2Int(2, 1), new Vector2Int(2, -1),
+        new Vector2Int(-2, 1), new Vector2Int(-2, -1),
+        new Vector2Int(1, 2), new Vector2Int(1, -2),
+        new Vector2Int(-1, 2), new Vector2Int(-1, -2)
     };
     private static List<Vector2> caminhoAtual = new();
     private static int indiceCaminho;
@@ -104,7 +108,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
         aguardandoFimRoleReveal = false;
 
-        if (!TentarObterCentroSalaInicial(out Vector2 posicaoInicial, out SystemTypes salaInicial))
+        if (!TentarObterCentroSalaInicial(out Vector2 posicaoInicial, out _))
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
                 "[F7/Seguidor] Não foi possível localizar a sala de spawn configurada para este mapa.");
@@ -178,7 +182,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         salaDesejada = mapa switch
         {
             0 => SystemTypes.Shields,       // The Skeld
-            1 => SystemTypes.Reactor,       // MIRA HQ
+            1 => SystemTypes.Cafeteria,    // MIRA HQ
             2 => SystemTypes.Specimens,     // Polus
             4 => SystemTypes.Electrical,     // Airship
             5 => SystemTypes.Laboratory,    // The Fungle
@@ -308,8 +312,9 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             {
                 int clientes = CustomNetObject.AssociarClientes(seguidor, PlayerIdSeguidor);
 
-                if (PlayerControl.LocalPlayer?.Data != null)
-                    seguidor.CachedPlayerData = PlayerControl.LocalPlayer.Data;
+                // Não reutilizar os dados do host no NPC. Isso fazia o falso
+                // personagem compartilhar nome/outfit/PlayerId do jogador local,
+                // causando auto-alvo e impedindo a aplicação correta da skin.
 
                 etapaInicializacao = 3;
                 proximaEtapa = Time.realtimeSinceStartup + 0.15f;
@@ -726,7 +731,10 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 if (!PodePassarEntre(pontoAtual, pontoVizinho))
                     continue;
 
-                float custoPasso = direcao.x != 0 && direcao.y != 0 ? 1.4142135f : 1f;
+                // Distância euclidiana permite também passos diagonais longos
+                // (2x1 e 1x2), sem favorecer rotas artificialmente curtas.
+                float custoPasso = Mathf.Sqrt(
+                    direcao.x * direcao.x + direcao.y * direcao.y);
                 float novoCusto = custos[atual] + custoPasso;
 
                 if (custos.TryGetValue(vizinho, out float custoExistente) &&
@@ -893,7 +901,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     {
         int dx = Mathf.Abs(a.x - b.x);
         int dy = Mathf.Abs(a.y - b.y);
-        return Mathf.Max(dx, dy) + 0.4142135f * Mathf.Min(dx, dy);
+        return Mathf.Sqrt(dx * dx + dy * dy);
     }
 
     private static List<Vector2> ReconstruirCaminho(
@@ -971,6 +979,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
         {
             if (jogador == null || jogador == seguidor ||
+                jogador.PlayerId == PlayerIdSeguidor ||
                 jogador.Data == null ||
                 jogador.Data.IsDead ||
                 jogador.Data.Disconnected)
