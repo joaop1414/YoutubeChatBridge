@@ -216,8 +216,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         {
             0 => SystemTypes.Shields,       // The Skeld
             1 => SystemTypes.Greenhouse,    // MIRA HQ - Estufa
-            2 => SystemTypes.Specimens,     // Polus
-            4 => SystemTypes.Electrical,     // Airship
+            2 => SystemTypes.Security,       // Polus - Segurança
+            4 => SystemTypes.Security,     // Airship - Segurança
             5 => SystemTypes.Laboratory,    // The Fungle
             _ => SystemTypes.Hallway
         };
