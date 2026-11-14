@@ -13,8 +13,8 @@ namespace YouTubeVoteBridge;
 /// <summary>
 /// NPC artificial que persegue o jogador vivo mais próximo.
 /// A movimentação usa o Rigidbody2D do CustomNetworkTransform, igual ao
-/// transporte contínuo já usado pelo evento Tsunami. SnapTo é usado apenas
-/// no posicionamento inicial.
+/// transporte contínuo já usado pelo evento Tsunami. SnapTo também é enviado
+/// periodicamente para manter os clientes remotos próximos da posição real.
 /// </summary>
 internal sealed class EventoSeguidorMortal : EventoVotacao
 {
@@ -196,7 +196,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             proximaEtapa = Time.realtimeSinceStartup + 0.12f;
             proximaBuscaAlvo = 0f;
             proximoTransporte = 0f;
-        proximoSnapToRede = 0f;
+            proximoSnapToRede = 0f;
             transporteEmAndamento = false;
             alvoAtual = null;
             LimparCaminho();
@@ -685,8 +685,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         }
 
         // O Tsunami já usa este mesmo caminho: velocidade no Rigidbody2D
-        // pertencente ao CustomNetworkTransform. O componente de rede transmite
-        // posição e velocidade; não enviamos SnapTo durante a perseguição.
+        // pertencente ao CustomNetworkTransform. O SnapTo periódico serve apenas
+        // como correção aproximada para os clientes remotos.
         PlayerControl alvo = ObterAlvoAtual();
         if (alvo == null)
         {
