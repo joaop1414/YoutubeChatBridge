@@ -194,26 +194,13 @@ internal static class RoleSwitchAPI
 
         try
         {
-            // EHR-style: em trocas durante a partida, aplica localmente e usa
-            // o RPC vanilla SetRole em broadcast com canOverrideRole=true.
-            // A seleção inicial continua no sender separado, sempre false.
+            // EHR-style RpcSetRoleGlobal: aplica a função localmente e envia
+            // SetRole vanilla em broadcast com canOverrideRole=true.
+            // A atribuição inicial continua no sender separado com false.
             if (origem == "troca durante a partida")
             {
                 foreach (TrocaPendente troca in trocas)
-                {
-                    troca.Jogador.StartCoroutine(
-                        troca.Jogador.CoSetRole(troca.Funcao, true));
-
-                    MessageWriter writer = cliente.StartRpcImmediately(
-                        troca.Jogador.NetId,
-                        (byte)RpcCalls.SetRole,
-                        SendOption.Reliable);
-                    writer.Write((ushort)troca.Funcao);
-                    writer.Write(true);
-                    cliente.FinishRpcImmediately(writer);
-
-                    LogInfo($"RPC vanilla global enviado: PlayerId={troca.Jogador.PlayerId}, Role={troca.Funcao}, canOverrideRole=true.");
-                }
+                    RpcSetRoleGlobal(troca.Jogador, troca.Funcao);
 
                 AtualizarHudDaFuncaoLocal(trocas);
                 loteEmAndamento = false;
@@ -287,6 +274,75 @@ internal static class RoleSwitchAPI
         }
 
         yield break;
+    }
+
+    /// <summary>
+    /// Equivalente ao RpcSetRoleGlobal do EHR para funções globais.
+    /// Aplica no host e transmite SetRole bruto para todos os clientes.
+    /// </summary>
+    private static void RpcSetRoleGlobal(PlayerControl jogador, RoleTypes funcao)
+    {
+        if (jogador == null || AmongUsClient.Instance == null ||
+            !AmongUsClient.Instance.AmHost)
+            return;
+
+        try
+        {
+            // No host, CoSetRole atualiza o estado local sem depender do RPC.
+            jogador.StartCoroutine(jogador.CoSetRole(funcao, true));
+
+            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
+                jogador.NetId,
+                (byte)RpcCalls.SetRole,
+                SendOption.Reliable);
+            writer.Write((ushort)funcao);
+            writer.Write(true);
+            AmongUsClient.Instance.FinishRpcImmediately(writer);
+
+            LogInfo($"RpcSetRoleGlobal EHR-style: PlayerId={jogador.PlayerId}, Role={funcao}, canOverrideRole=true.");
+        }
+        catch (Exception ex)
+        {
+            LogErro($"RpcSetRoleGlobal falhou para PlayerId={jogador.PlayerId}: {ex}");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Equivalente ao RpcSetRoleDesync do EHR: envia SetRole bruto somente
+    /// ao cliente indicado. Útil para funções diferentes por observador.
+    /// </summary>
+    internal static bool RpcSetRoleDesync(PlayerControl jogador, RoleTypes funcao, int clientId)
+    {
+        if (jogador == null || AmongUsClient.Instance == null ||
+            !AmongUsClient.Instance.AmHost || clientId < 0)
+            return false;
+
+        try
+        {
+            if (AmongUsClient.Instance.ClientId == clientId)
+            {
+                jogador.StartCoroutine(jogador.CoSetRole(funcao, true));
+                return true;
+            }
+
+            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
+                jogador.NetId,
+                (byte)RpcCalls.SetRole,
+                SendOption.Reliable,
+                clientId);
+            writer.Write((ushort)funcao);
+            writer.Write(true);
+            AmongUsClient.Instance.FinishRpcImmediately(writer);
+
+            LogInfo($"RpcSetRoleDesync EHR-style: PlayerId={jogador.PlayerId}, cliente={clientId}, Role={funcao}, canOverrideRole=true.");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            LogErro($"RpcSetRoleDesync falhou: {ex}");
+            return false;
+        }
     }
 
     private static void AtualizarHudDaFuncaoLocal(List<TrocaPendente> trocas)
