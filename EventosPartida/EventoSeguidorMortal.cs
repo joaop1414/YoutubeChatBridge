@@ -40,6 +40,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private static SystemTypes sabotagemAtual;
     private static Vector2 destinoOutraSabotagem;
     private static float proximaTentativaReparo;
+    private static float aguardarPerseguicaoAte;
+    private const float PausaAposSabotagem = 3f;
     private static SystemTypes ultimaSabotagemSemSala;
     private static bool avisoSabotagemSemSala;
     private static readonly HashSet<SystemTypes> sistemasSemEstadoAtivoDiagnosticados = new();
@@ -970,6 +972,14 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         // Sabotagens têm prioridade sobre perseguição e patrulha.
         if (TentarResolverSabotagemLuzes() || TentarResolverOutrasSabotagens())
             return;
+
+        // Depois de concluir qualquer sabotagem, o NPC permanece parado por
+        // alguns segundos antes de voltar a procurar e perseguir jogadores.
+        if (Time.realtimeSinceStartup < aguardarPerseguicaoAte)
+        {
+            seguidor.NetTransform.body.velocity = Vector2.zero;
+            return;
+        }
 
         // O Tsunami já usa este mesmo caminho: velocidade no Rigidbody2D
         // pertencente ao CustomNetworkTransform. O SnapTo periódico serve apenas
@@ -2809,6 +2819,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             {
                 resolvendoOutraSabotagem = false;
                 proximaTentativaReparo = 0f;
+                aguardarPerseguicaoAte = Time.realtimeSinceStartup + PausaAposSabotagem;
+                seguidor.NetTransform.body.velocity = Vector2.zero;
                 possuiDestinoPatrulha = false;
                 LimparCaminho();
                 EnviarDestinoAosClientesComMod(null);
@@ -2898,6 +2910,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                     break;
             }
 
+            seguidor.NetTransform.body.velocity = Vector2.zero;
             proximaTentativaReparo = agora + 1f;
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
@@ -3031,6 +3044,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             {
                 resolvendoSabotagemLuzes = false;
                 proximaAcaoInterruptor = 0f;
+                aguardarPerseguicaoAte = Time.realtimeSinceStartup + PausaAposSabotagem;
+                seguidor.NetTransform.body.velocity = Vector2.zero;
                 possuiDestinoPatrulha = false;
                 LimparCaminho();
                 EnviarDestinoAosClientesComMod(null);
@@ -3108,6 +3123,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 ShipStatus.Instance.UpdateSystem(
                     SystemTypes.Electrical, seguidor, indice);
 
+                seguidor.NetTransform.body.velocity = Vector2.zero;
                 proximaAcaoInterruptor = agora + IntervaloInterruptorLuzes;
 
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
@@ -3302,6 +3318,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         sabotagemAtual = SystemTypes.Hallway;
         destinoOutraSabotagem = Vector2.zero;
         proximaTentativaReparo = 0f;
+        aguardarPerseguicaoAte = 0f;
         ultimaSabotagemSemSala = SystemTypes.Hallway;
         avisoSabotagemSemSala = false;
         sistemasSemEstadoAtivoDiagnosticados.Clear();
