@@ -21,6 +21,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 {
     private const byte PlayerIdSeguidor = 249;
     private const float Velocidade = 1.75f;
+    private const float AceleracaoMovimento = 8.0f;
+    private const float PenalidadeProximidadeParede = 0.14f;
     private const float AlcanceMorte = 0.48f;
     private const float IntervaloTrocaAlvo = 0.25f;
     private const string NomeSeguidor = "<color=red>NPC ASSASINO</color>";
@@ -97,7 +99,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private const float FatorEscalaColisaoNavegacao = 1.05f;
     private static Collider2D colliderFisicoNpc;
     private const float IntervaloRecalculoCaminho = 1.25f;
-    private const float DistanciaRecalculoAlvo = 0.65f;
+    private const float DistanciaRecalculoAlvo = 0.45f;
     // A busca usa os 8 vizinhos do grid. A suavização posterior remove
     // pontos intermediários quando a linha está livre, permitindo trajetórias
     // em qualquer ângulo (não apenas nas direções fixas do grid).
@@ -1653,7 +1655,12 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         }
 
         // Mantém o movimento pela tangente da superfície detectada.
-        corpo.velocity = direcao * Velocidade;
+        // Acelera e muda de direção gradualmente. Isso reduz os trancos nas
+        // curvas e evita que a inércia jogue o NPC contra a parede seguinte.
+        Vector2 velocidadeDesejada = direcao * Velocidade;
+        corpo.velocity = Vector2.MoveTowards(
+            corpo.velocity, velocidadeDesejada,
+            AceleracaoMovimento * Mathf.Max(Time.deltaTime, 0.001f));
     }
 
     /// <summary>
@@ -2044,6 +2051,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         var abertos = new PriorityQueue<Vector2Int, float>();
         var cacheCelulasLivres = new Dictionary<Vector2Int, bool>();
         var custos = new Dictionary<Vector2Int, float>();
+        var cachePenalidadeProximidade = new Dictionary<Vector2Int, float>();
         var anteriores = new Dictionary<Vector2Int, Vector2Int>();
         var fechados = new HashSet<Vector2Int>();
 
@@ -2086,13 +2094,27 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 Vector2 pontoAtual = CentroCelula(atual, minimo);
                 Vector2 pontoVizinho = CentroCelula(vizinho, minimo);
 
+                // Impede cortes diagonais por quinas: para atravessar na diagonal,
+                // os dois lados ortogonais também precisam estar livres.
+                if (direcao.x != 0 && direcao.y != 0)
+                {
+                    Vector2Int ladoHorizontal = atual + new Vector2Int(direcao.x, 0);
+                    Vector2Int ladoVertical = atual + new Vector2Int(0, direcao.y);
+                    if (!CelulaLivre(ladoHorizontal, minimo, cacheCelulasLivres) ||
+                        !CelulaLivre(ladoVertical, minimo, cacheCelulasLivres))
+                        continue;
+                }
+
                 // A trajetória é validada com o formato real do collider do NPC.
                 if (!PodePassarEntre(pontoAtual, pontoVizinho))
                     continue;
 
                 float custoDistancia = Mathf.Sqrt(
                     direcao.x * direcao.x + direcao.y * direcao.y);
-                float novoCusto = custos[atual] + custoDistancia;
+                float penalidadeParede = ObterPenalidadeProximidadeParede(
+                    vizinho, minimo, largura, altura,
+                    cacheCelulasLivres, cachePenalidadeProximidade);
+                float novoCusto = custos[atual] + custoDistancia + penalidadeParede;
 
                 if (custos.TryGetValue(vizinho, out float custoExistente) &&
                     novoCusto >= custoExistente)
@@ -2241,6 +2263,37 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         float raioFallback = collider.bounds.extents.magnitude * FatorEscalaColisaoNavegacao;
         return Physics2D.CircleCastAll(
             centro, raioFallback, direcaoMovimento, distancia, mascara);
+    }
+
+    private static float ObterPenalidadeProximidadeParede(
+        Vector2Int celula, Vector2 minimo, int largura, int altura,
+        Dictionary<Vector2Int, bool> cacheCelulas,
+        Dictionary<Vector2Int, float> cachePenalidades)
+    {
+        if (cachePenalidades.TryGetValue(celula, out float penalidadeCacheada))
+            return penalidadeCacheada;
+
+        // Penaliza células encostadas em obstáculos. Não bloqueia corredores
+        // estreitos: apenas faz o A* preferir uma rota com mais espaço quando existe.
+        int vizinhosBloqueados = 0;
+        Vector2Int[] laterais =
+        {
+            new Vector2Int(1, 0), new Vector2Int(-1, 0),
+            new Vector2Int(0, 1), new Vector2Int(0, -1)
+        };
+
+        foreach (Vector2Int deslocamento in laterais)
+        {
+            Vector2Int vizinho = celula + deslocamento;
+            if (vizinho.x < 0 || vizinho.y < 0 ||
+                vizinho.x >= largura || vizinho.y >= altura ||
+                !CelulaLivre(vizinho, minimo, cacheCelulas))
+                vizinhosBloqueados++;
+        }
+
+        float penalidade = vizinhosBloqueados * PenalidadeProximidadeParede;
+        cachePenalidades[celula] = penalidade;
+        return penalidade;
     }
 
     private static bool CelulaLivre(
