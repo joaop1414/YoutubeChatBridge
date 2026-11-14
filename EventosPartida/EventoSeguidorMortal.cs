@@ -601,9 +601,13 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         if (agora < proximaTentativaVent || transporteEmAndamento)
             return false;
 
-        Vent[] vents = ShipStatus.Instance.GetComponentsInChildren<Vent>()
-            .Where(v => v != null && v.isActiveAndEnabled && ObterIdVent(v) >= 0)
-            .ToArray();
+        List<Vent> listaVents = new List<Vent>();
+        foreach (Vent vent in ShipStatus.Instance.GetComponentsInChildren<Vent>())
+        {
+            if (vent != null && vent.isActiveAndEnabled && ObterIdVent(vent) >= 0)
+                listaVents.Add(vent);
+        }
+        Vent[] vents = listaVents.ToArray();
 
         if (vents.Length < 2)
             return false;
