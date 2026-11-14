@@ -1006,13 +1006,14 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             monitoramentoMovimentoIniciado = false;
         }
 
+        Vector2 origem = seguidor.GetTruePosition();
+        Vector2 destino = alvo.GetTruePosition();
+
         // Se o NPC estiver usando uma ventilação, conclui a travessia antes
         // de calcular alcance de morte ou tentar qualquer outro transporte.
         if (TentarUsarVentilacao(destino))
             return;
 
-        Vector2 origem = seguidor.GetTruePosition();
-        Vector2 destino = alvo.GetTruePosition();
         Vector2 diferenca = destino - origem;
         float distancia = diferenca.magnitude;
 
