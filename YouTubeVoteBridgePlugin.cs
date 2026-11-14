@@ -48,6 +48,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     public static ConfigEntry<bool> MultiTransmissaoAtiva;
     public static ConfigEntry<bool> PermitirIdsDeOutrosJogadores;
     public static ConfigEntry<bool> TrocarMapaAoIniciar;
+    public static ConfigEntry<bool> PermitirVentilacaoNPC;
 
     // Permite que as ações explícitas de encerramento do controlador F8 passem
     // pelo bloqueio de fim de jogo, mesmo quando "Sem fim de jogo" está ativado.
@@ -262,6 +263,13 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         TrocarMapaAoIniciar = Config.Bind(
             "Configurações do Mod", "TrocarMapaAoIniciar", false,
             "Quando ativado, escolhe outro mapa aleatório ao iniciar a partida. Dleks tem 20% de chance."
+        );
+
+        PermitirVentilacaoNPC = Config.Bind(
+            "Configurações do Mod",
+            "Permitir se o NPC Assassino possa usar ventilações",
+            false,
+            "Quando ativado, permite que o NPC Assassino use a rede de dutos para se deslocar."
         );
 
         LobbyTagManager.Initialize();
