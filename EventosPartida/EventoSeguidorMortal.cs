@@ -1111,15 +1111,76 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         proximoRecalculoCaminho = 0f;
     }
 
+    private static System.Reflection.MemberInfo membroEstadoDuto;
+    private static bool estadoDutoProcurado;
+    private static bool avisoEstadoDuto;
+
+    // Consulta o estado vanilla do jogador sem depender da visibilidade do campo
+    // entre versões do Among Us.
+    private static bool EstaNoDuto(PlayerControl jogador)
+    {
+        if (jogador == null)
+            return false;
+
+        try
+        {
+            if (!estadoDutoProcurado)
+            {
+                estadoDutoProcurado = true;
+                const System.Reflection.BindingFlags flags =
+                    System.Reflection.BindingFlags.Instance |
+                    System.Reflection.BindingFlags.Public |
+                    System.Reflection.BindingFlags.NonPublic;
+
+                membroEstadoDuto =
+                    typeof(PlayerControl).GetProperty("inVent", flags) ??
+                    (System.Reflection.MemberInfo)typeof(PlayerControl).GetField("inVent", flags) ??
+                    typeof(PlayerControl).GetProperty("InVent", flags) ??
+                    (System.Reflection.MemberInfo)typeof(PlayerControl).GetField("InVent", flags);
+            }
+
+            if (membroEstadoDuto is System.Reflection.PropertyInfo propriedade)
+                return propriedade.GetValue(jogador) is bool valorPropriedade && valorPropriedade;
+
+            if (membroEstadoDuto is System.Reflection.FieldInfo campo)
+                return campo.GetValue(jogador) is bool valorCampo && valorCampo;
+
+            if (!avisoEstadoDuto)
+            {
+                avisoEstadoDuto = true;
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[F7/Seguidor] Não foi possível localizar o estado inVent; não foi possível confirmar a exclusão dos dutos.");
+            }
+        }
+        catch (Exception ex)
+        {
+            if (!avisoEstadoDuto)
+            {
+                avisoEstadoDuto = true;
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[F7/Seguidor] Falha ao consultar inVent: " + ex.Message);
+            }
+        }
+
+        return false;
+    }
+
     private static PlayerControl ObterAlvoAtual()
     {
         if (alvoAtual != null &&
             alvoAtual.Data != null &&
             !alvoAtual.Data.IsDead &&
-            !alvoAtual.Data.Disconnected)
+            !alvoAtual.Data.Disconnected &&
+            !EstaNoDuto(alvoAtual))
         {
             if (Time.realtimeSinceStartup < proximaBuscaAlvo)
                 return alvoAtual;
+        }
+        else
+        {
+            // Abandona imediatamente o alvo quando ele entra em um duto.
+            alvoAtual = null;
+            proximaBuscaAlvo = 0f;
         }
 
         proximaBuscaAlvo = Time.realtimeSinceStartup + IntervaloTrocaAlvo;
@@ -1137,7 +1198,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             if (jogador == null || jogador == seguidor ||
                 jogador.Data == null ||
                 jogador.Data.IsDead ||
-                jogador.Data.Disconnected)
+                jogador.Data.Disconnected ||
+                EstaNoDuto(jogador))
                 continue;
 
             float distancia = Vector2.Distance(origem, jogador.GetTruePosition());
@@ -1158,6 +1220,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             alvo.Data == null ||
             alvo.Data.IsDead ||
             alvo.Data.Disconnected ||
+            EstaNoDuto(alvo) ||
             PlayerControl.LocalPlayer == null)
             return;
 
