@@ -31,6 +31,14 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private static PlayerControl seguidor;
     private static PlayerControl alvoAtual;
 
+    // Recuperação de vida do NPC usando o registro reservado no GameData.
+    private static float proximaVerificacaoVidaNpc;
+    private static float restauracaoNpcAgendadaPara;
+    private static bool restauracaoNpcPendente;
+    private static bool diagnosticoRegistroNpcFeito;
+    private static bool avisoRegistroNpcAusente;
+    private static bool avisoRegistroNpcCompartilhado;
+
     // Patrulha usada quando nenhum jogador válido está disponível como alvo.
     private const float DistanciaChegadaPatrulha = 0.22f;
     private const float DuracaoDestinoPatrulha = 14f;
@@ -286,6 +294,117 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         }
     }
 
+    private static void AtualizarRegistroVidaNpc()
+    {
+        if (!YouTubeVoteBridgePlugin.EhHost() ||
+            seguidor == null ||
+            GameData.Instance == null ||
+            PlayerControl.LocalPlayer == null)
+            return;
+
+        float agora = Time.realtimeSinceStartup;
+        if (agora < proximaVerificacaoVidaNpc && !restauracaoNpcPendente)
+            return;
+
+        proximaVerificacaoVidaNpc = agora + 0.5f;
+
+        try
+        {
+            // O PlayerId reservado precisa apontar para um NetworkedPlayerInfo
+            // próprio. Nunca alteramos os dados do host caso o ID 249 não exista
+            // ou esteja retornando a mesma referência do jogador local.
+            var dadosNpc = GameData.Instance.GetPlayerById(PlayerIdSeguidor);
+            var dadosLocal = PlayerControl.LocalPlayer.Data;
+
+            if (dadosNpc == null)
+            {
+                if (!avisoRegistroNpcAusente)
+                {
+                    avisoRegistroNpcAusente = true;
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                        "[F7/Seguidor] GameData ainda não possui um registro próprio para PlayerId=249. A restauração foi ignorada para não afetar o host.");
+                }
+
+                restauracaoNpcPendente = false;
+                return;
+            }
+
+            if (ReferenceEquals(dadosNpc, dadosLocal))
+            {
+                if (!avisoRegistroNpcCompartilhado)
+                {
+                    avisoRegistroNpcCompartilhado = true;
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                        "[F7/Seguidor] GetPlayerById(249) retornou os mesmos dados do jogador local. IsDead não será alterado para evitar reviver o host.");
+                }
+
+                restauracaoNpcPendente = false;
+                return;
+            }
+
+            if (!diagnosticoRegistroNpcFeito)
+            {
+                diagnosticoRegistroNpcFeito = true;
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[F7/Seguidor] Registro próprio do NPC encontrado: PlayerId=249, IsDead=" +
+                    dadosNpc.IsDead + ", dados locais compartilhados=" +
+                    ReferenceEquals(dadosNpc, dadosLocal) + ".");
+            }
+
+            // Se existe um registro independente para o ID 249, associa o NPC
+            // a ele. Isso impede que CachedPlayerData continue herdando a morte
+            // do jogador local.
+            if (!ReferenceEquals(seguidor.CachedPlayerData, dadosNpc))
+            {
+                bool dadosAntigosMortos = seguidor.Data != null && seguidor.Data.IsDead;
+                seguidor.CachedPlayerData = dadosNpc;
+
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[F7/Seguidor] CachedPlayerData do NPC associado ao registro PlayerId=249. Dados anteriores indicavam morto=" +
+                    dadosAntigosMortos + ", registro próprio IsDead=" + dadosNpc.IsDead + ".");
+            }
+
+            if (dadosNpc.IsDead && !restauracaoNpcPendente)
+            {
+                restauracaoNpcPendente = true;
+                restauracaoNpcAgendadaPara = agora + 0.75f;
+
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[F7/Seguidor] NPC marcado como morto no registro 249. Restauração agendada para 0,75s.");
+                return;
+            }
+
+            if (!restauracaoNpcPendente || agora < restauracaoNpcAgendadaPara)
+                return;
+
+            // Busca novamente pelo ID para não usar uma referência antiga.
+            var dadosAtuais = GameData.Instance.GetPlayerById(PlayerIdSeguidor);
+            if (dadosAtuais == null ||
+                ReferenceEquals(dadosAtuais, PlayerControl.LocalPlayer.Data))
+            {
+                restauracaoNpcPendente = false;
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[F7/Seguidor] Registro independente do NPC deixou de estar disponível; restauração cancelada.");
+                return;
+            }
+
+            seguidor.CachedPlayerData = dadosAtuais;
+            dadosAtuais.IsDead = false;
+            dadosAtuais.SetDirtyBit(1u << PlayerIdSeguidor);
+            AmongUsClient.Instance.SendAllStreamedObjects();
+
+            restauracaoNpcPendente = false;
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[F7/Seguidor] NPC revivido pela rede usando PlayerId=249 (IsDead=false, SetDirtyBit e SendAllStreamedObjects).");
+        }
+        catch (Exception ex)
+        {
+            restauracaoNpcPendente = false;
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "[F7/Seguidor] Falha ao restaurar o NPC pelo PlayerId=249: " + ex);
+        }
+    }
+
     internal static void Atualizar()
     {
         if (!ativo || !YouTubeVoteBridgePlugin.EhHost() ||
@@ -426,6 +545,9 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
         if (etapaInicializacao < 5)
             return;
+
+        // Corrige a associação dos dados e restaura somente o registro do ID 249.
+        AtualizarRegistroVidaNpc();
 
         // Verifica em runtime se esta versão expõe RpcMove no PlayerPhysics
         // ou no CustomNetworkTransform, sem presumir uma assinatura inexistente.
@@ -1663,6 +1785,12 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         armado = false;
         aguardandoFimRoleReveal = false;
         etapaInicializacao = 0;
+        proximaVerificacaoVidaNpc = 0f;
+        restauracaoNpcAgendadaPara = 0f;
+        restauracaoNpcPendente = false;
+        diagnosticoRegistroNpcFeito = false;
+        avisoRegistroNpcAusente = false;
+        avisoRegistroNpcCompartilhado = false;
         rpcMoveDiagnosticoExecutado = false;
         proximaEtapa = 0f;
         proximaBuscaAlvo = 0f;
