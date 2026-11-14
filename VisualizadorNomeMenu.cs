@@ -50,6 +50,7 @@ internal static class ControladorPartidaMenu
     private const int ID_FECHAR = 1013;
     private const int ID_ZOOM = 1014;
     private const int ID_CHAMAR_REUNIAO = 1015;
+    private const int ID_ALTERNAR_CAMINHO_NPC = 1016;
 
     private enum TipoAcao
     {
@@ -64,7 +65,8 @@ internal static class ControladorPartidaMenu
         FantasmaImpostor,
         AtualizarJogadores,
         AlternarZoom,
-        ChamarReuniao
+        ChamarReuniao,
+        AlternarCaminhoNpc
     }
 
     private sealed class Acao
@@ -284,6 +286,13 @@ internal static class ControladorPartidaMenu
 
                     case TipoAcao.ChamarReuniao:
                         ChamarReuniaoComAutoReport();
+                        break;
+
+                    case TipoAcao.AlternarCaminhoNpc:
+                        bool caminhoVisivel = EventoSeguidorMortal.AlternarVisualizacaoCaminho();
+                        DefinirStatus(caminhoVisivel
+                            ? "Caminho do NPC visível no mapa."
+                            : "Visualização do caminho do NPC desativada.");
                         break;
                 }
             }
@@ -604,7 +613,7 @@ internal static class ControladorPartidaMenu
                 "YouTubeChatBridge — Controlador da partida (F8)",
                 WS_OVERLAPPEDWINDOW,
                 unchecked((int)0x80000000), unchecked((int)0x80000000),
-                760, 700, IntPtr.Zero, IntPtr.Zero, instancia, IntPtr.Zero);
+                760, 740, IntPtr.Zero, IntPtr.Zero, instancia, IntPtr.Zero);
 
             if (janela == IntPtr.Zero)
                 throw new InvalidOperationException("CreateWindowExW falhou: " + Marshal.GetLastWin32Error());
@@ -769,9 +778,10 @@ internal static class ControladorPartidaMenu
         CriarBotao(hwnd, instancia, "Fechar (F8)", 380, 462, 340, 34, ID_FECHAR);
         CriarBotao(hwnd, instancia, "Alternar zoom da câmera", 24, 505, 696, 34, ID_ZOOM);
         CriarBotao(hwnd, instancia, "Chamar reunião (auto-report aleatório)", 24, 548, 696, 34, ID_CHAMAR_REUNIAO);
+        CriarBotao(hwnd, instancia, "Mostrar / ocultar caminho do NPC", 24, 590, 696, 34, ID_ALTERNAR_CAMINHO_NPC);
 
         textoStatus = CriarControle("STATIC", "STATUS: " + mensagem,
-            WS_CHILD | WS_VISIBLE, 24, 595, 700, 32, hwnd, IntPtr.Zero, instancia);
+            WS_CHILD | WS_VISIBLE, 24, 638, 700, 32, hwnd, IntPtr.Zero, instancia);
         AplicarFonte(textoStatus, fonteNormal);
     }
 
