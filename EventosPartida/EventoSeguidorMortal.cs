@@ -2143,6 +2143,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         proximaTentativaVent = 0f;
         limiteTransporte = 0f;
         proximoTransporte = 0f;
+        proximoSnapToRede = 0f;
         monitoramentoMovimentoIniciado = false;
         inicioSemDeslocamento = 0f;
         avisoMonitoramentoMovimento = false;
