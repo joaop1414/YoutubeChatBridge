@@ -35,6 +35,10 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private static Vector2 destinoEletrica;
     private static float proximaAcaoInterruptor;
     private const float IntervaloInterruptorLuzes = 0.5f;
+    private static bool resolvendoOutraSabotagem;
+    private static SystemTypes sabotagemAtual;
+    private static Vector2 destinoOutraSabotagem;
+    private static float proximaTentativaReparo;
     private static PlayerControl seguidor;
     private static PlayerControl alvoAtual;
 
@@ -949,7 +953,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         }
 
         // Sabotagens têm prioridade sobre perseguição e patrulha.
-        if (TentarResolverSabotagemLuzes())
+        if (TentarResolverSabotagemLuzes() || TentarResolverOutrasSabotagens())
             return;
 
         // O Tsunami já usa este mesmo caminho: velocidade no Rigidbody2D
@@ -2355,6 +2359,190 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         return true;
     }
 
+    private static bool SistemaEstaAtivo(SystemTypes tipo)
+    {
+        try
+        {
+            if (ShipStatus.Instance?.Systems == null ||
+                !ShipStatus.Instance.Systems.ContainsKey(tipo))
+                return false;
+
+            object sistema = ShipStatus.Instance.Systems[tipo];
+            return LerMembro(sistema, "IsActive") is bool ativoSistema && ativoSistema;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool TentarObterDestinoSalaSabotagem(
+        SystemTypes sabotagem, out Vector2 destino)
+    {
+        destino = Vector2.zero;
+        if (ShipStatus.Instance == null)
+            return false;
+
+        int mapa = GameOptionsManager.Instance?.CurrentGameOptions?.MapId ?? -1;
+
+        string[] nomesSala = sabotagem switch
+        {
+            SystemTypes.Reactor => new[] { "Reactor", "Reator" },
+            SystemTypes.Laboratory => new[] { "Laboratory", "Lab" },
+            SystemTypes.LifeSupp when mapa == 1 => new[] { "Greenhouse", "O2", "Office" },
+            SystemTypes.LifeSupp => new[] { "O2", "Oxygen", "Admin" },
+            SystemTypes.Comms => new[] { "Comms", "Communications", "Communication" },
+            SystemTypes.HeliSabotage => new[] { "Cockpit", "GapRoom", "Engine" },
+            _ => Array.Empty<string>()
+        };
+
+        foreach (string nome in nomesSala)
+        {
+            PlainShipRoom sala = ShipStatus.Instance.AllRooms.FirstOrDefault(r =>
+                r != null && r.roomArea != null &&
+                r.RoomId.ToString().IndexOf(nome, StringComparison.OrdinalIgnoreCase) >= 0);
+
+            if (sala == null)
+                continue;
+
+            Bounds limites = sala.roomArea.bounds;
+            if (TentarEncontrarPontoLivreNaSala(
+                limites, limites.center, out destino))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Repara reator, O2, comunicações e crash course usando os mesmos
+    /// códigos de atualização dos sistemas nativos do jogo.
+    /// </summary>
+    private static bool TentarResolverOutrasSabotagens()
+    {
+        if (seguidor?.NetTransform?.body == null || ShipStatus.Instance == null)
+            return false;
+
+        int mapa = GameOptionsManager.Instance?.CurrentGameOptions?.MapId ?? -1;
+        SystemTypes? ativa = null;
+
+        SystemTypes[] ordem = mapa switch
+        {
+            2 => new[] { SystemTypes.Laboratory, SystemTypes.Comms },
+            4 => new[] { SystemTypes.HeliSabotage, SystemTypes.Comms },
+            5 => new[] { SystemTypes.Comms },
+            _ => new[] { SystemTypes.Reactor, SystemTypes.LifeSupp, SystemTypes.Comms }
+        };
+
+        foreach (SystemTypes tipo in ordem)
+        {
+            if (SistemaEstaAtivo(tipo))
+            {
+                ativa = tipo;
+                break;
+            }
+        }
+
+        if (ativa == null)
+        {
+            if (resolvendoOutraSabotagem)
+            {
+                resolvendoOutraSabotagem = false;
+                proximaTentativaReparo = 0f;
+                possuiDestinoPatrulha = false;
+                LimparCaminho();
+                EnviarDestinoAosClientesComMod(null);
+
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[F7/Seguidor] Sabotagem " + sabotagemAtual +
+                    " resolvida; NPC retomando suas atividades.");
+            }
+
+            return false;
+        }
+
+        if (!resolvendoOutraSabotagem || sabotagemAtual != ativa.Value)
+        {
+            if (!TentarObterDestinoSalaSabotagem(ativa.Value, out destinoOutraSabotagem))
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[F7/Seguidor] Sabotagem " + ativa.Value +
+                    " ativa, mas não foi possível localizar sua sala de reparo.");
+                return false;
+            }
+
+            sabotagemAtual = ativa.Value;
+            resolvendoOutraSabotagem = true;
+            possuiDestinoPatrulha = false;
+            proximaTentativaReparo = 0f;
+            LimparCaminho();
+            EnviarDestinoAosClientesComMod(null, destinoOutraSabotagem);
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[F7/Seguidor] Sabotagem " + sabotagemAtual +
+                " detectada; NPC indo para " + destinoOutraSabotagem + ".");
+        }
+
+        if (Vector2.Distance(seguidor.GetTruePosition(), destinoOutraSabotagem) >
+            DistanciaChegadaPatrulha)
+        {
+            MoverAte(destinoOutraSabotagem);
+            return true;
+        }
+
+        seguidor.NetTransform.body.velocity = Vector2.zero;
+
+        float agora = Time.realtimeSinceStartup;
+        if (agora < proximaTentativaReparo)
+            return true;
+
+        try
+        {
+            switch (sabotagemAtual)
+            {
+                case SystemTypes.Reactor:
+                case SystemTypes.Laboratory:
+                case SystemTypes.LifeSupp:
+                    ShipStatus.Instance.UpdateSystem(sabotagemAtual, seguidor, 16);
+                    break;
+
+                case SystemTypes.Comms:
+                    // Mira HQ e The Fungle usam dois consoles de comunicação.
+                    if (mapa == 1 || mapa == 5)
+                    {
+                        ShipStatus.Instance.UpdateSystem(SystemTypes.Comms, seguidor, 16);
+                        ShipStatus.Instance.UpdateSystem(SystemTypes.Comms, seguidor, 17);
+                    }
+                    else
+                    {
+                        ShipStatus.Instance.UpdateSystem(SystemTypes.Comms, seguidor, 16);
+                    }
+                    break;
+
+                case SystemTypes.HeliSabotage:
+                    // Crash Course do Airship exige registrar os dois painéis.
+                    ShipStatus.Instance.UpdateSystem(SystemTypes.HeliSabotage, seguidor, 17);
+                    ShipStatus.Instance.UpdateSystem(SystemTypes.HeliSabotage, seguidor, 16);
+                    break;
+            }
+
+            proximaTentativaReparo = agora + 1f;
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[F7/Seguidor] NPC enviou interação de reparo para " +
+                sabotagemAtual + ".");
+        }
+        catch (Exception ex)
+        {
+            proximaTentativaReparo = agora + 2f;
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Seguidor] Falha ao reparar " + sabotagemAtual +
+                ": " + ex.Message);
+        }
+
+        return true;
+    }
+
     // Calcula a visão como a de um tripulante real. CalculateLightRadius
     // já considera o multiplicador de visão e a sabotagem das luzes.
     private static float ObterAlcanceVisaoTripulante()
@@ -2725,6 +2913,10 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         resolvendoSabotagemLuzes = false;
         destinoEletrica = Vector2.zero;
         proximaAcaoInterruptor = 0f;
+        resolvendoOutraSabotagem = false;
+        sabotagemAtual = SystemTypes.Hallway;
+        destinoOutraSabotagem = Vector2.zero;
+        proximaTentativaReparo = 0f;
         transporteEmAndamento = false;
         aguardandoSaidaVent = false;
         ventEntradaAtual = null;
