@@ -17,6 +17,7 @@ internal static class RegistroEventosPartida
         new EventoDutosInstaveis(),
         new EventoMorrerQuandoPortaFechar(),
         new EventoRaio(),
+        new EventoSeguidorMortal(),
         new EventoImpostorSuicidaAoTentarMatar(),
     };
 
