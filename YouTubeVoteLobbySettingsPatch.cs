@@ -90,6 +90,13 @@ namespace YouTubeVoteBridge
                                 CriarControle(__instance, modeloExistente, "Escolher mapa aleatório ao iniciar (Dleks: 20%)", PREFIX + "TROCAMAPA", yExistente);
                                 yExistente -= 0.52f;
                             }
+                            if (!existentes.Any(x => x.name == PREFIX + "VENTNPC"))
+                            {
+                                CriarControle(__instance, modeloExistente,
+                                    "Permitir se o NPC Assassino possa usar ventilações",
+                                    PREFIX + "VENTNPC", yExistente);
+                                yExistente -= 0.52f;
+                            }
 
                             if (__instance.scrollBar != null)
                                 __instance.scrollBar.SetYBoundsMax(Math.Max(6f, -yExistente + 2.6f));
@@ -146,6 +153,10 @@ namespace YouTubeVoteBridge
                 CriarControle(__instance, modelo, "Permitir IDs de outros jogadores", PREFIX + "PERMITIRIDS", y);
                 y -= 0.52f;
                 CriarControle(__instance, modelo, "Escolher mapa aleatório ao iniciar (Dleks: 20%)", PREFIX + "TROCAMAPA", y);
+                y -= 0.52f;
+                CriarControle(__instance, modelo,
+                    "Permitir se o NPC Assassino possa usar ventilações",
+                    PREFIX + "VENTNPC", y);
                 y -= 0.52f;
 
                 AtualizarControles(__instance);
@@ -220,7 +231,8 @@ namespace YouTubeVoteBridge
                 YouTubeVoteBridgePlugin.SemFimDeJogo == null ||
                 YouTubeVoteBridgePlugin.MultiTransmissaoAtiva == null ||
                 YouTubeVoteBridgePlugin.PermitirIdsDeOutrosJogadores == null ||
-                YouTubeVoteBridgePlugin.TrocarMapaAoIniciar == null)
+                YouTubeVoteBridgePlugin.TrocarMapaAoIniciar == null ||
+                YouTubeVoteBridgePlugin.PermitirVentilacaoNPC == null)
                 return;
 
             if (option.name == PREFIX + "TEMPO")
@@ -242,6 +254,8 @@ namespace YouTubeVoteBridge
                 YouTubeVoteBridgePlugin.PermitirIdsDeOutrosJogadores.Value = delta > 0;
             else if (option.name == PREFIX + "TROCAMAPA")
                 YouTubeVoteBridgePlugin.TrocarMapaAoIniciar.Value = delta > 0;
+            else if (option.name == PREFIX + "VENTNPC")
+                YouTubeVoteBridgePlugin.PermitirVentilacaoNPC.Value = delta > 0;
             else
                 return;
 
@@ -345,6 +359,16 @@ namespace YouTubeVoteBridge
                 bool ativado = YouTubeVoteBridgePlugin.TrocarMapaAoIniciar != null &&
                     YouTubeVoteBridgePlugin.TrocarMapaAoIniciar.Value;
                 option.TitleText.text = "Escolher mapa aleatório ao iniciar (Dleks: 20%)";
+                option.Value = ativado ? 1 : 0;
+                option.oldValue = ativado ? 1 : 0;
+                option.ValueText.text = ativado ? "Ativado" : "Desativado";
+                return;
+            }
+            else if (option.name == PREFIX + "VENTNPC")
+            {
+                bool ativado = YouTubeVoteBridgePlugin.PermitirVentilacaoNPC != null &&
+                    YouTubeVoteBridgePlugin.PermitirVentilacaoNPC.Value;
+                option.TitleText.text = "Permitir se o NPC Assassino possa usar ventilações";
                 option.Value = ativado ? 1 : 0;
                 option.oldValue = ativado ? 1 : 0;
                 option.ValueText.text = ativado ? "Ativado" : "Desativado";
