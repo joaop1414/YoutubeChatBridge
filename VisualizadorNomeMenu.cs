@@ -352,9 +352,11 @@ internal static class ControladorPartidaMenu
     private static void PularVotacao()
     {
         MeetingHud reuniao = MeetingHud.Instance;
-        if (reuniao == null)
+        if (reuniao == null || reuniao.playerStates == null ||
+            reuniao.state == MeetingHud.MeetingStates.Results ||
+            reuniao.state == MeetingHud.MeetingStates.Proceeding)
         {
-            DefinirStatus("Não existe uma votação ativa no momento.");
+            DefinirStatus("Não existe uma fase de votação ativa no momento.");
             return;
         }
 
