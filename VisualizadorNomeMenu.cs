@@ -49,6 +49,7 @@ internal static class ControladorPartidaMenu
     private const int ID_FANTASMA_IMPOSTOR = 1012;
     private const int ID_FECHAR = 1013;
     private const int ID_ZOOM = 1014;
+    private const int ID_CHAMAR_REUNIAO = 1015;
 
     private enum TipoAcao
     {
@@ -62,7 +63,8 @@ internal static class ControladorPartidaMenu
         FantasmaTripulante,
         FantasmaImpostor,
         AtualizarJogadores,
-        AlternarZoom
+        AlternarZoom,
+        ChamarReuniao
     }
 
     private sealed class Acao
@@ -279,6 +281,10 @@ internal static class ControladorPartidaMenu
                             ? "Zoom ativado. Use a roda do mouse para aproximar/afastar."
                             : "Zoom desativado; câmera restaurada.");
                         break;
+
+                    case TipoAcao.ChamarReuniao:
+                        ChamarReuniaoComAutoReport();
+                        break;
                 }
             }
             catch (Exception ex)
@@ -288,6 +294,80 @@ internal static class ControladorPartidaMenu
                     "[Controlador F8] Falha ao processar ação: " + ex);
             }
         }
+    }
+
+    private static void ChamarReuniaoComAutoReport()
+    {
+        if (!ValidarHostEPartida()) return;
+        List<PlayerControl> vivos = new();
+        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+            if (jogador != null && jogador.Data != null && !jogador.Data.IsDead && !jogador.Data.Disconnected)
+                vivos.Add(jogador);
+        if (vivos.Count == 0)
+        {
+            DefinirStatus("Não há jogadores vivos para realizar o auto-report.");
+            return;
+        }
+
+        PlayerControl reporter = vivos[UnityEngine.Random.Range(0, vivos.Count)];
+        try
+        {
+            object meetingManager = ObterInstanciaTipo("MeetingRoomManager");
+            if (meetingManager != null)
+                InvocarMetodoCompativel(meetingManager, "AssignSelf", reporter, reporter.Data);
+            if (HudManager.Instance != null)
+                InvocarMetodoCompativel(HudManager.Instance, "OpenMeetingRoom", reporter);
+            if (!InvocarMetodoCompativel(reporter, "RpcStartMeeting", reporter.Data))
+                throw new MissingMethodException("RpcStartMeeting(NetworkedPlayerInfo) não foi encontrado.");
+
+            YouTubeVoteBridgePlugin.EnviarMensagemAnfitriao(
+                "<color=blue>ESSA REUNIÃO FOI CHAMADA PELO ANFITRIÃO</color>");
+            DefinirStatus("Reunião iniciada por auto-report de " +
+                (reporter.Data.PlayerName ?? ("ID " + reporter.PlayerId)) + ".");
+        }
+        catch (Exception ex)
+        {
+            DefinirStatus("Falha ao chamar reunião: " + ex.Message);
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError("[Controlador F8] Falha no auto-report: " + ex);
+        }
+    }
+
+    private static object ObterInstanciaTipo(string nomeTipo)
+    {
+        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            Type tipo = assembly.GetType(nomeTipo);
+            if (tipo == null) continue;
+            const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
+            PropertyInfo propriedade = tipo.GetProperty("Instance", flags);
+            if (propriedade != null) return propriedade.GetValue(null);
+            FieldInfo campo = tipo.GetField("Instance", flags);
+            if (campo != null) return campo.GetValue(null);
+        }
+        return null;
+    }
+
+    private static bool InvocarMetodoCompativel(object instancia, string nome, params object[] argumentos)
+    {
+        if (instancia == null) return false;
+        const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+        foreach (MethodInfo metodo in instancia.GetType().GetMethods(flags))
+        {
+            if (!string.Equals(metodo.Name, nome, StringComparison.Ordinal)) continue;
+            ParameterInfo[] parametros = metodo.GetParameters();
+            if (parametros.Length != argumentos.Length) continue;
+            bool compativel = true;
+            for (int i = 0; i < parametros.Length; i++)
+                if (argumentos[i] != null && !parametros[i].ParameterType.IsInstanceOfType(argumentos[i]))
+                {
+                    compativel = false;
+                    break;
+                }
+            if (!compativel) continue;
+            metodo.Invoke(instancia, argumentos);
+            return true;
+        }
+        return false;
     }
 
     private static bool ValidarHostEPartida()
@@ -524,7 +604,7 @@ internal static class ControladorPartidaMenu
                 "YouTubeChatBridge — Controlador da partida (F8)",
                 WS_OVERLAPPEDWINDOW,
                 unchecked((int)0x80000000), unchecked((int)0x80000000),
-                760, 650, IntPtr.Zero, IntPtr.Zero, instancia, IntPtr.Zero);
+                760, 700, IntPtr.Zero, IntPtr.Zero, instancia, IntPtr.Zero);
 
             if (janela == IntPtr.Zero)
                 throw new InvalidOperationException("CreateWindowExW falhou: " + Marshal.GetLastWin32Error());
@@ -623,6 +703,7 @@ internal static class ControladorPartidaMenu
                     ID_FANTASMA_TRIPULANTE => TipoAcao.FantasmaTripulante,
                     ID_FANTASMA_IMPOSTOR => TipoAcao.FantasmaImpostor,
                     ID_ZOOM => TipoAcao.AlternarZoom,
+                    ID_CHAMAR_REUNIAO => TipoAcao.ChamarReuniao,
                     _ => null
                 };
 
@@ -687,9 +768,10 @@ internal static class ControladorPartidaMenu
         CriarBotao(hwnd, instancia, "Impostor fantasma + vitória", 24, 462, 340, 34, ID_FANTASMA_IMPOSTOR);
         CriarBotao(hwnd, instancia, "Fechar (F8)", 380, 462, 340, 34, ID_FECHAR);
         CriarBotao(hwnd, instancia, "Alternar zoom da câmera", 24, 505, 696, 34, ID_ZOOM);
+        CriarBotao(hwnd, instancia, "Chamar reunião (auto-report aleatório)", 24, 548, 696, 34, ID_CHAMAR_REUNIAO);
 
         textoStatus = CriarControle("STATIC", "STATUS: " + mensagem,
-            WS_CHILD | WS_VISIBLE, 24, 550, 700, 32, hwnd, IntPtr.Zero, instancia);
+            WS_CHILD | WS_VISIBLE, 24, 595, 700, 32, hwnd, IntPtr.Zero, instancia);
         AplicarFonte(textoStatus, fonteNormal);
     }
 
