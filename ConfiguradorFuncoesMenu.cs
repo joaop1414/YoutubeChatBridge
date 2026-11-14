@@ -187,8 +187,7 @@ internal static class ConfiguradorFuncoesMenu
 
             foreach (RoleTypes funcao in Enum.GetValues(typeof(RoleTypes)))
             {
-                if (funcao == RoleTypes.None ||
-                    funcao == RoleTypes.Crewmate ||
+                if (funcao == RoleTypes.Crewmate ||
                     funcao == RoleTypes.Impostor)
                     continue;
 
@@ -565,8 +564,11 @@ internal static class ConfiguradorFuncoesSelecaoInicialPatch
 
         int foraDaConfiguracao = jogadores.Count(j =>
         {
-            RoleTypes papel = j.Data.Role != null ? j.Data.Role.Role : RoleTypes.None;
-            return papel != RoleTypes.None && !habilitadas.Contains(papel);
+            if (j.Data.Role == null)
+                return false;
+
+            RoleTypes papel = j.Data.Role.Role;
+            return !habilitadas.Contains(papel);
         });
 
         if (foraDaConfiguracao > 2)
@@ -577,9 +579,11 @@ internal static class ConfiguradorFuncoesSelecaoInicialPatch
             return;
         }
 
-        Dictionary<byte, RoleTypes> papeisAtuais = jogadores.ToDictionary(
+        Dictionary<byte, RoleTypes?> papeisAtuais = jogadores.ToDictionary(
             j => j.PlayerId,
-            j => j.Data.Role != null ? j.Data.Role.Role : RoleTypes.None);
+            j => j.Data.Role != null
+                ? (RoleTypes?)j.Data.Role.Role
+                : null);
 
         HashSet<byte> envolvidos = new();
         List<KeyValuePair<PlayerControl, RoleTypes>> trocas = new();
@@ -590,10 +594,11 @@ internal static class ConfiguradorFuncoesSelecaoInicialPatch
                 jogadores.FirstOrDefault(j => j.PlayerId == configuracao.Key);
 
             if (jogadorConfigurado == null ||
-                !papeisAtuais.TryGetValue(configuracao.Key, out RoleTypes papelAtual) ||
-                papelAtual == RoleTypes.None)
+                !papeisAtuais.TryGetValue(configuracao.Key, out RoleTypes? papelAtualOpcional) ||
+                !papelAtualOpcional.HasValue)
                 continue;
 
+            RoleTypes papelAtual = papelAtualOpcional.Value;
             RoleTypes papelDesejado = configuracao.Value;
 
             if (!habilitadas.Contains(papelDesejado))
@@ -611,8 +616,9 @@ internal static class ConfiguradorFuncoesSelecaoInicialPatch
             PlayerControl parceiro = jogadores.FirstOrDefault(j =>
                 j.PlayerId != jogadorConfigurado.PlayerId &&
                 !envolvidos.Contains(j.PlayerId) &&
-                papeisAtuais.TryGetValue(j.PlayerId, out RoleTypes papelParceiro) &&
-                papelParceiro == papelDesejado);
+                papeisAtuais.TryGetValue(j.PlayerId, out RoleTypes? papelParceiro) &&
+                papelParceiro.HasValue &&
+                papelParceiro.Value == papelDesejado);
 
             if (parceiro == null)
             {
@@ -623,7 +629,7 @@ internal static class ConfiguradorFuncoesSelecaoInicialPatch
                 continue;
             }
 
-            RoleTypes papelParceiroAtual = papeisAtuais[parceiro.PlayerId];
+            RoleTypes papelParceiroAtual = papeisAtuais[parceiro.PlayerId].Value;
 
             trocas.Add(new KeyValuePair<PlayerControl, RoleTypes>(
                 jogadorConfigurado, papelDesejado));
