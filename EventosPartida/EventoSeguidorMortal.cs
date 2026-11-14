@@ -18,9 +18,11 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private const float Velocidade = 1.75f;
     private const float AlcanceMorte = 0.48f;
     private const float IntervaloTrocaAlvo = 0.25f;
+    private const string NomeSeguidor = "<color=red>NPC ASSASINO</color>";
 
     private static bool armado;
     private static bool ativo;
+    private static bool aguardandoFimRoleReveal;
     private static int etapaInicializacao;
     private static float proximaEtapa;
     private static float proximaBuscaAlvo;
@@ -60,19 +62,44 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         if (ativo || seguidor != null)
             return;
 
+        // ShipStatus.Start ocorre antes do fim da Role Reveal.
+        // Aqui apenas armamos o evento; o NPC será criado no OnDestroy da IntroCutscene.
+        ativo = true;
+        aguardandoFimRoleReveal = true;
+        etapaInicializacao = 0;
+        proximaEtapa = float.MaxValue;
+        alvoAtual = null;
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            "[F7/Seguidor] Evento preparado; aguardando o fim da Role Reveal.");
+    }
+
+    internal static void AoSairDaRoleReveal()
+    {
+        if (!YouTubeVoteBridgePlugin.EhHost() ||
+            !armado ||
+            !ativo ||
+            !aguardandoFimRoleReveal ||
+            ShipStatus.Instance == null ||
+            AmongUsClient.Instance == null ||
+            PlayerControl.LocalPlayer == null)
+            return;
+
+        aguardandoFimRoleReveal = false;
+
         PlayerControl primeiroAlvo = ObterJogadorVivoMaisProximo(
             (Vector2)PlayerControl.LocalPlayer.transform.position);
 
         if (primeiroAlvo == null)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "[F7/Seguidor] Não há jogadores vivos para o NPC perseguir.");
+                "[F7/Seguidor] Role Reveal terminou, mas não há jogadores vivos para posicionar o NPC.");
+            Resetar();
             return;
         }
 
         try
         {
-            // Nasce deslocado do alvo para não começar sobre o jogador.
             Vector2 posicaoInicial = primeiroAlvo.GetTruePosition() + new Vector2(2.0f, 1.5f);
 
             seguidor = UnityEngine.Object.Instantiate(
@@ -83,14 +110,12 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             seguidor.PlayerId = PlayerIdSeguidor;
             seguidor.isNew = false;
             seguidor.notRealPlayer = true;
-
-            // SnapTo somente para definir a posição inicial antes do Spawn.
             seguidor.NetTransform.SnapTo(posicaoInicial);
 
             var outfit = seguidor.Data?.Outfits[PlayerOutfitType.Default];
             if (outfit != null)
             {
-                outfit.PlayerName = "SEGUIDOR";
+                outfit.PlayerName = NomeSeguidor;
                 outfit.ColorId = 0;
                 outfit.HatId = string.Empty;
                 outfit.SkinId = string.Empty;
@@ -105,20 +130,23 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             }
             catch { }
 
+            // Mesmo fluxo em etapas do Raio/Tsunami:
+            // criar localmente -> Spawn -> associar NetId/PlayerId -> aparência.
             etapaInicializacao = 1;
             proximaEtapa = Time.realtimeSinceStartup + 0.12f;
             proximaBuscaAlvo = 0f;
+            proximoTransporte = 0f;
+            transporteEmAndamento = false;
             alvoAtual = null;
-            ativo = true;
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[F7/Seguidor] NPC criado localmente. PlayerId=" +
+                "[F7/Seguidor] Role Reveal encerrada. NPC ASSASINO criado; iniciando sincronização. PlayerId=" +
                 PlayerIdSeguidor + ", posição inicial=" + posicaoInicial + ".");
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[F7/Seguidor] Falha ao criar o NPC: " + ex);
+                "[F7/Seguidor] Falha ao criar NPC após a Role Reveal: " + ex);
             Resetar();
         }
     }
@@ -137,26 +165,32 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             return;
         }
 
-        if (seguidor == null || seguidor.NetTransform == null)
+        if (aguardandoFimRoleReveal || seguidor == null)
+            return;
+
+        if (seguidor.NetTransform == null)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "[F7/Seguidor] NPC ou CustomNetworkTransform indisponível; encerrando evento.");
+                "[F7/Seguidor] CustomNetworkTransform indisponível; encerrando evento.");
             Resetar();
             return;
         }
 
-        // Etapa 1: publicar o Spawn do NPC.
+        // Etapa 1: publicar o Spawn pelo mesmo fluxo de rede do Raio/Tsunami.
         if (etapaInicializacao == 1 &&
             Time.realtimeSinceStartup >= proximaEtapa)
         {
             try
             {
                 CustomNetObject.EnviarSpawn(seguidor, ocultarVisual: false);
+                if (PlayerControl.AllPlayerControls.Contains(seguidor))
+                    PlayerControl.AllPlayerControls.Remove(seguidor);
+
                 etapaInicializacao = 2;
                 proximaEtapa = Time.realtimeSinceStartup + 0.12f;
 
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "[F7/Seguidor] Spawn enviado; aguardando associação aos clientes.");
+                    "[F7/Seguidor] Spawn enviado; aguardando associação do NPC aos clientes.");
             }
             catch (Exception ex)
             {
@@ -167,14 +201,13 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             }
         }
 
-        // Etapa 2: associar o PlayerId reservado ao objeto de rede.
+        // Etapa 2: associar NetId e PlayerId em cada cliente, como no Raio.
         if (etapaInicializacao == 2 &&
             Time.realtimeSinceStartup >= proximaEtapa)
         {
             try
             {
-                int clientes = CustomNetObject.AssociarClientes(
-                    seguidor, PlayerIdSeguidor);
+                int clientes = CustomNetObject.AssociarClientes(seguidor, PlayerIdSeguidor);
 
                 if (PlayerControl.LocalPlayer?.Data != null)
                     seguidor.CachedPlayerData = PlayerControl.LocalPlayer.Data;
@@ -183,7 +216,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 proximaEtapa = Time.realtimeSinceStartup + 0.15f;
 
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "[F7/Seguidor] NPC associado. Clientes processados=" + clientes + ".");
+                    "[F7/Seguidor] Associação concluída. Clientes processados=" + clientes + ".");
             }
             catch (Exception ex)
             {
@@ -194,7 +227,28 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             }
         }
 
-        if (etapaInicializacao < 3)
+        // Etapa 3: publicar o nome formatado e a aparência do NPC.
+        if (etapaInicializacao == 3 &&
+            Time.realtimeSinceStartup >= proximaEtapa)
+        {
+            try
+            {
+                CustomNetObject.EnviarAparencia(seguidor, NomeSeguidor, 0);
+                etapaInicializacao = 4;
+
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[F7/Seguidor] Aparência publicada: " + NomeSeguidor);
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                    "[F7/Seguidor] Falha ao publicar a aparência do NPC: " + ex);
+                Resetar();
+                return;
+            }
+        }
+
+        if (etapaInicializacao < 4)
             return;
 
         if (seguidor.NetTransform.body == null)
@@ -469,6 +523,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     {
         ativo = false;
         armado = false;
+        aguardandoFimRoleReveal = false;
         etapaInicializacao = 0;
         proximaEtapa = 0f;
         proximaBuscaAlvo = 0f;
