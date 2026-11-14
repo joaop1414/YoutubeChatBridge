@@ -806,11 +806,6 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             return;
         }
 
-        // F8 alterna a visualização diretamente no controlador do NPC.
-        // Não depende do menu F8 nem de uma janela nativa estar aberta.
-        if (Input.GetKeyDown(KeyCode.F8))
-            AlternarVisualizacaoCaminho();
-
         if (aguardandoFimRoleReveal || seguidor == null)
             return;
 
