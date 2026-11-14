@@ -87,6 +87,10 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private static Vector2 ultimaPosicaoMonitorada;
     private static float proximaVerificacaoTravamento;
     private static bool monitoramentoMovimentoIniciado;
+    private static float inicioSemDeslocamento;
+    private static bool avisoMonitoramentoMovimento;
+    private const float TempoParaConsiderarTravado = 2.0f;
+    private const float DeslocamentoMinimoMonitoramento = 0.06f;
     private static bool emManobraDestravamento;
     private static Vector2 pontoDestravamento;
     private static float limiteManobraDestravamento;
@@ -1026,7 +1030,12 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 LimparCaminho();
                 proximoRecalculoCaminho = 0f;
                 ultimaPosicaoMonitorada = origem;
-                proximaVerificacaoTravamento = agora + 0.9f;
+                inicioSemDeslocamento = agora;
+                proximaVerificacaoTravamento = agora + 0.5f;
+                avisoMonitoramentoMovimento = true;
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[F7/Seguidor] Escape encerrado na posição " + origem +
+                    ". Forçando recálculo completo da rota A*.");
             }
             else
             {
@@ -1036,22 +1045,52 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             }
         }
 
-        // Só considera travamento quando o NPC já recebeu uma ordem de
-        // movimento por tempo suficiente para observar deslocamento real.
+        // Monitoramento por deslocamento real: não depende do Rigidbody.velocity,
+        // pois o jogo pode zerá-lo mesmo quando o NPC continua recebendo destino.
         if (!monitoramentoMovimentoIniciado)
         {
             monitoramentoMovimentoIniciado = true;
             ultimaPosicaoMonitorada = origem;
-            proximaVerificacaoTravamento = agora + 1.0f;
+            inicioSemDeslocamento = agora;
+            proximaVerificacaoTravamento = agora + 0.5f;
+            avisoMonitoramentoMovimento = false;
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[F7/Seguidor] Monitorando movimento solicitado. Posição inicial=" + origem +
+                ", destino=" + destino + ".");
         }
         else if (agora >= proximaVerificacaoTravamento)
         {
             float deslocamento = Vector2.Distance(origem, ultimaPosicaoMonitorada);
             ultimaPosicaoMonitorada = origem;
-            proximaVerificacaoTravamento = agora + 0.9f;
+            proximaVerificacaoTravamento = agora + 0.5f;
 
-            if (deslocamento < 0.045f && corpo.velocity.magnitude >= Velocidade * 0.5f)
+            if (deslocamento >= DeslocamentoMinimoMonitoramento)
             {
+                if (avisoMonitoramentoMovimento)
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                        "[F7/Seguidor] Movimento retomado; deslocamento observado=" +
+                        deslocamento.ToString("F3") + ". Limpando rota antiga e recalculando A*.");
+
+                if (avisoMonitoramentoMovimento)
+                {
+                    LimparCaminho();
+                    proximoRecalculoCaminho = 0f;
+                }
+
+                inicioSemDeslocamento = agora;
+                avisoMonitoramentoMovimento = false;
+            }
+            else if (agora - inicioSemDeslocamento >= TempoParaConsiderarTravado)
+            {
+                if (!avisoMonitoramentoMovimento)
+                {
+                    avisoMonitoramentoMovimento = true;
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                        "[F7/Seguidor] Possível travamento detectado: sem deslocamento por " +
+                        (agora - inicioSemDeslocamento).ToString("F1") + "s. Posição=" + origem +
+                        ", velocidade Rigidbody=" + corpo.velocity + ". Iniciando escape aleatório.");
+                }
+
                 if (TentarEncontrarPontoDestravamento(origem, destino, out Vector2 escape))
                 {
                     pontoDestravamento = escape;
@@ -1061,19 +1100,18 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                     corpo.velocity = (escape - origem).normalized * Velocidade;
 
                     YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                        "[F7/Seguidor] Movimento travado detectado. Tentando desvio lateral para " +
-                        escape + " antes de recalcular o A*.");
+                        "[F7/Seguidor] Escape aleatório iniciado: " + origem + " -> " + escape +
+                        ". Após o deslocamento, a rota A* será recalculada.");
                     return;
                 }
 
-                // Sem saída lateral segura: força uma busca nova na próxima atualização.
                 LimparCaminho();
                 proximoRecalculoCaminho = 0f;
                 corpo.velocity = Vector2.zero;
+                inicioSemDeslocamento = agora;
 
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "[F7/Seguidor] Movimento travado e nenhuma manobra lateral segura encontrada; " +
-                    "forçando novo cálculo de rota.");
+                    "[F7/Seguidor] Nenhum escape aleatório seguro encontrado. A* será tentado novamente.");
                 return;
             }
         }
@@ -1808,6 +1846,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         limiteTransporte = 0f;
         proximoTransporte = 0f;
         monitoramentoMovimentoIniciado = false;
+        inicioSemDeslocamento = 0f;
+        avisoMonitoramentoMovimento = false;
         ultimaPosicaoMonitorada = Vector2.zero;
         proximaVerificacaoTravamento = 0f;
         emManobraDestravamento = false;
