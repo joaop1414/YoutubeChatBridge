@@ -440,6 +440,11 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             return;
         }
 
+        // Se o NPC estiver usando uma ventilação, conclui a travessia antes
+        // de calcular alcance de morte ou tentar qualquer outro transporte.
+        if (TentarUsarVentilacao(alvo))
+            return;
+
         Vector2 origem = seguidor.GetTruePosition();
         Vector2 destino = alvo.GetTruePosition();
         Vector2 diferenca = destino - origem;
@@ -453,11 +458,6 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             proximaBuscaAlvo = 0f;
             return;
         }
-
-        // Antes de perseguir em linha reta, procura uma travessia vanilla
-        // que aproxime o NPC do alvo: escadas e tirolesas do Fungle.
-        if (TentarUsarVentilacao(alvo))
-            return;
 
         if (TentarUsarEscadaOuTirolesa(alvo))
             return;
