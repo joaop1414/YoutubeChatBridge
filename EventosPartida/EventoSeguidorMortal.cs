@@ -211,7 +211,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         salaDesejada = mapa switch
         {
             0 => SystemTypes.Shields,       // The Skeld
-            1 => SystemTypes.Reactor,       // MIRA HQ
+            1 => SystemTypes.Greenhouse,    // MIRA HQ - Estufa
             2 => SystemTypes.Specimens,     // Polus
             4 => SystemTypes.Electrical,     // Airship
             5 => SystemTypes.Laboratory,    // The Fungle
