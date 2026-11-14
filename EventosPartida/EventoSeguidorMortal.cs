@@ -119,12 +119,10 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
         try
         {
-            // Mesmo padrão do Tsunami/Raio: o NPC nasce fora da tela,
-            // recebe o Spawn oculto e só aparece depois da associação e aparência.
-            // Isso evita que o cliente receba o personagem em uma posição/estado
-            // visual parcialmente inicializado.
+            // Mesmo padrão do Raio/Tsunami: cria o PlayerControl fora do mapa,
+            // configura a aparência antes do Spawn e só depois o posiciona na sala.
             posicaoInicialSeguidor = posicaoInicial;
-            Vector2 posicaoOculta = posicaoInicial + new Vector2(-1000f, 0f);
+            Vector2 posicaoOculta = new Vector2(-1000f, 0f);
 
             seguidor = UnityEngine.Object.Instantiate(
                 AmongUsClient.Instance.PlayerPrefab,
@@ -136,11 +134,18 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             seguidor.notRealPlayer = true;
             seguidor.NetTransform.SnapTo(posicaoOculta);
 
-            // O Spawn carrega apenas um nome curto. Nome/cor/cosméticos definitivos
-            // serão publicados depois que os clientes associarem o NetId ao PlayerId.
+            // A aparência é definida no próprio outfit antes do Spawn,
+            // igual ao NPC original que já funcionava.
             var outfit = seguidor.Data?.Outfits[PlayerOutfitType.Default];
             if (outfit != null)
-                outfit.PlayerName = "ASSASSINO";
+            {
+                outfit.PlayerName = NomeSeguidor;
+                outfit.ColorId = 0;
+                outfit.HatId = "hat_pk02_TenGallonHat";
+                outfit.SkinId = "skin_Wall";
+                outfit.PetId = "pet_EmptyPet";
+                outfit.VisorId = "visor_EmptyVisor";
+            }
 
             try
             {
@@ -288,7 +293,9 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         {
             try
             {
-                CustomNetObject.EnviarSpawn(seguidor, ocultarVisual: false);
+                // Mesma chamada padrão usada pelo Raio: Spawn oculto e remoção
+                // da lista local de jogadores antes da associação por cliente.
+                CustomNetObject.EnviarSpawn(seguidor);
 
                 etapaInicializacao = 2;
                 proximaEtapa = Time.realtimeSinceStartup + 0.12f;
@@ -313,9 +320,10 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             {
                 int clientes = CustomNetObject.AssociarClientes(seguidor, PlayerIdSeguidor);
 
-                // Não atribuímos CachedPlayerData do host: este NPC precisa manter
-                // seus próprios dados, nome e identidade para não virar um clone
-                // lógico do jogador local durante a perseguição.
+                // Reproduz o procedimento do Raio/EHR para os fluxos de cosméticos
+                // e Shapeshift conseguirem renderizar o PlayerControl artificial.
+                if (PlayerControl.LocalPlayer?.Data != null)
+                    seguidor.CachedPlayerData = PlayerControl.LocalPlayer.Data;
 
                 etapaInicializacao = 3;
                 proximaEtapa = Time.realtimeSinceStartup + 0.15f;
@@ -338,21 +346,14 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         {
             try
             {
-                CustomNetObject.EnviarAparencia(
-                    seguidor,
-                    NomeSeguidor,
-                    0,
-                    "hat_pk02_TenGallonHat",
-                    "skin_Wall",
-                    "pet_EmptyPet",
-                    "visor_EmptyVisor");
-
-                // Como no Tsunami, só depois de concluir a aparência o NPC
-                // é reposicionado para dentro do mapa.
+                // A aparência já foi configurada antes do Spawn, como no
+                // NPC original. O Raio/Tsunami também usa EnviarPosicao para
+                // publicar o posicionamento final depois da associação.
                 CustomNetObject.EnviarPosicao(seguidor, posicaoInicialSeguidor);
 
                 try
                 {
+                    seguidor.SetName(NomeSeguidor);
                     if (seguidor.cosmetics?.nameText != null)
                         seguidor.cosmetics.nameText.text = NomeSeguidor;
                 }
