@@ -1,6 +1,7 @@
 using System;
 using System.Reflection;
 using System.Collections.Generic;
+using System.Linq;
 using MoreGamemodes;
 using AmongUs.GameOptions;
 using UnityEngine;
@@ -617,15 +618,41 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         foreach (Vent entrada in vents)
         {
             float distanciaEntrada = Vector2.Distance(origem, entrada.transform.position);
+            Vent[] conectadas = ObterVentsConectados(entrada);
+            bool saidaAleatoria = conectadas.Length == 0;
 
-            foreach (Vent saida in ObterVentsConectados(entrada))
+            // Primeiro usa a ligação Left/Right/Center do jogo.
+            // Se a versão/mapa não expuser uma ligação, escolhe uma saída
+            // aleatória entre as outras ventilações ativas.
+            if (saidaAleatoria)
+            {
+                Vent[] alternativas = vents
+                    .Where(v => v != entrada)
+                    .ToArray();
+
+                if (alternativas.Length == 0)
+                    continue;
+
+                conectadas = new[]
+                {
+                    alternativas[UnityEngine.Random.Range(0, alternativas.Length)]
+                };
+            }
+
+            foreach (Vent saida in conectadas)
             {
                 float distanciaSaida = Vector2.Distance(saida.transform.position, posAlvo);
                 float custo = distanciaEntrada + distanciaSaida;
 
-                if (distanciaSaida >= distanciaDireta - 0.8f ||
-                    custo >= distanciaDireta - 0.6f ||
-                    custo >= melhorCusto)
+                // Para uma conexão conhecida, só usa o atalho se ele realmente
+                // encurtar a perseguição. Na saída aleatória, aceita a escolha
+                // mesmo sem ganho geométrico, conforme fallback solicitado.
+                if (!saidaAleatoria &&
+                    (distanciaSaida >= distanciaDireta - 0.8f ||
+                     custo >= distanciaDireta - 0.6f))
+                    continue;
+
+                if (custo >= melhorCusto)
                     continue;
 
                 melhorCusto = custo;
