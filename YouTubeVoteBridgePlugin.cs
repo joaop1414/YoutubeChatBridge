@@ -379,44 +379,37 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         }
     }
 
-    // Seleciona um jogador vivo e conectado para representar as mensagens do sistema.
-    // A autoridade continua sendo do host; o jogador escolhido é apenas o remetente visual.
+    // Todas as mensagens do sistema usam o host como remetente visual.
+    // Isso continua funcionando quando todos os jogadores estão mortos.
     internal static PlayerControl ObterRemetenteMensagens(PlayerControl preferido = null)
     {
-        if (PodeSerMensageiro(preferido))
-            return preferido;
+        if (AmongUsClient.Instance == null)
+            return null;
 
-        PlayerControl local = PlayerControl.LocalPlayer;
-        if (PodeSerMensageiro(local))
-            return local;
+        // No host, o jogador local é sempre o próprio host, vivo ou morto.
+        if (EhHost())
+        {
+            PlayerControl local = PlayerControl.LocalPlayer;
+            if (local != null && local.Data != null && !local.Data.Disconnected)
+                return local;
+        }
 
-        List<PlayerControl> candidatos = new();
+        // Em clientes, localiza o PlayerControl pertencente ao host.
+        int hostId = AmongUsClient.Instance.HostId;
         if (PlayerControl.AllPlayerControls != null)
         {
             foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
             {
-                if (PodeSerMensageiro(jogador))
-                    candidatos.Add(jogador);
+                if (jogador != null &&
+                    jogador.Data != null &&
+                    !jogador.Data.Disconnected &&
+                    jogador.OwnerId == hostId)
+                    return jogador;
             }
         }
 
-        if (candidatos.Count == 0)
-        {
-            Instance?.Log.LogWarning(
-                "[Mensagens] Não há jogador vivo e conectado para servir como remetente.");
-            return null;
-        }
-
-        return candidatos[UnityEngine.Random.Range(0, candidatos.Count)];
-    }
-
-    private static bool PodeSerMensageiro(PlayerControl jogador)
-    {
-        return jogador != null &&
-               jogador.Data != null &&
-               !jogador.Data.IsDead &&
-               !jogador.Data.Disconnected &&
-               !jogador.notRealPlayer;
+        // Sem PlayerControl do host disponível, aguarda em silêncio.
+        return null;
     }
 
     // Anúncio global no estilo dos comandos /s e /say do Endless Host Roles.
