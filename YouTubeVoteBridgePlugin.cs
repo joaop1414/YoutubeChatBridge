@@ -4450,6 +4450,7 @@ public static class YouTubeVoteResetTaskEventsOnStartPatch
     {
 
         EventoTesteMenu.ResetarEstadoPartida("início de partida");
+        TeleporteAPI.Resetar();
         YouTubeVoteBridgePlugin.LimparRegistroTarefasShapeshift();
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             "Shapeshift/tarefas: histórico de jogador + tarefa concluída limpo no início da partida.");
@@ -4475,6 +4476,7 @@ public static class YouTubeVoteResetTaskEventsOnEndPatch
 
         YouTubeVoteBridgePlugin.ResetarVotacaoLobbyFimDePartida();
         EventoTesteMenu.ResetarEstadoPartida("fim de partida");
+        TeleporteAPI.Resetar();
         YouTubeVoteBridgePlugin.LimparRegistroTarefasShapeshift();
         YouTubeVoteBridgePlugin.ResetarRainbowFimDePartida();
         EventoTarefaMataJogador.Desativar();
