@@ -289,7 +289,7 @@ internal static class RoleSwitchAPI
         try
         {
             // No host, CoSetRole atualiza o estado local sem depender do RPC.
-            jogador.StartCoroutine(jogador.CoSetRole(funcao, true));
+            jogador.SetRole(funcao);
 
             MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
                 jogador.NetId,
