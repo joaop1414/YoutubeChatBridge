@@ -415,7 +415,8 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         return jogador != null &&
                jogador.Data != null &&
                !jogador.Data.IsDead &&
-               !jogador.Data.Disconnected;
+               !jogador.Data.Disconnected &&
+               !jogador.notRealPlayer;
     }
 
     // Anúncio global no estilo dos comandos /s e /say do Endless Host Roles.
