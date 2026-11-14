@@ -14,7 +14,11 @@ internal static class ZoomCamera
     private const float FATOR_ZOOM = 1.5f;
 
     private static Camera cameraPrincipal;
+    private static Camera cameraInterface;
     private static bool ativo;
+    // O estado do recurso é independente da existência temporária das câmeras.
+    // Assim, se a HUD/câmera for recriada, o zoom continua ativo.
+    private static float tamanhoZoomAtual = TAMANHO_PADRAO;
 
     public static bool Ativo => ativo;
 
@@ -22,8 +26,17 @@ internal static class ZoomCamera
     {
         ativo = !ativo;
 
-        if (!ativo)
+        if (ativo)
+        {
+            tamanhoZoomAtual = TAMANHO_PADRAO;
+            cameraPrincipal = null;
+            cameraInterface = null;
+            SincronizarCameras();
+        }
+        else
+        {
             Restaurar();
+        }
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             "[Zoom] " + (ativo ? "Ativado pelo controlador F8." : "Desativado pelo controlador F8."));
@@ -47,11 +60,9 @@ internal static class ZoomCamera
             if (!ativo)
                 return;
 
-            if (cameraPrincipal == null)
-                cameraPrincipal = Camera.main;
-
-            if (cameraPrincipal == null || !HudManager.InstanceExists ||
-                HudManager.Instance == null || HudManager.Instance.UICamera == null)
+            // Não desligamos o recurso quando uma reunião, transição ou HUD
+            // substitui temporariamente as câmeras. Apenas aguardamos e reaplicamos.
+            if (!SincronizarCameras())
                 return;
 
             float scroll = Input.mouseScrollDelta.y;
@@ -91,23 +102,48 @@ internal static class ZoomCamera
             HudManager.Instance == null || HudManager.Instance.UICamera == null)
             return;
 
-        Camera cameraInterface = HudManager.Instance.UICamera;
-
         float fator = afastar ? FATOR_ZOOM : 1f / FATOR_ZOOM;
-        float novoTamanho = cameraPrincipal.orthographicSize * fator;
+        tamanhoZoomAtual = Mathf.Clamp(
+            tamanhoZoomAtual * fator, TAMANHO_PADRAO, TAMANHO_MAXIMO);
 
-        novoTamanho = Mathf.Clamp(novoTamanho, TAMANHO_PADRAO, TAMANHO_MAXIMO);
-
-        cameraPrincipal.orthographicSize = novoTamanho;
-        cameraInterface.orthographicSize = novoTamanho;
-
+        SincronizarCameras();
         AtualizarSombra();
+    }
+
+    // Retorna false somente enquanto uma das câmeras ainda não existe.
+    // Quando elas são recriadas, reaplica o último nível de zoom armazenado.
+    private static bool SincronizarCameras()
+    {
+        if (!ativo)
+            return false;
+
+        Camera principalAtual = Camera.main;
+        if (principalAtual != null && principalAtual != cameraPrincipal)
+            cameraPrincipal = principalAtual;
+
+        Camera interfaceAtual = HudManager.InstanceExists &&
+            HudManager.Instance != null
+                ? HudManager.Instance.UICamera
+                : null;
+
+        if (interfaceAtual != null && interfaceAtual != cameraInterface)
+            cameraInterface = interfaceAtual;
+
+        if (cameraPrincipal == null || cameraInterface == null)
+            return false;
+
+        cameraPrincipal.orthographicSize = tamanhoZoomAtual;
+        cameraInterface.orthographicSize = tamanhoZoomAtual;
+        return true;
     }
 
     private static void Restaurar()
     {
         try
         {
+            if (cameraPrincipal == null)
+                cameraPrincipal = Camera.main;
+
             if (cameraPrincipal == null)
                 cameraPrincipal = Camera.main;
 
@@ -128,6 +164,9 @@ internal static class ZoomCamera
                         PlayerControl.LocalPlayer.Data != null &&
                         !PlayerControl.LocalPlayer.Data.IsDead);
             }
+
+            tamanhoZoomAtual = TAMANHO_PADRAO;
+            cameraInterface = null;
         }
         catch (Exception ex)
         {
