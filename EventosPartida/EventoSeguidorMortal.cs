@@ -1008,7 +1008,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
         // Se o NPC estiver usando uma ventilação, conclui a travessia antes
         // de calcular alcance de morte ou tentar qualquer outro transporte.
-        if (TentarUsarVentilacao(alvo))
+        if (TentarUsarVentilacao(destino, true))
             return;
 
         Vector2 origem = seguidor.GetTruePosition();
@@ -1141,12 +1141,12 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     /// <summary>
     /// Usa a rede vanilla de dutos como atalho quando a opção estiver ativada.
     /// </summary>
-    private static bool TentarUsarVentilacao(PlayerControl alvo)
+    private static bool TentarUsarVentilacao(Vector2 destino, bool possuiAlvo)
     {
         if (YouTubeVoteBridgePlugin.PermitirVentilacaoNPC == null ||
             !YouTubeVoteBridgePlugin.PermitirVentilacaoNPC.Value ||
             seguidor == null || seguidor.MyPhysics == null ||
-            seguidor.NetTransform?.body == null || alvo == null)
+            seguidor.NetTransform?.body == null)
             return false;
 
         float agora = Time.realtimeSinceStartup;
@@ -1196,7 +1196,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             return false;
 
         Vector2 origem = seguidor.GetTruePosition();
-        Vector2 posAlvo = alvo.GetTruePosition();
+        Vector2 posAlvo = destino;
         float distanciaDireta = Vector2.Distance(origem, posAlvo);
         Vent melhorEntrada = null;
         Vent melhorSaida = null;
@@ -1677,6 +1677,11 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 "[F7/Seguidor] NPC patrulhando para o centro da sala " +
                 salaEscolhida + ": " + destinoPatrulha + ".");
         }
+
+        // Durante a patrulha, também procura atalhos pelos dutos.
+        // O destino é a sala escolhida, não é necessário existir um jogador-alvo.
+        if (TentarUsarVentilacao(destinoPatrulha, false))
+            return;
 
         MoverAte(destinoPatrulha);
     }
@@ -2263,42 +2268,20 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
         Vector2 centro = CentroCelula(celula, minimo);
 
-        // Clearance (folga): mede a distância real até colisões próximas.
-        // O custo é gradual, não uma proibição: corredores estreitos continuam
-        // utilizáveis, mas quando há espaço o caminho tende ao meio.
-        const float raioAmostra = 0.72f;
-        const float folgaPreferida = 0.48f;
-        const float pesoFolga = 1.65f;
-        float menorDistancia = raioAmostra;
-
-        Collider2D[] proximos = Physics2D.OverlapCircleAll(
-            centro, raioAmostra, Constants.ShipAndAllObjectsMask);
-
-        foreach (Collider2D colisor in proximos)
-        {
-            if (colisor == null || colisor.isTrigger ||
-                colisor.transform.IsChildOf(seguidor.transform))
-                continue;
-
-            Vector2 pontoMaisProximo = colisor.ClosestPoint(centro);
-            float distancia = Vector2.Distance(centro, pontoMaisProximo);
-            if (distancia < menorDistancia)
-                menorDistancia = distancia;
-        }
-
-        float faltaFolga = Mathf.Max(0f, folgaPreferida - menorDistancia);
-        float penalidadeFolga = faltaFolga * pesoFolga;
-
-        // Pequena penalidade adicional junto a células bloqueadas, útil para
-        // bordas/quinas que a consulta de distância pode não representar bem.
+        // Penalidade barata baseada apenas na vizinhança já usada pelo A*.
+        // CelulaLivre mantém cache, evitando OverlapCircleAll adicional por nó.
+        // Células cercadas por mais obstáculos recebem custo maior; em corredores
+        // estreitos o caminho continua permitido, pois isso nunca bloqueia a célula.
         int vizinhosBloqueados = 0;
-        Vector2Int[] laterais =
+        Vector2Int[] vizinhos =
         {
             new Vector2Int(1, 0), new Vector2Int(-1, 0),
-            new Vector2Int(0, 1), new Vector2Int(0, -1)
+            new Vector2Int(0, 1), new Vector2Int(0, -1),
+            new Vector2Int(1, 1), new Vector2Int(1, -1),
+            new Vector2Int(-1, 1), new Vector2Int(-1, -1)
         };
 
-        foreach (Vector2Int deslocamento in laterais)
+        foreach (Vector2Int deslocamento in vizinhos)
         {
             Vector2Int vizinho = celula + deslocamento;
             if (vizinho.x < 0 || vizinho.y < 0 ||
@@ -2307,8 +2290,9 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 vizinhosBloqueados++;
         }
 
-        float penalidade = penalidadeFolga +
-            vizinhosBloqueados * (PenalidadeProximidadeParede * 0.35f);
+        // Peso moderado: favorece áreas com folga sem forçar o NPC a evitar
+        // passagens estreitas ou a fazer desvios excessivos.
+        float penalidade = vizinhosBloqueados * (PenalidadeProximidadeParede * 0.22f);
         cachePenalidades[celula] = penalidade;
         return penalidade;
     }
