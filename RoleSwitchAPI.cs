@@ -322,7 +322,7 @@ internal static class RoleSwitchAPI
         {
             if (AmongUsClient.Instance.ClientId == clientId)
             {
-                jogador.StartCoroutine(jogador.CoSetRole(funcao, true));
+                jogador.SetRole(funcao);
                 return true;
             }
 
