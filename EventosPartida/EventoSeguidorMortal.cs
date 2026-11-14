@@ -1246,10 +1246,15 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         Vector2 origem, Vector2 destino, out Vector2 melhorPonto)
     {
         melhorPonto = origem;
-        float melhorCusto = float.MaxValue;
-        const float distanciaEscape = 0.55f;
+        const float distanciaEscape = 0.65f;
 
-        foreach (Vector2Int vetor in DirecoesCaminho)
+        // Em cada travamento, embaralha as direções. Assim o NPC não insiste
+        // sempre no mesmo desvio quando está encurralado por um collider.
+        var direcoes = DirecoesCaminho
+            .OrderBy(_ => UnityEngine.Random.value)
+            .ToArray();
+
+        foreach (Vector2Int vetor in direcoes)
         {
             Vector2 direcao = new Vector2(vetor.x, vetor.y).normalized;
             Vector2 candidato = origem + direcao * distanciaEscape;
@@ -1258,19 +1263,26 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 !PodeMoverEntre(origem, candidato))
                 continue;
 
-            float distanciaAteAlvo = Vector2.Distance(candidato, destino);
-            float custo = distanciaAteAlvo;
-
-            // Dá preferência a saídas que aproximem o NPC do alvo,
-            // sem exigir que já exista visão direta até ele.
-            if (custo < melhorCusto)
-            {
-                melhorCusto = custo;
-                melhorPonto = candidato;
-            }
+            melhorPonto = candidato;
+            return true;
         }
 
-        return melhorCusto < float.MaxValue;
+        // Se nenhuma saída longa estiver livre, tenta um passo curto aleatório.
+        // Isso permite escapar de cantos estreitos sem atravessar paredes.
+        foreach (Vector2Int vetor in direcoes)
+        {
+            Vector2 direcao = new Vector2(vetor.x, vetor.y).normalized;
+            Vector2 candidato = origem + direcao * 0.30f;
+
+            if (!EstaDentroDeAlgumaSala(candidato) ||
+                !PodeMoverEntre(origem, candidato))
+                continue;
+
+            melhorPonto = candidato;
+            return true;
+        }
+
+        return false;
     }
 
     private static bool EstaDentroDeAlgumaSala(Vector2 ponto)
