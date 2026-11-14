@@ -2173,7 +2173,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         diagnosticoRegistroNpcFeito = false;
         avisoRegistroNpcAusente = false;
         avisoRegistroNpcCompartilhado = false;
-        rpcMoveDiagnosticoExecutado = false;
+        diagnosticoApisMovimentoExecutado = false;
         proximaEtapa = 0f;
         proximaBuscaAlvo = 0f;
         alvoAtual = null;
