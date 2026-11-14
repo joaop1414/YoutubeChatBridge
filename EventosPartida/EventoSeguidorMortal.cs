@@ -316,48 +316,93 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         return encontrou;
     }
 
-    private static bool rpcMoveDiagnosticoExecutado;
+    private static bool diagnosticoApisMovimentoExecutado;
 
-    private static void DiagnosticarRpcMove()
+    private static void DiagnosticarApisMovimento()
     {
-        if (rpcMoveDiagnosticoExecutado || seguidor == null)
+        if (diagnosticoApisMovimentoExecutado || seguidor == null)
             return;
 
-        rpcMoveDiagnosticoExecutado = true;
-        var tipos = new[]
+        diagnosticoApisMovimentoExecutado = true;
+
+        const System.Reflection.BindingFlags flags =
+            System.Reflection.BindingFlags.Instance |
+            System.Reflection.BindingFlags.Static |
+            System.Reflection.BindingFlags.Public |
+            System.Reflection.BindingFlags.NonPublic;
+
+        var objetos = new[]
         {
-            seguidor.MyPhysics != null ? seguidor.MyPhysics.GetType() : null,
-            seguidor.NetTransform != null ? seguidor.NetTransform.GetType() : null
+            new { Nome = "PlayerPhysics", Instancia = (object)seguidor.MyPhysics },
+            new { Nome = "CustomNetworkTransform", Instancia = (object)seguidor.NetTransform }
         };
 
-        foreach (var tipo in tipos)
+        foreach (var item in objetos)
         {
-            if (tipo == null)
-                continue;
-
-            var metodos = tipo.GetMethods(
-                System.Reflection.BindingFlags.Instance |
-                System.Reflection.BindingFlags.Public |
-                System.Reflection.BindingFlags.NonPublic);
-
-            bool encontrou = false;
-            foreach (var metodo in metodos)
+            if (item.Instancia == null)
             {
-                if (!string.Equals(metodo.Name, "RpcMove", StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                encontrou = true;
-                string parametros = string.Join(", ", Array.ConvertAll(
-                    metodo.GetParameters(), p => p.ParameterType.FullName));
-                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "[F7/Seguidor] RPCMOVE ENCONTRADO em " + tipo.FullName +
-                    ": " + metodo.Name + "(" + parametros + ") -> " +
-                    metodo.ReturnType.FullName + ".");
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[F7/Seguidor] Diagnóstico de movimento: " + item.Nome + " está nulo.");
+                continue;
             }
 
-            if (!encontrou)
+            Type tipo = item.Instancia.GetType();
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[F7/Seguidor] Inspecionando APIs de movimento de " + item.Nome +
+                ": " + tipo.FullName + ".");
+
+            int metodosEncontrados = 0;
+            foreach (var metodo in tipo.GetMethods(flags))
+            {
+                string nome = metodo.Name;
+                if (nome.IndexOf("Position", StringComparison.OrdinalIgnoreCase) < 0 &&
+                    nome.IndexOf("Move", StringComparison.OrdinalIgnoreCase) < 0 &&
+                    nome.IndexOf("SnapTo", StringComparison.OrdinalIgnoreCase) < 0 &&
+                    nome.IndexOf("FixedUpdate", StringComparison.OrdinalIgnoreCase) < 0)
+                    continue;
+
+                string parametros = string.Join(", ", Array.ConvertAll(
+                    metodo.GetParameters(), p => p.ParameterType.FullName));
+
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "[F7/Seguidor] Nenhum método RpcMove encontrado em " + tipo.FullName + ".");
+                    "[F7/Seguidor] API MOVIMENTO: " + item.Nome + "." +
+                    nome + "(" + parametros + ") -> " + metodo.ReturnType.FullName + ".");
+                metodosEncontrados++;
+            }
+
+            if (metodosEncontrados == 0)
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[F7/Seguidor] Nenhum método relacionado a Position/Move/SnapTo/FixedUpdate encontrado em " +
+                    item.Nome + ".");
+
+            int membrosEncontrados = 0;
+            foreach (var membro in tipo.GetMembers(flags))
+            {
+                string nome = membro.Name;
+                if (nome.IndexOf("Position", StringComparison.OrdinalIgnoreCase) < 0 &&
+                    nome.IndexOf("Velocity", StringComparison.OrdinalIgnoreCase) < 0 &&
+                    nome.IndexOf("Sequence", StringComparison.OrdinalIgnoreCase) < 0 &&
+                    nome.IndexOf("Sync", StringComparison.OrdinalIgnoreCase) < 0)
+                    continue;
+
+                if (!(membro is System.Reflection.FieldInfo) &&
+                    !(membro is System.Reflection.PropertyInfo))
+                    continue;
+
+                Type tipoMembro = membro is System.Reflection.FieldInfo campo
+                    ? campo.FieldType
+                    : ((System.Reflection.PropertyInfo)membro).PropertyType;
+
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[F7/Seguidor] MEMBRO DE SINCRONIZAÇÃO: " + item.Nome + "." +
+                    nome + " : " + tipoMembro.FullName + ".");
+                membrosEncontrados++;
+            }
+
+            if (membrosEncontrados == 0)
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[F7/Seguidor] Nenhum campo/propriedade Position/Velocity/Sequence/Sync encontrado em " +
+                    item.Nome + ".");
         }
     }
 
@@ -674,7 +719,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
         // Verifica em runtime se esta versão expõe RpcMove no PlayerPhysics
         // ou no CustomNetworkTransform, sem presumir uma assinatura inexistente.
-        DiagnosticarRpcMove();
+        DiagnosticarApisMovimento();
 
         if (seguidor.NetTransform.body == null)
         {
