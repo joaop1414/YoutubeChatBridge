@@ -251,7 +251,7 @@ internal static class ControladorPartidaMenu
                         break;
 
                     case TipoAcao.VitoriaImpostores:
-                        DefinirVitoria("ImpostorByKill", "Vitória dos impostores solicitada, sem alterar funções.");
+                        DefinirVitoria("ImpostorsByKill", "Vitória dos impostores solicitada, sem alterar funções.");
                         break;
 
                     case TipoAcao.Encerrar:
@@ -267,7 +267,7 @@ internal static class ControladorPartidaMenu
                         break;
 
                     case TipoAcao.FantasmaImpostor:
-                        TransformarEmFantasmaEAgendarFim(RoleTypes.ImpostorGhost, "ImpostorByKill");
+                        TransformarEmFantasmaEAgendarFim(RoleTypes.ImpostorGhost, "ImpostorsByKill");
                         break;
                 }
             }
@@ -427,7 +427,7 @@ internal static class ControladorPartidaMenu
             bool impostor = !string.IsNullOrEmpty(solicitado) &&
                 solicitado.IndexOf("Impostor", StringComparison.OrdinalIgnoreCase) >= 0;
             string[] preferidos = impostor
-                ? new[] { "ImpostorByKill", "ImpostorByVote", "ImpostorBySabotage" }
+                ? new[] { "ImpostorsByKill", "ImpostorsByVote", "ImpostorsBySabotage" }
                 : new[] { "CrewmatesByVote", "CrewmatesByTask" };
 
             foreach (string nome in preferidos)
