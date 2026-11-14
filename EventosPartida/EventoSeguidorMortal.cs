@@ -3099,6 +3099,14 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             return true;
         }
 
+        // Depois de enviar os dois teclados O2, não envia IDs adicionais
+        // enquanto espera o estado vanilla confirmar que a sabotagem terminou.
+        if (sabotagemAtual == SystemTypes.LifeSupp && consoleO2Atual >= 2)
+        {
+            seguidor.NetTransform.body.velocity = Vector2.zero;
+            return true;
+        }
+
         if (Vector2.Distance(seguidor.GetTruePosition(), destinoOutraSabotagem) >
             DistanciaChegadaPatrulha)
         {
@@ -3132,7 +3140,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                     // 0x40 | consoleId conclui apenas o teclado indicado.
                     // O NPC então atravessa o mapa até o segundo teclado.
                     ShipStatus.Instance.UpdateSystem(
-                        SystemTypes.LifeSupp, seguidor, 0x40 | consoleO2Atual);
+                        SystemTypes.LifeSupp, seguidor, (byte)(0x40 | consoleO2Atual));
 
                     YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                         "[F7/Seguidor] NPC concluiu o teclado O2 " +
