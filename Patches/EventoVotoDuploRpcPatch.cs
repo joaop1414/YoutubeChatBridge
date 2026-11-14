@@ -1,133 +1,142 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
 using HarmonyLib;
-using Il2CppInterop.Runtime.InteropTypes.Arrays;
 
 namespace YouTubeVoteBridge;
 
-// O voto extra é inserido antes de o resultado da reunião ser enviado.
-// Assim, clientes vanilla recebem dois registros do mesmo eleitor e o
-// anfitrião recalcula a ejeção usando a mesma lista de votos.
-[HarmonyPatch]
+// O EHR aplica os votos adicionais dentro de CheckForEndVoting,
+// antes de calcular a ejeção e antes de enviar RpcVotingComplete.
+// Fazemos o mesmo para que o voto extra conte de verdade e apareça
+// como uma segunda entrada para os clientes vanilla.
+[HarmonyPatch(typeof(MeetingHud), nameof(MeetingHud.CheckForEndVoting))]
 [HarmonyPriority(Priority.First)]
 internal static class EventoVotoDuploRpcPatch
 {
-    private static MethodBase TargetMethod()
-    {
-        return AccessTools.Method(typeof(MeetingHud), "RpcVotingComplete");
-    }
-
-    public static void Prefix(object[] __args)
+    public static bool Prefix(MeetingHud __instance)
     {
         if (!YouTubeVoteBridgePlugin.EhHost() ||
-            !EventoVotoDuplo.TentarObterJogador(out byte jogadorComVotoDuplo) ||
-            __args == null ||
-            __args.Length < 3 ||
-            __args[0] is not Il2CppStructArray<MeetingHud.VoterState> estados ||
-            estados == null)
-            return;
+            __instance == null ||
+            __instance.playerStates == null ||
+            !EventoVotoDuplo.TentarObterJogador(out byte jogadorComVotoDuplo))
+            return true;
 
         try
         {
-            int indiceVoto = -1;
-            for (int i = 0; i < estados.Length; i++)
+            if (__instance.state == MeetingHud.MeetingStates.Results ||
+                __instance.state == MeetingHud.MeetingStates.Proceeding)
+                return true;
+
+            // Se a habilidade do Juiz venceu, deixamos o fluxo vanilla resolver
+            // a prioridade do Juiz sem interferência do evento de voto duplo.
+            if (__instance.TryGetWinningOverrule(
+                out JudgeOverrule _,
+                out NetworkedPlayerInfo _,
+                out NetworkedPlayerInfo _))
+                return true;
+
+            // Só assumimos o cálculo quando todos os jogadores vivos e conectados
+            // já votaram. Antes disso, o CheckForEndVoting vanilla continua normal.
+            bool todosVotaram = true;
+            foreach (PlayerVoteArea area in __instance.playerStates)
             {
-                if (estados[i].VoterId == jogadorComVotoDuplo)
+                if (area == null || area.AmDead || area.DidVote)
+                    continue;
+
+                byte id = area.PlayerId.Value;
+                NetworkedPlayerInfo dados = GameData.Instance?.GetPlayerById(id);
+                if (dados == null || dados.Disconnected || dados.IsDead)
+                    continue;
+
+                todosVotaram = false;
+                break;
+            }
+
+            if (!todosVotaram)
+                return true;
+
+            var estados = new List<MeetingHud.VoterState>();
+            var contagem = new Dictionary<byte, int>();
+            bool votoDuploAplicado = false;
+
+            foreach (PlayerVoteArea area in __instance.playerStates)
+            {
+                if (area == null || area.AmDead)
+                    continue;
+
+                byte eleitorId = area.PlayerId.Value;
+                NetworkedPlayerInfo eleitor = GameData.Instance?.GetPlayerById(eleitorId);
+                if (eleitor == null || eleitor.Disconnected || eleitor.IsDead || !area.DidVote)
+                    continue;
+
+                byte alvoId = area.VotedForId;
+                var voto = new MeetingHud.VoterState
                 {
-                    indiceVoto = i;
-                    break;
+                    VoterId = eleitorId,
+                    VotedForId = alvoId
+                };
+                estados.Add(voto);
+
+                // 253 é skip e conta na votação; 254/255 representam ausência de voto.
+                if (alvoId < 254)
+                {
+                    contagem.TryGetValue(alvoId, out int atual);
+                    contagem[alvoId] = atual + 1;
+                }
+
+                if (eleitorId == jogadorComVotoDuplo && alvoId < 254)
+                {
+                    // Mayor/EHR: uma segunda VoterState com o mesmo VoterId e VotedForId.
+                    estados.Add(voto);
+                    contagem.TryGetValue(alvoId, out atual);
+                    contagem[alvoId] = atual + 1;
+                    votoDuploAplicado = true;
                 }
             }
 
-            // Se o jogador sorteado estiver morto ou não tiver votado,
-            // não há voto extra nesta reunião.
-            if (indiceVoto < 0)
-                return;
+            if (!votoDuploAplicado)
+                return true;
 
-            MeetingHud.VoterState votoOriginal = estados[indiceVoto];
-            var estadosComVotoExtra =
-                new Il2CppStructArray<MeetingHud.VoterState>(estados.Length + 1);
+            byte vencedor = byte.MaxValue;
+            int maior = 0;
+            bool empate = false;
 
-            for (int i = 0; i < estados.Length; i++)
-                estadosComVotoExtra[i] = estados[i];
-
-            estadosComVotoExtra[estados.Length] = new MeetingHud.VoterState
+            foreach (KeyValuePair<byte, int> voto in contagem)
             {
-                VoterId = votoOriginal.VoterId,
-                VotedForId = votoOriginal.VotedForId
-            };
+                if (voto.Value > maior)
+                {
+                    maior = voto.Value;
+                    vencedor = voto.Key;
+                    empate = false;
+                }
+                else if (voto.Value == maior)
+                {
+                    vencedor = byte.MaxValue;
+                    empate = true;
+                }
+            }
 
-            __args[0] = estadosComVotoExtra;
+            NetworkedPlayerInfo exilado = null;
+            if (!empate && vencedor < 253)
+                exilado = GameData.Instance?.GetPlayerById(vencedor);
 
-            // A habilidade do Juiz tem prioridade sobre o resultado normal.
-            // Ainda enviamos o ícone adicional, mas preservamos a ejeção do Juiz.
-            bool juizSobrescreveu = __args.Length > 3 &&
-                __args[3] != null && Convert.ToBoolean(__args[3]);
-
-            if (!juizSobrescreveu)
-                RecalcularResultado(__args, estadosComVotoExtra);
+            // 253 = skip. Sem vencedor ou em empate, ninguém é ejetado.
+            if (vencedor == 253)
+                exilado = null;
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                $"[F7/Voto duplo] Voto de PlayerId={jogadorComVotoDuplo} duplicado para o alvo {votoOriginal.VotedForId}.");
+                $"[F7/Voto duplo] CheckForEndVoting: jogador={jogadorComVotoDuplo}, " +
+                $"voto duplicado, entradas={estados.Count}, alvo vencedor={vencedor}, " +
+                $"maior={maior}, empate={empate}, exilado={exilado?.PlayerName ?? "nenhum"}.");
+
+            __instance.RpcVotingComplete(estados.ToArray(), exilado, empate, false, 0);
+            return false;
         }
         catch (Exception ex)
         {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "[F7/Voto duplo] Não foi possível aplicar o voto adicional: " + ex);
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "[F7/Voto duplo] Falha ao processar CheckForEndVoting; usando fluxo vanilla: " + ex);
+            return true;
         }
-    }
-
-    private static void RecalcularResultado(
-        object[] argumentos,
-        Il2CppStructArray<MeetingHud.VoterState> estados)
-    {
-        var contagem = new Dictionary<byte, int>();
-
-        for (int i = 0; i < estados.Length; i++)
-        {
-            byte alvo = estados[i].VotedForId;
-
-            // 254 = não votou; 255 = voto ainda não definido.
-            // 253 (skip) é uma opção válida e participa da contagem.
-            if (alvo >= 254)
-                continue;
-
-            contagem.TryGetValue(alvo, out int atual);
-            contagem[alvo] = atual + 1;
-        }
-
-        if (contagem.Count == 0)
-            return;
-
-        int maior = contagem.Values.Max();
-        List<byte> vencedores = contagem
-            .Where(voto => voto.Value == maior)
-            .Select(voto => voto.Key)
-            .ToList();
-
-        if (vencedores.Count != 1)
-        {
-            argumentos[1] = null;
-            argumentos[2] = true;
-            return;
-        }
-
-        byte vencedor = vencedores[0];
-
-        if (vencedor == 253)
-        {
-            argumentos[1] = null;
-            argumentos[2] = false;
-            return;
-        }
-
-        NetworkedPlayerInfo exilado = GameData.Instance.AllPlayers
-            .ToArray()
-            .FirstOrDefault(info => info != null && info.PlayerId == vencedor);
-
-        argumentos[1] = exilado;
-        argumentos[2] = exilado == null;
     }
 }
