@@ -12,6 +12,7 @@ namespace YouTubeVoteBridge;
 [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.HandleRpc))]
 internal static class EventoRoomRushRpcPatch
 {
+    private const byte RPC_SEGUDOR_DESTINO = 246;
     private const byte RPC_ROOM_RUSH_ESTADO = 247;
     private const byte RPC_CLIENTE_COM_MOD = 248;
 
@@ -29,6 +30,17 @@ internal static class EventoRoomRushRpcPatch
             if (callId == RPC_CLIENTE_COM_MOD && YouTubeVoteBridgePlugin.EhHost())
             {
                 YouTubeVoteBridgePlugin.RegistrarClienteComMod(__instance.OwnerId);
+                return;
+            }
+
+            if (callId == RPC_SEGUDOR_DESTINO && !YouTubeVoteBridgePlugin.EhHost())
+            {
+                uint netIdNpc = reader.ReadPackedUInt32();
+                byte playerIdAlvo = reader.ReadByte();
+                float x = reader.ReadSingle();
+                float y = reader.ReadSingle();
+                EventoSeguidorMortal.ReceberDestinoCliente(
+                    netIdNpc, playerIdAlvo, new Vector2(x, y));
                 return;
             }
 
