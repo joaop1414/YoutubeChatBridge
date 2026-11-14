@@ -48,6 +48,7 @@ internal static class ControladorPartidaMenu
     private const int ID_FANTASMA_TRIPULANTE = 1011;
     private const int ID_FANTASMA_IMPOSTOR = 1012;
     private const int ID_FECHAR = 1013;
+    private const int ID_ZOOM = 1014;
 
     private enum TipoAcao
     {
@@ -60,7 +61,8 @@ internal static class ControladorPartidaMenu
         PularVotacao,
         FantasmaTripulante,
         FantasmaImpostor,
-        AtualizarJogadores
+        AtualizarJogadores,
+        AlternarZoom
     }
 
     private sealed class Acao
@@ -169,6 +171,7 @@ internal static class ControladorPartidaMenu
         int descartadas = 0;
         while (fila.TryDequeue(out _)) descartadas++;
 
+        ZoomCamera.Desativar();
         DefinirStatus("Estado do controlador limpo (" + motivo + ").");
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             "[Controlador F8] Ações pendentes descartadas=" + descartadas + ".");
@@ -268,6 +271,13 @@ internal static class ControladorPartidaMenu
 
                     case TipoAcao.FantasmaImpostor:
                         TransformarEmFantasmaEAgendarFim(RoleTypes.ImpostorGhost, "ImpostorsByKill");
+                        break;
+
+                    case TipoAcao.AlternarZoom:
+                        bool zoomAtivo = ZoomCamera.Alternar();
+                        DefinirStatus(zoomAtivo
+                            ? "Zoom ativado. Use a roda do mouse para aproximar/afastar."
+                            : "Zoom desativado; câmera restaurada.");
                         break;
                 }
             }
@@ -514,7 +524,7 @@ internal static class ControladorPartidaMenu
                 "YouTubeChatBridge — Controlador da partida (F8)",
                 WS_OVERLAPPEDWINDOW,
                 unchecked((int)0x80000000), unchecked((int)0x80000000),
-                760, 610, IntPtr.Zero, IntPtr.Zero, instancia, IntPtr.Zero);
+                760, 650, IntPtr.Zero, IntPtr.Zero, instancia, IntPtr.Zero);
 
             if (janela == IntPtr.Zero)
                 throw new InvalidOperationException("CreateWindowExW falhou: " + Marshal.GetLastWin32Error());
@@ -612,6 +622,7 @@ internal static class ControladorPartidaMenu
                     ID_PULAR_VOTACAO => TipoAcao.PularVotacao,
                     ID_FANTASMA_TRIPULANTE => TipoAcao.FantasmaTripulante,
                     ID_FANTASMA_IMPOSTOR => TipoAcao.FantasmaImpostor,
+                    ID_ZOOM => TipoAcao.AlternarZoom,
                     _ => null
                 };
 
@@ -675,9 +686,10 @@ internal static class ControladorPartidaMenu
         CriarBotao(hwnd, instancia, "Tripulante fantasma + vitória", 496, 420, 224, 34, ID_FANTASMA_TRIPULANTE);
         CriarBotao(hwnd, instancia, "Impostor fantasma + vitória", 24, 462, 340, 34, ID_FANTASMA_IMPOSTOR);
         CriarBotao(hwnd, instancia, "Fechar (F8)", 380, 462, 340, 34, ID_FECHAR);
+        CriarBotao(hwnd, instancia, "Alternar zoom da câmera", 24, 505, 696, 34, ID_ZOOM);
 
         textoStatus = CriarControle("STATIC", "STATUS: " + mensagem,
-            WS_CHILD | WS_VISIBLE, 24, 512, 700, 32, hwnd, IntPtr.Zero, instancia);
+            WS_CHILD | WS_VISIBLE, 24, 550, 700, 32, hwnd, IntPtr.Zero, instancia);
         AplicarFonte(textoStatus, fonteNormal);
     }
 
