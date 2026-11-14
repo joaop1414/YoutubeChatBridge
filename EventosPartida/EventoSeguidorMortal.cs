@@ -130,6 +130,10 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private const float DeslocamentoMinimoMonitoramento = 0.06f;
     private const float DistanciaDeslizamentoParede = 0.65f;
     private const float PassoAngularDeslizamento = 15f;
+    private static Vector2 direcaoDeslizamentoCache;
+    private static Vector2 destinoDeslizamentoCache;
+    private static float proximaReavaliacaoDeslizamento;
+    private const float IntervaloReavaliacaoDeslizamento = 0.20f;
     private static bool emManobraDestravamento;
     private static Vector2 pontoDestravamento;
     private static float limiteManobraDestravamento;
@@ -1758,7 +1762,25 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
         Vector2 desejada = delta.normalized;
         if (PodePassarEntre(origem, destino))
+        {
+            direcaoDeslizamentoCache = Vector2.zero;
+            proximaReavaliacaoDeslizamento = 0f;
             return desejada;
+        }
+
+        float agora = Time.realtimeSinceStartup;
+        bool destinoSemelhante =
+            Vector2.Distance(destino, destinoDeslizamentoCache) < 0.40f;
+
+        // Reutiliza por alguns instantes a direção lateral já validada.
+        // Isso evita dezenas de consultas Physics2D em todos os frames.
+        if (direcaoDeslizamentoCache.sqrMagnitude > 0.001f &&
+            agora < proximaReavaliacaoDeslizamento &&
+            destinoSemelhante &&
+            PodeMoverEntre(
+                origem,
+                origem + direcaoDeslizamentoCache * 0.35f))
+            return direcaoDeslizamentoCache;
 
         Vector2 melhorDirecao = Vector2.zero;
         float melhorPontuacao = float.NegativeInfinity;
@@ -1799,6 +1821,9 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             }
         }
 
+        direcaoDeslizamentoCache = melhorDirecao;
+        destinoDeslizamentoCache = destino;
+        proximaReavaliacaoDeslizamento = agora + IntervaloReavaliacaoDeslizamento;
         return melhorDirecao;
     }
 
@@ -2414,6 +2439,9 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         indiceCaminho = 0;
         destinoCaminhoAnterior = Vector2.zero;
         proximoRecalculoCaminho = 0f;
+        direcaoDeslizamentoCache = Vector2.zero;
+        destinoDeslizamentoCache = Vector2.zero;
+        proximaReavaliacaoDeslizamento = 0f;
     }
 
     private static System.Reflection.MemberInfo membroEstadoDuto;
