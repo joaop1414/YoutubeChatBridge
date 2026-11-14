@@ -33,6 +33,9 @@ internal static class RoleSwitchAPI
     }
 
     private static bool loteEmAndamento;
+    private static float inicioLoteRealtime;
+    private static int identificadorLote;
+    private const float TIMEOUT_LOTE_SEGUNDOS = 10f;
 
     internal static bool TrocarFuncao(PlayerControl jogador, string nomeFuncao)
     {
@@ -126,6 +129,8 @@ internal static class RoleSwitchAPI
         }
 
         loteEmAndamento = true;
+        inicioLoteRealtime = Time.realtimeSinceStartup;
+        int loteAtual = ++identificadorLote;
         YouTubeVoteBridgePlugin.BloquearFimDeJogoDuranteTrocaDeFuncoes = true;
 
         try
@@ -136,14 +141,18 @@ internal static class RoleSwitchAPI
                 RpcSetRoleGlobal(troca.Jogador, troca.Funcao);
 
             AtualizarHudDaFuncaoLocal(trocas);
+            LogInfo($"Lote {loteAtual} iniciado com {trocas.Count} atribuição(ões). Iniciando restauração de estado vivo.");
             MonoBehaviourExtensions.StartCoroutine(
-                local, RestaurarJogadoresVivosAposTroca(trocas));
+                local, RestaurarJogadoresVivosAposTroca(trocas, loteAtual));
             return true;
         }
         catch (Exception ex)
         {
-            loteEmAndamento = false;
-            YouTubeVoteBridgePlugin.BloquearFimDeJogoDuranteTrocaDeFuncoes = false;
+            if (loteAtual == identificadorLote)
+            {
+                loteEmAndamento = false;
+                YouTubeVoteBridgePlugin.BloquearFimDeJogoDuranteTrocaDeFuncoes = false;
+            }
 
             LogErro("Não foi possível iniciar a distribuição das funções: " + ex);
             return false;
@@ -151,11 +160,14 @@ internal static class RoleSwitchAPI
     }
 
     private static System.Collections.IEnumerator RestaurarJogadoresVivosAposTroca(
-        List<TrocaPendente> trocas)
+        List<TrocaPendente> trocas, int loteAtual)
     {
         try
         {
             yield return new WaitForSecondsRealtime(0.75f);
+
+            if (loteAtual != identificadorLote)
+                yield break;
 
             AmongUsClient cliente = AmongUsClient.Instance;
             if (cliente == null || !cliente.AmHost || GameData.Instance == null)
@@ -179,13 +191,40 @@ internal static class RoleSwitchAPI
 
                 LogInfo($"Estado vivo restaurado pela rede após troca de função: PlayerId={troca.Jogador.PlayerId}.");
                 yield return new WaitForSecondsRealtime(0.08f);
+                if (loteAtual != identificadorLote)
+                    yield break;
             }
         }
         finally
         {
-            loteEmAndamento = false;
-            YouTubeVoteBridgePlugin.BloquearFimDeJogoDuranteTrocaDeFuncoes = false;
+            if (loteAtual == identificadorLote)
+            {
+                loteEmAndamento = false;
+                YouTubeVoteBridgePlugin.BloquearFimDeJogoDuranteTrocaDeFuncoes = false;
+                LogInfo($"Lote {loteAtual} finalizado. Novas trocas estão liberadas.");
+            }
         }
+    }
+
+    /// <summary>
+    /// Chamado pelo Update do jogo. Recupera a API se a coroutine de restauração
+    /// não avançar ou for interrompida sem executar o finally.
+    /// </summary>
+    internal static void ProcessarEstado()
+    {
+        if (!loteEmAndamento)
+            return;
+
+        float decorrido = Time.realtimeSinceStartup - inicioLoteRealtime;
+        if (decorrido < TIMEOUT_LOTE_SEGUNDOS)
+            return;
+
+        int loteTravado = identificadorLote;
+        identificadorLote++;
+        loteEmAndamento = false;
+        YouTubeVoteBridgePlugin.BloquearFimDeJogoDuranteTrocaDeFuncoes = false;
+
+        LogErro($"Lote {loteTravado} excedeu {TIMEOUT_LOTE_SEGUNDOS:0} segundos sem finalizar. Estado liberado pelo watchdog após {decorrido:0.0}s; a rotina antiga não poderá alterar o estado de um próximo lote.");
     }
 
     /// <summary>
