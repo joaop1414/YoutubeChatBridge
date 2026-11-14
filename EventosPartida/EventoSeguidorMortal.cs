@@ -5,6 +5,8 @@ using System.Linq;
 using MoreGamemodes;
 using AmongUs.GameOptions;
 using UnityEngine;
+using Hazel;
+using InnerNet;
 
 namespace YouTubeVoteBridge;
 
@@ -51,6 +53,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private static bool transporteEmAndamento;
     private static float limiteTransporte;
     private static float proximoTransporte;
+    private const float IntervaloSnapToRede = 1f;
+    private static float proximoSnapToRede;
     private static Vent ventEntradaAtual;
     private static Vent ventSaidaAtual;
     private static bool aguardandoSaidaVent;
@@ -192,6 +196,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             proximaEtapa = Time.realtimeSinceStartup + 0.12f;
             proximaBuscaAlvo = 0f;
             proximoTransporte = 0f;
+        proximoSnapToRede = 0f;
             transporteEmAndamento = false;
             alvoAtual = null;
             LimparCaminho();
@@ -353,6 +358,54 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             if (!encontrou)
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                     "[F7/Seguidor] Nenhum método RpcMove encontrado em " + tipo.FullName + ".");
+        }
+    }
+
+    // Envia a posição atual do NPC aos outros clientes uma vez por segundo.
+    // Segue o padrão de SnapTo usado pelo EHR: atualiza o estado local, marca
+    // o NetTransform como sujo e transmite o RPC vanilla em broadcast.
+    private static void EnviarSnapToRedePeriodico()
+    {
+        if (!YouTubeVoteBridgePlugin.EhHost() ||
+            seguidor == null ||
+            seguidor.NetTransform == null ||
+            AmongUsClient.Instance == null)
+            return;
+
+        float agora = Time.realtimeSinceStartup;
+        if (agora < proximoSnapToRede)
+            return;
+
+        proximoSnapToRede = agora + IntervaloSnapToRede;
+
+        try
+        {
+            CustomNetworkTransform transformacao = seguidor.NetTransform;
+            Vector2 posicao = seguidor.GetTruePosition();
+
+            // O SnapTo local não desloca o NPC para outro ponto: usa a posição
+            // real atual apenas para manter a sequência do NetTransform alinhada.
+            transformacao.SnapTo(posicao, (ushort)(transformacao.lastSequenceId + 328));
+            transformacao.SetDirtyBit(uint.MaxValue);
+
+            ushort sequenciaRede = (ushort)(transformacao.lastSequenceId + 8);
+            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
+                transformacao.NetId,
+                (byte)RpcCalls.SnapTo,
+                SendOption.Reliable);
+
+            writer.Write(posicao.x);
+            writer.Write(posicao.y);
+            writer.Write(sequenciaRede);
+            AmongUsClient.Instance.FinishRpcImmediately(writer);
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogDebug(
+                $"[F7/Seguidor] SnapTo de rede enviado: posição={posicao}, sequência={sequenciaRede}.");
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Seguidor] Falha ao enviar SnapTo periódico: " + ex.Message);
         }
     }
 
@@ -609,6 +662,10 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
         if (etapaInicializacao < 5)
             return;
+
+        // Mantém os clientes remotos informados da posição aproximada do NPC.
+        // O movimento contínuo continua sendo controlado pelo Rigidbody2D no host.
+        EnviarSnapToRedePeriodico();
 
         // Corrige a associação dos dados e restaura somente o registro do ID 249.
         AtualizarRegistroVidaNpc();
