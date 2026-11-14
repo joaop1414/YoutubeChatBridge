@@ -2648,12 +2648,12 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         if (seguidor?.NetTransform?.body == null || ShipStatus.Instance == null)
             return false;
 
-        SwitchSystem sistemaLuzes = null;
+        ISystemType sistemaLuzes = null;
         try
         {
             if (ShipStatus.Instance.Systems != null &&
                 ShipStatus.Instance.Systems.ContainsKey(SystemTypes.Electrical))
-                sistemaLuzes = ShipStatus.Instance.Systems[SystemTypes.Electrical] as SwitchSystem;
+                sistemaLuzes = ShipStatus.Instance.Systems[SystemTypes.Electrical];
         }
         catch (Exception ex)
         {
@@ -2662,7 +2662,10 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             return false;
         }
 
-        if (sistemaLuzes == null || !sistemaLuzes.IsActive)
+        bool luzesAtivas = sistemaLuzes != null &&
+            LerMembro(sistemaLuzes, "IsActive") is bool ativo && ativo;
+
+        if (!luzesAtivas)
         {
             if (resolvendoSabotagemLuzes)
             {
@@ -2721,8 +2724,21 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         if (agora < proximaAcaoInterruptor)
             return true;
 
+        object valorInterruptoresAtuais = LerMembro(
+            sistemaLuzes, "ActualSwitches", "actualSwitches");
+        object valorInterruptoresEsperados = LerMembro(
+            sistemaLuzes, "ExpectedSwitches", "expectedSwitches");
+
+        if (valorInterruptoresAtuais == null || valorInterruptoresEsperados == null)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Seguidor] Não foi possível ler os estados dos interruptores de luz.");
+            return true;
+        }
+
         byte interruptoresDiferentes = (byte)(
-            sistemaLuzes.ActualSwitches ^ sistemaLuzes.ExpectedSwitches);
+            Convert.ToByte(valorInterruptoresAtuais) ^
+            Convert.ToByte(valorInterruptoresEsperados));
 
         for (byte indice = 0; indice < 5; indice++)
         {
