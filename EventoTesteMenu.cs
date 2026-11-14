@@ -278,7 +278,6 @@ internal sealed class EventoTesteMenu : MonoBehaviour
                             if (textoStatus != IntPtr.Zero)
                                 SetWindowTextW(textoStatus, "STATUS: " + mensagem);
                         }
-                    }
                     return IntPtr.Zero;
 
                 case WM_CLOSE:
