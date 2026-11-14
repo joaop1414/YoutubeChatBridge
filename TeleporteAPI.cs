@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Hazel;
+using AmongUs.InnerNet.GameDataMessages;
 using UnityEngine;
 
 namespace YouTubeVoteBridge;
