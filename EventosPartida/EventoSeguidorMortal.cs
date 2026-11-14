@@ -41,12 +41,30 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private const float RaioColisao = 0.24f;
     private const float IntervaloRecalculoCaminho = 0.65f;
     private const float DistanciaRecalculoAlvo = 0.65f;
+    // 32 direções distintas: todos os vetores primitivos dentro de uma
+    // vizinhança de 3 células. O CircleCast valida o segmento inteiro,
+    // inclusive os movimentos diagonais e os saltos de mais de uma célula.
     private static readonly Vector2Int[] DirecoesCaminho =
     {
-        new Vector2Int(1, 0), new Vector2Int(-1, 0),
-        new Vector2Int(0, 1), new Vector2Int(0, -1),
-        new Vector2Int(1, 1), new Vector2Int(1, -1),
-        new Vector2Int(-1, 1), new Vector2Int(-1, -1)
+        new Vector2Int(1, 0),   new Vector2Int(3, 1),
+        new Vector2Int(2, 1),   new Vector2Int(3, 2),
+        new Vector2Int(1, 1),   new Vector2Int(2, 3),
+        new Vector2Int(1, 2),   new Vector2Int(1, 3),
+
+        new Vector2Int(0, 1),   new Vector2Int(-1, 3),
+        new Vector2Int(-1, 2),  new Vector2Int(-2, 3),
+        new Vector2Int(-1, 1),  new Vector2Int(-3, 2),
+        new Vector2Int(-2, 1),  new Vector2Int(-3, 1),
+
+        new Vector2Int(-1, 0),  new Vector2Int(-3, -1),
+        new Vector2Int(-2, -1), new Vector2Int(-3, -2),
+        new Vector2Int(-1, -1), new Vector2Int(-2, -3),
+        new Vector2Int(-1, -2), new Vector2Int(-1, -3),
+
+        new Vector2Int(0, -1),  new Vector2Int(1, -3),
+        new Vector2Int(1, -2),  new Vector2Int(2, -3),
+        new Vector2Int(1, -1),  new Vector2Int(3, -2),
+        new Vector2Int(2, -1),  new Vector2Int(3, -1)
     };
     private static List<Vector2> caminhoAtual = new();
     private static int indiceCaminho;
@@ -738,24 +756,17 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 if (!CelulaLivre(vizinho, minimo, cacheCelulasLivres))
                     continue;
 
-                // Impede cortar diagonalmente pelo canto de duas paredes.
-                if (direcao.x != 0 && direcao.y != 0)
-                {
-                    Vector2Int lateralX = atual + new Vector2Int(direcao.x, 0);
-                    Vector2Int lateralY = atual + new Vector2Int(0, direcao.y);
-
-                    if (!CelulaLivre(lateralX, minimo, cacheCelulasLivres) ||
-                        !CelulaLivre(lateralY, minimo, cacheCelulasLivres))
-                        continue;
-                }
-
                 Vector2 pontoAtual = CentroCelula(atual, minimo);
                 Vector2 pontoVizinho = CentroCelula(vizinho, minimo);
 
+                // Verifica a trajetória completa com o raio do NPC, evitando
+                // atravessar paredes ao usar direções que avançam várias células.
                 if (!PodePassarEntre(pontoAtual, pontoVizinho))
                     continue;
 
-                float custoPasso = direcao.x != 0 && direcao.y != 0 ? 1.4142135f : 1f;
+                // O custo acompanha a distância real do deslocamento no grid.
+                float custoPasso = Mathf.Sqrt(
+                    direcao.x * direcao.x + direcao.y * direcao.y);
                 float novoCusto = custos[atual] + custoPasso;
 
                 if (custos.TryGetValue(vizinho, out float custoExistente) &&
@@ -920,9 +931,11 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
     private static float Heuristica(Vector2Int a, Vector2Int b)
     {
-        int dx = Mathf.Abs(a.x - b.x);
-        int dy = Mathf.Abs(a.y - b.y);
-        return Mathf.Max(dx, dy) + 0.4142135f * Mathf.Min(dx, dy);
+        int dx = a.x - b.x;
+        int dy = a.y - b.y;
+
+        // Distância euclidiana: admissível para as 32 direções e seus custos.
+        return Mathf.Sqrt(dx * dx + dy * dy);
     }
 
     private static List<Vector2> ReconstruirCaminho(
