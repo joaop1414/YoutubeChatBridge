@@ -60,7 +60,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private const float TamanhoCelula = 0.35f;
     // Margem um pouco maior que o raio usado antes para o NPC não raspar nas paredes.
     // O mesmo valor é usado no A*, na suavização e na validação dos movimentos.
-    private const float RaioColisao = 0.24f;
+    private const float RaioColisao = 0.30f;
     private const float IntervaloRecalculoCaminho = 0.65f;
     private const float DistanciaRecalculoAlvo = 0.65f;
     // A busca usa os 8 vizinhos do grid. A suavização posterior remove
@@ -217,7 +217,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             0 => SystemTypes.Shields,       // The Skeld
             1 => SystemTypes.Greenhouse,    // MIRA HQ - Estufa
             2 => SystemTypes.Security,       // Polus - Segurança
-            4 => SystemTypes.Security,     // Airship - Segurança
+            4 => SystemTypes.MeetingRoom,    // Airship - Cabine
             5 => SystemTypes.Laboratory,    // The Fungle
             _ => SystemTypes.Hallway
         };
@@ -1284,43 +1284,46 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         Vector2 origem, Vector2 destino, out Vector2 melhorPonto)
     {
         melhorPonto = origem;
-        const float distanciaEscape = 0.65f;
+        float[] distancias = { 0.80f, 0.60f, 0.40f, 0.24f };
+        var direcoes = DirecoesCaminho.OrderBy(_ => UnityEngine.Random.value).ToArray();
 
-        // Em cada travamento, embaralha as direções. Assim o NPC não insiste
-        // sempre no mesmo desvio quando está encurralado por um collider.
-        var direcoes = DirecoesCaminho
-            .OrderBy(_ => UnityEngine.Random.value)
-            .ToArray();
-
-        foreach (Vector2Int vetor in direcoes)
+        foreach (float distancia in distancias)
         {
-            Vector2 direcao = new Vector2(vetor.x, vetor.y).normalized;
-            Vector2 candidato = origem + direcao * distanciaEscape;
-
-            if (!EstaDentroDeAlgumaSala(candidato) ||
-                !PodeMoverEntre(origem, candidato))
-                continue;
-
-            melhorPonto = candidato;
-            return true;
+            foreach (Vector2Int vetor in direcoes)
+            {
+                Vector2 direcao = new Vector2(vetor.x, vetor.y).normalized;
+                Vector2 candidato = origem + direcao * distancia;
+                if (!EstaDentroDosLimitesDoMapa(candidato) || !PodeMoverEntre(origem, candidato))
+                    continue;
+                melhorPonto = candidato;
+                return true;
+            }
         }
-
-        // Se nenhuma saída longa estiver livre, tenta um passo curto aleatório.
-        // Isso permite escapar de cantos estreitos sem atravessar paredes.
-        foreach (Vector2Int vetor in direcoes)
-        {
-            Vector2 direcao = new Vector2(vetor.x, vetor.y).normalized;
-            Vector2 candidato = origem + direcao * 0.30f;
-
-            if (!EstaDentroDeAlgumaSala(candidato) ||
-                !PodeMoverEntre(origem, candidato))
-                continue;
-
-            melhorPonto = candidato;
-            return true;
-        }
-
         return false;
+    }
+
+    private static bool EstaDentroDosLimitesDoMapa(Vector2 ponto)
+    {
+        if (ShipStatus.Instance == null)
+            return false;
+        Bounds limites = new Bounds();
+        bool encontrouSala = false;
+        foreach (var sala in ShipStatus.Instance.AllRooms)
+        {
+            if (sala == null || !sala.roomArea)
+                continue;
+            if (!encontrouSala)
+            {
+                limites = sala.roomArea.bounds;
+                encontrouSala = true;
+            }
+            else
+                limites.Encapsulate(sala.roomArea.bounds);
+        }
+        if (!encontrouSala)
+            return false;
+        limites.Expand(1.0f);
+        return limites.Contains(ponto);
     }
 
     private static bool EstaDentroDeAlgumaSala(Vector2 ponto)
