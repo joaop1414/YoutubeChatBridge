@@ -33,6 +33,10 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private static bool transporteEmAndamento;
     private static float limiteTransporte;
     private static float proximoTransporte;
+    private static Vent ventEntradaAtual;
+    private static Vent ventSaidaAtual;
+    private static bool aguardandoSaidaVent;
+    private static float proximaTentativaVent;
 
     // Caminho A*: recalculado periodicamente e quando o alvo muda de posição.
     private const float TamanhoCelula = 0.35f;
@@ -451,6 +455,9 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
         // Antes de perseguir em linha reta, procura uma travessia vanilla
         // que aproxime o NPC do alvo: escadas e tirolesas do Fungle.
+        if (TentarUsarVentilacao(alvo))
+            return;
+
         if (TentarUsarEscadaOuTirolesa(alvo))
             return;
 
@@ -462,6 +469,224 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     /// só considera uma travessia quando o destino dela reduz claramente
     /// a distância até o jogador perseguido.
     /// </summary>
+    private static object LerMembro(object instancia, params string[] nomes)
+    {
+        if (instancia == null)
+            return null;
+
+        const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+        Type tipo = instancia.GetType();
+
+        foreach (string nome in nomes)
+        {
+            PropertyInfo propriedade = tipo.GetProperty(nome, flags);
+            if (propriedade != null)
+                return propriedade.GetValue(instancia);
+
+            FieldInfo campo = tipo.GetField(nome, flags);
+            if (campo != null)
+                return campo.GetValue(instancia);
+        }
+
+        return null;
+    }
+
+    private static int ObterIdVent(Vent vent)
+    {
+        object valor = LerMembro(vent, "Id", "id", "VentId", "ventId");
+        return valor == null ? -1 : Convert.ToInt32(valor);
+    }
+
+    private static Vent[] ObterVentsConectados(Vent vent)
+    {
+        if (vent == null)
+            return Array.Empty<Vent>();
+
+        return new[]
+        {
+            LerMembro(vent, "Left", "left") as Vent,
+            LerMembro(vent, "Right", "right") as Vent,
+            LerMembro(vent, "Center", "center") as Vent
+        }
+        .Where(v => v != null && v != vent && v.isActiveAndEnabled)
+        .Distinct()
+        .ToArray();
+    }
+
+    private static bool InvocarRpcVent(string nomeMetodo, Vent vent)
+    {
+        if (seguidor?.MyPhysics == null || vent == null)
+            return false;
+
+        int ventId = ObterIdVent(vent);
+        if (ventId < 0)
+            return false;
+
+        const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+        MethodInfo[] metodos = seguidor.MyPhysics.GetType().GetMethods(flags)
+            .Where(m => string.Equals(m.Name, nomeMetodo, StringComparison.Ordinal))
+            .ToArray();
+
+        foreach (MethodInfo metodo in metodos)
+        {
+            ParameterInfo[] parametros = metodo.GetParameters();
+            if (parametros.Length != 1)
+                continue;
+
+            object argumento;
+            Type tipoParametro = parametros[0].ParameterType;
+            if (tipoParametro == typeof(int))
+                argumento = ventId;
+            else if (tipoParametro == typeof(uint))
+                argumento = (uint)ventId;
+            else if (tipoParametro == typeof(byte))
+                argumento = (byte)ventId;
+            else if (tipoParametro.IsAssignableFrom(typeof(Vent)))
+                argumento = vent;
+            else
+                continue;
+
+            metodo.Invoke(seguidor.MyPhysics, new[] { argumento });
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Usa a rede vanilla de dutos como atalho quando a opção estiver ativada.
+    /// </summary>
+    private static bool TentarUsarVentilacao(PlayerControl alvo)
+    {
+        if (YouTubeVoteBridgePlugin.PermitirVentilacaoNPC == null ||
+            !YouTubeVoteBridgePlugin.PermitirVentilacaoNPC.Value ||
+            seguidor == null || seguidor.MyPhysics == null ||
+            seguidor.NetTransform?.body == null || alvo == null)
+            return false;
+
+        float agora = Time.realtimeSinceStartup;
+
+        if (aguardandoSaidaVent)
+        {
+            seguidor.NetTransform.body.velocity = Vector2.zero;
+
+            if (agora < proximaTentativaVent)
+                return true;
+
+            if (InvocarRpcVent("RpcExitVent", ventSaidaAtual))
+            {
+                aguardandoSaidaVent = false;
+                transporteEmAndamento = false;
+                ventEntradaAtual = null;
+                ventSaidaAtual = null;
+                proximoTransporte = agora + 1.0f;
+                proximaTentativaVent = agora + 1.0f;
+
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[F7/Seguidor] NPC solicitou saída da ventilação.");
+                return true;
+            }
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Seguidor] RpcExitVent não encontrado; cancelando tentativa de ventilação.");
+            aguardandoSaidaVent = false;
+            ventEntradaAtual = null;
+            ventSaidaAtual = null;
+            transporteEmAndamento = false;
+            return false;
+        }
+
+        if (agora < proximaTentativaVent || transporteEmAndamento)
+            return false;
+
+        Vent[] vents = ShipStatus.Instance.GetComponentsInChildren<Vent>()
+            .Where(v => v != null && v.isActiveAndEnabled && ObterIdVent(v) >= 0)
+            .ToArray();
+
+        if (vents.Length < 2)
+            return false;
+
+        Vector2 origem = seguidor.GetTruePosition();
+        Vector2 posAlvo = alvo.GetTruePosition();
+        float distanciaDireta = Vector2.Distance(origem, posAlvo);
+        Vent melhorEntrada = null;
+        Vent melhorSaida = null;
+        float melhorCusto = float.MaxValue;
+
+        foreach (Vent entrada in vents)
+        {
+            float distanciaEntrada = Vector2.Distance(origem, entrada.transform.position);
+
+            foreach (Vent saida in ObterVentsConectados(entrada))
+            {
+                float distanciaSaida = Vector2.Distance(saida.transform.position, posAlvo);
+                float custo = distanciaEntrada + distanciaSaida;
+
+                if (distanciaSaida >= distanciaDireta - 0.8f ||
+                    custo >= distanciaDireta - 0.6f ||
+                    custo >= melhorCusto)
+                    continue;
+
+                melhorCusto = custo;
+                melhorEntrada = entrada;
+                melhorSaida = saida;
+            }
+        }
+
+        if (melhorEntrada == null || melhorSaida == null)
+            return false;
+
+        float distanciaAEntrada = Vector2.Distance(origem, melhorEntrada.transform.position);
+        float alcanceUso = 0.8f;
+        object alcanceObj = LerMembro(melhorEntrada, "UsableDistance", "usableDistance");
+        if (alcanceObj != null)
+        {
+            try { alcanceUso = Convert.ToSingle(alcanceObj); }
+            catch { }
+        }
+
+        if (distanciaAEntrada > alcanceUso)
+        {
+            MoverAte(melhorEntrada.transform.position);
+            return true;
+        }
+
+        seguidor.NetTransform.body.velocity = Vector2.zero;
+
+        try
+        {
+            if (!InvocarRpcVent("RpcEnterVent", melhorEntrada))
+            {
+                proximaTentativaVent = agora + 2f;
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[F7/Seguidor] RpcEnterVent não encontrado com uma assinatura compatível.");
+                return false;
+            }
+
+            ventEntradaAtual = melhorEntrada;
+            ventSaidaAtual = melhorSaida;
+            aguardandoSaidaVent = true;
+            transporteEmAndamento = true;
+            proximaTentativaVent = agora + 1.0f;
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[F7/Seguidor] NPC solicitou entrada no duto " + ObterIdVent(melhorEntrada) +
+                " e saída pelo duto " + ObterIdVent(melhorSaida) + ".");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            aguardandoSaidaVent = false;
+            transporteEmAndamento = false;
+            ventEntradaAtual = null;
+            ventSaidaAtual = null;
+            proximaTentativaVent = agora + 2f;
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Seguidor] Falha ao usar ventilação: " + ex.Message);
+            return false;
+        }
+    }
+
     private static bool TentarUsarEscadaOuTirolesa(PlayerControl alvo)
     {
         if (seguidor == null || seguidor.MyPhysics == null ||
@@ -1288,6 +1513,10 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         proximaBuscaAlvo = 0f;
         alvoAtual = null;
         transporteEmAndamento = false;
+        aguardandoSaidaVent = false;
+        ventEntradaAtual = null;
+        ventSaidaAtual = null;
+        proximaTentativaVent = 0f;
         limiteTransporte = 0f;
         proximoTransporte = 0f;
         monitoramentoMovimentoIniciado = false;
