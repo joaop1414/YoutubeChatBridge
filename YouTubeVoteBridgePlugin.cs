@@ -379,63 +379,67 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         }
     }
 
-    // O host envia mensagens enquanto estiver vivo ou quando toda a sala estiver morta.
+    // Seleciona um jogador vivo e conectado para representar as mensagens do sistema.
+    // Se todos estiverem mortos, o host pode voltar a ser o remetente.
     internal static PlayerControl ObterRemetenteMensagens(PlayerControl preferido = null)
     {
-        if (AmongUsClient.Instance == null)
-            return null;
+        if (PodeSerMensageiro(preferido))
+            return preferido;
 
-        if (EhHost())
-        {
-            PlayerControl local = PlayerControl.LocalPlayer;
-            if (local == null || local.Data == null || local.Data.Disconnected)
-                return null;
+        PlayerControl local = PlayerControl.LocalPlayer;
+        if (PodeSerMensageiro(local))
+            return local;
 
-            // Se o host estiver vivo, ele pode enviar normalmente.
-            if (!local.Data.IsDead)
-                return local;
+        List<PlayerControl> candidatos = new();
+        bool existeJogadorVivo = false;
 
-            // Host morto: só permite mensagens quando não existir nenhum
-            // jogador conectado e vivo na sala.
-            bool existeJogadorVivo = false;
-            if (PlayerControl.AllPlayerControls != null)
-            {
-                foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
-                {
-                    if (jogador == null ||
-                        jogador.Data == null ||
-                        jogador.Data.Disconnected)
-                        continue;
-
-                    if (!jogador.Data.IsDead)
-                    {
-                        existeJogadorVivo = true;
-                        break;
-                    }
-                }
-            }
-
-            return existeJogadorVivo ? null : local;
-        }
-
-        // Em clientes, localiza o PlayerControl pertencente ao host.
-        int hostId = AmongUsClient.Instance.HostId;
         if (PlayerControl.AllPlayerControls != null)
         {
             foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
             {
-                if (jogador != null &&
-                    jogador.Data != null &&
-                    !jogador.Data.Disconnected &&
-                    jogador.OwnerId == hostId)
-                    return jogador;
+                if (jogador == null ||
+                    jogador.Data == null ||
+                    jogador.Data.Disconnected ||
+                    jogador.notRealPlayer)
+                    continue;
+
+                if (!jogador.Data.IsDead)
+                    existeJogadorVivo = true;
+
+                if (PodeSerMensageiro(jogador))
+                    candidatos.Add(jogador);
             }
         }
 
-        // Sem PlayerControl do host disponível, aguarda em silêncio.
+        // Mantém o comportamento original: escolhe um jogador vivo aleatório.
+        if (candidatos.Count > 0)
+            return candidatos[UnityEngine.Random.Range(0, candidatos.Count)];
+
+        // Só usa o host morto quando não há absolutamente nenhum jogador
+        // conectado e vivo na sala. Essa exceção só pode ser executada pelo host.
+        if (!existeJogadorVivo && EhHost())
+        {
+            PlayerControl host = PlayerControl.LocalPlayer;
+            if (host != null &&
+                host.Data != null &&
+                !host.Data.Disconnected &&
+                !host.notRealPlayer)
+                return host;
+        }
+
+        // Se ainda há jogadores vivos, mas nenhum pode ser mensageiro,
+        // não troca para o host morto nem gera avisos repetitivos.
         return null;
     }
 
+    private static bool PodeSerMensageiro(PlayerControl jogador)
+    {
+        return jogador != null &&
+               jogador.Data != null &&
+               !jogador.Data.IsDead &&
+               !jogador.Data.Disconnected &&
+               !jogador.notRealPlayer;
+    }
     // Anúncio global no estilo dos comandos /s e /say do Endless Host Roles.
     public static void EnviarMensagemAnfitriao(
         string mensagem,
