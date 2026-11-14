@@ -4339,6 +4339,7 @@ public static class YouTubeVoteUpdatePatch
         YouTubeVoteBridgePlugin.EnviarSinalModAoHost();
 
         YouTubeVoteBridgePlugin.ProcessarRespostasLocaisPendentes();
+        RoleSwitchAPI.ProcessarEstado();
         LobbyTagManager.Update();
         EventoAdicionarTarefas.AtualizarRestauracoesAgendadas();
 
