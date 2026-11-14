@@ -404,6 +404,61 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         return host;
     }
 
+    // Anúncio global no estilo dos comandos /s e /say do Endless Host Roles.
+    public static void EnviarMensagemAnfitriao(string mensagem)
+    {
+        mensagem = RemoverPrefixosAtalho(mensagem);
+        if (string.IsNullOrWhiteSpace(mensagem) || AmongUsClient.Instance == null ||
+            PlayerControl.LocalPlayer == null || !EhHost())
+            return;
+        PlayerControl remetente = PlayerControl.LocalPlayer;
+        if (remetente.Data == null) return;
+        string nomeOriginal = remetente.Data.PlayerName ?? string.Empty;
+        MessageWriter writer = null;
+        try
+        {
+            writer = MessageWriter.Get(SendOption.Reliable);
+            writer.StartMessage(5);
+            writer.Write(AmongUsClient.Instance.GameId);
+            writer.StartMessage(2);
+            writer.WritePacked(remetente.NetId);
+            writer.Write((byte)RpcCalls.SetName);
+            writer.Write(remetente.Data.NetId);
+            writer.Write(TITULO_SISTEMA);
+            writer.EndMessage();
+            writer.StartMessage(2);
+            writer.WritePacked(remetente.NetId);
+            writer.Write((byte)RpcCalls.SendChat);
+            writer.Write(mensagem);
+            writer.EndMessage();
+            writer.StartMessage(2);
+            writer.WritePacked(remetente.NetId);
+            writer.Write((byte)RpcCalls.SetName);
+            writer.Write(remetente.Data.NetId);
+            writer.Write(nomeOriginal);
+            writer.EndMessage();
+            writer.EndMessage();
+            AmongUsClient.Instance.SendOrDisconnect(writer);
+            writer.Recycle();
+            writer = null;
+
+            if (HudManager.InstanceExists && HudManager.Instance.Chat != null)
+            {
+                try
+                {
+                    DefinirNomeTemporarioLocal(remetente, TITULO_SISTEMA);
+                    HudManager.Instance.Chat.AddChat(remetente, mensagem, false);
+                }
+                finally { DefinirNomeTemporarioLocal(remetente, nomeOriginal); }
+            }
+        }
+        catch (Exception ex)
+        {
+            Instance?.Log.LogError("[Comando /say] Falha ao enviar anúncio global: " + ex);
+        }
+        finally { if (writer != null) try { writer.Recycle(); } catch { } }
+    }
+
     // ========================================================
     // MENSAGENS PRIVADAS
     // ========================================================
@@ -4006,10 +4061,29 @@ public static class YouTubeVoteChatPatch
             return ehLocal;
         }
 
+        if (Regex.IsMatch(mensagem, @"^/(s|say)(\\s+|$)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+        {
+            if (!host || sourcePlayer != PlayerControl.LocalPlayer)
+            {
+                if (ehLocal)
+                    YouTubeVoteBridgePlugin.Responder(__instance, "<color=red>Somente o anfitrião pode usar /s ou /say.</color>");
+                return ehLocal;
+            }
+            string textoAnuncio = Regex.Replace(
+                mensagem, @"^/(s|say)\\s*", "", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant).Trim();
+            if (textoAnuncio.Length == 0)
+            {
+                YouTubeVoteBridgePlugin.Responder(__instance, "Uso: /s <mensagem> ou /say <mensagem>");
+                return false;
+            }
+            YouTubeVoteBridgePlugin.EnviarMensagemAnfitriao(textoAnuncio);
+            return false;
+        }
+
         if (mensagem.Equals("/help", StringComparison.OrdinalIgnoreCase) ||
             mensagem.Equals("/ajuda", StringComparison.OrdinalIgnoreCase))
         {
-            const string ajuda1 = "Ajuda 1/3: /color <id|nome|rainbow> (cor); /evento, /eventof7 ou /eventosf7 (eventos F7); /ytconfig, /ytconfiguracoes ou /ytconfigurações (configurações).";
+            const string ajuda1 = "Ajuda 1/3: /color <id|nome|rainbow> (cor); /evento, /eventof7 ou /eventosf7 (eventos F7); /ytconfig, /ytconfiguracoes ou /ytconfigurações (configurações); /s ou /say <mensagem> (anúncio global do host).";
             const string ajuda2 = "Ajuda 2/3 — host: /youtube ajuda; /youtube live, colar/clipboard/area ou /youtube <ID/URL>; /youtube iniciar/on/ligar; parar/off/desligar; status/info; tempo <5-600>; intervalo <0-600>; preparacao <0-120>; config/configuracoes.";
             const string ajuda3 = "Ajuda 3/3: /youtube multi|multitransmissao on/off; permitirids|permitirlives on/off; aceitar/aprovar; recusar/negar. /live <ID/URL> pede inclusão de outra live (só no lobby). /tpout, /tpin, /rn <nome>, /rename <nome> (lobby). /tag update (host).";
             if (ehLocal)
