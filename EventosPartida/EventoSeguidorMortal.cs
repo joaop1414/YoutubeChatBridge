@@ -21,7 +21,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 {
     private const byte PlayerIdSeguidor = 249;
     private const float Velocidade = 1.35f;
-    private const float PenalidadeProximidadeParede = 0.42f;
+    private const float PenalidadeProximidadeParede = 0.24f;
     private const float AlcanceMorte = 0.48f;
     private const float IntervaloTrocaAlvo = 0.25f;
     private const string NomeSeguidor = "<color=red>NPC ASSASINO</color>";
@@ -93,7 +93,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     // Caminho A*: recalculado periodicamente e quando o alvo muda de posição.
     // Grade mais ampla reduz os micro-waypoints e as curvas do A*; a suavização
     // ainda valida cada atalho com o collider real para não atravessar obstáculos.
-    private const float TamanhoCelula = 0.40f;
+    private const float TamanhoCelula = 0.30f;
     // Fallback usado somente antes de o prefab do NPC disponibilizar seu collider.
     // Durante a navegação, as consultas usam o formato e as dimensões do collider real.
     private const float RaioColisaoFallback = 0.15f;
@@ -1986,9 +1986,13 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         if (ShipStatus.Instance == null || seguidor == null)
             return null;
 
+        // Primeiro tenta a rota direta: em corredores/salas abertas evita toda
+        // a criação e expansão da grade.
+        if (PodeMoverEntre(inicio, destino))
+            return new List<Vector2> { destino };
+
         Bounds limites = new Bounds();
         bool possuiSala = false;
-
         foreach (var sala in ShipStatus.Instance.AllRooms)
         {
             if (sala == null || !sala.roomArea)
@@ -2010,13 +2014,11 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         Vector2 minimo = limites.min;
         int largura = Mathf.CeilToInt(limites.size.x / TamanhoCelula);
         int altura = Mathf.CeilToInt(limites.size.y / TamanhoCelula);
-
-        if (largura <= 0 || altura <= 0 || largura * altura > 30000)
+        if (largura <= 0 || altura <= 0 || (long)largura * altura > 45000)
             return null;
 
         Vector2Int inicioGrid = ParaGrid(inicio, minimo, largura, altura);
         Vector2Int destinoGrid = ParaGrid(destino, minimo, largura, altura);
-
         if (!EncontrarCelulaLivre(ref inicioGrid, inicio, minimo, largura, altura) ||
             !EncontrarCelulaLivre(ref destinoGrid, destino, minimo, largura, altura))
             return null;
@@ -2030,11 +2032,14 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
         custos[inicioGrid] = 0f;
         abertos.Enqueue(inicioGrid, Heuristica(inicioGrid, destinoGrid));
-
         int expandidos = 0;
-        // Limite menor para evitar picos de CPU quando a rota atravessa
-        // grande parte do mapa; a grade mais grossa reduz consultas físicas.
-        while (abertos.Count > 0 && expandidos < 5000)
+
+        // Weighted A*: o desempate favorece nós mais próximos do destino,
+        // reduzindo explorações laterais e mantendo custo de rota quase ótimo.
+        const float pesoHeuristica = 1.12f;
+        const int limiteExpansoes = 12000;
+
+        while (abertos.Count > 0 && expandidos < limiteExpansoes)
         {
             Vector2Int atual = abertos.Dequeue();
             if (!fechados.Add(atual))
@@ -2045,14 +2050,19 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             {
                 List<Vector2> caminho = ReconstruirCaminho(
                     inicioGrid, destinoGrid, anteriores, minimo);
+                if (caminho == null || caminho.Count == 0)
+                    return null;
 
-                if (caminho != null && caminho.Count > 0 &&
-                    PodeMoverEntre(caminho[caminho.Count - 1], destino))
+                // Conecta a grade ao destino real, validando o último segmento.
+                if (PodeMoverEntre(caminho[caminho.Count - 1], destino))
                     caminho.Add(destino);
+                else
+                    return null;
 
                 return caminho;
             }
 
+            Vector2 pontoAtual = CentroCelula(atual, minimo);
             foreach (Vector2Int direcao in DirecoesCaminho)
             {
                 Vector2Int vizinho = atual + direcao;
@@ -2064,40 +2074,45 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 if (!CelulaLivre(vizinho, minimo, cacheCelulasLivres))
                     continue;
 
-                Vector2 pontoAtual = CentroCelula(atual, minimo);
-                Vector2 pontoVizinho = CentroCelula(vizinho, minimo);
-
-                // Impede cortes diagonais por quinas: para atravessar na diagonal,
-                // os dois lados ortogonais também precisam estar livres.
+                // Diagonais só passam quando os dois lados ortogonais estão livres.
                 if (direcao.x != 0 && direcao.y != 0)
                 {
-                    Vector2Int ladoHorizontal = atual + new Vector2Int(direcao.x, 0);
-                    Vector2Int ladoVertical = atual + new Vector2Int(0, direcao.y);
-                    if (!CelulaLivre(ladoHorizontal, minimo, cacheCelulasLivres) ||
-                        !CelulaLivre(ladoVertical, minimo, cacheCelulasLivres))
+                    Vector2Int lateralX = atual + new Vector2Int(direcao.x, 0);
+                    Vector2Int lateralY = atual + new Vector2Int(0, direcao.y);
+                    if (!CelulaLivre(lateralX, minimo, cacheCelulasLivres) ||
+                        !CelulaLivre(lateralY, minimo, cacheCelulasLivres))
                         continue;
                 }
 
-                // A trajetória é validada com o formato real do collider do NPC.
+                Vector2 pontoVizinho = CentroCelula(vizinho, minimo);
                 if (!PodePassarEntre(pontoAtual, pontoVizinho))
                     continue;
 
-                float custoDistancia = Mathf.Sqrt(
-                    direcao.x * direcao.x + direcao.y * direcao.y);
-                float penalidadeParede = ObterPenalidadeProximidadeParede(
+                float distancia = direcao.x != 0 && direcao.y != 0
+                    ? 1.41421356f : 1f;
+                float penalidade = ObterPenalidadeProximidadeParede(
                     vizinho, minimo, largura, altura,
                     cacheCelulasLivres, cachePenalidadeProximidade);
-                float novoCusto = custos[atual] + custoDistancia + penalidadeParede;
 
-                if (custos.TryGetValue(vizinho, out float custoExistente) &&
-                    novoCusto >= custoExistente)
+                // Evita que o custo de parede domine o comprimento real.
+                float novoCusto = custos[atual] + distancia + penalidade;
+                if (custos.TryGetValue(vizinho, out float custoAnterior) &&
+                    novoCusto >= custoAnterior)
                     continue;
 
                 custos[vizinho] = novoCusto;
                 anteriores[vizinho] = atual;
-                abertos.Enqueue(vizinho, novoCusto + Heuristica(vizinho, destinoGrid));
+                float h = Heuristica(vizinho, destinoGrid);
+                // Pequeno desempate adicional para preferir progresso direto.
+                float prioridade = novoCusto + h * pesoHeuristica + h * 0.0001f;
+                abertos.Enqueue(vizinho, prioridade);
             }
         }
+
+        if (expandidos >= limiteExpansoes)
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Pathfinder] A* atingiu o limite de " + limiteExpansoes +
+                " expansões. Origem=" + inicio + ", destino=" + destino + ".");
 
         return null;
     }
@@ -2410,7 +2425,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         int dx = a.x - b.x;
         int dy = a.y - b.y;
 
-        // Distância euclidiana: admissível para as 32 direções e seus custos.
+        // Distância euclidiana: heurística consistente para movimentos em 8 direções.
         return Mathf.Sqrt(dx * dx + dy * dy);
     }
 
