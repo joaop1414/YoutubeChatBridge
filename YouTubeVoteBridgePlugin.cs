@@ -4717,23 +4717,59 @@ public static class YouTubeVoteShapeshiftCheckPatch
 [HarmonyPatch]
 public static class YouTubeVoteExileNamePatch
 {
+    // RpcVotingComplete recebe o resultado FINAL já calculado pelo jogo.
+    // Isso inclui a resolução de JudgeOverrule: o argumento de exilado já
+    // representa quem realmente será enviado para a tela de ejeção.
+    // Executamos antes do RPC e antes de a reunião começar a fechar.
     private static MethodBase TargetMethod()
     {
-        return AccessTools.Method(typeof(ExileController), "Begin");
+        return AccessTools.Method(typeof(MeetingHud), "RpcVotingComplete");
     }
 
     public static void Prefix(object[] __args)
     {
-        if (__args == null)
+        if (!YouTubeVoteBridgePlugin.EhHost() || __args == null)
             return;
 
-        foreach (object argumento in __args)
+        try
         {
-            if (argumento == null)
-                continue;
+            // Assinatura vanilla esperada:
+            // RpcVotingComplete(states, exiled, tie, wasOverruled, overruleNonce)
+            // O índice 1 é o NetworkedPlayerInfo efetivamente ejetado.
+            if (__args.Length < 3)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "Ejeção: RpcVotingComplete recebeu menos argumentos que o esperado; nome não alterado.");
+                return;
+            }
 
-            YouTubeVoteBridgePlugin.PrepararNomeGlobalDeEjecao(argumento);
-            break;
+            object exilado = __args[1];
+            bool empate = false;
+            try
+            {
+                if (__args[2] != null)
+                    empate = Convert.ToBoolean(__args[2]);
+            }
+            catch { }
+
+            if (empate || exilado == null)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    empate
+                        ? "Ejeção: votação empatada; nenhum nome será alterado."
+                        : "Ejeção: resultado sem jogador (skip); nenhum nome será alterado.");
+                return;
+            }
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "Ejeção: resultado final recebido em RpcVotingComplete; preparando o nome antes do fechamento da reunião.");
+
+            YouTubeVoteBridgePlugin.PrepararNomeGlobalDeEjecao(exilado);
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "Ejeção: falha ao ler o resultado final de RpcVotingComplete: " + ex);
         }
     }
 }
