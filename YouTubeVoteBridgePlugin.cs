@@ -379,19 +379,43 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         }
     }
 
-    // Todas as mensagens do sistema usam o host como remetente visual.
-    // Isso continua funcionando quando todos os jogadores estão mortos.
+    // O host envia mensagens enquanto estiver vivo ou quando toda a sala estiver morta.
     internal static PlayerControl ObterRemetenteMensagens(PlayerControl preferido = null)
     {
         if (AmongUsClient.Instance == null)
             return null;
 
-        // No host, o jogador local é sempre o próprio host, vivo ou morto.
         if (EhHost())
         {
             PlayerControl local = PlayerControl.LocalPlayer;
-            if (local != null && local.Data != null && !local.Data.Disconnected)
+            if (local == null || local.Data == null || local.Data.Disconnected)
+                return null;
+
+            // Se o host estiver vivo, ele pode enviar normalmente.
+            if (!local.Data.IsDead)
                 return local;
+
+            // Host morto: só permite mensagens quando não existir nenhum
+            // jogador conectado e vivo na sala.
+            bool existeJogadorVivo = false;
+            if (PlayerControl.AllPlayerControls != null)
+            {
+                foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+                {
+                    if (jogador == null ||
+                        jogador.Data == null ||
+                        jogador.Data.Disconnected)
+                        continue;
+
+                    if (!jogador.Data.IsDead)
+                    {
+                        existeJogadorVivo = true;
+                        break;
+                    }
+                }
+            }
+
+            return existeJogadorVivo ? null : local;
         }
 
         // Em clientes, localiza o PlayerControl pertencente ao host.
