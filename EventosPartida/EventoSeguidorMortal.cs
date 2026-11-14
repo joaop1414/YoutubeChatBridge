@@ -573,9 +573,26 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         if (npc == null || npc.NetTransform?.body == null)
             return;
 
+        if (seguidor != npc)
+        {
+            seguidor = npc;
+            LimparCaminho();
+            monitoramentoMovimentoIniciado = false;
+            emManobraDestravamento = false;
+        }
+
+        // Escadas, tirolesas e outros transportes continuam sendo controlados
+        // pelos RPCs nativos recebidos do host.
+        if (!npc.moveable || npc.onLadder || npc.inMovingPlat)
+        {
+            npc.NetTransform.body.velocity = Vector2.zero;
+            return;
+        }
+
         if (alvoReplicadoCliente == byte.MaxValue)
         {
             npc.NetTransform.body.velocity = Vector2.zero;
+            LimparCaminho();
             return;
         }
 
@@ -598,9 +615,16 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         Vector2 diferenca = destino - npc.GetTruePosition();
 
         if (diferenca.magnitude <= AlcanceMorte)
+        {
             npc.NetTransform.body.velocity = Vector2.zero;
+            LimparCaminho();
+        }
         else
-            npc.NetTransform.body.velocity = diferenca.normalized * Velocidade;
+        {
+            // Reutiliza o A* do host no cliente para evitar que o NPC tente
+            // atravessar paredes ao perseguir um alvo que mudou de posição.
+            MoverAte(destino);
+        }
     }
 
     internal static void PararMovimentoCliente()
@@ -2264,12 +2288,14 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         PlayerControl alvoAnterior = alvoAtual;
         alvoAtual = ObterJogadorVivoMaisProximo(seguidor.GetTruePosition());
 
-        if (!alvoInicialNotificado || alvoAnterior != alvoAtual)
+        byte novoPlayerIdAlvo = alvoAtual != null
+            ? alvoAtual.PlayerId
+            : byte.MaxValue;
+
+        if (!alvoInicialNotificado || novoPlayerIdAlvo != ultimoAlvoNotificado)
         {
             alvoInicialNotificado = true;
-            ultimoAlvoNotificado = alvoAtual != null
-                ? alvoAtual.PlayerId
-                : byte.MaxValue;
+            ultimoAlvoNotificado = novoPlayerIdAlvo;
             EnviarDestinoAosClientesComMod(alvoAtual);
         }
 
