@@ -3883,13 +3883,8 @@ public static class YouTubeVoteChatPatch
 
                     try
                     {
-                        if (sourcePlayer.NetTransform == null)
-                            throw new InvalidOperationException("NetTransform do jogador não está disponível.");
-
-                        // RpcSnapTo sincroniza o teleporte com os demais clientes.
-                        // SnapTo + SetDirtyBit apenas no host não garante a atualização
-                        // imediata da posição nos clientes remotos.
-                        sourcePlayer.NetTransform.RpcSnapTo(destino);
+                        if (!TeleporteAPI.Teleportar(sourcePlayer, destino))
+                            throw new InvalidOperationException("A API de teleporte não conseguiu sincronizar a posição.");
 
                         string confirmacao = comandoTpOut
                             ? "Você foi teleportado para fora do lobby."
