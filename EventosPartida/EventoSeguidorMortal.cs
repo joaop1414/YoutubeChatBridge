@@ -31,6 +31,14 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private static PlayerControl seguidor;
     private static PlayerControl alvoAtual;
 
+    // Patrulha usada quando nenhum jogador válido está disponível como alvo.
+    private const float DistanciaChegadaPatrulha = 0.22f;
+    private const float DuracaoDestinoPatrulha = 14f;
+    private static bool possuiDestinoPatrulha;
+    private static Vector2 destinoPatrulha;
+    private static float limiteDestinoPatrulha;
+    private static float proximaTentativaDestinoPatrulha;
+
     // Evita repetir chamadas de transporte enquanto a animação vanilla está ativa.
     private static bool transporteEmAndamento;
     private static float limiteTransporte;
@@ -437,8 +445,18 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         PlayerControl alvo = ObterAlvoAtual();
         if (alvo == null)
         {
-            seguidor.NetTransform.body.velocity = Vector2.zero;
+            Patrulhar();
             return;
+        }
+
+        // Ao encontrar um jogador novamente, abandona o destino de patrulha
+        // e força o A* a calcular uma rota nova para a perseguição.
+        if (possuiDestinoPatrulha)
+        {
+            possuiDestinoPatrulha = false;
+            LimparCaminho();
+            emManobraDestravamento = false;
+            monitoramentoMovimentoIniciado = false;
         }
 
         // Se o NPC estiver usando uma ventilação, conclui a travessia antes
@@ -498,7 +516,6 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         object valor = LerMembro(vent, "Id", "id", "VentId", "ventId");
         return valor == null ? -1 : Convert.ToInt32(valor);
     }
-
     private static Vent[] ObterVentsConectados(Vent vent)
     {
         if (vent == null)
@@ -997,14 +1014,121 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         }
 
         Vector2 proximoPonto = caminhoAtual[melhorIndice];
-        Vector2 direcao = proximoPonto - origem;
-        if (direcao.sqrMagnitude < 0.0001f)
+        Vector2 direcao = proximoPonto - origem;        if (direcao.sqrMagnitude < 0.0001f)
         {
             seguidor.NetTransform.body.velocity = Vector2.zero;
             return;
         }
 
         corpo.velocity = direcao.normalized * Velocidade;
+    }
+
+    /// <summary>
+    /// Faz o NPC circular pelo mapa quando não há jogadores válidos para perseguir.
+    /// Os destinos são sorteados dentro das salas e a movimentação usa o mesmo A*,
+    /// as mesmas verificações de colisão e o mesmo detector de travamento da perseguição.
+    /// </summary>
+    private static void Patrulhar()
+    {
+        if (seguidor?.NetTransform?.body == null || ShipStatus.Instance == null)
+            return;
+
+        var corpo = seguidor.NetTransform.body;
+        float agora = Time.realtimeSinceStartup;
+
+        // Se uma travessia iniciada durante a perseguição ainda estiver acontecendo,
+        // deixa a animação vanilla terminar antes de voltar a andar.
+        if (transporteEmAndamento)
+        {
+            if (seguidor.onLadder || seguidor.inMovingPlat || !seguidor.moveable)
+            {
+                corpo.velocity = Vector2.zero;
+                return;
+            }
+
+            transporteEmAndamento = false;
+        }
+
+        Vector2 origem = seguidor.GetTruePosition();
+        bool chegouAoDestino = possuiDestinoPatrulha &&
+            Vector2.Distance(origem, destinoPatrulha) <= DistanciaChegadaPatrulha;
+        bool destinoExpirou = possuiDestinoPatrulha && agora >= limiteDestinoPatrulha;
+
+        if (!possuiDestinoPatrulha || chegouAoDestino || destinoExpirou)
+        {
+            corpo.velocity = Vector2.zero;
+            LimparCaminho();
+            emManobraDestravamento = false;
+            monitoramentoMovimentoIniciado = false;
+
+            if (agora < proximaTentativaDestinoPatrulha)
+                return;
+
+            if (!TentarEscolherDestinoPatrulha(origem, out Vector2 novoDestino))
+            {
+                possuiDestinoPatrulha = false;
+                proximaTentativaDestinoPatrulha = agora + 1f;
+                return;
+            }
+
+            destinoPatrulha = novoDestino;
+            possuiDestinoPatrulha = true;
+            limiteDestinoPatrulha = agora + DuracaoDestinoPatrulha;
+            proximaTentativaDestinoPatrulha = agora + 0.25f;
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[F7/Seguidor] Sem alvos; NPC patrulhando até " + destinoPatrulha + ".");
+        }
+
+        MoverAte(destinoPatrulha);
+    }
+
+    /// <summary>
+    /// Sorteia pontos livres dentro das salas do mapa. A rota entre salas
+    /// é resolvida pelo A* já existente, portanto o ponto não precisa ter
+    /// visão direta a partir da posição atual do NPC.
+    /// </summary>
+    private static bool TentarEscolherDestinoPatrulha(Vector2 origem, out Vector2 destino)
+    {
+        destino = origem;
+
+        if (ShipStatus.Instance == null || seguidor == null)
+            return false;
+
+        var salas = ShipStatus.Instance.AllRooms
+            .Where(sala => sala != null && sala.roomArea != null)
+            .ToArray();
+
+        if (salas.Length == 0)
+            return false;
+
+        // Tenta várias salas e posições para evitar escolher pontos dentro de paredes,
+        // móveis ou fora do contorno real da sala.
+        for (int tentativa = 0; tentativa < 80; tentativa++)
+        {
+            var sala = salas[UnityEngine.Random.Range(0, salas.Length)];
+            Bounds limites = sala.roomArea.bounds;
+
+            Vector2 candidato = new Vector2(
+                UnityEngine.Random.Range(limites.min.x, limites.max.x),
+                UnityEngine.Random.Range(limites.min.y, limites.max.y));
+
+            if (!sala.roomArea.OverlapPoint(candidato))
+                continue;
+
+            // Valida somente se o próprio ponto está livre. Não exige caminho
+            // em linha reta desde a posição atual, pois o A* contorna paredes.
+            if (!PodeMoverEntre(candidato, candidato))
+                continue;
+
+            if (Vector2.Distance(origem, candidato) < 1.25f)
+                continue;
+
+            destino = candidato;
+            return true;
+        }
+
+        return false;
     }
 
     private static bool TentarEncontrarPontoDestravamento(
@@ -1497,8 +1621,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         return melhor;
     }
 
-    private static void MatarAlvo(PlayerControl alvo)
-    {
+    private static void MatarAlvo(PlayerControl alvo)    {
         if (!YouTubeVoteBridgePlugin.EhHost() ||
             alvo == null ||
             alvo.Data == null ||
@@ -1544,6 +1667,10 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         proximaEtapa = 0f;
         proximaBuscaAlvo = 0f;
         alvoAtual = null;
+        possuiDestinoPatrulha = false;
+        destinoPatrulha = Vector2.zero;
+        limiteDestinoPatrulha = 0f;
+        proximaTentativaDestinoPatrulha = 0f;
         transporteEmAndamento = false;
         aguardandoSaidaVent = false;
         ventEntradaAtual = null;
