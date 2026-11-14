@@ -2347,13 +2347,100 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         return true;
     }
 
+    // Calcula a visão como a de um tripulante real. CalculateLightRadius
+    // já considera o multiplicador de visão e a sabotagem das luzes.
+    private static float ObterAlcanceVisaoTripulante()
+    {
+        if (ShipStatus.Instance == null)
+            return 0f;
+
+        try
+        {
+            NetworkedPlayerInfo dadosTripulante = null;
+
+            foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+            {
+                if (jogador == null || jogador.Data == null ||
+                    jogador.Data.Disconnected || jogador.Data.IsDead)
+                    continue;
+
+                object roleData = LerMembro(jogador.Data, "Role");
+                object roleType = LerMembro(roleData, "Role");
+                object isImpostorValue = LerMembro(roleData, "IsImpostor");
+
+                bool impostor = isImpostorValue is bool valor
+                    ? valor
+                    : roleType != null &&
+                      roleType.ToString().IndexOf("Impostor", StringComparison.OrdinalIgnoreCase) >= 0;
+
+                if (!impostor)
+                {
+                    dadosTripulante = jogador.Data;
+                    break;
+                }
+            }
+
+            // Se todos os jogadores vivos forem impostores, usa o registro do NPC
+            // como último recurso. O caminho normal sempre prefere dados de tripulante.
+            dadosTripulante ??= seguidor?.Data;
+            if (dadosTripulante == null)
+                return 0f;
+
+            const BindingFlags flags =
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+
+            MethodInfo calcular = ShipStatus.Instance.GetType()
+                .GetMethods(flags)
+                .FirstOrDefault(m =>
+                {
+                    if (m.Name != "CalculateLightRadius")
+                        return false;
+
+                    ParameterInfo[] parametros = m.GetParameters();
+                    return parametros.Length == 1 &&
+                           parametros[0].ParameterType.IsInstanceOfType(dadosTripulante);
+                });
+
+            if (calcular == null)
+                return 0f;
+
+            object resultado = calcular.Invoke(ShipStatus.Instance, new object[] { dadosTripulante });
+            return resultado == null ? 0f : Mathf.Max(0f, Convert.ToSingle(resultado));
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Seguidor] Falha ao calcular visão de tripulante: " + ex.Message);
+            return 0f;
+        }
+    }
+
+    private static bool PodeVerJogador(PlayerControl jogador, Vector2 origem)
+    {
+        if (jogador == null || jogador.Data == null)
+            return false;
+
+        Vector2 destino = jogador.GetTruePosition();
+        float alcance = ObterAlcanceVisaoTripulante();
+        if (alcance <= 0f || Vector2.Distance(origem, destino) > alcance)
+            return false;
+
+        // A visão também precisa estar desobstruída por paredes e objetos do mapa.
+        RaycastHit2D impacto = Physics2D.Linecast(
+            origem, destino, Constants.ShipOnlyMask);
+
+        return impacto.collider == null ||
+               impacto.collider.transform.IsChildOf(jogador.transform);
+    }
+
     private static PlayerControl ObterAlvoAtual()
     {
         if (alvoAtual != null &&
             alvoAtual.Data != null &&
             !alvoAtual.Data.IsDead &&
             !alvoAtual.Data.Disconnected &&
-            !EstaNoDuto(alvoAtual))
+            !EstaNoDuto(alvoAtual) &&
+            PodeVerJogador(alvoAtual, seguidor.GetTruePosition()))
         {
             if (Time.realtimeSinceStartup < proximaBuscaAlvo)
                 return alvoAtual;
@@ -2393,7 +2480,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 jogador.Data == null ||
                 jogador.Data.IsDead ||
                 jogador.Data.Disconnected ||
-                EstaNoDuto(jogador))
+                EstaNoDuto(jogador) ||
+                !PodeVerJogador(jogador, origem))
                 continue;
 
             float distancia = Vector2.Distance(origem, jogador.GetTruePosition());
