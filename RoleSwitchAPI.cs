@@ -126,6 +126,7 @@ internal static class RoleSwitchAPI
         }
 
         loteEmAndamento = true;
+        YouTubeVoteBridgePlugin.BloquearFimDeJogoDuranteTrocaDeFuncoes = true;
 
         try
         {
@@ -142,6 +143,7 @@ internal static class RoleSwitchAPI
         catch (Exception ex)
         {
             loteEmAndamento = false;
+            YouTubeVoteBridgePlugin.BloquearFimDeJogoDuranteTrocaDeFuncoes = false;
 
             LogErro("Não foi possível iniciar a distribuição das funções: " + ex);
             return false;
@@ -182,6 +184,7 @@ internal static class RoleSwitchAPI
         finally
         {
             loteEmAndamento = false;
+            YouTubeVoteBridgePlugin.BloquearFimDeJogoDuranteTrocaDeFuncoes = false;
         }
     }
 
