@@ -13,8 +13,8 @@ namespace YouTubeVoteBridge;
 /// <summary>
 /// NPC artificial que persegue o jogador vivo mais próximo.
 /// A movimentação usa o Rigidbody2D do CustomNetworkTransform, igual ao
-/// transporte contínuo já usado pelo evento Tsunami. SnapTo também é enviado
-/// periodicamente para manter os clientes remotos próximos da posição real.
+/// transporte contínuo já usado pelo evento Tsunami. A posição é replicada pelo
+/// transform nativo, sem RPC SnapTo periódico com sequência artificial.
 /// </summary>
 internal sealed class EventoSeguidorMortal : EventoVotacao
 {
