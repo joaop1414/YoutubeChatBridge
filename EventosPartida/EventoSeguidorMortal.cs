@@ -31,6 +31,10 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private static float proximaEtapa;
     private static float proximaBuscaAlvo;
     private static float proximoKillNpc;
+    private static bool resolvendoSabotagemLuzes;
+    private static Vector2 destinoEletrica;
+    private static float proximaAcaoInterruptor;
+    private const float IntervaloInterruptorLuzes = 0.5f;
     private static PlayerControl seguidor;
     private static PlayerControl alvoAtual;
 
@@ -943,6 +947,10 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             Resetar();
             return;
         }
+
+        // Sabotagens têm prioridade sobre perseguição e patrulha.
+        if (TentarResolverSabotagemLuzes())
+            return;
 
         // O Tsunami já usa este mesmo caminho: velocidade no Rigidbody2D
         // pertencente ao CustomNetworkTransform. O SnapTo periódico serve apenas
@@ -2433,6 +2441,124 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                impacto.collider.transform.IsChildOf(jogador.transform);
     }
 
+    /// <summary>
+    /// Faz o NPC resolver a sabotagem de luzes como um tripulante:
+    /// vai até a Elétrica e corrige um interruptor por vez, com intervalo de 0,5s.
+    /// </summary>
+    private static bool TentarResolverSabotagemLuzes()
+    {
+        if (seguidor?.NetTransform?.body == null || ShipStatus.Instance == null)
+            return false;
+
+        SwitchSystem sistemaLuzes = null;
+        try
+        {
+            if (ShipStatus.Instance.Systems != null &&
+                ShipStatus.Instance.Systems.ContainsKey(SystemTypes.Electrical))
+                sistemaLuzes = ShipStatus.Instance.Systems[SystemTypes.Electrical] as SwitchSystem;
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Seguidor] Não foi possível consultar o sistema de luzes: " + ex.Message);
+            return false;
+        }
+
+        if (sistemaLuzes == null || !sistemaLuzes.IsActive)
+        {
+            if (resolvendoSabotagemLuzes)
+            {
+                resolvendoSabotagemLuzes = false;
+                proximaAcaoInterruptor = 0f;
+                possuiDestinoPatrulha = false;
+                LimparCaminho();
+                EnviarDestinoAosClientesComMod(null);
+
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[F7/Seguidor] Sabotagem de luzes resolvida; NPC retomando suas atividades.");
+            }
+
+            return false;
+        }
+
+        if (!resolvendoSabotagemLuzes)
+        {
+            PlainShipRoom salaEletrica = ShipStatus.Instance.AllRooms
+                .FirstOrDefault(sala => sala != null &&
+                    sala.roomArea != null &&
+                    sala.RoomId == SystemTypes.Electrical);
+
+            if (salaEletrica == null ||
+                !TentarEncontrarPontoLivreNaSala(
+                    salaEletrica.roomArea.bounds,
+                    salaEletrica.roomArea.bounds.center,
+                    out destinoEletrica))
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[F7/Seguidor] Sabotagem de luzes ativa, mas não foi possível localizar um ponto livre na Elétrica.");
+                return false;
+            }
+
+            resolvendoSabotagemLuzes = true;
+            possuiDestinoPatrulha = false;
+            proximaAcaoInterruptor = 0f;
+            LimparCaminho();
+            EnviarDestinoAosClientesComMod(null, destinoEletrica);
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[F7/Seguidor] Luzes sabotadas; NPC indo para a Elétrica: " +
+                destinoEletrica + ".");
+        }
+
+        Vector2 origem = seguidor.GetTruePosition();
+        if (Vector2.Distance(origem, destinoEletrica) > DistanciaChegadaPatrulha)
+        {
+            MoverAte(destinoEletrica);
+            return true;
+        }
+
+        seguidor.NetTransform.body.velocity = Vector2.zero;
+
+        float agora = Time.realtimeSinceStartup;
+        if (agora < proximaAcaoInterruptor)
+            return true;
+
+        byte interruptoresDiferentes = (byte)(
+            sistemaLuzes.ActualSwitches ^ sistemaLuzes.ExpectedSwitches);
+
+        for (byte indice = 0; indice < 5; indice++)
+        {
+            byte mascara = (byte)(1 << indice);
+            if ((interruptoresDiferentes & mascara) == 0)
+                continue;
+
+            try
+            {
+                ShipStatus.Instance.UpdateSystem(
+                    SystemTypes.Electrical, seguidor, indice);
+
+                proximaAcaoInterruptor = agora + IntervaloInterruptorLuzes;
+
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[F7/Seguidor] NPC acionou o interruptor " +
+                    (indice + 1) + "/5 na Elétrica.");
+            }
+            catch (Exception ex)
+            {
+                proximaAcaoInterruptor = agora + 1f;
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[F7/Seguidor] Falha ao acionar interruptor " +
+                    (indice + 1) + ": " + ex.Message);
+            }
+
+            return true;
+        }
+
+        // O sistema ainda pode precisar de um ciclo para atualizar IsActive.
+        proximaAcaoInterruptor = agora + IntervaloInterruptorLuzes;
+        return true;
+    }
+
     private static PlayerControl ObterAlvoAtual()
     {
         if (alvoAtual != null &&
@@ -2596,6 +2722,9 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         ultimaSalaPatrulha = SystemTypes.Hallway;
         possuiUltimaSalaPatrulha = false;
         proximoKillNpc = 0f;
+        resolvendoSabotagemLuzes = false;
+        destinoEletrica = Vector2.zero;
+        proximaAcaoInterruptor = 0f;
         transporteEmAndamento = false;
         aguardandoSaidaVent = false;
         ventEntradaAtual = null;
