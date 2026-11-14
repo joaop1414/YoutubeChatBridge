@@ -2285,7 +2285,6 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         }
 
         proximaBuscaAlvo = Time.realtimeSinceStartup + IntervaloTrocaAlvo;
-        PlayerControl alvoAnterior = alvoAtual;
         alvoAtual = ObterJogadorVivoMaisProximo(seguidor.GetTruePosition());
 
         byte novoPlayerIdAlvo = alvoAtual != null
