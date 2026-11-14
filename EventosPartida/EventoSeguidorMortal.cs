@@ -1112,31 +1112,42 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     }
 
     private static System.Reflection.MemberInfo membroEstadoDuto;
+    private static System.Reflection.MemberInfo membroEstadoDutoPhysics;
     private static bool estadoDutoProcurado;
+    private static bool estadoDutoPhysicsProcurado;
     private static bool avisoEstadoDuto;
 
-    // Consulta o estado vanilla do jogador sem depender da visibilidade do campo
-    // entre versões do Among Us.
+    private static System.Reflection.MemberInfo ProcurarMembroEstadoDuto(Type tipo)
+    {
+        const System.Reflection.BindingFlags flags =
+            System.Reflection.BindingFlags.Instance |
+            System.Reflection.BindingFlags.Public |
+            System.Reflection.BindingFlags.NonPublic;
+
+        return (System.Reflection.MemberInfo)tipo.GetProperty("inVent", flags) ??
+               tipo.GetField("inVent", flags) ??
+               (System.Reflection.MemberInfo)tipo.GetProperty("InVent", flags) ??
+               tipo.GetField("InVent", flags) ??
+               (System.Reflection.MemberInfo)tipo.GetProperty("isInVent", flags) ??
+               tipo.GetField("isInVent", flags) ??
+               (System.Reflection.MemberInfo)tipo.GetProperty("IsInVent", flags) ??
+               tipo.GetField("IsInVent", flags);
+    }
+
+    // Consulta o estado vanilla do jogador. Tenta PlayerControl e, como fallback,
+    // PlayerPhysics. Se a versão não expuser o estado, falha de forma segura:
+    // o NPC não escolhe nem mata um jogador cujo estado no duto seja desconhecido.
     private static bool EstaNoDuto(PlayerControl jogador)
     {
         if (jogador == null)
-            return false;
+            return true;
 
         try
         {
             if (!estadoDutoProcurado)
             {
                 estadoDutoProcurado = true;
-                const System.Reflection.BindingFlags flags =
-                    System.Reflection.BindingFlags.Instance |
-                    System.Reflection.BindingFlags.Public |
-                    System.Reflection.BindingFlags.NonPublic;
-
-                membroEstadoDuto =
-                    typeof(PlayerControl).GetProperty("inVent", flags) ??
-                    (System.Reflection.MemberInfo)typeof(PlayerControl).GetField("inVent", flags) ??
-                    typeof(PlayerControl).GetProperty("InVent", flags) ??
-                    (System.Reflection.MemberInfo)typeof(PlayerControl).GetField("InVent", flags);
+                membroEstadoDuto = ProcurarMembroEstadoDuto(typeof(PlayerControl));
             }
 
             if (membroEstadoDuto is System.Reflection.PropertyInfo propriedade)
@@ -1145,11 +1156,27 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             if (membroEstadoDuto is System.Reflection.FieldInfo campo)
                 return campo.GetValue(jogador) is bool valorCampo && valorCampo;
 
+            object fisica = jogador.MyPhysics;
+            if (fisica != null)
+            {
+                if (!estadoDutoPhysicsProcurado)
+                {
+                    estadoDutoPhysicsProcurado = true;
+                    membroEstadoDutoPhysics = ProcurarMembroEstadoDuto(fisica.GetType());
+                }
+
+                if (membroEstadoDutoPhysics is System.Reflection.PropertyInfo propriedadeFisica)
+                    return propriedadeFisica.GetValue(fisica) is bool valorPropriedadeFisica && valorPropriedadeFisica;
+
+                if (membroEstadoDutoPhysics is System.Reflection.FieldInfo campoFisica)
+                    return campoFisica.GetValue(fisica) is bool valorCampoFisica && valorCampoFisica;
+            }
+
             if (!avisoEstadoDuto)
             {
                 avisoEstadoDuto = true;
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "[F7/Seguidor] Não foi possível localizar o estado inVent; não foi possível confirmar a exclusão dos dutos.");
+                    "[F7/Seguidor] Não foi possível localizar o estado inVent em PlayerControl nem PlayerPhysics. O NPC vai ignorar jogadores por segurança.");
             }
         }
         catch (Exception ex)
@@ -1158,11 +1185,11 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             {
                 avisoEstadoDuto = true;
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "[F7/Seguidor] Falha ao consultar inVent: " + ex.Message);
+                    "[F7/Seguidor] Falha ao consultar o estado do duto: " + ex.Message);
             }
         }
 
-        return false;
+        return true;
     }
 
     private static PlayerControl ObterAlvoAtual()
