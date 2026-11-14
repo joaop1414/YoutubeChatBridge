@@ -28,14 +28,6 @@ internal static class EventoVotoDuploRpcPatch
                 __instance.state == MeetingHud.MeetingStates.Proceeding)
                 return true;
 
-            // Se a habilidade do Juiz venceu, deixamos o fluxo vanilla resolver
-            // a prioridade do Juiz sem interferência do evento de voto duplo.
-            if (__instance.TryGetWinningOverrule(
-                out JudgeOverrule _,
-                out NetworkedPlayerInfo _,
-                out NetworkedPlayerInfo _))
-                return true;
-
             // Só assumimos o cálculo quando todos os jogadores vivos e conectados
             // já votaram. Antes disso, o CheckForEndVoting vanilla continua normal.
             bool todosVotaram = true;
@@ -46,7 +38,9 @@ internal static class EventoVotoDuploRpcPatch
 
                 byte id = area.PlayerId.Value;
                 NetworkedPlayerInfo dados = GameData.Instance?.GetPlayerById(id);
-                if (dados == null || dados.Disconnected || dados.IsDead)
+                PlayerControl jogador = dados?.Object;
+                if (dados == null || jogador == null || jogador.Data == null ||
+                    jogador.Data.Disconnected || jogador.Data.IsDead)
                     continue;
 
                 todosVotaram = false;
@@ -54,6 +48,14 @@ internal static class EventoVotoDuploRpcPatch
             }
 
             if (!todosVotaram)
+                return true;
+
+            // Se a habilidade do Juiz venceu, deixamos o fluxo vanilla resolver
+            // a prioridade do Juiz sem interferência do evento de voto duplo.
+            if (__instance.TryGetWinningOverrule(
+                out JudgeOverrule _,
+                out NetworkedPlayerInfo _,
+                out NetworkedPlayerInfo _))
                 return true;
 
             var estados = new List<MeetingHud.VoterState>();
@@ -66,8 +68,10 @@ internal static class EventoVotoDuploRpcPatch
                     continue;
 
                 byte eleitorId = area.PlayerId.Value;
-                NetworkedPlayerInfo eleitor = GameData.Instance?.GetPlayerById(eleitorId);
-                if (eleitor == null || eleitor.Disconnected || eleitor.IsDead || !area.DidVote)
+                NetworkedPlayerInfo dadosEleitor = GameData.Instance?.GetPlayerById(eleitorId);
+                PlayerControl eleitor = dadosEleitor?.Object;
+                if (dadosEleitor == null || eleitor == null || eleitor.Data == null ||
+                    eleitor.Data.Disconnected || eleitor.Data.IsDead || !area.DidVote)
                     continue;
 
                 byte alvoId = area.VotedForId;
@@ -128,7 +132,7 @@ internal static class EventoVotoDuploRpcPatch
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 $"[F7/Voto duplo] CheckForEndVoting: jogador={jogadorComVotoDuplo}, " +
                 $"voto duplicado, entradas={estados.Count}, alvo vencedor={vencedor}, " +
-                $"maior={maior}, empate={empate}, exilado={exilado?.PlayerName ?? "nenhum"}.");
+                $"maior={maior}, empate={empate}, exilado={exilado?.Object?.Data?.PlayerName ?? "nenhum"}.");
 
             __instance.RpcVotingComplete(estados.ToArray(), exilado, empate, false, 0);
             return false;
