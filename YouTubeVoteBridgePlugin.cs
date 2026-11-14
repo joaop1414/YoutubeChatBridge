@@ -53,6 +53,10 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     // de fim de jogo, mesmo quando a opção "Sem fim de jogo" está ativada.
     public static bool PermitirFimDeJogoForcado { get; set; }
 
+    // Suspende apenas as verificações automáticas enquanto o host distribui
+    // um lote de mudanças de função e sincroniza os estados vivos pela rede.
+    public static bool BloquearFimDeJogoDuranteTrocaDeFuncoes { get; set; }
+
     private static bool LeitorConectado;
     private static bool PreparacaoIniciada;
     private static bool PreparacaoConcluida;
@@ -4203,8 +4207,9 @@ public static class YouTubeVoteSemFimDeJogoCriteriaPatch
             return true;
 
         return YouTubeVoteBridgePlugin.PermitirFimDeJogoForcado ||
-               YouTubeVoteBridgePlugin.SemFimDeJogo == null ||
-               !YouTubeVoteBridgePlugin.SemFimDeJogo.Value;
+               (!YouTubeVoteBridgePlugin.BloquearFimDeJogoDuranteTrocaDeFuncoes &&
+                (YouTubeVoteBridgePlugin.SemFimDeJogo == null ||
+                 !YouTubeVoteBridgePlugin.SemFimDeJogo.Value));
     }
 }
 
@@ -4215,13 +4220,18 @@ public static class YouTubeVoteSemFimDeJogoTasksPatch
     public static bool Prefix(ref bool __result)
     {
         if (!YouTubeVoteBridgePlugin.EhHost() ||
-            YouTubeVoteBridgePlugin.PermitirFimDeJogoForcado ||
-            YouTubeVoteBridgePlugin.SemFimDeJogo == null ||
-            !YouTubeVoteBridgePlugin.SemFimDeJogo.Value)
+            YouTubeVoteBridgePlugin.PermitirFimDeJogoForcado)
             return true;
 
-        __result = false;
-        return false;
+        if (YouTubeVoteBridgePlugin.BloquearFimDeJogoDuranteTrocaDeFuncoes ||
+            (YouTubeVoteBridgePlugin.SemFimDeJogo != null &&
+             YouTubeVoteBridgePlugin.SemFimDeJogo.Value))
+        {
+            __result = false;
+            return false;
+        }
+
+        return true;
     }
 }
 
@@ -4235,8 +4245,9 @@ public static class YouTubeVoteSemFimDeJogoHnSPatch
             return true;
 
         return YouTubeVoteBridgePlugin.PermitirFimDeJogoForcado ||
-               YouTubeVoteBridgePlugin.SemFimDeJogo == null ||
-               !YouTubeVoteBridgePlugin.SemFimDeJogo.Value;
+               (!YouTubeVoteBridgePlugin.BloquearFimDeJogoDuranteTrocaDeFuncoes &&
+                (YouTubeVoteBridgePlugin.SemFimDeJogo == null ||
+                 !YouTubeVoteBridgePlugin.SemFimDeJogo.Value));
     }
 }
 
