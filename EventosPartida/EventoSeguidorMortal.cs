@@ -87,7 +87,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     // Durante a navegação, as consultas usam o formato e as dimensões do collider real.
     private const float RaioColisaoFallback = 0.15f;
     // A navegação usa uma margem menor que o collider físico real do NPC.
-    private const float FatorEscalaColisaoNavegacao = 0.85f;
+    private const float FatorEscalaColisaoNavegacao = 0.50f;
     private static Collider2D colliderFisicoNpc;
     private const float IntervaloRecalculoCaminho = 0.65f;
     private const float DistanciaRecalculoAlvo = 0.65f;
@@ -806,10 +806,15 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             return;
         }
 
-        AtualizarRenderizacaoCaminho();
+        // F8 alterna a visualização diretamente no controlador do NPC.
+        // Não depende do menu F8 nem de uma janela nativa estar aberta.
+        if (Input.GetKeyDown(KeyCode.F8))
+            AlternarVisualizacaoCaminho();
 
         if (aguardandoFimRoleReveal || seguidor == null)
             return;
+
+        AtualizarRenderizacaoCaminho();
 
         if (seguidor.NetTransform == null)
         {
@@ -2473,9 +2478,13 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                     ultimaSabotagemSemSala = ativa.Value;
                     YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
                         "[F7/Seguidor] Sabotagem " + ativa.Value +
-                        " ativa, mas não foi possível localizar sua sala de reparo.");
+                        " ativa, mas não foi possível localizar sua sala de reparo. NPC aguardando e mantendo prioridade na sabotagem.");
                 }
-                return false;
+
+                // A sabotagem ativa continua tendo prioridade mesmo se a sala
+                // não puder ser identificada; não volta a perseguir jogadores.
+                seguidor.NetTransform.body.velocity = Vector2.zero;
+                return true;
             }
 
             sabotagemAtual = ativa.Value;
@@ -2695,9 +2704,17 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                     salaEletrica.roomArea.bounds.center,
                     out destinoEletrica))
             {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "[F7/Seguidor] Sabotagem de luzes ativa, mas não foi possível localizar um ponto livre na Elétrica.");
-                return false;
+                if (!avisoSabotagemSemSala || ultimaSabotagemSemSala != SystemTypes.Electrical)
+                {
+                    avisoSabotagemSemSala = true;
+                    ultimaSabotagemSemSala = SystemTypes.Electrical;
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                        "[F7/Seguidor] Luzes sabotadas, mas a sala/ponto de reparo da Elétrica não foi localizado. NPC aguardando e mantendo prioridade na sabotagem.");
+                }
+
+                // Não libera perseguição/patrulha enquanto as luzes estiverem sabotadas.
+                seguidor.NetTransform.body.velocity = Vector2.zero;
+                return true;
             }
 
             resolvendoSabotagemLuzes = true;
