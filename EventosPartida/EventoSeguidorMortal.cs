@@ -75,6 +75,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     // Fallback usado somente antes de o prefab do NPC disponibilizar seu collider.
     // Durante a navegação, as consultas usam o formato e as dimensões do collider real.
     private const float RaioColisaoFallback = 0.15f;
+    // A navegação usa uma margem menor que o collider físico real do NPC.
+    private const float FatorEscalaColisaoNavegacao = 0.85f;
     private static Collider2D colliderFisicoNpc;
     private const float IntervaloRecalculoCaminho = 0.65f;
     private const float DistanciaRecalculoAlvo = 0.65f;
@@ -1876,7 +1878,9 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private static Vector2 ObterEscalaAbsoluta(Transform transformacao)
     {
         Vector3 escala = transformacao.lossyScale;
-        return new Vector2(Mathf.Abs(escala.x), Mathf.Abs(escala.y));
+        return new Vector2(
+            Mathf.Abs(escala.x) * FatorEscalaColisaoNavegacao,
+            Mathf.Abs(escala.y) * FatorEscalaColisaoNavegacao);
     }
 
     // Usa o formato real do collider do personagem na posição hipotética.
@@ -1911,7 +1915,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 centro, tamanho, capsula.direction, angulo, mascara);
         }
 
-        float raioFallback = collider.bounds.extents.magnitude;
+        float raioFallback = collider.bounds.extents.magnitude * FatorEscalaColisaoNavegacao;
         return Physics2D.OverlapCircleAll(centro, raioFallback, mascara);
     }
 
@@ -1952,7 +1956,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 direcaoMovimento, distancia, mascara);
         }
 
-        float raioFallback = collider.bounds.extents.magnitude;
+        float raioFallback = collider.bounds.extents.magnitude * FatorEscalaColisaoNavegacao;
         return Physics2D.CircleCastAll(
             centro, raioFallback, direcaoMovimento, distancia, mascara);
     }
