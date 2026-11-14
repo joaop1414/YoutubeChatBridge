@@ -144,7 +144,7 @@ internal static class ControladorPartidaMenu
     private static bool inicializado;
     private static string mensagem = "Aguardando o host abrir o controlador (F8).";
     private static float encerrarEm = -1f;
-    private static string motivoEncerramento = "HumansByVote";
+    private static string motivoEncerramento = "CrewmatesByVote";
 
     public static void Inicializar()
     {
@@ -165,7 +165,7 @@ internal static class ControladorPartidaMenu
     public static void ResetarEstadoPartida(string motivo)
     {
         encerrarEm = -1f;
-        motivoEncerramento = "HumansByVote";
+        motivoEncerramento = "CrewmatesByVote";
         int descartadas = 0;
         while (fila.TryDequeue(out _)) descartadas++;
 
@@ -215,7 +215,7 @@ internal static class ControladorPartidaMenu
         {
             encerrarEm = -1f;
             EncerrarPartida(motivoEncerramento);
-            motivoEncerramento = "HumansByVote";
+            motivoEncerramento = "CrewmatesByVote";
         }
 
         while (fila.TryDequeue(out Acao acao))
@@ -247,7 +247,7 @@ internal static class ControladorPartidaMenu
                         break;
 
                     case TipoAcao.VitoriaTripulacao:
-                        DefinirVitoria("HumansByVote", "Vitória da tripulação solicitada, sem alterar funções.");
+                        DefinirVitoria("CrewmatesByVote", "Vitória da tripulação solicitada, sem alterar funções.");
                         break;
 
                     case TipoAcao.VitoriaImpostores:
@@ -255,7 +255,7 @@ internal static class ControladorPartidaMenu
                         break;
 
                     case TipoAcao.Encerrar:
-                        EncerrarPartida("HumansByVote");
+                        EncerrarPartida("CrewmatesByVote");
                         break;
 
                     case TipoAcao.PularVotacao:
@@ -263,7 +263,7 @@ internal static class ControladorPartidaMenu
                         break;
 
                     case TipoAcao.FantasmaTripulante:
-                        TransformarEmFantasmaEAgendarFim(RoleTypes.CrewmateGhost, "HumansByVote");
+                        TransformarEmFantasmaEAgendarFim(RoleTypes.CrewmateGhost, "CrewmatesByVote");
                         break;
 
                     case TipoAcao.FantasmaImpostor:
@@ -370,7 +370,7 @@ internal static class ControladorPartidaMenu
         }
 
         YouTubeVotePularVotacaoJuizHelper.TentarEncerrar(reuniao, true);
-        DefinirStatus("Comando para concluir a votação enviado; votos pendentes foram tratados como skip.");
+        DefinirStatus("Votação encerrada. Quem não votou permaneceu sem escolher jogador ou skip.");
     }
 
     private static void EncerrarPartida(string nomeMotivo)
@@ -428,7 +428,7 @@ internal static class ControladorPartidaMenu
                 solicitado.IndexOf("Impostor", StringComparison.OrdinalIgnoreCase) >= 0;
             string[] preferidos = impostor
                 ? new[] { "ImpostorByKill", "ImpostorByVote", "ImpostorBySabotage" }
-                : new[] { "HumansByVote", "HumansByTask" };
+                : new[] { "CrewmatesByVote", "CrewmatesByTask" };
 
             foreach (string nome in preferidos)
             {
