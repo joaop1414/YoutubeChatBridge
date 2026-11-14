@@ -585,6 +585,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             return null;
 
         var abertos = new PriorityQueue<Vector2Int, float>();
+        var cacheCelulasLivres = new Dictionary<Vector2Int, bool>();
         var custos = new Dictionary<Vector2Int, float>();
         var anteriores = new Dictionary<Vector2Int, Vector2Int>();
         var fechados = new HashSet<Vector2Int>();
@@ -601,7 +602,16 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
             expandidos++;
             if (atual == destinoGrid)
-                return ReconstruirCaminho(inicioGrid, destinoGrid, anteriores, minimo);
+            {
+                List<Vector2> caminho = ReconstruirCaminho(
+                    inicioGrid, destinoGrid, anteriores, minimo);
+
+                if (caminho != null && caminho.Count > 0 &&
+                    PodeMoverEntre(caminho[caminho.Count - 1], destino))
+                    caminho.Add(destino);
+
+                return caminho;
+            }
 
             foreach (Vector2Int direcao in DirecoesCaminho)
             {
@@ -611,10 +621,24 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                     fechados.Contains(vizinho))
                     continue;
 
+                if (!CelulaLivre(vizinho, minimo, cacheCelulasLivres))
+                    continue;
+
+                // Impede cortar diagonalmente pelo canto de duas paredes.
+                if (direcao.x != 0 && direcao.y != 0)
+                {
+                    Vector2Int lateralX = atual + new Vector2Int(direcao.x, 0);
+                    Vector2Int lateralY = atual + new Vector2Int(0, direcao.y);
+
+                    if (!CelulaLivre(lateralX, minimo, cacheCelulasLivres) ||
+                        !CelulaLivre(lateralY, minimo, cacheCelulasLivres))
+                        continue;
+                }
+
                 Vector2 pontoAtual = CentroCelula(atual, minimo);
                 Vector2 pontoVizinho = CentroCelula(vizinho, minimo);
 
-                if (!PodeMoverEntre(pontoAtual, pontoVizinho))
+                if (!PodePassarEntre(pontoAtual, pontoVizinho))
                     continue;
 
                 float custoPasso = direcao.x != 0 && direcao.y != 0 ? 1.4142135f : 1f;
@@ -631,6 +655,31 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         }
 
         return null;
+    }
+
+    private static bool CelulaLivre(
+        Vector2Int celula, Vector2 minimo, Dictionary<Vector2Int, bool> cache)
+    {
+        if (cache.TryGetValue(celula, out bool livre))
+            return livre;
+
+        Vector2 centro = CentroCelula(celula, minimo);
+        Collider2D[] colisoes = Physics2D.OverlapCircleAll(
+            centro, RaioColisao, Constants.ShipAndAllObjectsMask);
+
+        livre = true;
+        foreach (Collider2D colisor in colisoes)
+        {
+            if (colisor == null || colisor.isTrigger ||
+                colisor.transform.IsChildOf(seguidor.transform))
+                continue;
+
+            livre = false;
+            break;
+        }
+
+        cache[celula] = livre;
+        return livre;
     }
 
     private static Vector2Int ParaGrid(Vector2 ponto, Vector2 minimo, int largura, int altura)
@@ -692,6 +741,33 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         return false;
     }
 
+    private static bool PodePassarEntre(Vector2 origem, Vector2 destino)
+    {
+        if (seguidor == null)
+            return false;
+
+        Vector2 delta = destino - origem;
+        float distancia = delta.magnitude;
+        if (distancia <= 0.001f)
+            return true;
+
+        RaycastHit2D[] impactos = Physics2D.CircleCastAll(
+            origem, RaioColisao, delta / distancia, distancia,
+            Constants.ShipAndAllObjectsMask);
+
+        foreach (RaycastHit2D impacto in impactos)
+        {
+            Collider2D colisor = impacto.collider;
+            if (colisor == null || colisor.isTrigger ||
+                colisor.transform.IsChildOf(seguidor.transform))
+                continue;
+
+            return false;
+        }
+
+        return true;
+    }
+
     private static bool PodeMoverEntre(Vector2 origem, Vector2 destino)
     {
         if (seguidor == null)
@@ -702,7 +778,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
         foreach (Collider2D colisor in sobreposicoes)
         {
-            if (colisor == null || colisor.transform.IsChildOf(seguidor.transform))
+            if (colisor == null || colisor.isTrigger ||
+                colisor.transform.IsChildOf(seguidor.transform))
                 continue;
             return false;
         }
@@ -718,7 +795,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         foreach (RaycastHit2D impacto in impactos)
         {
             Collider2D colisor = impacto.collider;
-            if (colisor == null || colisor.transform.IsChildOf(seguidor.transform))
+            if (colisor == null || colisor.isTrigger ||
+                colisor.transform.IsChildOf(seguidor.transform))
                 continue;
             return false;
         }
