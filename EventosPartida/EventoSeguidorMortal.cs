@@ -124,16 +124,9 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             seguidor.notRealPlayer = true;
             seguidor.NetTransform.SnapTo(posicaoInicial);
 
-            var outfit = seguidor.Data?.Outfits[PlayerOutfitType.Default];
-            if (outfit != null)
-            {
-                outfit.PlayerName = NomeSeguidor;
-                outfit.ColorId = 0;
-                outfit.HatId = "hat_pk02_TenGallonHat";
-                outfit.SkinId = "skin_Wall";
-                outfit.PetId = "pet_EmptyPet";
-                outfit.VisorId = "visor_EmptyVisor";
-            }
+            // A aparência será aplicada somente depois que o NPC existir na rede
+            // e estiver associado aos clientes, evitando configurar cosméticos
+            // antes da inicialização do NetworkedPlayerInfo.
 
             try
             {
@@ -326,7 +319,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             }
         }
 
-        // Etapa 3: publicar o nome formatado e a aparência do NPC.
+        // Etapa 3: aplicar nome e cosméticos somente depois do Spawn
+        // e da associação do PlayerId reservado em cada cliente.
         if (etapaInicializacao == 3 &&
             Time.realtimeSinceStartup >= proximaEtapa)
         {
@@ -340,21 +334,54 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                     "skin_Wall",
                     "pet_EmptyPet",
                     "visor_EmptyVisor");
+
+                // Aguarda a inicialização visual do personagem terminar.
+                // Alguns clientes podem recriar/atualizar os cosméticos logo após o Spawn.
                 etapaInicializacao = 4;
+                proximaEtapa = Time.realtimeSinceStartup + 0.75f;
 
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "[F7/Seguidor] Aparência publicada: " + NomeSeguidor);
+                    "[F7/Seguidor] Primeira aplicação da aparência enviada; aguardando para reaplicar.");
             }
             catch (Exception ex)
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                    "[F7/Seguidor] Falha ao publicar a aparência do NPC: " + ex);
+                    "[F7/Seguidor] Falha na primeira aplicação da aparência: " + ex);
                 Resetar();
                 return;
             }
         }
 
-        if (etapaInicializacao < 4)
+        // Etapa 4: reaplicar a aparência após a inicialização visual do NPC.
+        if (etapaInicializacao == 4 &&
+            Time.realtimeSinceStartup >= proximaEtapa)
+        {
+            try
+            {
+                CustomNetObject.EnviarAparencia(
+                    seguidor,
+                    NomeSeguidor,
+                    0,
+                    "hat_pk02_TenGallonHat",
+                    "skin_Wall",
+                    "pet_EmptyPet",
+                    "visor_EmptyVisor");
+
+                etapaInicializacao = 5;
+
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[F7/Seguidor] Aparência reaplicada após 0,75s: skin_Wall, chapéu TenGallonHat e cor 0.");
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                    "[F7/Seguidor] Falha ao reaplicar a aparência do NPC: " + ex);
+                Resetar();
+                return;
+            }
+        }
+
+        if (etapaInicializacao < 5)
             return;
 
         // Verifica em runtime se esta versão expõe RpcMove no PlayerPhysics
