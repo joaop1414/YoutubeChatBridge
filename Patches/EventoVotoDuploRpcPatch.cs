@@ -95,7 +95,7 @@ internal static class EventoVotoDuploRpcPatch
                     // Mayor/EHR: uma segunda VoterState com o mesmo VoterId e VotedForId.
                     estados.Add(voto);
                     contagem.TryGetValue(alvoId, out int atualDuplicado);
-                    contagem[alvoId] = atual + 1;
+                    contagem[alvoId] = atualDuplicado + 1;
                     votoDuploAplicado = true;
                 }
             }
