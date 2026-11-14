@@ -162,6 +162,18 @@ internal static class ControladorPartidaMenu
             "[Controlador F8] Janela externa iniciada. Disponível para o host durante a partida.");
     }
 
+    public static void ResetarEstadoPartida(string motivo)
+    {
+        encerrarEm = -1f;
+        motivoEncerramento = "HumansByVote";
+        int descartadas = 0;
+        while (fila.TryDequeue(out _)) descartadas++;
+
+        DefinirStatus("Estado do controlador limpo (" + motivo + ").");
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            "[Controlador F8] Ações pendentes descartadas=" + descartadas + ".");
+    }
+
     public static void VerificarTecla()
     {
         if (!Input.GetKeyDown(KeyCode.F8)) return;
@@ -491,7 +503,7 @@ internal static class ControladorPartidaMenu
                 "YouTubeChatBridge — Controlador da partida (F8)",
                 WS_OVERLAPPEDWINDOW,
                 unchecked((int)0x80000000), unchecked((int)0x80000000),
-                760, 570, IntPtr.Zero, IntPtr.Zero, instancia, IntPtr.Zero);
+                760, 610, IntPtr.Zero, IntPtr.Zero, instancia, IntPtr.Zero);
 
             if (janela == IntPtr.Zero)
                 throw new InvalidOperationException("CreateWindowExW falhou: " + Marshal.GetLastWin32Error());
