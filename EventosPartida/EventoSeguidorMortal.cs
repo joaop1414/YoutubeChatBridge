@@ -28,6 +28,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private static float proximaBuscaAlvo;
     private static PlayerControl seguidor;
     private static PlayerControl alvoAtual;
+    private static Vector2 posicaoInicialSeguidor;
 
     // Evita repetir chamadas de transporte enquanto a animação vanilla está ativa.
     private static bool transporteEmAndamento;
@@ -118,26 +119,28 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
         try
         {
+            // Mesmo padrão do Tsunami/Raio: o NPC nasce fora da tela,
+            // recebe o Spawn oculto e só aparece depois da associação e aparência.
+            // Isso evita que o cliente receba o personagem em uma posição/estado
+            // visual parcialmente inicializado.
+            posicaoInicialSeguidor = posicaoInicial;
+            Vector2 posicaoOculta = posicaoInicial + new Vector2(-1000f, 0f);
+
             seguidor = UnityEngine.Object.Instantiate(
                 AmongUsClient.Instance.PlayerPrefab,
-                posicaoInicial,
+                posicaoOculta,
                 Quaternion.identity);
 
             seguidor.PlayerId = PlayerIdSeguidor;
             seguidor.isNew = false;
             seguidor.notRealPlayer = true;
-            seguidor.NetTransform.SnapTo(posicaoInicial);
+            seguidor.NetTransform.SnapTo(posicaoOculta);
 
+            // O Spawn carrega apenas um nome curto. Nome/cor/cosméticos definitivos
+            // serão publicados depois que os clientes associarem o NetId ao PlayerId.
             var outfit = seguidor.Data?.Outfits[PlayerOutfitType.Default];
             if (outfit != null)
-            {
-                outfit.PlayerName = NomeSeguidor;
-                outfit.ColorId = 0;
-                outfit.HatId = "hat_pk02_TenGallonHat";
-                outfit.SkinId = "skin_Wall";
-                outfit.PetId = "pet_EmptyPet";
-                outfit.VisorId = "visor_EmptyVisor";
-            }
+                outfit.PlayerName = "ASSASSINO";
 
             try
             {
@@ -146,8 +149,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             }
             catch { }
 
-            // Mesmo fluxo em etapas do Raio/Tsunami:
-            // criar localmente -> Spawn -> associar NetId/PlayerId -> aparência.
+            // Mesmas etapas temporizadas do Tsunami e do Raio:
+            // Spawn -> espera -> associação -> espera -> aparência -> posição real.
             etapaInicializacao = 1;
             proximaEtapa = Time.realtimeSinceStartup + 0.12f;
             proximaBuscaAlvo = 0f;
@@ -286,8 +289,6 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             try
             {
                 CustomNetObject.EnviarSpawn(seguidor, ocultarVisual: false);
-                if (PlayerControl.AllPlayerControls.Contains(seguidor))
-                    PlayerControl.AllPlayerControls.Remove(seguidor);
 
                 etapaInicializacao = 2;
                 proximaEtapa = Time.realtimeSinceStartup + 0.12f;
@@ -312,9 +313,9 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             {
                 int clientes = CustomNetObject.AssociarClientes(seguidor, PlayerIdSeguidor);
 
-                // Não reutilizar os dados do host no NPC. Isso fazia o falso
-                // personagem compartilhar nome/outfit/PlayerId do jogador local,
-                // causando auto-alvo e impedindo a aplicação correta da skin.
+                // Não atribuímos CachedPlayerData do host: este NPC precisa manter
+                // seus próprios dados, nome e identidade para não virar um clone
+                // lógico do jogador local durante a perseguição.
 
                 etapaInicializacao = 3;
                 proximaEtapa = Time.realtimeSinceStartup + 0.15f;
@@ -345,10 +346,23 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                     "skin_Wall",
                     "pet_EmptyPet",
                     "visor_EmptyVisor");
+
+                // Como no Tsunami, só depois de concluir a aparência o NPC
+                // é reposicionado para dentro do mapa.
+                CustomNetObject.EnviarPosicao(seguidor, posicaoInicialSeguidor);
+
+                try
+                {
+                    if (seguidor.cosmetics?.nameText != null)
+                        seguidor.cosmetics.nameText.text = NomeSeguidor;
+                }
+                catch { }
+
                 etapaInicializacao = 4;
 
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "[F7/Seguidor] Aparência publicada: " + NomeSeguidor);
+                    "[F7/Seguidor] Aparência publicada e NPC reposicionado no mapa: " +
+                    posicaoInicialSeguidor + ".");
             }
             catch (Exception ex)
             {
@@ -1069,6 +1083,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         }
 
         seguidor = null;
+        posicaoInicialSeguidor = Vector2.zero;
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             "[F7/Seguidor] Estado reiniciado.");
     }
