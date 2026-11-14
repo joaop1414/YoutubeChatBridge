@@ -117,10 +117,10 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             {
                 outfit.PlayerName = NomeSeguidor;
                 outfit.ColorId = 0;
-                outfit.HatId = string.Empty;
-                outfit.SkinId = string.Empty;
-                outfit.PetId = string.Empty;
-                outfit.VisorId = string.Empty;
+                outfit.HatId = "hat_pk02_TenGallonHat";
+                outfit.SkinId = "skin_Wall";
+                outfit.PetId = "pet_EmptyPet";
+                outfit.VisorId = "visor_EmptyVisor";
             }
 
             try
@@ -233,7 +233,14 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         {
             try
             {
-                CustomNetObject.EnviarAparencia(seguidor, NomeSeguidor, 0);
+                CustomNetObject.EnviarAparencia(
+                    seguidor,
+                    NomeSeguidor,
+                    0,
+                    "hat_pk02_TenGallonHat",
+                    "skin_Wall",
+                    "pet_EmptyPet",
+                    "visor_EmptyVisor");
                 etapaInicializacao = 4;
 
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
@@ -504,13 +511,22 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
         try
         {
-            // O host executa o assassinato para usar o fluxo vanilla de morte.
-            // O NPC é apenas o agente que determina o contato e o momento.
-            PlayerControl.LocalPlayer.RpcMurderPlayer(alvo, true);
+            // Primeiro tenta registrar o NPC como autor da morte.
+            // Se o jogo rejeitar o RPC por o NPC artificial não possuir autoridade
+            // de rede, o próprio alvo comete suicídio como alternativa compatível.
+            seguidor.RpcMurderPlayer(alvo, true);
+
+            if (alvo.Data != null && !alvo.Data.IsDead)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[F7/Seguidor] O jogo não aceitou o NPC como autor da morte; usando fallback Alvo killed Alvo.");
+
+                alvo.RpcMurderPlayer(alvo, true);
+            }
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[F7/Seguidor] O NPC alcançou " + alvo.Data.PlayerName +
-                " (PlayerId=" + alvo.PlayerId + ").");
+                "[F7/Seguidor] NPC tentou matar " + alvo.Data.PlayerName +
+                " (PlayerId=" + alvo.PlayerId + "). Autor inicial: NPC ASSASINO.");
         }
         catch (Exception ex)
         {
