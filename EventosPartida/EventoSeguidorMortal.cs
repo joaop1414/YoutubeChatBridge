@@ -27,6 +27,11 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private static PlayerControl seguidor;
     private static PlayerControl alvoAtual;
 
+    // Evita repetir chamadas de transporte enquanto a animação vanilla está ativa.
+    private static bool transporteEmAndamento;
+    private static float limiteTransporte;
+    private static float proximoTransporte;
+
     public override string Nome => "NPC seguidor mortal";
 
     public void Executar()
@@ -224,8 +229,173 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             return;
         }
 
+        // Antes de perseguir em linha reta, procura uma travessia vanilla
+        // que aproxime o NPC do alvo: escadas e tirolesas do Fungle.
+        if (TentarUsarEscadaOuTirolesa(alvo))
+            return;
+
         Vector2 direcao = diferenca / distancia;
         seguidor.NetTransform.body.velocity = direcao * Velocidade;
+    }
+
+    /// <summary>
+    /// Usa os mecanismos de transporte nativos. A seleção é geométrica:
+    /// só considera uma travessia quando o destino dela reduz claramente
+    /// a distância até o jogador perseguido.
+    /// </summary>
+    private static bool TentarUsarEscadaOuTirolesa(PlayerControl alvo)
+    {
+        if (seguidor == null || seguidor.MyPhysics == null ||
+            seguidor.NetTransform?.body == null || alvo == null)
+            return false;
+
+        float agora = Time.realtimeSinceStartup;
+
+        if (transporteEmAndamento)
+        {
+            // Os RPCs vanilla controlam a animação e o deslocamento.
+            // Não aplicamos velocidade enquanto o transporte estiver ativo.
+            if (seguidor.onLadder || seguidor.inMovingPlat || !seguidor.moveable)
+            {
+                if (agora < limiteTransporte)
+                {
+                    seguidor.NetTransform.body.velocity = Vector2.zero;
+                    return true;
+                }
+
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[F7/Seguidor] Transporte excedeu o tempo limite; retomando perseguição.");
+            }
+
+            transporteEmAndamento = false;
+        }
+
+        if (agora < proximoTransporte)
+            return false;
+
+        Vector2 origem = seguidor.GetTruePosition();
+        Vector2 posAlvo = alvo.GetTruePosition();
+        float distanciaDireta = Vector2.Distance(origem, posAlvo);
+        float melhorCusto = float.MaxValue;
+        Ladder melhorEscada = null;
+        ZiplineConsole melhorTirolesa = null;
+
+        // Escadas: cada Ladder aponta para a outra extremidade por Destination.
+        Ladder[] escadas = ShipStatus.Instance.GetComponentsInChildren<Ladder>();
+        foreach (Ladder escada in escadas)
+        {
+            if (escada == null || !escada.isActiveAndEnabled ||
+                escada.Destination == null || !escada.Destination.isActiveAndEnabled)
+                continue;
+
+            Vector2 entrada = escada.transform.position;
+            Vector2 saida = escada.Destination.transform.position;
+            float custo = Vector2.Distance(origem, entrada) +
+                          Vector2.Distance(saida, posAlvo);
+
+            if (Vector2.Distance(saida, posAlvo) >= distanciaDireta - 0.75f ||
+                custo >= distanciaDireta - 0.25f ||
+                custo >= melhorCusto)
+                continue;
+
+            melhorCusto = custo;
+            melhorEscada = escada;
+            melhorTirolesa = null;
+        }
+
+        // Tirolesas: o console define a direção e o ponto de desembarque.
+        ZiplineConsole[] consoles = ShipStatus.Instance.GetComponentsInChildren<ZiplineConsole>();
+        foreach (ZiplineConsole console in consoles)
+        {
+            if (console == null || !console.isActiveAndEnabled ||
+                console.zipline == null || !console.zipline.isActiveAndEnabled ||
+                console.destination == null || !console.destination.isActiveAndEnabled)
+                continue;
+
+            Vector3 pontoPouso = console.atTop
+                ? console.zipline.landingPositionBottom.position
+                : console.zipline.landingPositionTop.position;
+            Vector2 saida = console.zipline.transform.TransformPoint(pontoPouso);
+            Vector2 entrada = console.transform.position;
+            float custo = Vector2.Distance(origem, entrada) +
+                          Vector2.Distance(saida, posAlvo);
+
+            if (Vector2.Distance(saida, posAlvo) >= distanciaDireta - 0.75f ||
+                custo >= distanciaDireta - 0.25f ||
+                custo >= melhorCusto)
+                continue;
+
+            melhorCusto = custo;
+            melhorTirolesa = console;
+            melhorEscada = null;
+        }
+
+        if (melhorEscada == null && melhorTirolesa == null)
+            return false;
+
+        Vector2 pontoEntrada = melhorEscada != null
+            ? (Vector2)melhorEscada.transform.position
+            : (Vector2)melhorTirolesa.transform.position;
+        float alcance = melhorEscada != null
+            ? melhorEscada.UsableDistance
+            : melhorTirolesa.UsableDistance;
+
+        float distanciaEntrada = Vector2.Distance(origem, pontoEntrada);
+        if (distanciaEntrada > alcance)
+        {
+            Vector2 direcaoEntrada = (pontoEntrada - origem).normalized;
+            seguidor.NetTransform.body.velocity = direcaoEntrada * Velocidade;
+            return true;
+        }
+
+        seguidor.NetTransform.body.velocity = Vector2.zero;
+
+        try
+        {
+            if (melhorEscada != null)
+            {
+                melhorEscada.CanUse(seguidor.Data, out bool permitidoEscada, out _);
+                if (!permitidoEscada || melhorEscada.IsCoolingDown())
+                {
+                    proximoTransporte = agora + 0.5f;
+                    return false;
+                }
+
+                seguidor.MyPhysics.RpcClimbLadder(melhorEscada);
+                transporteEmAndamento = true;
+                limiteTransporte = agora + 8f;
+                proximoTransporte = agora + 1f;
+
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[F7/Seguidor] NPC iniciou travessia de escada.");
+                return true;
+            }
+
+            melhorTirolesa.CanUse(seguidor.Data, out bool permitidoTirolesa, out _);
+            if (!permitidoTirolesa || melhorTirolesa.IsCoolingDown())
+            {
+                proximoTransporte = agora + 0.5f;
+                return false;
+            }
+
+            seguidor.CmdCheckUseZipline(
+                seguidor, melhorTirolesa.zipline, melhorTirolesa.atTop);
+            transporteEmAndamento = true;
+            limiteTransporte = agora + 12f;
+            proximoTransporte = agora + 1f;
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[F7/Seguidor] NPC iniciou travessia de tirolesa.");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            transporteEmAndamento = false;
+            proximoTransporte = agora + 1f;
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Seguidor] Não foi possível iniciar transporte: " + ex.Message);
+            return false;
+        }
     }
 
     private static PlayerControl ObterAlvoAtual()
@@ -303,6 +473,9 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         proximaEtapa = 0f;
         proximaBuscaAlvo = 0f;
         alvoAtual = null;
+        transporteEmAndamento = false;
+        limiteTransporte = 0f;
+        proximoTransporte = 0f;
 
         if (seguidor != null)
         {
