@@ -63,6 +63,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private static float proximoTransporte;
     private const float IntervaloSnapToRede = 1f;
     private static float proximoSnapToRede;
+    private static ushort sequenciaSnapToRede;
+    private static bool sequenciaSnapToRedeInicializada;
     private static Vent ventEntradaAtual;
     private static Vent ventSaidaAtual;
     private static bool aguardandoSaidaVent;
@@ -205,6 +207,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             proximaBuscaAlvo = 0f;
             proximoTransporte = 0f;
             proximoSnapToRede = 0f;
+            sequenciaSnapToRede = 0;
+            sequenciaSnapToRedeInicializada = false;
             transporteEmAndamento = false;
             alvoAtual = null;
             LimparCaminho();
@@ -437,11 +441,19 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             var transformacao = seguidor.NetTransform;
             Vector2 posicao = seguidor.GetTruePosition();
 
-            // O ID enviado pela rede precisa ser calculado antes do SnapTo local,
-            // seguindo a mesma ordem usada pelo helper do EHR.
-            ushort sequenciaRede = (ushort)(transformacao.lastSequenceId + 8);
-            transformacao.SnapTo(posicao, (ushort)(transformacao.lastSequenceId + 328));
-            transformacao.SetDirtyBit(uint.MaxValue);
+            // A sequência é mantida separadamente: não chamamos SnapTo nem
+            // SetDirtyBit no transform do host, pois isso interfere no movimento local.
+            if (!sequenciaSnapToRedeInicializada)
+            {
+                sequenciaSnapToRede = (ushort)(transformacao.lastSequenceId + 8);
+                sequenciaSnapToRedeInicializada = true;
+            }
+            else
+            {
+                sequenciaSnapToRede = (ushort)(sequenciaSnapToRede + 8);
+            }
+
+            ushort sequenciaRede = sequenciaSnapToRede;
 
             int enviados = 0;
             foreach (var cliente in AmongUsClient.Instance.allClients.ToArray())
@@ -2401,6 +2413,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         limiteTransporte = 0f;
         proximoTransporte = 0f;
         proximoSnapToRede = 0f;
+        sequenciaSnapToRede = 0;
+        sequenciaSnapToRedeInicializada = false;
         monitoramentoMovimentoIniciado = false;
         inicioSemDeslocamento = 0f;
         avisoMonitoramentoMovimento = false;
