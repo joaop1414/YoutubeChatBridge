@@ -1008,7 +1008,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
         // Se o NPC estiver usando uma ventilação, conclui a travessia antes
         // de calcular alcance de morte ou tentar qualquer outro transporte.
-        if (TentarUsarVentilacao(destino, true))
+        if (TentarUsarVentilacao(destino))
             return;
 
         Vector2 origem = seguidor.GetTruePosition();
@@ -1141,7 +1141,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     /// <summary>
     /// Usa a rede vanilla de dutos como atalho quando a opção estiver ativada.
     /// </summary>
-    private static bool TentarUsarVentilacao(Vector2 destino, bool possuiAlvo)
+    private static bool TentarUsarVentilacao(Vector2 destino)
     {
         if (YouTubeVoteBridgePlugin.PermitirVentilacaoNPC == null ||
             !YouTubeVoteBridgePlugin.PermitirVentilacaoNPC.Value ||
@@ -1630,6 +1630,12 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
         var corpo = seguidor.NetTransform.body;
 
+        // Processa primeiro a saída do duto. O estado de transporte não pode
+        // interceptar esta etapa e deixar o NPC preso dentro da ventilação.
+        if (possuiDestinoPatrulha &&
+            TentarUsarVentilacao(destinoPatrulha))
+            return;
+
         // Se uma travessia iniciada durante a perseguição ainda estiver acontecendo,
         // deixa a animação vanilla terminar antes de voltar a andar.
         if (transporteEmAndamento)
@@ -1677,11 +1683,6 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 "[F7/Seguidor] NPC patrulhando para o centro da sala " +
                 salaEscolhida + ": " + destinoPatrulha + ".");
         }
-
-        // Durante a patrulha, também procura atalhos pelos dutos.
-        // O destino é a sala escolhida, não é necessário existir um jogador-alvo.
-        if (TentarUsarVentilacao(destinoPatrulha, false))
-            return;
 
         MoverAte(destinoPatrulha);
     }
