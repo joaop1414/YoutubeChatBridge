@@ -4252,7 +4252,7 @@ public static class YouTubeVoteSemFimDeJogoHnSPatch
 }
 
 // Bloqueia qualquer RPC vanilla de encerramento enquanto a opção estiver ativa.
-// O F6 continua liberado porque ativa PermitirFimDeJogoForcado apenas durante
+// O controlador F8 continua liberado porque ativa PermitirFimDeJogoForcado apenas durante
 // a chamada explícita de RpcEndGame.
 [HarmonyPatch(typeof(GameManager), nameof(GameManager.RpcEndGame))]
 public static class YouTubeVoteSemFimDeJogoRpcPatch
@@ -4260,8 +4260,9 @@ public static class YouTubeVoteSemFimDeJogoRpcPatch
     public static bool Prefix()
     {
         return YouTubeVoteBridgePlugin.PermitirFimDeJogoForcado ||
-               YouTubeVoteBridgePlugin.SemFimDeJogo == null ||
-               !YouTubeVoteBridgePlugin.SemFimDeJogo.Value;
+               (!YouTubeVoteBridgePlugin.BloquearFimDeJogoDuranteTrocaDeFuncoes &&
+                (YouTubeVoteBridgePlugin.SemFimDeJogo == null ||
+                 !YouTubeVoteBridgePlugin.SemFimDeJogo.Value));
     }
 }
 
@@ -4463,6 +4464,7 @@ public static class YouTubeVoteResetTaskEventsOnStartPatch
 
         EventoTesteMenu.ResetarEstadoPartida("início de partida");
         ControladorPartidaMenu.ResetarEstadoPartida("início de partida");
+        YouTubeVoteBridgePlugin.BloquearFimDeJogoDuranteTrocaDeFuncoes = false;
         TeleporteAPI.Resetar();
         YouTubeVoteBridgePlugin.LimparRegistroTarefasShapeshift();
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
@@ -4490,6 +4492,7 @@ public static class YouTubeVoteResetTaskEventsOnEndPatch
         YouTubeVoteBridgePlugin.ResetarVotacaoLobbyFimDePartida();
         EventoTesteMenu.ResetarEstadoPartida("fim de partida");
         ControladorPartidaMenu.ResetarEstadoPartida("fim de partida");
+        YouTubeVoteBridgePlugin.BloquearFimDeJogoDuranteTrocaDeFuncoes = false;
         TeleporteAPI.Resetar();
         YouTubeVoteBridgePlugin.LimparRegistroTarefasShapeshift();
         YouTubeVoteBridgePlugin.ResetarRainbowFimDePartida();
