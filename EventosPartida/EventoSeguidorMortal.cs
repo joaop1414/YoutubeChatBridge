@@ -63,7 +63,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private const float RaioColisao = 0.22f;
     // O A* prefere células com espaço livre ao redor, mantendo o NPC
     // aproximadamente no meio de corredores e entre objetos sólidos.
-    private const float[] RaiosAfastamento = { 0.34f, 0.46f, 0.60f, 0.76f };
+    private static readonly float[] RaiosAfastamento = { 0.34f, 0.46f, 0.60f, 0.76f };
     private const float PenalidadePorProximidade = 0.28f;
     private const float IntervaloRecalculoCaminho = 0.65f;
     private const float DistanciaRecalculoAlvo = 0.65f;
