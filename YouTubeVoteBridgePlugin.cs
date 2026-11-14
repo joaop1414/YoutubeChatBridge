@@ -4373,6 +4373,7 @@ public static class YouTubeVoteRaioAfterRoleRevealPatch
     public static void Postfix()
     {
         EventoRaio.AoSairDaRoleReveal();
+        EventoSeguidorMortal.AoSairDaRoleReveal();
     }
 }
 
