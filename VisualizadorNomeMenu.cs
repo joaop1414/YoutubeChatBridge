@@ -716,6 +716,7 @@ internal static class ControladorPartidaMenu
                     ID_FANTASMA_IMPOSTOR => TipoAcao.FantasmaImpostor,
                     ID_ZOOM => TipoAcao.AlternarZoom,
                     ID_CHAMAR_REUNIAO => TipoAcao.ChamarReuniao,
+                    ID_ALTERNAR_CAMINHO_NPC => TipoAcao.AlternarCaminhoNpc,
                     _ => null
                 };
 
