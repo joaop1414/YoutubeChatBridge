@@ -1828,12 +1828,17 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         if (seguidor == null)
             return null;
 
-        if (colliderFisicoNpc != null && colliderFisicoNpc.enabled)
+        if (colliderFisicoNpc != null &&
+            colliderFisicoNpc.enabled &&
+            !colliderFisicoNpc.isTrigger)
             return colliderFisicoNpc;
 
         colliderFisicoNpc = seguidor.GetComponent<Collider2D>();
-        if (colliderFisicoNpc == null)
+        if (colliderFisicoNpc == null ||
+            !colliderFisicoNpc.enabled ||
+            colliderFisicoNpc.isTrigger)
         {
+            colliderFisicoNpc = null;
             Collider2D[] colliders = seguidor.GetComponentsInChildren<Collider2D>(true);
             foreach (Collider2D candidato in colliders)
             {
@@ -1843,6 +1848,19 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                     break;
                 }
             }
+        }
+
+        if (colliderFisicoNpc != null)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[F7/Seguidor] Collider físico usado na navegação: " +
+                colliderFisicoNpc.GetType().Name +
+                ", tamanho=" + colliderFisicoNpc.bounds.size + ".");
+        }
+        else
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Seguidor] Nenhum collider físico não-trigger foi encontrado no prefab; usando o fallback de colisão.");
         }
 
         return colliderFisicoNpc;
