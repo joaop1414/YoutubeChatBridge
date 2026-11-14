@@ -1,27 +1,34 @@
 using System;
-using HarmonyLib;
+using System.Collections.Generic;
+using System.Linq;
+using AmongUs.GameOptions;
 using Il2CppInterop.Runtime.Injection;
-using TMPro;
-using UnityEngine.UI;
 using UnityEngine;
 
 namespace YouTubeVoteBridge;
 
 /// <summary>
-/// Visualizador TextMeshPro local, com botão próprio no menu principal.
-/// Não usa F8 nem janela Win32.
+/// Configurador de funções por jogador no lobby. As escolhas são aplicadas
+/// somente na seleção inicial; jogadores em Automático continuam sendo
+/// selecionados pelo RoleManager vanilla.
 /// </summary>
-internal sealed class VisualizadorNomeMenu : MonoBehaviour
+internal sealed class ConfiguradorFuncoesMenu : MonoBehaviour
 {
-    public VisualizadorNomeMenu(IntPtr ptr) : base(ptr) { }
+    public ConfiguradorFuncoesMenu(IntPtr ptr) : base(ptr) { }
 
-    private static VisualizadorNomeMenu instancia;
+    private static ConfiguradorFuncoesMenu instancia;
     private static bool registrado;
     private static bool painelAberto;
-    private static Canvas canvasPreview;
-    private static TMP_Text textoPreview;
-    private static string textoEditor = "<color=#ff4444>Teste</color> <b>TextMeshPro</b>";
-    private Rect painel = new Rect(0, 0, 500, 390);
+    private static byte? jogadorSelecionado;
+    private static Vector2 scrollJogadores;
+    private static Vector2 scrollFuncoes;
+    private static readonly Dictionary<byte, RoleTypes> atribuicoes = new();
+    private static readonly RoleTypes[] funcoesDisponiveis = Enum.GetValues(typeof(RoleTypes))
+        .Cast<RoleTypes>()
+        .Where(x => !string.Equals(x.ToString(), "None", StringComparison.OrdinalIgnoreCase))
+        .Distinct()
+        .OrderBy(x => x.ToString())
+        .ToArray();
 
     public static void Inicializar()
     {
@@ -29,169 +36,208 @@ internal sealed class VisualizadorNomeMenu : MonoBehaviour
         {
             if (!registrado)
             {
-                ClassInjector.RegisterTypeInIl2Cpp<VisualizadorNomeMenu>();
+                ClassInjector.RegisterTypeInIl2Cpp<ConfiguradorFuncoesMenu>();
                 registrado = true;
             }
 
             if (instancia == null)
             {
-                var go = new GameObject("YouTubeVoteBridge_TextMeshProPreview");
-                UnityEngine.Object.DontDestroyOnLoad(go);
-                instancia = go.AddComponent<VisualizadorNomeMenu>();
+                GameObject objeto = new GameObject("YouTubeVoteBridge_ConfiguradorFuncoes");
+                UnityEngine.Object.DontDestroyOnLoad(objeto);
+                instancia = objeto.AddComponent<ConfiguradorFuncoesMenu>();
             }
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[Visualizador TMP] Inicializado; aguardando F8.");
+                "[Configurador de funções] Inicializado; pressione F8 no lobby.");
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[Visualizador TMP] Falha na inicialização: " + ex);
+                "[Configurador de funções] Falha na inicialização: " + ex);
         }
     }
 
-    private static void CriarPreviewTMP(TMP_Text labelModelo)
+    /// <summary>
+    /// Entrega as escolhas ao RoleSwitchAPI uma única vez, no começo da partida.
+    /// </summary>
+    internal static Dictionary<byte, RoleTypes> ConsumirConfiguracoes()
     {
-        if (canvasPreview != null && textoPreview != null) return;
-
-        var canvasObj = new GameObject("YouTubeVoteBridge_TMPPreviewCanvas");
-        UnityEngine.Object.DontDestroyOnLoad(canvasObj);
-        canvasPreview = canvasObj.AddComponent<Canvas>();
-        canvasPreview.renderMode = RenderMode.ScreenSpaceOverlay;
-        canvasPreview.sortingOrder = 32000;
-        canvasObj.AddComponent<CanvasScaler>();
-        canvasObj.AddComponent<GraphicRaycaster>();
-
-        var previewObj = new GameObject(
-            "TextMeshProPreview",
-            Il2CppInterop.Runtime.Il2CppType.Of<RectTransform>(),
-            Il2CppInterop.Runtime.Il2CppType.Of<TextMeshProUGUI>()
-        );
-        previewObj.transform.SetParent(canvasObj.transform, false);
-        var rect = previewObj.GetComponent<RectTransform>();
-        rect.anchorMin = new Vector2(0.5f, 0.5f);
-        rect.anchorMax = new Vector2(0.5f, 0.5f);
-        rect.pivot = new Vector2(0.5f, 0.5f);
-        rect.anchoredPosition = new Vector2(0f, -115f);
-        rect.sizeDelta = new Vector2(1000f, 180f);
-        textoPreview = previewObj.GetComponent<TMP_Text>();
-        textoPreview.font = TMPro.TMP_Settings.defaultFontAsset;
-        textoPreview.enableWordWrapping = true;
-        textoPreview.richText = true;
-        textoPreview.alignment = TextAlignmentOptions.Center;
-        textoPreview.fontSize = 32f;
-        textoPreview.gameObject.SetActive(true);
+        Dictionary<byte, RoleTypes> copia = new(atribuicoes);
+        atribuicoes.Clear();
+        jogadorSelecionado = null;
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"[Configurador de funções] {copia.Count} configuração(ões) entregue(s) à seleção inicial.");
+        return copia;
     }
 
-    private static void AbrirPainel()
-    {
-        // Carrega o texto atualmente copiado, usando o mesmo leitor do /youtube colar.
-        string copiado = YouTubeVoteBridgePlugin.LerAreaDeTransferencia();
-        if (!string.IsNullOrEmpty(copiado))
-            textoEditor = copiado;
-
-        painelAberto = true;
-        CriarPreviewTMP(null);
-        if (textoPreview != null)
-        {
-            textoPreview.text = textoEditor ?? string.Empty;
-            textoPreview.gameObject.SetActive(true);
-        }
-    }
-
-    // O botão visual foi removido porque clonar quitButton pode herdar
-    // comportamentos internos do botão Sair e a criação não é confiável em
-    // todas as versões. O acesso agora é pelo atalho F8 na tela inicial.
-
-    // Chamado pelo patch Harmony no mesmo ciclo de atualização usado por F6/F7.
-    // Não depende do Update deste MonoBehaviour, que não estava sendo executado.
     public static void VerificarTecla()
     {
-        if (PlayerControl.LocalPlayer != null || !Input.GetKeyDown(KeyCode.F8))
+        if (!Input.GetKeyDown(KeyCode.F8))
             return;
 
+        AmongUsClient cliente = AmongUsClient.Instance;
+        if (cliente == null || !cliente.AmHost ||
+            string.Equals(cliente.GameState.ToString(), "Started", StringComparison.OrdinalIgnoreCase))
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[Configurador de funções] F8 disponível somente para o host no lobby.");
+            return;
+        }
+
+        painelAberto = !painelAberto;
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            "[Visualizador TMP] F8 detectado.");
-
-        if (painelAberto)
-        {
-            painelAberto = false;
-            if (textoPreview != null)
-                textoPreview.gameObject.SetActive(false);
-            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[Visualizador TMP] Painel fechado.");
-            return;
-        }
-
-        try
-        {
-            AbrirPainel();
-            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[Visualizador TMP] Painel aberto.");
-        }
-        catch (Exception ex)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[Visualizador TMP] Falha ao abrir painel: " + ex);
-        }
+            painelAberto
+                ? "[Configurador de funções] Painel aberto."
+                : "[Configurador de funções] Painel fechado.");
     }
 
     private void OnGUI()
     {
-        if (PlayerControl.LocalPlayer != null || !painelAberto)
+        if (!painelAberto)
             return;
 
         try
         {
-            float w = 500f;
-            float h = 390f;
-            painel.x = (Screen.width - w) / 2f;
-            painel.y = (Screen.height - h) / 2f;
+            float largura = Mathf.Min(760f, Screen.width - 30f);
+            float altura = Mathf.Min(650f, Screen.height - 30f);
+            Rect janela = new Rect(
+                (Screen.width - largura) / 2f,
+                (Screen.height - altura) / 2f,
+                largura,
+                altura);
 
             GUI.depth = -100;
-            GUI.Box(painel, "YouTubeVoteBridge — Visualizador TextMeshPro");
-            GUILayout.BeginArea(new Rect(painel.x + 14, painel.y + 35, w - 28, h - 48));
+            GUI.Box(janela, "YouTubeChatBridge — Funções por jogador (F8)");
+            GUILayout.BeginArea(new Rect(
+                janela.x + 14f, janela.y + 32f,
+                janela.width - 28f, janela.height - 46f));
 
-            GUILayout.Label("Digite ou cole texto com tags TextMeshPro:");
-            textoEditor = GUILayout.TextArea(textoEditor ?? string.Empty, GUILayout.Height(210));
+            GUILayout.Label("Escolha um jogador e defina sua função. Quem ficar em Automático será sorteado pelo jogo.");
+            GUILayout.Label("As escolhas são aplicadas pelo host durante a seleção inicial, antes da revelação.");
 
-            GUILayout.Space(8);
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button("Colar último texto copiado", GUILayout.Height(32)))
+            GUILayout.BeginVertical(GUILayout.Width(largura * 0.43f));
+            GUILayout.Label("JOGADORES DA SALA");
+            scrollJogadores = GUILayout.BeginScrollView(scrollJogadores, GUILayout.Height(altura - 170f));
+
+            int encontrados = 0;
+            try
             {
-                string copiado = YouTubeVoteBridgePlugin.LerAreaDeTransferencia();
-                if (!string.IsNullOrEmpty(copiado))
+                if (PlayerControl.AllPlayerControls != null)
                 {
-                    textoEditor = copiado;
-                    if (textoPreview != null)
-                        textoPreview.text = textoEditor;
+                    foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+                    {
+                        if (jogador == null || jogador.Data == null || jogador.Data.Disconnected)
+                            continue;
+
+                        encontrados++;
+                        byte id = jogador.PlayerId;
+                        string nome = jogador.Data.PlayerName ?? "Jogador";
+                        string funcao = atribuicoes.TryGetValue(id, out RoleTypes definida)
+                            ? definida.ToString()
+                            : "Automático";
+                        bool selecionado = jogadorSelecionado.HasValue && jogadorSelecionado.Value == id;
+
+                        GUILayout.BeginHorizontal();
+                        string rotulo = $"{nome}  [ID {id}]\n{funcao}";
+                        if (GUILayout.Button(rotulo, GUILayout.Height(48f)))
+                            jogadorSelecionado = id;
+                        if (selecionado)
+                            GUILayout.Label("◀", GUILayout.Width(24f));
+                        GUILayout.EndHorizontal();
+                    }
                 }
             }
-            if (GUILayout.Button("Atualizar prévia", GUILayout.Height(32)))
+            catch (Exception ex)
             {
-                if (textoPreview != null)
-                    textoPreview.text = textoEditor ?? string.Empty;
+                GUILayout.Label("Não foi possível listar jogadores: " + ex.Message);
             }
-            if (GUILayout.Button("Limpar", GUILayout.Height(32)))
+
+            if (encontrados == 0)
+                GUILayout.Label("Nenhum jogador encontrado. Abra o painel dentro do lobby.");
+
+            GUILayout.EndScrollView();
+            GUILayout.EndVertical();
+
+            GUILayout.Space(12f);
+            GUILayout.BeginVertical();
+            string nomeSelecionado = "Nenhum jogador selecionado";
+            if (jogadorSelecionado.HasValue)
             {
-                textoEditor = string.Empty;
-                if (textoPreview != null) textoPreview.text = string.Empty;
+                PlayerControl alvo = EncontrarJogador(jogadorSelecionado.Value);
+                nomeSelecionado = alvo != null && alvo.Data != null
+                    ? alvo.Data.PlayerName
+                    : "PlayerId " + jogadorSelecionado.Value;
             }
-            if (GUILayout.Button("Fechar", GUILayout.Height(32)))
+
+            GUILayout.Label("FUNÇÃO PARA: " + nomeSelecionado);
+            if (!jogadorSelecionado.HasValue)
             {
-                painelAberto = false;
-                if (textoPreview != null) textoPreview.gameObject.SetActive(false);
+                GUILayout.Label("Selecione um jogador na lista ao lado.");
             }
+            else
+            {
+                if (GUILayout.Button("Automático — deixar o jogo escolher", GUILayout.Height(34f)))
+                {
+                    atribuicoes.Remove(jogadorSelecionado.Value);
+                }
+
+                scrollFuncoes = GUILayout.BeginScrollView(scrollFuncoes, GUILayout.Height(altura - 220f));
+                int colunas = 2;
+                for (int i = 0; i < funcoesDisponiveis.Length; i += colunas)
+                {
+                    GUILayout.BeginHorizontal();
+                    for (int c = 0; c < colunas && i + c < funcoesDisponiveis.Length; c++)
+                    {
+                        RoleTypes funcao = funcoesDisponiveis[i + c];
+                        bool atual = atribuicoes.TryGetValue(jogadorSelecionado.Value, out RoleTypes definida)
+                            && definida == funcao;
+                        string texto = atual ? "✓ " + funcao : funcao.ToString();
+                        if (GUILayout.Button(texto, GUILayout.Height(32f)))
+                            atribuicoes[jogadorSelecionado.Value] = funcao;
+                    }
+                    GUILayout.EndHorizontal();
+                }
+                GUILayout.EndScrollView();
+            }
+            GUILayout.EndVertical();
             GUILayout.EndHorizontal();
 
-            GUILayout.Space(8);
-            GUILayout.Label("A prévia TextMeshPro aparece no centro da tela.");
-            GUILayout.Label("Esta prévia é local e não altera o nome do jogador.");
+            GUILayout.Space(8f);
+            GUILayout.BeginHorizontal();
+            GUILayout.Label($"Configurações manuais: {atribuicoes.Count}", GUILayout.Width(210f));
+            if (GUILayout.Button("Limpar todas", GUILayout.Height(30f)))
+            {
+                atribuicoes.Clear();
+                jogadorSelecionado = null;
+            }
+            if (GUILayout.Button("Fechar (F8)", GUILayout.Height(30f)))
+                painelAberto = false;
+            GUILayout.EndHorizontal();
+
             GUILayout.EndArea();
         }
         catch (Exception ex)
         {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogError("[Visualizador TMP] Erro no painel: " + ex);
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "[Configurador de funções] Erro ao desenhar painel: " + ex);
         }
+    }
+
+    private static PlayerControl EncontrarJogador(byte playerId)
+    {
+        try
+        {
+            if (PlayerControl.AllPlayerControls == null)
+                return null;
+
+            foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+            {
+                if (jogador != null && jogador.PlayerId == playerId)
+                    return jogador;
+            }
+        }
+        catch { }
+        return null;
     }
 }
