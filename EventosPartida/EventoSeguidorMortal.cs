@@ -2757,7 +2757,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         }
 
         bool luzesAtivas = sistemaLuzes != null &&
-            LerMembro(sistemaLuzes, "IsActive") is bool ativo && ativo;
+            SistemaEstaAtivo(SystemTypes.Electrical);
 
         if (!luzesAtivas)
         {
