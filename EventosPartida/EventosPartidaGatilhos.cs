@@ -77,5 +77,6 @@ internal static class EventosPartidaFimPatch
         EventoDutosInstaveis.Resetar();
         EventoSeguidorMortal.Resetar();
         EventoImpostorSuicidaAoTentarMatar.Resetar();
+        EventoVotoDuplo.Resetar();
     }
 }
