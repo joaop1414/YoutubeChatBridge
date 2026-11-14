@@ -4461,6 +4461,7 @@ public static class YouTubeVoteUpdatePatch
         EventoCongelarJogador.Atualizar();
         EventoVelocidadeJogadores.Atualizar();
         EventoTsunami.Atualizar();
+        EventoSeguidorMortal.AtualizarCliente();
         EventoRaio.Atualizar();
         EventoVisaoReduzida.Atualizar();
         EventoTrocarIdentidades.Atualizar();
