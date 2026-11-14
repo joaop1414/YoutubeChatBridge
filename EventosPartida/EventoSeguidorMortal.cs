@@ -2520,9 +2520,10 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                     break;
 
                 case SystemTypes.HeliSabotage:
-                    // Crash Course do Airship exige registrar os dois painéis.
+                    // O fluxo usado pelo EHR registra o painel do Crash Course
+                    // e depois limpa o contador do sistema Reactor do Airship.
                     ShipStatus.Instance.UpdateSystem(SystemTypes.HeliSabotage, seguidor, 17);
-                    ShipStatus.Instance.UpdateSystem(SystemTypes.HeliSabotage, seguidor, 16);
+                    ShipStatus.Instance.UpdateSystem(SystemTypes.Reactor, seguidor, 16);
                     break;
             }
 
