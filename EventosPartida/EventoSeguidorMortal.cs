@@ -30,6 +30,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private static int etapaInicializacao;
     private static float proximaEtapa;
     private static float proximaBuscaAlvo;
+    private static float proximoKillNpc;
     private static PlayerControl seguidor;
     private static PlayerControl alvoAtual;
 
@@ -51,11 +52,11 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
     // Patrulha usada quando nenhum jogador válido está disponível como alvo.
     private const float DistanciaChegadaPatrulha = 0.22f;
-    private const float DuracaoDestinoPatrulha = 14f;
     private static bool possuiDestinoPatrulha;
     private static Vector2 destinoPatrulha;
-    private static float limiteDestinoPatrulha;
     private static float proximaTentativaDestinoPatrulha;
+    private static SystemTypes ultimaSalaPatrulha;
+    private static bool possuiUltimaSalaPatrulha;
 
     // Evita repetir chamadas de transporte enquanto a animação vanilla está ativa.
     private static bool transporteEmAndamento;
@@ -205,6 +206,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             etapaInicializacao = 1;
             proximaEtapa = Time.realtimeSinceStartup + 0.12f;
             proximaBuscaAlvo = 0f;
+            proximoKillNpc = 0f;
             proximoTransporte = 0f;
             proximoSnapToRede = 0f;
             sequenciaSnapToRede = 0;
@@ -1561,7 +1563,6 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             return;
 
         var corpo = seguidor.NetTransform.body;
-        float agora = Time.realtimeSinceStartup;
 
         // Se uma travessia iniciada durante a perseguição ainda estiver acontecendo,
         // deixa a animação vanilla terminar antes de voltar a andar.
@@ -1579,79 +1580,84 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         Vector2 origem = seguidor.GetTruePosition();
         bool chegouAoDestino = possuiDestinoPatrulha &&
             Vector2.Distance(origem, destinoPatrulha) <= DistanciaChegadaPatrulha;
-        bool destinoExpirou = possuiDestinoPatrulha && agora >= limiteDestinoPatrulha;
 
-        if (!possuiDestinoPatrulha || chegouAoDestino || destinoExpirou)
+        // O destino só muda quando o NPC chega à sala escolhida.
+        if (!possuiDestinoPatrulha || chegouAoDestino)
         {
             corpo.velocity = Vector2.zero;
             LimparCaminho();
             emManobraDestravamento = false;
             monitoramentoMovimentoIniciado = false;
 
-            if (agora < proximaTentativaDestinoPatrulha)
+            if (Time.realtimeSinceStartup < proximaTentativaDestinoPatrulha)
                 return;
 
-            if (!TentarEscolherDestinoPatrulha(origem, out Vector2 novoDestino))
+            if (!TentarEscolherDestinoPatrulha(origem, out Vector2 novoDestino, out SystemTypes salaEscolhida))
             {
                 possuiDestinoPatrulha = false;
-                proximaTentativaDestinoPatrulha = agora + 1f;
+                proximaTentativaDestinoPatrulha = Time.realtimeSinceStartup + 1f;
                 return;
             }
 
             destinoPatrulha = novoDestino;
             possuiDestinoPatrulha = true;
-            limiteDestinoPatrulha = agora + DuracaoDestinoPatrulha;
-            proximaTentativaDestinoPatrulha = agora + 0.25f;
+            ultimaSalaPatrulha = salaEscolhida;
+            possuiUltimaSalaPatrulha = true;
+            proximaTentativaDestinoPatrulha = Time.realtimeSinceStartup + 0.25f;
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[F7/Seguidor] Sem alvos; NPC patrulhando até " + destinoPatrulha + ".");
+                "[F7/Seguidor] NPC patrulhando para o centro da sala " +
+                salaEscolhida + ": " + destinoPatrulha + ".");
         }
 
         MoverAte(destinoPatrulha);
     }
 
     /// <summary>
-    /// Sorteia pontos livres dentro das salas do mapa. A rota entre salas
-    /// é resolvida pelo A* já existente, portanto o ponto não precisa ter
-    /// visão direta a partir da posição atual do NPC.
+    /// Escolhe uma sala aleatória e usa seu centro geométrico como destino.
+    /// Se o centro estiver ocupado por um objeto, procura o ponto livre mais
+    /// próximo dentro da própria sala. O NPC não troca de destino no caminho.
     /// </summary>
-    private static bool TentarEscolherDestinoPatrulha(Vector2 origem, out Vector2 destino)
+    private static bool TentarEscolherDestinoPatrulha(
+        Vector2 origem, out Vector2 destino, out SystemTypes salaEscolhida)
     {
         destino = origem;
+        salaEscolhida = SystemTypes.Hallway;
 
         if (ShipStatus.Instance == null || seguidor == null)
             return false;
 
         var salas = ShipStatus.Instance.AllRooms
             .Where(sala => sala != null && sala.roomArea != null)
+            .Where(sala => !possuiUltimaSalaPatrulha || sala.RoomId != ultimaSalaPatrulha)
+            .OrderBy(_ => UnityEngine.Random.value)
             .ToArray();
 
+        // Se o mapa só tiver uma sala utilizável, permite escolhê-la novamente.
         if (salas.Length == 0)
-            return false;
-
-        // Tenta várias salas e posições para evitar escolher pontos dentro de paredes,
-        // móveis ou fora do contorno real da sala.
-        for (int tentativa = 0; tentativa < 80; tentativa++)
         {
-            var sala = salas[UnityEngine.Random.Range(0, salas.Length)];
+            salas = ShipStatus.Instance.AllRooms
+                .Where(sala => sala != null && sala.roomArea != null)
+                .OrderBy(_ => UnityEngine.Random.value)
+                .ToArray();
+        }
+
+        foreach (var sala in salas)
+        {
             Bounds limites = sala.roomArea.bounds;
+            Vector2 centroSala = limites.center;
 
-            Vector2 candidato = new Vector2(
-                UnityEngine.Random.Range(limites.min.x, limites.max.x),
-                UnityEngine.Random.Range(limites.min.y, limites.max.y));
-
-            if (!sala.roomArea.OverlapPoint(candidato))
+            if (!sala.roomArea.OverlapPoint(centroSala))
                 continue;
 
-            // Valida somente se o próprio ponto está livre. Não exige caminho
-            // em linha reta desde a posição atual, pois o A* contorna paredes.
-            if (!PodeMoverEntre(candidato, candidato))
+            if (!TentarEncontrarPontoLivreNaSala(limites, centroSala, out Vector2 pontoLivre))
                 continue;
 
-            if (Vector2.Distance(origem, candidato) < 1.25f)
+            if (Vector2.Distance(origem, pontoLivre) < DistanciaChegadaPatrulha + 0.5f)
                 continue;
 
-            destino = candidato;
+            destino = pontoLivre;
+            salaEscolhida = sala.RoomId;
             return true;
         }
 
@@ -2389,14 +2395,34 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         return melhor;
     }
 
-    private static void MatarAlvo(PlayerControl alvo)    {
+    private static float ObterCooldownKillNpc()
+    {
+        try
+        {
+            var opcoes = GameOptionsManager.Instance?.CurrentGameOptions;
+            if (opcoes != null)
+                return Mathf.Max(0.1f, opcoes.GetFloat(FloatOptionNames.KillCooldown));
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Seguidor] Não foi possível ler o Kill Cooldown das opções: " + ex.Message);
+        }
+
+        // Fallback conservador caso a opção não esteja disponível nesta versão.
+        return 30f;
+    }
+
+    private static void MatarAlvo(PlayerControl alvo)
+    {
         if (!YouTubeVoteBridgePlugin.EhHost() ||
             alvo == null ||
             alvo.Data == null ||
             alvo.Data.IsDead ||
             alvo.Data.Disconnected ||
             EstaNoDuto(alvo) ||
-            PlayerControl.LocalPlayer == null)
+            PlayerControl.LocalPlayer == null ||
+            Time.realtimeSinceStartup < proximoKillNpc)
             return;
 
         try
@@ -2414,9 +2440,21 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 alvo.RpcMurderPlayer(alvo, true);
             }
 
-            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[F7/Seguidor] NPC tentou matar " + alvo.Data.PlayerName +
-                " (PlayerId=" + alvo.PlayerId + "). Autor inicial: NPC ASSASINO.");
+            if (alvo.Data != null && alvo.Data.IsDead)
+            {
+                float cooldown = ObterCooldownKillNpc();
+                proximoKillNpc = Time.realtimeSinceStartup + cooldown;
+
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[F7/Seguidor] NPC matou " + alvo.Data.PlayerName +
+                    " (PlayerId=" + alvo.PlayerId + "). Próximo kill em " +
+                    cooldown.ToString("0.##") + "s.");
+            }
+            else
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[F7/Seguidor] O alvo não morreu; o cooldown do NPC não foi iniciado.");
+            }
         }
         catch (Exception ex)
         {
@@ -2454,8 +2492,10 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         alvoAtual = null;
         possuiDestinoPatrulha = false;
         destinoPatrulha = Vector2.zero;
-        limiteDestinoPatrulha = 0f;
         proximaTentativaDestinoPatrulha = 0f;
+        ultimaSalaPatrulha = SystemTypes.Hallway;
+        possuiUltimaSalaPatrulha = false;
+        proximoKillNpc = 0f;
         transporteEmAndamento = false;
         aguardandoSaidaVent = false;
         ventEntradaAtual = null;
