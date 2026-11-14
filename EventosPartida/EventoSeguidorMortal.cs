@@ -71,6 +71,15 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private static Vector2 destinoCaminhoAnterior;
     private static float proximoRecalculoCaminho;
 
+    // Detector de travamento: observa o deslocamento real enquanto há
+    // movimento solicitado e procura uma saída lateral quando o NPC fica preso.
+    private static Vector2 ultimaPosicaoMonitorada;
+    private static float proximaVerificacaoTravamento;
+    private static bool monitoramentoMovimentoIniciado;
+    private static bool emManobraDestravamento;
+    private static Vector2 pontoDestravamento;
+    private static float limiteManobraDestravamento;
+
     public override string Nome => "NPC seguidor mortal";
 
     public void Executar()
@@ -618,6 +627,71 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
         Vector2 origem = seguidor.GetTruePosition();
         float agora = Time.realtimeSinceStartup;
+        var corpo = seguidor.NetTransform.body;
+
+        // Se uma manobra de escape já começou, termina-a antes de calcular
+        // uma nova rota. O ponto de escape sempre é validado contra paredes.
+        if (emManobraDestravamento)
+        {
+            if (Vector2.Distance(origem, pontoDestravamento) <= 0.12f ||
+                agora >= limiteManobraDestravamento)
+            {
+                emManobraDestravamento = false;
+                corpo.velocity = Vector2.zero;
+                LimparCaminho();
+                proximoRecalculoCaminho = 0f;
+                ultimaPosicaoMonitorada = origem;
+                proximaVerificacaoTravamento = agora + 0.9f;
+            }
+            else
+            {
+                Vector2 direcaoEscape = pontoDestravamento - origem;
+                corpo.velocity = direcaoEscape.normalized * Velocidade;
+                return;
+            }
+        }
+
+        // Só considera travamento quando o NPC já recebeu uma ordem de
+        // movimento por tempo suficiente para observar deslocamento real.
+        if (!monitoramentoMovimentoIniciado)
+        {
+            monitoramentoMovimentoIniciado = true;
+            ultimaPosicaoMonitorada = origem;
+            proximaVerificacaoTravamento = agora + 1.0f;
+        }
+        else if (agora >= proximaVerificacaoTravamento)
+        {
+            float deslocamento = Vector2.Distance(origem, ultimaPosicaoMonitorada);
+            ultimaPosicaoMonitorada = origem;
+            proximaVerificacaoTravamento = agora + 0.9f;
+
+            if (deslocamento < 0.045f && corpo.velocity.magnitude >= Velocidade * 0.5f)
+            {
+                if (TentarEncontrarPontoDestravamento(origem, destino, out Vector2 escape))
+                {
+                    pontoDestravamento = escape;
+                    emManobraDestravamento = true;
+                    limiteManobraDestravamento = agora + 0.85f;
+                    LimparCaminho();
+                    corpo.velocity = (escape - origem).normalized * Velocidade;
+
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                        "[F7/Seguidor] Movimento travado detectado. Tentando desvio lateral para " +
+                        escape + " antes de recalcular o A*.");
+                    return;
+                }
+
+                // Sem saída lateral segura: força uma busca nova na próxima atualização.
+                LimparCaminho();
+                proximoRecalculoCaminho = 0f;
+                corpo.velocity = Vector2.zero;
+
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[F7/Seguidor] Movimento travado e nenhuma manobra lateral segura encontrada; " +
+                    "forçando novo cálculo de rota.");
+                return;
+            }
+        }
 
         bool precisaRecalcular =
             caminhoAtual.Count == 0 ||
@@ -673,7 +747,55 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             return;
         }
 
-        seguidor.NetTransform.body.velocity = direcao.normalized * Velocidade;
+        corpo.velocity = direcao.normalized * Velocidade;
+    }
+
+    private static bool TentarEncontrarPontoDestravamento(
+        Vector2 origem, Vector2 destino, out Vector2 melhorPonto)
+    {
+        melhorPonto = origem;
+        float melhorCusto = float.MaxValue;
+        const float distanciaEscape = 0.55f;
+
+        foreach (Vector2Int vetor in DirecoesCaminho)
+        {
+            Vector2 direcao = new Vector2(vetor.x, vetor.y).normalized;
+            Vector2 candidato = origem + direcao * distanciaEscape;
+
+            if (!EstaDentroDeAlgumaSala(candidato) ||
+                !PodeMoverEntre(origem, candidato))
+                continue;
+
+            float distanciaAteAlvo = Vector2.Distance(candidato, destino);
+            float custo = distanciaAteAlvo;
+
+            // Dá preferência a saídas que aproximem o NPC do alvo,
+            // sem exigir que já exista visão direta até ele.
+            if (custo < melhorCusto)
+            {
+                melhorCusto = custo;
+                melhorPonto = candidato;
+            }
+        }
+
+        return melhorCusto < float.MaxValue;
+    }
+
+    private static bool EstaDentroDeAlgumaSala(Vector2 ponto)
+    {
+        if (ShipStatus.Instance == null)
+            return false;
+
+        foreach (var sala in ShipStatus.Instance.AllRooms)
+        {
+            if (sala == null || !sala.roomArea)
+                continue;
+
+            if (sala.roomArea.bounds.Contains(ponto))
+                return true;
+        }
+
+        return false;
     }
 
     private static List<Vector2> CalcularCaminhoAStar(Vector2 inicio, Vector2 destino)
@@ -1078,6 +1200,12 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         transporteEmAndamento = false;
         limiteTransporte = 0f;
         proximoTransporte = 0f;
+        monitoramentoMovimentoIniciado = false;
+        ultimaPosicaoMonitorada = Vector2.zero;
+        proximaVerificacaoTravamento = 0f;
+        emManobraDestravamento = false;
+        pontoDestravamento = Vector2.zero;
+        limiteManobraDestravamento = 0f;
         LimparCaminho();
 
         if (seguidor != null)
