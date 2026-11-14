@@ -94,7 +94,32 @@ internal static class RoleSwitchAPI
             return;
         }
 
-        LogInfo($"Seleção vanilla concluída: {trocas.Count} função(ões) capturada(s). Iniciando distribuição com canOverrideRole=false.");
+        // Consome as escolhas feitas no configurador F8. Somente jogadores
+        // explicitamente configurados substituem o resultado vanilla; todos
+        // os demais mantêm exatamente a função sorteada pelo RoleManager.
+        Dictionary<byte, RoleTypes> configuracoes =
+            ConfiguradorFuncoesMenu.ConsumirConfiguracoes();
+        int aplicadas = 0;
+
+        foreach (TrocaPendente troca in trocas)
+        {
+            if (configuracoes.TryGetValue(troca.Jogador.PlayerId, out RoleTypes funcaoManual))
+            {
+                LogInfo($"Sobrescrevendo seleção vanilla: PlayerId={troca.Jogador.PlayerId}, " +
+                    $"função vanilla={troca.Funcao}, função manual={funcaoManual}.");
+                troca.Funcao = funcaoManual;
+                aplicadas++;
+            }
+        }
+
+        foreach (byte playerId in configuracoes.Keys)
+        {
+            if (!trocas.Any(x => x.Jogador != null && x.Jogador.PlayerId == playerId))
+                LogAviso($"Configuração F8 ignorada: PlayerId={playerId} não participou da seleção capturada.");
+        }
+
+        LogInfo($"Seleção vanilla concluída: {trocas.Count} função(ões), " +
+            $"{aplicadas} sobrescrita(s) manual(is). Iniciando distribuição com canOverrideRole=false.");
         if (!ExecutarAtribuicoes(trocas, "seleção vanilla", false))
             bloqueandoSetRole = false;
     }
