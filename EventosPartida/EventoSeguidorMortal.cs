@@ -85,6 +85,9 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private static int indiceCaminho;
     private static Vector2 destinoCaminhoAnterior;
     private static float proximoRecalculoCaminho;
+    private static bool mostrarCaminhoNpc;
+    private static LineRenderer renderizadorCaminhoNpc;
+    private static Material materialCaminhoNpc;
 
     // Detector de travamento: observa o deslocamento real enquanto há
     // movimento solicitado e procura uma saída lateral quando o NPC fica preso.
@@ -477,6 +480,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             Resetar();
             return;
         }
+
+        AtualizarRenderizacaoCaminho();
 
         if (aguardandoFimRoleReveal || seguidor == null)
             return;
@@ -1787,6 +1792,96 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         return suavizado;
     }
 
+    internal static bool AlternarVisualizacaoCaminho()
+    {
+        mostrarCaminhoNpc = !mostrarCaminhoNpc;
+        if (!mostrarCaminhoNpc)
+            OcultarRenderizacaoCaminho();
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            "[F8/Seguidor] Visualização do caminho " +
+            (mostrarCaminhoNpc ? "ativada." : "desativada."));
+        return mostrarCaminhoNpc;
+    }
+
+    private static void AtualizarRenderizacaoCaminho()
+    {
+        if (!mostrarCaminhoNpc || seguidor == null ||
+            caminhoAtual == null || caminhoAtual.Count == 0)
+        {
+            OcultarRenderizacaoCaminho();
+            return;
+        }
+
+        try
+        {
+            if (renderizadorCaminhoNpc == null)
+            {
+                GameObject objeto = new GameObject("YouTubeVoteBridge_NPC_Path");
+                renderizadorCaminhoNpc = objeto.AddComponent<LineRenderer>();
+                renderizadorCaminhoNpc.useWorldSpace = true;
+                renderizadorCaminhoNpc.loop = false;
+                renderizadorCaminhoNpc.widthMultiplier = 0.045f;
+                renderizadorCaminhoNpc.numCapVertices = 2;
+                renderizadorCaminhoNpc.numCornerVertices = 2;
+                renderizadorCaminhoNpc.startColor = new Color(0.1f, 0.9f, 1f, 0.95f);
+                renderizadorCaminhoNpc.endColor = new Color(0.2f, 1f, 0.35f, 0.95f);
+                renderizadorCaminhoNpc.sortingOrder = 500;
+                Shader shader = Shader.Find("Sprites/Default");
+                if (shader != null)
+                {
+                    materialCaminhoNpc = new Material(shader);
+                    renderizadorCaminhoNpc.material = materialCaminhoNpc;
+                }
+            }
+
+            int primeiroIndice = Mathf.Clamp(indiceCaminho, 0, caminhoAtual.Count);
+            int pontosRestantes = caminhoAtual.Count - primeiroIndice;
+            int quantidade = pontosRestantes + 1;
+            if (quantidade < 2)
+            {
+                OcultarRenderizacaoCaminho();
+                return;
+            }
+
+            renderizadorCaminhoNpc.positionCount = quantidade;
+            Vector3 posicaoNpc = seguidor.transform.position;
+            posicaoNpc.z -= 0.15f;
+            renderizadorCaminhoNpc.SetPosition(0, posicaoNpc);
+            for (int i = 0; i < pontosRestantes; i++)
+            {
+                Vector2 ponto = caminhoAtual[primeiroIndice + i];
+                renderizadorCaminhoNpc.SetPosition(i + 1,
+                    new Vector3(ponto.x, ponto.y, posicaoNpc.z));
+            }
+            renderizadorCaminhoNpc.enabled = true;
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F8/Seguidor] Não foi possível desenhar o caminho do NPC: " + ex.Message);
+            OcultarRenderizacaoCaminho();
+        }
+    }
+
+    private static void OcultarRenderizacaoCaminho()
+    {
+        if (renderizadorCaminhoNpc != null)
+        {
+            renderizadorCaminhoNpc.positionCount = 0;
+            renderizadorCaminhoNpc.enabled = false;
+        }
+    }
+
+    private static void DestruirRenderizacaoCaminho()
+    {
+        if (renderizadorCaminhoNpc != null)
+            UnityEngine.Object.Destroy(renderizadorCaminhoNpc.gameObject);
+        if (materialCaminhoNpc != null)
+            UnityEngine.Object.Destroy(materialCaminhoNpc);
+        renderizadorCaminhoNpc = null;
+        materialCaminhoNpc = null;
+    }
+
     private static void LimparCaminho()
     {
         caminhoAtual.Clear();
@@ -1962,6 +2057,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
     internal static void Resetar()
     {
+        mostrarCaminhoNpc = false;
+        DestruirRenderizacaoCaminho();
         ativo = false;
         armado = false;
         aguardandoFimRoleReveal = false;
