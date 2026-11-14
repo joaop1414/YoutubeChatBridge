@@ -41,6 +41,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private static float proximaTentativaReparo;
     private static SystemTypes ultimaSabotagemSemSala;
     private static bool avisoSabotagemSemSala;
+    private static readonly HashSet<SystemTypes> sistemasSemEstadoAtivoDiagnosticados = new();
     private static PlayerControl seguidor;
     private static PlayerControl alvoAtual;
 
@@ -82,7 +83,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private static float proximaTentativaVent;
 
     // Caminho A*: recalculado periodicamente e quando o alvo muda de posição.
-    private const float TamanhoCelula = 0.35f;
+    private const float TamanhoCelula = 0.45f;
     // Fallback usado somente antes de o prefab do NPC disponibilizar seu collider.
     // Durante a navegação, as consultas usam o formato e as dimensões do collider real.
     private const float RaioColisaoFallback = 0.15f;
@@ -2434,12 +2435,37 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 return false;
 
             object sistema = ShipStatus.Instance.Systems[tipo];
-            return LerMembro(sistema, "IsActive") is bool ativoSistema && ativoSistema;
+            object estado = LerMembro(sistema, "IsActive", "isActive");
+            if (estado is bool ativoSistema)
+                return ativoSistema;
+
+            // Algumas versões/classes podem expor IsActive como método sem parâmetros.
+            if (sistema != null)
+            {
+                const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+                MethodInfo metodo = sistema.GetType().GetMethod("IsActive", flags,
+                    null, Type.EmptyTypes, null);
+                if (metodo != null && metodo.ReturnType == typeof(bool))
+                    return (bool)metodo.Invoke(sistema, null);
+
+                if (sistemasSemEstadoAtivoDiagnosticados.Add(tipo))
+                {
+                    string interfaces = string.Join(", ",
+                        sistema.GetType().GetInterfaces().Select(i => i.Name));
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                        "[F7/Seguidor] Não foi possível ler IsActive do sistema " + tipo +
+                        ". Tipo=" + sistema.GetType().FullName +
+                        "; interfaces=" + interfaces + ". A detecção dessa sabotagem pode falhar.");
+                }
+            }
         }
-        catch
+        catch (Exception ex)
         {
-            return false;
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Seguidor] Falha ao consultar estado da sabotagem " + tipo + ": " + ex.Message);
         }
+
+        return false;
     }
 
     private static bool TentarObterDestinoSalaSabotagem(
@@ -3023,6 +3049,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         proximaTentativaReparo = 0f;
         ultimaSabotagemSemSala = SystemTypes.Hallway;
         avisoSabotagemSemSala = false;
+        sistemasSemEstadoAtivoDiagnosticados.Clear();
         transporteEmAndamento = false;
         aguardandoSaidaVent = false;
         ventEntradaAtual = null;
