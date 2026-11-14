@@ -369,7 +369,9 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         if (!YouTubeVoteBridgePlugin.EhHost() ||
             seguidor == null ||
             seguidor.NetTransform == null ||
-            AmongUsClient.Instance == null)
+            AmongUsClient.Instance == null ||
+            transporteEmAndamento ||
+            aguardandoSaidaVent)
             return;
 
         float agora = Time.realtimeSinceStartup;
