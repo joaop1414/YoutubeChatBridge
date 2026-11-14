@@ -265,7 +265,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         Harmony.PatchAll();
         PainelVotacaoRpc.Inicializar();
         EventoTesteMenu.Inicializar();
-        VisualizadorNomeMenu.Inicializar();
+        ConfiguradorFuncoesMenu.Inicializar();
 
         Log.LogInfo("YouTubeVoteBridge carregado!");
     }
@@ -4335,7 +4335,7 @@ public static class YouTubeVoteUpdatePatch
         EventoAdicionarTarefas.AtualizarRestauracoesAgendadas();
 
         EventoTesteMenu.VerificarTecla();
-        VisualizadorNomeMenu.VerificarTecla();
+        ConfiguradorFuncoesMenu.VerificarTecla();
         // Processa cliques também no lobby: F7 precisa ser armado antes de iniciar a partida.
         // O próprio menu valida que F6 só seja executado durante a partida.
         EventoTesteMenu.ProcessarFilaExecucao();
