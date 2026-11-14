@@ -87,8 +87,9 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     // Fallback usado somente antes de o prefab do NPC disponibilizar seu collider.
     // Durante a navegação, as consultas usam o formato e as dimensões do collider real.
     private const float RaioColisaoFallback = 0.15f;
-    // A navegação usa uma margem menor que o collider físico real do NPC.
-    private const float FatorEscalaColisaoNavegacao = 0.50f;
+    // A navegação considera o collider físico completo mais 5% de margem.
+    // Isso não altera o collider nem a colisão física do NPC no jogo.
+    private const float FatorEscalaColisaoNavegacao = 1.05f;
     private static Collider2D colliderFisicoNpc;
     private const float IntervaloRecalculoCaminho = 1.25f;
     private const float DistanciaRecalculoAlvo = 0.65f;
