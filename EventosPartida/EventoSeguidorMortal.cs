@@ -72,13 +72,10 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
     // Caminho A*: recalculado periodicamente e quando o alvo muda de posição.
     private const float TamanhoCelula = 0.35f;
-    // Margem um pouco maior que o raio usado antes para o NPC não raspar nas paredes.
-    // O mesmo valor é usado no A*, na suavização e na validação dos movimentos.
-    private const float RaioColisao = 0.22f;
-    // O A* prefere células com espaço livre ao redor, mantendo o NPC
-    // aproximadamente no meio de corredores e entre objetos sólidos.
-    private static readonly float[] RaiosAfastamento = { 0.34f, 0.46f, 0.60f, 0.76f };
-    private const float PenalidadePorProximidade = 0.28f;
+    // Fallback usado somente antes de o prefab do NPC disponibilizar seu collider.
+    // Durante a navegação, as consultas usam o formato e as dimensões do collider real.
+    private const float RaioColisaoFallback = 0.15f;
+    private static Collider2D colliderFisicoNpc;
     private const float IntervaloRecalculoCaminho = 0.65f;
     private const float DistanciaRecalculoAlvo = 0.65f;
     // A busca usa os 8 vizinhos do grid. A suavização posterior remove
@@ -185,6 +182,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 Quaternion.identity);
 
             seguidor.PlayerId = PlayerIdSeguidor;
+            colliderFisicoNpc = null;
             seguidor.isNew = false;
             seguidor.notRealPlayer = true;
             seguidor.NetTransform.SnapTo(posicaoInicial);
@@ -283,7 +281,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     {
         pontoLivre = centroSala;
 
-        float margem = RaioColisao + 0.12f;
+        float margem = RaioColisaoFallback + 0.12f;
         float passo = 0.30f;
         float menorDistancia = float.MaxValue;
         bool encontrou = false;
@@ -303,8 +301,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 if (distancia >= menorDistancia)
                     continue;
 
-                Collider2D[] colisoes = Physics2D.OverlapCircleAll(
-                    candidato, RaioColisao, Constants.ShipAndAllObjectsMask);
+                Collider2D[] colisoes = ObterColisoesNaPosicao(
+                    candidato, Constants.ShipAndAllObjectsMask);
 
                 bool bloqueado = false;
                 foreach (Collider2D colisor in colisoes)
@@ -1763,7 +1761,6 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
         var abertos = new PriorityQueue<Vector2Int, float>();
         var cacheCelulasLivres = new Dictionary<Vector2Int, bool>();
-        var cacheAfastamento = new Dictionary<Vector2Int, int>();
         var custos = new Dictionary<Vector2Int, float>();
         var anteriores = new Dictionary<Vector2Int, Vector2Int>();
         var fechados = new HashSet<Vector2Int>();
@@ -1805,22 +1802,13 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 Vector2 pontoAtual = CentroCelula(atual, minimo);
                 Vector2 pontoVizinho = CentroCelula(vizinho, minimo);
 
-                // Verifica a trajetória completa com o raio do NPC, evitando
-                // atravessar paredes ao usar direções que avançam várias células.
+                // A trajetória é validada com o formato real do collider do NPC.
                 if (!PodePassarEntre(pontoAtual, pontoVizinho))
                     continue;
 
-                // Além da distância, penaliza células próximas de paredes,
-                // mesas e outros colliders. Assim o caminho tende ao centro
-                // dos corredores, mas ainda atravessa passagens estreitas
-                // quando elas forem a única rota disponível.
                 float custoDistancia = Mathf.Sqrt(
                     direcao.x * direcao.x + direcao.y * direcao.y);
-                int nivelAfastamento = ObterNivelAfastamento(
-                    vizinho, minimo, cacheAfastamento);
-                float penalidade = (RaiosAfastamento.Length - nivelAfastamento) *
-                                   PenalidadePorProximidade;
-                float novoCusto = custos[atual] + custoDistancia + penalidade;
+                float novoCusto = custos[atual] + custoDistancia;
 
                 if (custos.TryGetValue(vizinho, out float custoExistente) &&
                     novoCusto >= custoExistente)
@@ -1835,6 +1823,122 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         return null;
     }
 
+    private static Collider2D ObterColliderFisicoNpc()
+    {
+        if (seguidor == null)
+            return null;
+
+        if (colliderFisicoNpc != null && colliderFisicoNpc.enabled)
+            return colliderFisicoNpc;
+
+        colliderFisicoNpc = seguidor.GetComponent<Collider2D>();
+        if (colliderFisicoNpc == null)
+        {
+            Collider2D[] colliders = seguidor.GetComponentsInChildren<Collider2D>(true);
+            foreach (Collider2D candidato in colliders)
+            {
+                if (candidato != null && candidato.enabled && !candidato.isTrigger)
+                {
+                    colliderFisicoNpc = candidato;
+                    break;
+                }
+            }
+        }
+
+        return colliderFisicoNpc;
+    }
+
+    private static Vector2 ObterCentroColliderNaPosicao(Collider2D collider, Vector2 posicaoRaiz)
+    {
+        Vector2 deslocamentoCentro = (Vector2)collider.bounds.center -
+                                     (Vector2)seguidor.transform.position;
+        return posicaoRaiz + deslocamentoCentro;
+    }
+
+    private static Vector2 ObterEscalaAbsoluta(Transform transformacao)
+    {
+        Vector3 escala = transformacao.lossyScale;
+        return new Vector2(Mathf.Abs(escala.x), Mathf.Abs(escala.y));
+    }
+
+    // Usa o formato real do collider do personagem na posição hipotética.
+    // Circle, Box e Capsule mantêm sua geometria; outros tipos usam um círculo
+    // conservador baseado nos limites reais do collider.
+    private static Collider2D[] ObterColisoesNaPosicao(Vector2 posicaoRaiz, int mascara)
+    {
+        Collider2D collider = ObterColliderFisicoNpc();
+        if (collider == null)
+            return Physics2D.OverlapCircleAll(posicaoRaiz, RaioColisaoFallback, mascara);
+
+        Vector2 centro = ObterCentroColliderNaPosicao(collider, posicaoRaiz);
+        Vector2 escala = ObterEscalaAbsoluta(collider.transform);
+        float angulo = collider.transform.eulerAngles.z;
+
+        if (collider is CircleCollider2D circulo)
+        {
+            float raio = circulo.radius * Mathf.Max(escala.x, escala.y);
+            return Physics2D.OverlapCircleAll(centro, raio, mascara);
+        }
+
+        if (collider is BoxCollider2D caixa)
+        {
+            Vector2 tamanho = Vector2.Scale(caixa.size, escala);
+            return Physics2D.OverlapBoxAll(centro, tamanho, angulo, mascara);
+        }
+
+        if (collider is CapsuleCollider2D capsula)
+        {
+            Vector2 tamanho = Vector2.Scale(capsula.size, escala);
+            return Physics2D.OverlapCapsuleAll(
+                centro, tamanho, capsula.direction, angulo, mascara);
+        }
+
+        float raioFallback = collider.bounds.extents.magnitude;
+        return Physics2D.OverlapCircleAll(centro, raioFallback, mascara);
+    }
+
+    // Faz o cast usando a mesma geometria do collider do personagem.
+    private static RaycastHit2D[] ObterColisoesNoDeslocamento(
+        Vector2 origemRaiz, Vector2 direcaoMovimento, float distancia, int mascara)
+    {
+        Collider2D collider = ObterColliderFisicoNpc();
+        if (collider == null)
+        {
+            return Physics2D.CircleCastAll(
+                origemRaiz, RaioColisaoFallback, direcaoMovimento, distancia, mascara);
+        }
+
+        Vector2 centro = ObterCentroColliderNaPosicao(collider, origemRaiz);
+        Vector2 escala = ObterEscalaAbsoluta(collider.transform);
+        float angulo = collider.transform.eulerAngles.z;
+
+        if (collider is CircleCollider2D circulo)
+        {
+            float raio = circulo.radius * Mathf.Max(escala.x, escala.y);
+            return Physics2D.CircleCastAll(
+                centro, raio, direcaoMovimento, distancia, mascara);
+        }
+
+        if (collider is BoxCollider2D caixa)
+        {
+            Vector2 tamanho = Vector2.Scale(caixa.size, escala);
+            return Physics2D.BoxCastAll(
+                centro, tamanho, angulo, direcaoMovimento, distancia, mascara);
+        }
+
+        if (collider is CapsuleCollider2D capsula)
+        {
+            Vector2 tamanho = Vector2.Scale(capsula.size, escala);
+            return Physics2D.CapsuleCastAll(
+                centro, tamanho, capsula.direction, angulo,
+                direcaoMovimento, distancia, mascara);
+        }
+
+        float raioFallback = collider.bounds.extents.magnitude;
+        return Physics2D.CircleCastAll(
+            centro, raioFallback, direcaoMovimento, distancia, mascara);
+    }
+
     private static bool CelulaLivre(
         Vector2Int celula, Vector2 minimo, Dictionary<Vector2Int, bool> cache)
     {
@@ -1842,8 +1946,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             return livre;
 
         Vector2 centro = CentroCelula(celula, minimo);
-        Collider2D[] colisoes = Physics2D.OverlapCircleAll(
-            centro, RaioColisao, Constants.ShipAndAllObjectsMask);
+        Collider2D[] colisoes = ObterColisoesNaPosicao(
+            centro, Constants.ShipAndAllObjectsMask);
 
         livre = true;
         foreach (Collider2D colisor in colisoes)
@@ -1860,68 +1964,11 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         return livre;
     }
 
-    // Mede quanto espaço livre existe ao redor de uma célula.
-    // Cada raio adicional sem colisão aumenta o nível de afastamento.
-    private static int ObterNivelAfastamento(
-        Vector2Int celula, Vector2 minimo, Dictionary<Vector2Int, int> cache)
-    {
-        if (cache.TryGetValue(celula, out int nivelCacheado))
-            return nivelCacheado;
-
-        Vector2 centro = CentroCelula(celula, minimo);
-        int nivel = 0;
-
-        for (int i = 0; i < RaiosAfastamento.Length; i++)
-        {
-            Collider2D[] colisoes = Physics2D.OverlapCircleAll(
-                centro, RaiosAfastamento[i], Constants.ShipAndAllObjectsMask);
-
-            bool encontrouObstaculo = false;
-            foreach (Collider2D colisor in colisoes)
-            {
-                if (colisor == null || colisor.isTrigger ||
-                    (seguidor != null && colisor.transform.IsChildOf(seguidor.transform)))
-                    continue;
-
-                encontrouObstaculo = true;
-                break;
-            }
-
-            if (encontrouObstaculo)
-                break;
-
-            nivel++;
-        }
-
-        cache[celula] = nivel;
-        return nivel;
-    }
-
-    // A suavização só aceita atalhos que também mantenham uma margem
-    // razoável das colisões. Em corredores estreitos, conserva os pontos
-    // originais do A* em vez de cortar caminho rente à parede.
+    // Não adiciona uma margem artificial: a suavização respeita somente
+    // o espaço realmente ocupado pelo collider do personagem.
     private static bool SegmentoMantemAfastamento(Vector2 inicio, Vector2 fim)
     {
-        float distancia = Vector2.Distance(inicio, fim);
-        int amostras = Mathf.Max(1, Mathf.CeilToInt(distancia / 0.16f));
-
-        for (int i = 0; i <= amostras; i++)
-        {
-            Vector2 ponto = Vector2.Lerp(inicio, fim, i / (float)amostras);
-            Collider2D[] colisoes = Physics2D.OverlapCircleAll(
-                ponto, 0.34f, Constants.ShipAndAllObjectsMask);
-
-            foreach (Collider2D colisor in colisoes)
-            {
-                if (colisor == null || colisor.isTrigger ||
-                    (seguidor != null && colisor.transform.IsChildOf(seguidor.transform)))
-                    continue;
-
-                return false;
-            }
-        }
-
-        return true;
+        return PodePassarEntre(inicio, fim);
     }
 
     private static Vector2Int ParaGrid(Vector2 ponto, Vector2 minimo, int largura, int altura)
@@ -1993,9 +2040,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         if (distancia <= 0.001f)
             return true;
 
-        RaycastHit2D[] impactos = Physics2D.CircleCastAll(
-            origem, RaioColisao, delta / distancia, distancia,
-            Constants.ShipAndAllObjectsMask);
+        RaycastHit2D[] impactos = ObterColisoesNoDeslocamento(
+            origem, delta / distancia, distancia, Constants.ShipAndAllObjectsMask);
 
         foreach (RaycastHit2D impacto in impactos)
         {
@@ -2016,7 +2062,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             return false;
 
         int mascara = Constants.ShipAndAllObjectsMask;
-        Collider2D[] sobreposicoes = Physics2D.OverlapCircleAll(destino, RaioColisao, mascara);
+        Collider2D[] sobreposicoes = ObterColisoesNaPosicao(destino, mascara);
 
         foreach (Collider2D colisor in sobreposicoes)
         {
@@ -2026,24 +2072,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             return false;
         }
 
-        Vector2 delta = destino - origem;
-        float distancia = delta.magnitude;
-        if (distancia <= 0.001f)
-            return true;
-
-        RaycastHit2D[] impactos = Physics2D.CircleCastAll(
-            origem, RaioColisao, delta / distancia, distancia, mascara);
-
-        foreach (RaycastHit2D impacto in impactos)
-        {
-            Collider2D colisor = impacto.collider;
-            if (colisor == null || colisor.isTrigger ||
-                colisor.transform.IsChildOf(seguidor.transform))
-                continue;
-            return false;
-        }
-
-        return true;
+        return PodePassarEntre(origem, destino);
     }
 
     private static float Heuristica(Vector2Int a, Vector2Int b)
@@ -2424,6 +2453,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         pontoDestravamento = Vector2.zero;
         limiteManobraDestravamento = 0f;
         LimparCaminho();
+
+        colliderFisicoNpc = null;
 
         if (seguidor != null)
         {
