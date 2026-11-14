@@ -98,7 +98,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     // Isso não altera o collider nem a colisão física do NPC no jogo.
     private const float FatorEscalaColisaoNavegacao = 1.05f;
     private static Collider2D colliderFisicoNpc;
-    private const float IntervaloRecalculoCaminho = 1.25f;
+    private const float IntervaloRecalculoCaminho = 0.85f;
     private const float DistanciaRecalculoAlvo = 0.45f;
     // A busca usa os 8 vizinhos do grid. A suavização posterior remove
     // pontos intermediários quando a linha está livre, permitindo trajetórias
@@ -1939,32 +1939,50 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         Vector2 origem, Vector2 destino, out Vector2 melhorPonto)
     {
         melhorPonto = origem;
-        float[] distancias = { 0.65f, 0.45f, 0.30f, 0.20f };
+        float melhorPontuacao = float.NegativeInfinity;
         Vector2 direcaoDestino = (destino - origem).normalized;
+        float[] distancias = { 0.65f, 0.45f, 0.30f, 0.20f };
 
-        // Prioriza saídas laterais que ainda façam progresso em direção ao destino.
-        // Isso evita o antigo escape aleatório, que podia jogar o NPC contra outra parede.
-        var direcoes = DirecoesCaminho
-            .OrderByDescending(v => Vector2.Dot(
-                new Vector2(v.x, v.y).normalized, direcaoDestino))
-            .ToArray();
-
+        // Avalia todas as saídas seguras antes de escolher. Assim o NPC não
+        // pega simplesmente o primeiro espaço livre: prefere o que abre
+        // corredor, aproxima do destino e evita uma segunda quina.
         foreach (float distancia in distancias)
         {
-            foreach (Vector2Int vetor in direcoes)
+            foreach (Vector2Int vetor in DirecoesCaminho)
             {
                 Vector2 direcao = new Vector2(vetor.x, vetor.y).normalized;
+                float progresso = Vector2.Dot(direcao, direcaoDestino);
+                if (progresso < -0.15f)
+                    continue;
+
                 Vector2 candidato = origem + direcao * distancia;
                 if (!EstaDentroDosLimitesDoMapa(candidato) ||
                     !PodeMoverEntre(origem, candidato))
                     continue;
 
+                float corredorLivre = TestarCorredorDeslizamento(
+                    origem, direcao, distancia);
+                if (corredorLivre < distancia * 0.80f)
+                    continue;
+
+                float reducaoDistancia =
+                    Vector2.Distance(origem, destino) -
+                    Vector2.Distance(candidato, destino);
+
+                float pontuacao =
+                    progresso * 1.8f +
+                    corredorLivre * 1.4f +
+                    reducaoDistancia * 0.7f;
+
+                if (pontuacao <= melhorPontuacao)
+                    continue;
+
+                melhorPontuacao = pontuacao;
                 melhorPonto = candidato;
-                return true;
             }
         }
 
-        return false;
+        return melhorPontuacao > float.NegativeInfinity;
     }
 
     private static bool EstaDentroDosLimitesDoMapa(Vector2 ponto)
