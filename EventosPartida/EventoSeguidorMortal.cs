@@ -60,7 +60,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private const float TamanhoCelula = 0.35f;
     // Margem um pouco maior que o raio usado antes para o NPC não raspar nas paredes.
     // O mesmo valor é usado no A*, na suavização e na validação dos movimentos.
-    private const float RaioColisao = 0.30f;
+    private const float RaioColisao = 0.22f;
     private const float IntervaloRecalculoCaminho = 0.65f;
     private const float DistanciaRecalculoAlvo = 0.65f;
     // A busca usa os 8 vizinhos do grid. A suavização posterior remove
@@ -217,7 +217,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             0 => SystemTypes.Shields,       // The Skeld
             1 => SystemTypes.Greenhouse,    // MIRA HQ - Estufa
             2 => SystemTypes.Security,       // Polus - Segurança
-            4 => SystemTypes.MeetingRoom,    // Airship - Cabine
+            4 => SystemTypes.Cockpit,        // Airship - Cabine (Cockpit)
             5 => SystemTypes.Laboratory,    // The Fungle
             _ => SystemTypes.Hallway
         };
@@ -230,16 +230,78 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             if (sala == null || sala.roomArea == null || sala.RoomId != salaDesejada)
                 continue;
 
-            centro = sala.roomArea.bounds.center;
+            Bounds limitesSala = sala.roomArea.bounds;
+            Vector2 centroSala = limitesSala.center;
+            if (!TentarEncontrarPontoLivreNaSala(limitesSala, centroSala, out centro))
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[F7/Seguidor] A sala " + salaDesejada +
+                    " foi encontrada, mas não há ponto livre para o spawn dentro dela.");
+                return false;
+            }
+
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[F7/Seguidor] Spawn definido no centro da sala " + salaDesejada +
-                " (mapa " + mapa + "): " + centro + ".");
+                "[F7/Seguidor] Spawn definido em ponto livre da sala " + salaDesejada +
+                " (mapa " + mapa + "): " + centro +
+                ". Centro geométrico da sala: " + centroSala + ".");
             return true;
         }
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
             "[F7/Seguidor] Sala " + salaDesejada + " não encontrada em AllRooms no mapa " + mapa + ".");
         return false;
+    }
+
+    // Procura uma posição livre dentro da sala. O centro geométrico pode
+    // coincidir com mesas, consoles, vents ou outros objetos sólidos.
+    private static bool TentarEncontrarPontoLivreNaSala(
+        Bounds limitesSala, Vector2 centroSala, out Vector2 pontoLivre)
+    {
+        pontoLivre = centroSala;
+
+        float margem = RaioColisao + 0.12f;
+        float passo = 0.30f;
+        float menorDistancia = float.MaxValue;
+        bool encontrou = false;
+
+        // Varre a área em ordem de proximidade do centro, priorizando
+        // posições próximas sem colocar o NPC sobre objetos sólidos.
+        for (float y = limitesSala.min.y + margem;
+             y <= limitesSala.max.y - margem;
+             y += passo)
+        {
+            for (float x = limitesSala.min.x + margem;
+                 x <= limitesSala.max.x - margem;
+                 x += passo)
+            {
+                Vector2 candidato = new Vector2(x, y);
+                float distancia = Vector2.Distance(candidato, centroSala);
+                if (distancia >= menorDistancia)
+                    continue;
+
+                Collider2D[] colisoes = Physics2D.OverlapCircleAll(
+                    candidato, RaioColisao, Constants.ShipAndAllObjectsMask);
+
+                bool bloqueado = false;
+                foreach (Collider2D colisor in colisoes)
+                {
+                    if (colisor == null || colisor.isTrigger)
+                        continue;
+
+                    bloqueado = true;
+                    break;
+                }
+
+                if (bloqueado)
+                    continue;
+
+                menorDistancia = distancia;
+                pontoLivre = candidato;
+                encontrou = true;
+            }
+        }
+
+        return encontrou;
     }
 
     private static bool rpcMoveDiagnosticoExecutado;
