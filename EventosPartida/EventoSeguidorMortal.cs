@@ -2514,7 +2514,14 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
         if (sistemaOriginal is not Il2CppObjectBase objetoIl2Cpp ||
             objetoIl2Cpp.Pointer == IntPtr.Zero)
+        {
+            if (sistemasSemEstadoAtivoDiagnosticados.Add(tipo))
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[F7/Seguidor] O sistema " + tipo +
+                    " não pôde ser convertido de ISystemType para Il2CppObjectBase. Tipo recebido=" +
+                    (sistemaOriginal?.GetType().FullName ?? "null") + ".");
             return null;
+        }
 
         try
         {
@@ -2525,11 +2532,16 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 null, new[] { typeof(IntPtr) }, null);
 
             if (construtor == null)
-                return null;
+                throw new MissingMethodException(
+                    typeof(T).FullName, ".ctor(IntPtr)");
 
             T convertido = construtor.Invoke(new object[] { objetoIl2Cpp.Pointer }) as T;
             if (convertido != null)
                 sistemasTipadosCache[tipo] = convertido;
+            else if (sistemasSemEstadoAtivoDiagnosticados.Add(tipo))
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[F7/Seguidor] A conversão de " + tipo + " para " +
+                    typeof(T).Name + " retornou null.");
 
             return convertido;
         }
@@ -2873,12 +2885,10 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         if (seguidor?.NetTransform?.body == null || ShipStatus.Instance == null)
             return false;
 
-        ISystemType sistemaLuzes = null;
+        SwitchSystem sistemaLuzes = null;
         try
         {
-            if (ShipStatus.Instance.Systems != null &&
-                ShipStatus.Instance.Systems.ContainsKey(SystemTypes.Electrical))
-                sistemaLuzes = ShipStatus.Instance.Systems[SystemTypes.Electrical];
+            sistemaLuzes = ObterSistemaTipado<SwitchSystem>(SystemTypes.Electrical);
         }
         catch (Exception ex)
         {
@@ -2957,21 +2967,10 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         if (agora < proximaAcaoInterruptor)
             return true;
 
-        object valorInterruptoresAtuais = LerMembro(
-            sistemaLuzes, "ActualSwitches", "actualSwitches");
-        object valorInterruptoresEsperados = LerMembro(
-            sistemaLuzes, "ExpectedSwitches", "expectedSwitches");
-
-        if (valorInterruptoresAtuais == null || valorInterruptoresEsperados == null)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "[F7/Seguidor] Não foi possível ler os estados dos interruptores de luz.");
-            return true;
-        }
-
+        // O wrapper concreto é necessário também para ler os bits dos painéis;
+        // o proxy ISystemType não expõe ActualSwitches/ExpectedSwitches.
         byte interruptoresDiferentes = (byte)(
-            Convert.ToByte(valorInterruptoresAtuais) ^
-            Convert.ToByte(valorInterruptoresEsperados));
+            sistemaLuzes.ActualSwitches ^ sistemaLuzes.ExpectedSwitches);
 
         for (byte indice = 0; indice < 5; indice++)
         {
