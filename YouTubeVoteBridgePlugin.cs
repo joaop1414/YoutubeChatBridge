@@ -354,7 +354,9 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             return;
 
         ChatController chat = HudManager.Instance.Chat;
-        PlayerControl remetente = PlayerControl.LocalPlayer;
+        PlayerControl remetente = ObterRemetenteMensagens();
+        if (remetente == null)
+            return;
 
         while (RespostasLocaisPendentes.TryDequeue(out string mensagem))
         {
@@ -377,42 +379,58 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         }
     }
 
-    // Escolhe um remetente que ainda esteja vivo. Se o host morreu,
-    // um jogador vivo será usado como remetente visual das mensagens privadas.
-    private static PlayerControl ObterRemetenteMensagens()
+    // Seleciona um jogador vivo e conectado para representar as mensagens do sistema.
+    // A autoridade continua sendo do host; o jogador escolhido é apenas o remetente visual.
+    internal static PlayerControl ObterRemetenteMensagens(PlayerControl preferido = null)
     {
-        if (PlayerControl.LocalPlayer == null)
-            return null;
+        if (PodeSerMensageiro(preferido))
+            return preferido;
 
-        PlayerControl host = PlayerControl.LocalPlayer;
-        if (host.Data != null && !host.Data.IsDead && !host.Data.Disconnected)
-            return host;
+        PlayerControl local = PlayerControl.LocalPlayer;
+        if (PodeSerMensageiro(local))
+            return local;
 
-        if (AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost)
-            return host;
-
-        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+        List<PlayerControl> candidatos = new();
+        if (PlayerControl.AllPlayerControls != null)
         {
-            if (jogador == null || jogador.Data == null ||
-                jogador.Data.IsDead || jogador.Data.Disconnected)
-                continue;
-
-            return jogador;
+            foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+            {
+                if (PodeSerMensageiro(jogador))
+                    candidatos.Add(jogador);
+            }
         }
 
-        // Se todos estiverem mortos, mantém o host como remetente de reserva.
-        return host;
+        if (candidatos.Count == 0)
+        {
+            Instance?.Log.LogWarning(
+                "[Mensagens] Não há jogador vivo e conectado para servir como remetente.");
+            return null;
+        }
+
+        return candidatos[UnityEngine.Random.Range(0, candidatos.Count)];
+    }
+
+    private static bool PodeSerMensageiro(PlayerControl jogador)
+    {
+        return jogador != null &&
+               jogador.Data != null &&
+               !jogador.Data.IsDead &&
+               !jogador.Data.Disconnected;
     }
 
     // Anúncio global no estilo dos comandos /s e /say do Endless Host Roles.
-    public static void EnviarMensagemAnfitriao(string mensagem)
+    public static void EnviarMensagemAnfitriao(
+        string mensagem,
+        PlayerControl remetentePreferido = null)
     {
         mensagem = RemoverPrefixosAtalho(mensagem);
         if (string.IsNullOrWhiteSpace(mensagem) || AmongUsClient.Instance == null ||
             PlayerControl.LocalPlayer == null || !EhHost())
             return;
-        PlayerControl remetente = PlayerControl.LocalPlayer;
-        if (remetente.Data == null) return;
+
+        PlayerControl remetente = ObterRemetenteMensagens(remetentePreferido);
+        if (remetente == null)
+            return;
         string nomeOriginal = remetente.Data.PlayerName ?? string.Empty;
         MessageWriter writer = null;
         try
@@ -476,8 +494,8 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             string.IsNullOrWhiteSpace(mensagem))
             return;
 
-        PlayerControl remetente = PlayerControl.LocalPlayer;
-        if (remetente.Data == null)
+        PlayerControl remetente = ObterRemetenteMensagens();
+        if (remetente == null)
             return;
 
         string nomeOriginal = remetente.Data.PlayerName ?? string.Empty;
