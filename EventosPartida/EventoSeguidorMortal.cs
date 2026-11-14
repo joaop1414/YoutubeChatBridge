@@ -104,21 +104,16 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
         aguardandoFimRoleReveal = false;
 
-        PlayerControl primeiroAlvo = ObterJogadorVivoMaisProximo(
-            (Vector2)PlayerControl.LocalPlayer.transform.position);
-
-        if (primeiroAlvo == null)
+        if (!TentarObterCentroSalaInicial(out Vector2 posicaoInicial, out SystemTypes salaInicial))
         {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "[F7/Seguidor] Role Reveal terminou, mas não há jogadores vivos para posicionar o NPC.");
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "[F7/Seguidor] Não foi possível localizar a sala de spawn configurada para este mapa.");
             Resetar();
             return;
         }
 
         try
         {
-            Vector2 posicaoInicial = primeiroAlvo.GetTruePosition() + new Vector2(2.0f, 1.5f);
-
             seguidor = UnityEngine.Object.Instantiate(
                 AmongUsClient.Instance.PlayerPrefab,
                 posicaoInicial,
@@ -166,6 +161,92 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
                 "[F7/Seguidor] Falha ao criar NPC após a Role Reveal: " + ex);
             Resetar();
+        }
+    }
+
+    // Define a sala de spawn por mapa e usa o centro geométrico do collider
+    // da sala, em vez de posicionar o NPC perto de um jogador.
+    private static bool TentarObterCentroSalaInicial(out Vector2 centro, out SystemTypes salaDesejada)
+    {
+        centro = Vector2.zero;
+        salaDesejada = SystemTypes.Hallway;
+
+        if (ShipStatus.Instance == null || GameOptionsManager.Instance?.CurrentGameOptions == null)
+            return false;
+
+        int mapa = GameOptionsManager.Instance.CurrentGameOptions.MapId;
+        salaDesejada = mapa switch
+        {
+            0 => SystemTypes.Shields,       // The Skeld
+            1 => SystemTypes.Reactor,       // MIRA HQ
+            2 => SystemTypes.Specimens,     // Polus
+            4 => SystemTypes.Electrical,     // Airship
+            5 => SystemTypes.Laboratory,    // The Fungle
+            _ => SystemTypes.Hallway
+        };
+
+        if (mapa != 0 && mapa != 1 && mapa != 2 && mapa != 4 && mapa != 5)
+            return false;
+
+        foreach (var sala in ShipStatus.Instance.AllRooms)
+        {
+            if (sala == null || sala.roomArea == null || sala.RoomId != salaDesejada)
+                continue;
+
+            centro = sala.roomArea.bounds.center;
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[F7/Seguidor] Spawn definido no centro da sala " + salaDesejada +
+                " (mapa " + mapa + "): " + centro + ".");
+            return true;
+        }
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+            "[F7/Seguidor] Sala " + salaDesejada + " não encontrada em AllRooms no mapa " + mapa + ".");
+        return false;
+    }
+
+    private static bool rpcMoveDiagnosticoExecutado;
+
+    private static void DiagnosticarRpcMove()
+    {
+        if (rpcMoveDiagnosticoExecutado || seguidor == null)
+            return;
+
+        rpcMoveDiagnosticoExecutado = true;
+        var tipos = new[]
+        {
+            seguidor.MyPhysics != null ? seguidor.MyPhysics.GetType() : null,
+            seguidor.NetTransform != null ? seguidor.NetTransform.GetType() : null
+        };
+
+        foreach (var tipo in tipos)
+        {
+            if (tipo == null)
+                continue;
+
+            var metodos = tipo.GetMethods(
+                System.Reflection.BindingFlags.Instance |
+                System.Reflection.BindingFlags.Public |
+                System.Reflection.BindingFlags.NonPublic);
+
+            bool encontrou = false;
+            foreach (var metodo in metodos)
+            {
+                if (!string.Equals(metodo.Name, "RpcMove", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                encontrou = true;
+                string parametros = string.Join(", ", Array.ConvertAll(
+                    metodo.GetParameters(), p => p.ParameterType.FullName));
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[F7/Seguidor] RPCMOVE ENCONTRADO em " + tipo.FullName +
+                    ": " + metodo.Name + "(" + parametros + ") -> " +
+                    metodo.ReturnType.FullName + ".");
+            }
+
+            if (!encontrou)
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[F7/Seguidor] Nenhum método RpcMove encontrado em " + tipo.FullName + ".");
         }
     }
 
@@ -275,6 +356,10 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
         if (etapaInicializacao < 4)
             return;
+
+        // Verifica em runtime se esta versão expõe RpcMove no PlayerPhysics
+        // ou no CustomNetworkTransform, sem presumir uma assinatura inexistente.
+        DiagnosticarRpcMove();
 
         if (seguidor.NetTransform.body == null)
         {
@@ -944,6 +1029,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         armado = false;
         aguardandoFimRoleReveal = false;
         etapaInicializacao = 0;
+        rpcMoveDiagnosticoExecutado = false;
         proximaEtapa = 0f;
         proximaBuscaAlvo = 0f;
         alvoAtual = null;
