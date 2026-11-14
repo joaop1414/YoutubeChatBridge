@@ -343,54 +343,7 @@ internal sealed class EventoTesteMenu : MonoBehaviour
 
                 case WM_COMMAND:
                     int id = wParam.ToInt32() & 0xFFFF;
-                    if (id == ID_BOTAO_APLICAR_FUNCAO || id == ID_BOTAO_APLICAR_FUNCAO_ALVO)
-                    {
-                        int selecao = seletorFuncao == IntPtr.Zero
-                            ? -1 : SendMessageW(seletorFuncao, CB_GETCURSEL, IntPtr.Zero, IntPtr.Zero).ToInt32();
-                        if (selecao < 0 || selecao >= FuncoesTeste.Length)
-                        {
-                            mensagem = "Selecione uma função primeiro.";
-                        }
-                        else if (id == ID_BOTAO_APLICAR_FUNCAO)
-                        {
-                            filaExecucao.Enqueue(ACAO_TROCAR_FUNCAO_BASE + selecao);
-                            mensagem = "Solicitação para o jogador local: " + FuncoesTeste[selecao] + "...";
-                        }
-                        else
-                        {
-                            string textoId = LerTextoControle(campoPlayerAlvo).Trim();
-                            if (!byte.TryParse(textoId, out byte playerIdAlvo))
-                            {
-                                mensagem = "Digite um PlayerId válido (0 a 255).";
-                            }
-                            else
-                            {
-                                int acao = ACAO_TROCAR_FUNCAO_ALVO_BASE + playerIdAlvo * FuncoesTeste.Length + selecao;
-                                filaExecucao.Enqueue(acao);
-                                mensagem = "Solicitação para PlayerId " + playerIdAlvo + ": " + FuncoesTeste[selecao] + "...";
-                                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo("[Menu de teste] Pedido direcionado enfileirado: PlayerId=" + playerIdAlvo + ", função=" + FuncoesTeste[selecao] + ".");
-                            }
-                        }
-                        if (textoStatus != IntPtr.Zero)
-                            SetWindowTextW(textoStatus, "STATUS: " + mensagem);
-                        return IntPtr.Zero;
-                    }
-
-                    if (id == ID_BOTAO_ENCERRAR ||
-                        id == ID_BOTAO_TRIPULANTE_FANTASMA ||
-                        id == ID_BOTAO_IMPOSTOR_FANTASMA)
-                    {
-                        int acao = id == ID_BOTAO_ENCERRAR ? ACAO_ENCERRAR :
-                            id == ID_BOTAO_TRIPULANTE_FANTASMA ? ACAO_TRIPULANTE_FANTASMA :
-                            ACAO_IMPOSTOR_FANTASMA;
-                        filaExecucao.Enqueue(acao);
-                        mensagem = "Solicitação de teste recebida...";
-                        if (textoStatus != IntPtr.Zero)
-                            SetWindowTextW(textoStatus, "STATUS: " + mensagem);
-                    }
-                    else
-                    {
-                        int indice = id - ID_BOTAO_BASE;
+                    int indice = id - ID_BOTAO_BASE;
                         if (indice >= 0 && indice < eventos.Count)
                         {
                             filaExecucao.Enqueue(indice);
@@ -473,81 +426,7 @@ internal sealed class EventoTesteMenu : MonoBehaviour
             }
         }
 
-        int statusY;
-        if (!modoEventosPartida)
-        {
-            int acoesY = 96 + eventos.Count * ALTURA_LINHA + 8;
-            CriarControle("STATIC", "",
-                WS_CHILD | WS_VISIBLE | SS_ETCHEDHORZ,
-                18, acoesY, 545, 2, hwnd, IntPtr.Zero, instancia);
-
-            IntPtr labelAcoes = CriarControle("STATIC",
-                "TESTES DE PARTIDA (somente host)",
-                WS_CHILD | WS_VISIBLE | SS_LEFT,
-                22, acoesY + 8, 520, 24, hwnd, IntPtr.Zero, instancia);
-            AplicarFonte(labelAcoes, fonteNormal);
-
-            CriarControle("BUTTON", "Encerrar partida",
-                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                22, acoesY + 34, 520, 30, hwnd,
-                new IntPtr(ID_BOTAO_ENCERRAR), instancia);
-
-            CriarControle("BUTTON", "Tripulante fantasma + encerrar",
-                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                22, acoesY + 70, 520, 30, hwnd,
-                new IntPtr(ID_BOTAO_TRIPULANTE_FANTASMA), instancia);
-
-            CriarControle("BUTTON", "Impostor fantasma + encerrar",
-                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                22, acoesY + 106, 520, 30, hwnd,
-                new IntPtr(ID_BOTAO_IMPOSTOR_FANTASMA), instancia);
-
-            int funcoesY = acoesY + 148;
-            CriarControle("STATIC", "", WS_CHILD | WS_VISIBLE | SS_ETCHEDHORZ,
-                18, funcoesY, 545, 2, hwnd, IntPtr.Zero, instancia);
-
-            IntPtr labelFuncoes = CriarControle("STATIC", "TESTE DE TROCA DE FUNÇÃO (jogador local)",
-                WS_CHILD | WS_VISIBLE | SS_LEFT,
-                22, funcoesY + 8, 520, 24, hwnd, IntPtr.Zero, instancia);
-            AplicarFonte(labelFuncoes, fonteNormal);
-
-            seletorFuncao = CriarControle("COMBOBOX", "",
-                WS_CHILD | WS_VISIBLE | WS_BORDER | CBS_DROPDOWNLIST,
-                22, funcoesY + 34, 320, 180, hwnd,
-                new IntPtr(ID_SELETOR_FUNCAO), instancia);
-            for (int i = 0; i < FuncoesTeste.Length; i++)
-            {
-                IntPtr textoFuncao = Marshal.StringToHGlobalUni(FuncoesTeste[i]);
-                SendMessageW(seletorFuncao, CB_ADDSTRING, IntPtr.Zero, textoFuncao);
-                Marshal.FreeHGlobal(textoFuncao);
-            }
-            SendMessageW(seletorFuncao, CB_SETCURSEL, IntPtr.Zero, IntPtr.Zero);
-
-            CriarControle("BUTTON", "Aplicar função",
-                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                355, funcoesY + 34, 187, 30, hwnd,
-                new IntPtr(ID_BOTAO_APLICAR_FUNCAO), instancia);
-
-            IntPtr labelAlvo = CriarControle("STATIC", "PlayerId do outro jogador (consulte o log):",
-                WS_CHILD | WS_VISIBLE | SS_LEFT,
-                22, funcoesY + 72, 520, 22, hwnd, IntPtr.Zero, instancia);
-            AplicarFonte(labelAlvo, fonteNormal);
-
-            campoPlayerAlvo = CriarControle("EDIT", "",
-                WS_CHILD | WS_VISIBLE | WS_BORDER,
-                22, funcoesY + 98, 150, 28, hwnd,
-                new IntPtr(ID_CAMPO_PLAYER_ALVO), instancia);
-            CriarControle("BUTTON", "Aplicar no jogador",
-                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                185, funcoesY + 97, 357, 30, hwnd,
-                new IntPtr(ID_BOTAO_APLICAR_FUNCAO_ALVO), instancia);
-
-            statusY = funcoesY + 137;
-        }
-        else
-        {
-            statusY = 100 + eventos.Count * ALTURA_LINHA + 8;
-        }
+        int statusY = 100 + eventos.Count * ALTURA_LINHA + 8;
 
         CriarControle("STATIC", "",
             WS_CHILD | WS_VISIBLE | SS_ETCHEDHORZ,
