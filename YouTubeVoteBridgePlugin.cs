@@ -49,8 +49,8 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     public static ConfigEntry<bool> PermitirIdsDeOutrosJogadores;
     public static ConfigEntry<bool> TrocarMapaAoIniciar;
 
-    // Permite que a ação manual "Encerrar partida" do menu F6 passe pelo bloqueio
-    // de fim de jogo, mesmo quando a opção "Sem fim de jogo" está ativada.
+    // Permite que as ações explícitas de encerramento do controlador F8 passem
+    // pelo bloqueio de fim de jogo, mesmo quando "Sem fim de jogo" está ativado.
     public static bool PermitirFimDeJogoForcado { get; set; }
 
     // Suspende apenas as verificações automáticas enquanto o host distribui
