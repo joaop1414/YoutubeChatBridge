@@ -42,30 +42,6 @@ internal sealed class EventoTesteMenu : MonoBehaviour
     private const int SW_SHOW = 5;
     private const int SW_RESTORE = 9;
     private const int ID_BOTAO_BASE = 1000;
-    private const int ID_BOTAO_ENCERRAR = 9000;
-    private const int ID_BOTAO_TRIPULANTE_FANTASMA = 9001;
-    private const int ID_BOTAO_IMPOSTOR_FANTASMA = 9002;
-    private const int ID_SELETOR_FUNCAO = 9100;
-    private const int ID_BOTAO_APLICAR_FUNCAO = 9101;
-    private const int ID_CAMPO_PLAYER_ALVO = 9102;
-    private const int ID_BOTAO_APLICAR_FUNCAO_ALVO = 9103;
-    private const int ACAO_TROCAR_FUNCAO_BASE = 10000;
-    private const int ACAO_TROCAR_FUNCAO_ALVO_BASE = 20000;
-    private const uint CBS_DROPDOWNLIST = 0x0003;
-    private const uint CB_ADDSTRING = 0x0143;
-    private const uint CB_SETCURSEL = 0x014E;
-    private const uint CB_GETCURSEL = 0x0147;
-    private static IntPtr seletorFuncao;
-    private static IntPtr campoPlayerAlvo;
-    private static readonly string[] FuncoesTeste =
-    {
-        "Crewmate", "Scientist", "Engineer", "GuardianAngel",
-        "Impostor", "Shapeshifter", "Phantom", "Noisemaker",
-        "Tracker", "Detective", "Viper"
-    };
-    private const int ACAO_ENCERRAR = -1;
-    private const int ACAO_TRIPULANTE_FANTASMA = -2;
-    private const int ACAO_IMPOSTOR_FANTASMA = -3;
     private const int ALTURA_LINHA = 38;
     private const int LARGURA_JANELA = 620;
     private const int ALTURA_JANELA = 620;
@@ -82,8 +58,6 @@ internal sealed class EventoTesteMenu : MonoBehaviour
     private static IReadOnlyList<EventoVotacao> eventosPartida = Array.Empty<EventoVotacao>();
     private static bool modoEventosPartida;
     private static readonly ConcurrentQueue<int> filaExecucao = new();
-    private static float encerrarPartidaEm = -1f;
-    private static string motivoEncerramentoAgendado = "HumansByVote";
     private static readonly WndProcDelegate procedimentoJanela = ProcedimentoJanela;
     private static Thread threadJanela;
 
@@ -145,8 +119,6 @@ internal sealed class EventoTesteMenu : MonoBehaviour
     // de partida. Evita que o teste de encerramento afete a próxima partida.
     public static void ResetarEstadoPartida(string motivo)
     {
-        encerrarPartidaEm = -1f;
-        motivoEncerramentoAgendado = "HumansByVote";
         int descartadas = 0;
         while (filaExecucao.TryDequeue(out _))
             descartadas++;
@@ -159,69 +131,22 @@ internal sealed class EventoTesteMenu : MonoBehaviour
     // que os eventos sejam executados na thread principal do Unity.
     public static void ProcessarFilaExecucao()
     {
-        if (encerrarPartidaEm >= 0f && Time.realtimeSinceStartup >= encerrarPartidaEm)
-        {
-            encerrarPartidaEm = -1f;
-            string motivo = motivoEncerramentoAgendado;
-            motivoEncerramentoAgendado = "HumansByVote";
-            EncerrarPartida(motivo);
-        }
-
         while (filaExecucao.TryDequeue(out int indice))
         {
             try
             {
-                if (indice == ACAO_ENCERRAR)
-                {
-                    if (!ValidarHostEPartida())
-                        continue;
-
-                    MostrarMensagem("Encerrando a partida...");
-                    EncerrarPartida();
-                    continue;
-                }
-
-                if (indice == ACAO_TRIPULANTE_FANTASMA)
-                {
-                    TestarFantasmaEEncerrar("CrewmateGhost", "Tripulante fantasma");
-                    continue;
-                }
-
-                if (indice == ACAO_IMPOSTOR_FANTASMA)
-                {
-                    TestarFantasmaEEncerrar("ImpostorGhost", "Impostor fantasma");
-                    continue;
-                }
-
-                if (indice >= ACAO_TROCAR_FUNCAO_ALVO_BASE &&
-                    indice < ACAO_TROCAR_FUNCAO_ALVO_BASE + 256 * FuncoesTeste.Length)
-                {
-                    int codificado = indice - ACAO_TROCAR_FUNCAO_ALVO_BASE;
-                    byte playerIdAlvo = (byte)(codificado / FuncoesTeste.Length);
-                    int indiceFuncao = codificado % FuncoesTeste.Length;
-                    TestarTrocaFuncao(FuncoesTeste[indiceFuncao], playerIdAlvo);
-                    continue;
-                }
-
-                if (indice >= ACAO_TROCAR_FUNCAO_BASE &&
-                    indice < ACAO_TROCAR_FUNCAO_BASE + FuncoesTeste.Length)
-                {
-                    TestarTrocaFuncao(FuncoesTeste[indice - ACAO_TROCAR_FUNCAO_BASE], null);
-                    continue;
-                }
-
                 if (indice < 0 || indice >= eventos.Count)
                     continue;
 
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "[Menu de teste] Processando clique do evento: " + eventos[indice].Nome);
+                    "[Menu de eventos] Processando clique: " + eventos[indice].Nome);
                 ExecutarEvento(eventos[indice]);
             }
             catch (Exception ex)
             {
                 MostrarMensagem("Erro inesperado: " + ex.Message);
                 YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                    "[Menu de teste] Erro ao processar clique: " + ex);
+                    "[Menu de eventos] Erro ao processar clique: " + ex);
             }
         }
     }
@@ -637,263 +562,6 @@ internal sealed class EventoTesteMenu : MonoBehaviour
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
                 "[Menu de teste] Falha em " + evento.Nome + ": " + ex);
         }
-    }
-
-    private static bool ValidarHostEPartida()
-    {
-        if (AmongUsClient.Instance == null || PlayerControl.LocalPlayer == null)
-        {
-            MostrarMensagem("Entre em uma partida antes de usar este teste.");
-            return false;
-        }
-
-        if (!YouTubeVoteBridgePlugin.EhHost())
-        {
-            MostrarMensagem("Este teste só pode ser executado pelo host.");
-            return false;
-        }
-
-        return true;
-    }
-
-    private static void TestarTrocaFuncao(string nomeFuncao)
-    {
-        if (!ValidarHostEPartida())
-            return;
-
-        PlayerControl jogador = PlayerControl.LocalPlayer;
-        if (jogador == null || jogador.Data == null || jogador.Data.Disconnected)
-        {
-            MostrarMensagem("Não foi possível encontrar o jogador local.");
-            return;
-        }
-
-        if (!Enum.TryParse(typeof(RoleTypes), nomeFuncao, true, out object valorPapel))
-        {
-            MostrarMensagem("Esta versão do jogo não reconhece a função " + nomeFuncao + ".");
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "[Menu de teste] RoleTypes não contém " + nomeFuncao + ".");
-            return;
-        }
-
-        bool sucesso = RoleSwitchAPI.TrocarFuncao(jogador, (RoleTypes)valorPapel);
-        MostrarMensagem(sucesso
-            ? $"Troca solicitada: jogador local -> {nomeFuncao}. Verifique a tela de função."
-            : $"Falha ao aplicar {nomeFuncao}; consulte o log [RoleSwitchAPI].");
-        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"[Menu de teste] Teste de troca individual: jogador local, função={nomeFuncao}, sucesso={sucesso}.");
-    }
-
-    private static void TestarFantasmaEEncerrar(string nomePapel, string descricao)
-    {
-        if (!ValidarHostEPartida())
-            return;
-
-        if (!Enum.TryParse(typeof(RoleTypes), nomePapel, true, out object valorPapel))
-        {
-            MostrarMensagem("O jogo não reconheceu o papel " + nomePapel + ".");
-            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[Menu de teste] RoleTypes não contém " + nomePapel + ".");
-            return;
-        }
-
-        RoleTypes papel = (RoleTypes)valorPapel;
-        int total = 0;
-        int falhas = 0;
-        List<KeyValuePair<PlayerControl, RoleTypes>> atribuicoes = new();
-
-        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
-        {
-            if (jogador == null || jogador.Data == null || jogador.Data.Disconnected)
-                continue;
-
-            total++;
-            atribuicoes.Add(new KeyValuePair<PlayerControl, RoleTypes>(jogador, papel));
-        }
-
-        // Prepara todos os SetRole em um único lote por cliente, seguindo
-        // a sequência StartReplace -> Assign -> SendRpc -> Release do EHR.
-        bool sucesso = RoleSwitchAPI.TrocarFuncoes(atribuicoes);
-        if (!sucesso)
-            falhas = total;
-
-        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"[Menu de teste] Teste {descricao}: atribuídos={total - falhas}/{total}, falhas={falhas}.");
-
-        if (total == 0 || falhas > 0)
-        {
-            MostrarMensagem($"Falhou: {total - falhas}/{total} receberam o papel. Partida não encerrada.");
-            return;
-        }
-
-        // O motivo do fim determina quem vence. HumansByVote dá a vitória
-        // aos tripulantes mesmo quando todos receberam ImpostorGhost.
-        motivoEncerramentoAgendado = string.Equals(
-            nomePapel, "ImpostorGhost", StringComparison.OrdinalIgnoreCase)
-            ? "ImpostorByKill"
-            : "HumansByVote";
-
-        MostrarMensagem($"{descricao} aplicado a todos ({total}). Encerrando em 1,5 s...");
-        encerrarPartidaEm = Time.realtimeSinceStartup + 1.5f;
-    }
-
-    private static object ObterMotivoFimDeJogo(Type tipoEnum, string motivoSolicitado)
-    {
-        string[] nomes = Enum.GetNames(tipoEnum);
-        if (nomes.Length == 0)
-            throw new InvalidOperationException("O enum de motivo de fim de jogo não possui valores.");
-
-        string encontrado = nomes.FirstOrDefault(n =>
-            string.Equals(n, motivoSolicitado, StringComparison.OrdinalIgnoreCase));
-
-        if (encontrado == null)
-        {
-            // Os nomes do enum mudam entre versões do Among Us. Preferimos
-            // uma vitória humana por voto/tarefa para o encerramento normal,
-            // e uma vitória impostora por kill para o teste de ImpostorGhost.
-            bool pediuImpostor = !string.IsNullOrEmpty(motivoSolicitado) &&
-                motivoSolicitado.IndexOf("Impostor", StringComparison.OrdinalIgnoreCase) >= 0;
-
-            string[] preferidos = pediuImpostor
-                ? new[] { "ImpostorByKill", "ImpostorByVote", "ImpostorBySabotage" }
-                : new[] { "HumansByVote", "HumansByTask", "HumansBySabotage" };
-
-            foreach (string preferido in preferidos)
-            {
-                encontrado = nomes.FirstOrDefault(n =>
-                    string.Equals(n, preferido, StringComparison.OrdinalIgnoreCase));
-                if (encontrado != null) break;
-            }
-        }
-
-        if (encontrado == null)
-        {
-            bool pediuImpostor = !string.IsNullOrEmpty(motivoSolicitado) &&
-                motivoSolicitado.IndexOf("Impostor", StringComparison.OrdinalIgnoreCase) >= 0;
-            encontrado = nomes.FirstOrDefault(n =>
-                n.IndexOf(pediuImpostor ? "Impostor" : "Human", StringComparison.OrdinalIgnoreCase) >= 0);
-        }
-
-        if (encontrado == null)
-            encontrado = nomes[0];
-
-        if (!string.Equals(encontrado, motivoSolicitado, StringComparison.OrdinalIgnoreCase))
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                $"[Menu de teste] Motivo '{motivoSolicitado}' não existe nesta versão; usando '{encontrado}'. Valores disponíveis: {string.Join(", ", nomes)}");
-
-        return Enum.Parse(tipoEnum, encontrado, true);
-    }
-
-    private static void EncerrarPartida(string nomeMotivo = "HumansByVote")
-    {
-        if (!ValidarHostEPartida())
-            return;
-
-        MostrarMensagem("Enviando RPC de encerramento...");
-        bool enviado = false;
-        try
-        {
-            GameManager gerente = GameManager.Instance;
-            if (gerente != null)
-            {
-                foreach (MethodInfo metodo in typeof(GameManager).GetMethods(
-                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
-                {
-                    if (metodo.Name != "RpcEndGame")
-                        continue;
-
-                    ParameterInfo[] parametros = metodo.GetParameters();
-                    if (parametros.Length != 2 ||
-                        !parametros[0].ParameterType.IsEnum ||
-                        parametros[1].ParameterType != typeof(bool))
-                        continue;
-
-                    object motivo = ObterMotivoFimDeJogo(parametros[0].ParameterType, nomeMotivo);
-
-                    // A opção "Sem fim de jogo" bloqueia o RpcEndGame normal.
-                    // Esta ação foi solicitada manualmente pelo botão F6, então
-                    // libera o RPC apenas durante esta chamada.
-                    YouTubeVoteBridgePlugin.ExecutarFimDeJogoAutorizado(
-                        () => metodo.Invoke(gerente, new object[] { motivo, false }));
-                    enviado = true;
-                    break;
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[Menu de teste] Falha ao chamar o RPC vanilla de fim de jogo: " + ex);
-        }
-
-        MostrarMensagem(enviado ? "Comando de encerramento enviado." : "Não foi possível encontrar/chamar RpcEndGame.");
-        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            "[Menu de teste] RPC vanilla de encerramento; motivo=" + nomeMotivo + ", enviado=" + enviado + ".");
-    }
-
-    private static string LerTextoControle(IntPtr controle)
-    {
-        if (controle == IntPtr.Zero)
-            return string.Empty;
-        System.Text.StringBuilder texto = new(128);
-        GetWindowTextW(controle, texto, 128);
-        return texto.ToString();
-    }
-
-    private static void TestarTrocaFuncao(string nomeFuncao, byte? playerIdAlvo)
-    {
-        if (!ValidarHostEPartida())
-            return;
-
-        foreach (PlayerControl listado in PlayerControl.AllPlayerControls)
-        {
-            if (listado != null && listado.Data != null)
-                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    $"[Menu de teste][JOGADORES] PlayerId={listado.PlayerId}, nome={listado.Data.PlayerName}, OwnerId={listado.OwnerId}, desconectado={listado.Data.Disconnected}.");
-        }
-
-        PlayerControl jogador = null;
-        if (playerIdAlvo.HasValue)
-        {
-            foreach (PlayerControl candidato in PlayerControl.AllPlayerControls)
-            {
-                if (candidato != null && candidato.PlayerId == playerIdAlvo.Value)
-                {
-                    jogador = candidato;
-                    break;
-                }
-            }
-        }
-        else
-        {
-            jogador = PlayerControl.LocalPlayer;
-        }
-
-        if (jogador == null || jogador.Data == null || jogador.Data.Disconnected)
-        {
-            string erro = playerIdAlvo.HasValue
-                ? "Não encontrei jogador conectado com PlayerId " + playerIdAlvo.Value + "."
-                : "Não foi possível encontrar o jogador local.";
-            MostrarMensagem(erro);
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning("[Menu de teste] " + erro);
-            return;
-        }
-
-        if (!Enum.TryParse(typeof(RoleTypes), nomeFuncao, true, out object valorPapel))
-        {
-            MostrarMensagem("Esta versão do jogo não reconhece a função " + nomeFuncao + ".");
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning("[Menu de teste] RoleTypes não contém " + nomeFuncao + ".");
-            return;
-        }
-
-        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"[Menu de teste] Tentando trocar função: PlayerId={jogador.PlayerId}, nome={jogador.Data.PlayerName}, OwnerId={jogador.OwnerId}, função={nomeFuncao}.");
-        bool sucesso = RoleSwitchAPI.TrocarFuncao(jogador, (RoleTypes)valorPapel);
-        MostrarMensagem(sucesso
-            ? $"RPC solicitado: PlayerId {jogador.PlayerId} -> {nomeFuncao}. Confira log [RoleSwitchAPI]."
-            : $"Falha ao solicitar função para PlayerId {jogador.PlayerId}; consulte o log.");
-        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"[Menu de teste] Resultado: PlayerId={jogador.PlayerId}, função={nomeFuncao}, sucesso={sucesso}.");
     }
 
     private static void MostrarMensagem(string texto)
