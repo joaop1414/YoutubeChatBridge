@@ -63,30 +63,19 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private const float RaioColisao = 0.24f;
     private const float IntervaloRecalculoCaminho = 0.65f;
     private const float DistanciaRecalculoAlvo = 0.65f;
-    // 32 direções distintas: todos os vetores primitivos dentro de uma
-    // vizinhança de 3 células. O CircleCast valida o segmento inteiro,
-    // inclusive os movimentos diagonais e os saltos de mais de uma célula.
+    // A busca usa os 8 vizinhos do grid. A suavização posterior remove
+    // pontos intermediários quando a linha está livre, permitindo trajetórias
+    // em qualquer ângulo (não apenas nas direções fixas do grid).
     private static readonly Vector2Int[] DirecoesCaminho =
     {
-        new Vector2Int(1, 0),   new Vector2Int(3, 1),
-        new Vector2Int(2, 1),   new Vector2Int(3, 2),
-        new Vector2Int(1, 1),   new Vector2Int(2, 3),
-        new Vector2Int(1, 2),   new Vector2Int(1, 3),
-
-        new Vector2Int(0, 1),   new Vector2Int(-1, 3),
-        new Vector2Int(-1, 2),  new Vector2Int(-2, 3),
-        new Vector2Int(-1, 1),  new Vector2Int(-3, 2),
-        new Vector2Int(-2, 1),  new Vector2Int(-3, 1),
-
-        new Vector2Int(-1, 0),  new Vector2Int(-3, -1),
-        new Vector2Int(-2, -1), new Vector2Int(-3, -2),
-        new Vector2Int(-1, -1), new Vector2Int(-2, -3),
-        new Vector2Int(-1, -2), new Vector2Int(-1, -3),
-
-        new Vector2Int(0, -1),  new Vector2Int(1, -3),
-        new Vector2Int(1, -2),  new Vector2Int(2, -3),
-        new Vector2Int(1, -1),  new Vector2Int(3, -2),
-        new Vector2Int(2, -1),  new Vector2Int(3, -1)
+        new Vector2Int(1, 0),
+        new Vector2Int(1, 1),
+        new Vector2Int(0, 1),
+        new Vector2Int(-1, 1),
+        new Vector2Int(-1, 0),
+        new Vector2Int(-1, -1),
+        new Vector2Int(0, -1),
+        new Vector2Int(1, -1)
     };
     private static List<Vector2> caminhoAtual = new();
     private static int indiceCaminho;
