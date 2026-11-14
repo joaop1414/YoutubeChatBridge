@@ -61,6 +61,10 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     // Margem um pouco maior que o raio usado antes para o NPC não raspar nas paredes.
     // O mesmo valor é usado no A*, na suavização e na validação dos movimentos.
     private const float RaioColisao = 0.22f;
+    // O A* prefere células com espaço livre ao redor, mantendo o NPC
+    // aproximadamente no meio de corredores e entre objetos sólidos.
+    private const float[] RaiosAfastamento = { 0.34f, 0.46f, 0.60f, 0.76f };
+    private const float PenalidadePorProximidade = 0.28f;
     private const float IntervaloRecalculoCaminho = 0.65f;
     private const float DistanciaRecalculoAlvo = 0.65f;
     // A busca usa os 8 vizinhos do grid. A suavização posterior remove
@@ -1447,6 +1451,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
         var abertos = new PriorityQueue<Vector2Int, float>();
         var cacheCelulasLivres = new Dictionary<Vector2Int, bool>();
+        var cacheAfastamento = new Dictionary<Vector2Int, int>();
         var custos = new Dictionary<Vector2Int, float>();
         var anteriores = new Dictionary<Vector2Int, Vector2Int>();
         var fechados = new HashSet<Vector2Int>();
@@ -1493,10 +1498,17 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 if (!PodePassarEntre(pontoAtual, pontoVizinho))
                     continue;
 
-                // O custo acompanha a distância real do deslocamento no grid.
-                float custoPasso = Mathf.Sqrt(
+                // Além da distância, penaliza células próximas de paredes,
+                // mesas e outros colliders. Assim o caminho tende ao centro
+                // dos corredores, mas ainda atravessa passagens estreitas
+                // quando elas forem a única rota disponível.
+                float custoDistancia = Mathf.Sqrt(
                     direcao.x * direcao.x + direcao.y * direcao.y);
-                float novoCusto = custos[atual] + custoPasso;
+                int nivelAfastamento = ObterNivelAfastamento(
+                    vizinho, minimo, cacheAfastamento);
+                float penalidade = (RaiosAfastamento.Length - nivelAfastamento) *
+                                   PenalidadePorProximidade;
+                float novoCusto = custos[atual] + custoDistancia + penalidade;
 
                 if (custos.TryGetValue(vizinho, out float custoExistente) &&
                     novoCusto >= custoExistente)
@@ -1534,6 +1546,70 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
         cache[celula] = livre;
         return livre;
+    }
+
+    // Mede quanto espaço livre existe ao redor de uma célula.
+    // Cada raio adicional sem colisão aumenta o nível de afastamento.
+    private static int ObterNivelAfastamento(
+        Vector2Int celula, Vector2 minimo, Dictionary<Vector2Int, int> cache)
+    {
+        if (cache.TryGetValue(celula, out int nivelCacheado))
+            return nivelCacheado;
+
+        Vector2 centro = CentroCelula(celula, minimo);
+        int nivel = 0;
+
+        for (int i = 0; i < RaiosAfastamento.Length; i++)
+        {
+            Collider2D[] colisoes = Physics2D.OverlapCircleAll(
+                centro, RaiosAfastamento[i], Constants.ShipAndAllObjectsMask);
+
+            bool encontrouObstaculo = false;
+            foreach (Collider2D colisor in colisoes)
+            {
+                if (colisor == null || colisor.isTrigger ||
+                    (seguidor != null && colisor.transform.IsChildOf(seguidor.transform)))
+                    continue;
+
+                encontrouObstaculo = true;
+                break;
+            }
+
+            if (encontrouObstaculo)
+                break;
+
+            nivel++;
+        }
+
+        cache[celula] = nivel;
+        return nivel;
+    }
+
+    // A suavização só aceita atalhos que também mantenham uma margem
+    // razoável das colisões. Em corredores estreitos, conserva os pontos
+    // originais do A* em vez de cortar caminho rente à parede.
+    private static bool SegmentoMantemAfastamento(Vector2 inicio, Vector2 fim)
+    {
+        float distancia = Vector2.Distance(inicio, fim);
+        int amostras = Mathf.Max(1, Mathf.CeilToInt(distancia / 0.16f));
+
+        for (int i = 0; i <= amostras; i++)
+        {
+            Vector2 ponto = Vector2.Lerp(inicio, fim, i / (float)amostras);
+            Collider2D[] colisoes = Physics2D.OverlapCircleAll(
+                ponto, 0.34f, Constants.ShipAndAllObjectsMask);
+
+            foreach (Collider2D colisor in colisoes)
+            {
+                if (colisor == null || colisor.isTrigger ||
+                    (seguidor != null && colisor.transform.IsChildOf(seguidor.transform)))
+                    continue;
+
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static Vector2Int ParaGrid(Vector2 ponto, Vector2 minimo, int largura, int altura)
@@ -1697,7 +1773,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
             for (int teste = caminho.Count - 1; teste > indice + 1; teste--)
             {
-                if (PodeMoverEntre(caminho[indice], caminho[teste]))
+                if (PodeMoverEntre(caminho[indice], caminho[teste]) &&
+                    SegmentoMantemAfastamento(caminho[indice], caminho[teste]))
                 {
                     maisDistante = teste;
                     break;
