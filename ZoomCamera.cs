@@ -144,9 +144,6 @@ internal static class ZoomCamera
             if (cameraPrincipal == null)
                 cameraPrincipal = Camera.main;
 
-            if (cameraPrincipal == null)
-                cameraPrincipal = Camera.main;
-
             if (cameraPrincipal != null)
                 cameraPrincipal.orthographicSize = TAMANHO_PADRAO;
 
