@@ -92,8 +92,13 @@ internal static class EventoVotoDuploRpcPatch
 
                 if (eleitorId == jogadorComVotoDuplo && alvoId < 254)
                 {
-                    // Mayor/EHR: uma segunda VoterState com o mesmo VoterId e VotedForId.
-                    estados.Add(voto);
+                    // TESTE: representa o voto extra com um VoterId reservado que não pertence a nenhum jogador.
+                    // 252 fica fora da faixa normal de PlayerId (0-14) e não é um marcador de skip/sem voto.
+                    estados.Add(new MeetingHud.VoterState
+                    {
+                        VoterId = 252,
+                        VotedForId = alvoId
+                    });
                     contagem.TryGetValue(alvoId, out int atualDuplicado);
                     contagem[alvoId] = atualDuplicado + 1;
                     votoDuploAplicado = true;
