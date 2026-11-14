@@ -4061,7 +4061,7 @@ public static class YouTubeVoteChatPatch
             return ehLocal;
         }
 
-        if (Regex.IsMatch(mensagem, @"^/(s|say)(\\s+|$)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+        if (Regex.IsMatch(mensagem, @"^/(s|say)(\s+|$)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
         {
             if (!host || sourcePlayer != PlayerControl.LocalPlayer)
             {
@@ -4070,7 +4070,7 @@ public static class YouTubeVoteChatPatch
                 return ehLocal;
             }
             string textoAnuncio = Regex.Replace(
-                mensagem, @"^/(s|say)\\s*", "", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant).Trim();
+                mensagem, @"^/(s|say)\s*", "", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant).Trim();
             if (textoAnuncio.Length == 0)
             {
                 YouTubeVoteBridgePlugin.Responder(__instance, "Uso: /s <mensagem> ou /say <mensagem>");
