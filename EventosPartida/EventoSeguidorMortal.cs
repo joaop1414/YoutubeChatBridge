@@ -20,9 +20,9 @@ namespace YouTubeVoteBridge;
 internal sealed class EventoSeguidorMortal : EventoVotacao
 {
     private const byte PlayerIdSeguidor = 249;
-    private const float Velocidade = 1.75f;
+    private const float Velocidade = 1.35f;
     private const float AceleracaoMovimento = 8.0f;
-    private const float PenalidadeProximidadeParede = 0.14f;
+    private const float PenalidadeProximidadeParede = 0.42f;
     private const float AlcanceMorte = 0.48f;
     private const float IntervaloTrocaAlvo = 0.25f;
     private const string NomeSeguidor = "<color=red>NPC ASSASINO</color>";
@@ -92,16 +92,16 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private static float proximaTentativaVent;
 
     // Caminho A*: recalculado periodicamente e quando o alvo muda de posição.
-    private const float TamanhoCelula = 0.45f;
+    private const float TamanhoCelula = 0.30f;
     // Fallback usado somente antes de o prefab do NPC disponibilizar seu collider.
     // Durante a navegação, as consultas usam o formato e as dimensões do collider real.
     private const float RaioColisaoFallback = 0.15f;
     // A navegação considera o collider físico completo mais 5% de margem.
     // Isso não altera o collider nem a colisão física do NPC no jogo.
-    private const float FatorEscalaColisaoNavegacao = 1.05f;
+    private const float FatorEscalaColisaoNavegacao = 1.15f;
     private static Collider2D colliderFisicoNpc;
-    private const float IntervaloRecalculoCaminho = 0.85f;
-    private const float DistanciaRecalculoAlvo = 0.45f;
+    private const float IntervaloRecalculoCaminho = 0.40f;
+    private const float DistanciaRecalculoAlvo = 0.35f;
     // A busca usa os 8 vizinhos do grid. A suavização posterior remove
     // pontos intermediários quando a linha está livre, permitindo trajetórias
     // em qualquer ângulo (não apenas nas direções fixas do grid).
@@ -1459,6 +1459,11 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     /// Calcula uma rota A* usando os colliders reais do mapa. O NPC segue
     /// os pontos da rota e recalcula quando o alvo se desloca ou o caminho expira.
     /// </summary>
+    /// <summary>
+    /// Navegação conservadora: segue apenas segmentos validados pelo collider real,
+    /// reduz a velocidade perto de obstáculos e para antes de tentar contornar uma parede.
+    /// O A* escolhe a rota; a camada de movimento nunca tenta "raspar" pela parede.
+    /// </summary>
     private static void MoverAte(Vector2 destino)
     {
         if (seguidor?.NetTransform?.body == null)
@@ -1468,35 +1473,16 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         float agora = Time.realtimeSinceStartup;
         var corpo = seguidor.NetTransform.body;
 
-        // Se uma manobra de escape já começou, termina-a antes de calcular
-        // uma nova rota. O ponto de escape sempre é validado contra paredes.
+        // Manobras antigas de escape eram capazes de empurrar o NPC contra
+        // paredes e objetos. A recuperação agora sempre volta ao A*.
         if (emManobraDestravamento)
         {
-            if (Vector2.Distance(origem, pontoDestravamento) <= 0.12f ||
-                agora >= limiteManobraDestravamento)
-            {
-                emManobraDestravamento = false;
-                corpo.velocity = Vector2.zero;
-                LimparCaminho();
-                proximoRecalculoCaminho = 0f;
-                ultimaPosicaoMonitorada = origem;
-                inicioSemDeslocamento = agora;
-                proximaVerificacaoTravamento = agora + 0.5f;
-                avisoMonitoramentoMovimento = true;
-                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "[F7/Seguidor] Escape encerrado na posição " + origem +
-                    ". Forçando recálculo completo da rota A*.");
-            }
-            else
-            {
-                Vector2 direcaoEscape = pontoDestravamento - origem;
-                corpo.velocity = direcaoEscape.normalized * Velocidade;
-                return;
-            }
+            emManobraDestravamento = false;
+            corpo.velocity = Vector2.zero;
+            LimparCaminho();
+            proximoRecalculoCaminho = 0f;
         }
 
-        // Monitoramento por deslocamento real: não depende do Rigidbody.velocity,
-        // pois o jogo pode zerá-lo mesmo quando o NPC continua recebendo destino.
         if (!monitoramentoMovimentoIniciado)
         {
             monitoramentoMovimentoIniciado = true;
@@ -1504,9 +1490,6 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             inicioSemDeslocamento = agora;
             proximaVerificacaoTravamento = agora + 0.5f;
             avisoMonitoramentoMovimento = false;
-            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[F7/Seguidor] Monitorando movimento solicitado. Posição inicial=" + origem +
-                ", destino=" + destino + ".");
         }
         else if (agora >= proximaVerificacaoTravamento)
         {
@@ -1516,24 +1499,18 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
             if (deslocamento >= DeslocamentoMinimoMonitoramento)
             {
-                if (avisoMonitoramentoMovimento)
-                    YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                        "[F7/Seguidor] Movimento retomado; deslocamento observado=" +
-                        deslocamento.ToString("F3") + ". Limpando rota antiga e recalculando A*.");
-
+                inicioSemDeslocamento = agora;
                 if (avisoMonitoramentoMovimento)
                 {
+                    avisoMonitoramentoMovimento = false;
                     LimparCaminho();
                     proximoRecalculoCaminho = 0f;
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                        "[F7/Seguidor] Movimento retomado; rota será recalculada.");
                 }
-
-                inicioSemDeslocamento = agora;
-                avisoMonitoramentoMovimento = false;
             }
             else if (agora - inicioSemDeslocamento >= TempoParaConsiderarTravado)
             {
-                // Se o alvo atual estiver prendendo o NPC em uma rota sem saída,
-                // tenta outro jogador visível antes de continuar insistindo no escape.
                 if (alvoAtual != null &&
                     !resolvendoSabotagemLuzes && !resolvendoOutraSabotagem &&
                     agora - inicioSemDeslocamento >= TempoParaTrocarAlvoTravado)
@@ -1545,52 +1522,32 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                         alvoAtual = novoAlvo;
                         proximaBuscaAlvo = agora + IntervaloTrocaAlvo;
                         corpo.velocity = Vector2.zero;
-                        emManobraDestravamento = false;
                         monitoramentoMovimentoIniciado = false;
                         avisoMonitoramentoMovimento = false;
                         LimparCaminho();
                         proximoRecalculoCaminho = 0f;
                         EnviarDestinoAosClientesComMod(novoAlvo);
                         YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                            "[F7/Seguidor] NPC ficou preso por " +
-                            (agora - inicioSemDeslocamento).ToString("F1") +
-                            "s. Trocando o alvo PlayerId=" + alvoAnterior +
-                            " por PlayerId=" + novoAlvo.PlayerId + ".");
+                            "[F7/Seguidor] NPC sem progresso; trocando alvo " +
+                            alvoAnterior + " por " + novoAlvo.PlayerId + ".");
                         return;
                     }
                 }
 
+                // Não tenta escapar aleatoriamente. Para, limpa a rota e deixa
+                // o A* encontrar outro corredor sem empurrar o collider contra obstáculos.
                 if (!avisoMonitoramentoMovimento)
                 {
                     avisoMonitoramentoMovimento = true;
                     YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                        "[F7/Seguidor] Possível travamento detectado: sem deslocamento por " +
-                        (agora - inicioSemDeslocamento).ToString("F1") + "s. Posição=" + origem +
-                        ", velocidade Rigidbody=" + corpo.velocity + ". Iniciando escape aleatório.");
+                        "[F7/Seguidor] Sem progresso por " +
+                        (agora - inicioSemDeslocamento).ToString("F1") +
+                        "s. Parando para recalcular uma rota segura. Posição=" + origem + ".");
                 }
 
-                if (TentarEncontrarPontoDestravamento(origem, destino, out Vector2 escape))
-                {
-                    pontoDestravamento = escape;
-                    emManobraDestravamento = true;
-                    limiteManobraDestravamento = agora + 0.85f;
-                    LimparCaminho();
-                    corpo.velocity = (escape - origem).normalized * Velocidade;
-
-                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                        "[F7/Seguidor] Escape aleatório iniciado: " + origem + " -> " + escape +
-                        ". Após o deslocamento, a rota A* será recalculada.");
-                    return;
-                }
-
-                LimparCaminho();
-                proximoRecalculoCaminho = 0f;
                 corpo.velocity = Vector2.zero;
-                // Mantém o início do período sem deslocamento. Assim o NPC pode
-                // atingir o limite de troca de alvo mesmo quando não há ponto de escape.
-
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "[F7/Seguidor] Nenhum escape aleatório seguro encontrado. A* será tentado novamente.");
+                LimparCaminho();
+                proximoRecalculoCaminho = agora + 0.15f;
                 return;
             }
         }
@@ -1611,7 +1568,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             {
                 caminhoAtual.Clear();
                 indiceCaminho = 0;
-                seguidor.NetTransform.body.velocity = Vector2.zero;
+                corpo.velocity = Vector2.zero;
                 return;
             }
 
@@ -1619,50 +1576,49 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             indiceCaminho = 0;
         }
 
+        // Avança somente pelos pontos da rota suavizada, sem pular para um
+        // ponto distante apenas porque uma checagem pontual pareceu livre.
         while (indiceCaminho < caminhoAtual.Count &&
-               Vector2.Distance(origem, caminhoAtual[indiceCaminho]) <= 0.16f)
+               Vector2.Distance(origem, caminhoAtual[indiceCaminho]) <= 0.13f)
             indiceCaminho++;
 
         if (indiceCaminho >= caminhoAtual.Count)
         {
-            seguidor.NetTransform.body.velocity = Vector2.zero;
+            corpo.velocity = Vector2.zero;
             return;
         }
 
-        // Tenta avançar diretamente para o ponto mais distante que ainda
-        // tenha linha livre, evitando movimentos desnecessários em zigue-zague.
-        int melhorIndice = indiceCaminho;
-        for (int i = caminhoAtual.Count - 1; i > indiceCaminho; i--)
+        Vector2 proximoPonto = caminhoAtual[indiceCaminho];
+        Vector2 delta = proximoPonto - origem;
+        if (delta.sqrMagnitude < 0.0004f)
         {
-            if (PodeMoverEntre(origem, caminhoAtual[i]))
-            {
-                melhorIndice = i;
-                break;
-            }
+            corpo.velocity = Vector2.zero;
+            indiceCaminho++;
+            return;
         }
 
-        Vector2 proximoPonto = caminhoAtual[melhorIndice];
-        Vector2 direcao = ObterDirecaoComDeslizamento(origem, proximoPonto);
-        if (direcao.sqrMagnitude < 0.0001f)
+        Vector2 direcao = delta.normalized;
+
+        // Valida o corredor à frente a cada atualização. Isso evita que a
+        // inércia ou uma mudança recente no cenário leve o NPC a bater na parede.
+        float distanciaSegura = Mathf.Min(
+            delta.magnitude,
+            Mathf.Max(0.16f, Velocidade * 0.22f));
+
+        Vector2 pontoPrevisao = origem + direcao * distanciaSegura;
+        if (!PodeMoverEntre(origem, pontoPrevisao))
         {
-            // Não insiste por 1,25s numa direção sem saída. Para o corpo e
-            // força uma nova rota em breve, evitando que ele fique empurrando a parede.
             corpo.velocity = Vector2.zero;
+            LimparCaminho();
+            proximoRecalculoCaminho = agora + 0.12f;
             direcaoDeslizamentoCache = Vector2.zero;
             proximaReavaliacaoDeslizamento = 0f;
-            caminhoAtual.Clear();
-            indiceCaminho = 0;
-            proximoRecalculoCaminho = agora + 0.20f;
             return;
         }
 
-        // Mantém o movimento pela tangente da superfície detectada.
-        // Acelera e muda de direção gradualmente. Isso reduz os trancos nas
-        // curvas e evita que a inércia jogue o NPC contra a parede seguinte.
-        Vector2 velocidadeDesejada = direcao * Velocidade;
-        corpo.velocity = Vector2.MoveTowards(
-            corpo.velocity, velocidadeDesejada,
-            AceleracaoMovimento * Mathf.Max(Time.deltaTime, 0.001f));
+        // Sem aceleração acumulada: a velocidade muda junto com a direção da
+        // rota, evitando que o corpo continue deslizando para dentro de objetos.
+        corpo.velocity = direcao * Velocidade;
     }
 
     /// <summary>
