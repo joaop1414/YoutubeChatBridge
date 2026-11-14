@@ -194,13 +194,39 @@ internal static class RoleSwitchAPI
 
         try
         {
+            // EHR-style: em trocas durante a partida, aplica localmente e usa
+            // o RPC vanilla SetRole em broadcast com canOverrideRole=true.
+            // A seleção inicial continua no sender separado, sempre false.
+            if (origem == "troca durante a partida")
+            {
+                foreach (TrocaPendente troca in trocas)
+                {
+                    troca.Jogador.StartCoroutine(
+                        troca.Jogador.CoSetRole(troca.Funcao, true));
+
+                    MessageWriter writer = cliente.StartRpcImmediately(
+                        troca.Jogador.NetId,
+                        (byte)RpcCalls.SetRole,
+                        SendOption.Reliable);
+                    writer.Write((ushort)troca.Funcao);
+                    writer.Write(true);
+                    cliente.FinishRpcImmediately(writer);
+
+                    LogInfo($"RPC vanilla global enviado: PlayerId={troca.Jogador.PlayerId}, Role={troca.Funcao}, canOverrideRole=true.");
+                }
+
+                AtualizarHudDaFuncaoLocal(trocas);
+                loteEmAndamento = false;
+                return true;
+            }
+
             foreach (TrocaPendente troca in trocas)
             {
                 troca.Jogador.StartCoroutine(
-                    troca.Jogador.CoSetRole(troca.Funcao, canOverrideRole));
+                    troca.Jogador.CoSetRole(troca.Funcao, false));
             }
 
-            MonoBehaviourExtensions.StartCoroutine(local, EnviarAtribuicoesCoroutine(trocas, origem, canOverrideRole));
+            MonoBehaviourExtensions.StartCoroutine(local, EnviarAtribuicoesCoroutine(trocas, origem, false));
             return true;
         }
         catch (Exception ex)
