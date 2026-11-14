@@ -174,6 +174,20 @@ namespace MoreGamemodes
 
         public static void EnviarAparencia(PlayerControl jogador, string nome, byte corId)
         {
+            EnviarAparencia(
+                jogador, nome, corId,
+                string.Empty, string.Empty, string.Empty, string.Empty);
+        }
+
+        public static void EnviarAparencia(
+            PlayerControl jogador,
+            string nome,
+            byte corId,
+            string chapeuId,
+            string roupaId,
+            string petId,
+            string visorId)
+        {
             if (jogador?.Data == null || AmongUsClient.Instance == null) return;
 
             var outfit = jogador.Data.Outfits[PlayerOutfitType.Default];
@@ -189,10 +203,10 @@ namespace MoreGamemodes
             {
                 outfit.PlayerName = nome ?? string.Empty;
                 outfit.ColorId = corId;
-                outfit.HatId = string.Empty;
-                outfit.SkinId = string.Empty;
-                outfit.PetId = string.Empty;
-                outfit.VisorId = string.Empty;
+                outfit.HatId = chapeuId ?? string.Empty;
+                outfit.SkinId = roupaId ?? string.Empty;
+                outfit.PetId = petId ?? string.Empty;
+                outfit.VisorId = visorId ?? string.Empty;
 
                 writer.StartMessage(5);
                 writer.Write(AmongUsClient.Instance.GameId);
