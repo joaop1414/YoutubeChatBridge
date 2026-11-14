@@ -16,8 +16,7 @@ internal sealed class ConfiguradorFuncoesMenu : MonoBehaviour
 {
     public ConfiguradorFuncoesMenu(IntPtr ptr) : base(ptr) { }
 
-    private static ConfiguradorFuncoesMenu instancia;
-    private static bool registrado;
+    private static bool componenteCriado;
     private static bool painelAberto;
     private static byte? jogadorSelecionado;
     private static Vector2 scrollJogadores;
@@ -34,21 +33,19 @@ internal sealed class ConfiguradorFuncoesMenu : MonoBehaviour
     {
         try
         {
-            if (!registrado)
-            {
-                ClassInjector.RegisterTypeInIl2Cpp<ConfiguradorFuncoesMenu>();
-                registrado = true;
-            }
+            if (componenteCriado)
+                return;
 
-            if (instancia == null)
-            {
-                GameObject objeto = new GameObject("YouTubeVoteBridge_ConfiguradorFuncoes");
-                UnityEngine.Object.DontDestroyOnLoad(objeto);
-                instancia = objeto.AddComponent<ConfiguradorFuncoesMenu>();
-            }
+            if (YouTubeVoteBridgePlugin.Instance == null)
+                throw new InvalidOperationException("Instância do plugin ainda não está disponível.");
 
-            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[Configurador de funções] Inicializado; pressione F8 no lobby.");
+            // Usa o mesmo mecanismo do painel de votação, que já recebe OnGUI
+            // corretamente no objeto persistente gerenciado pelo BepInEx.
+            YouTubeVoteBridgePlugin.Instance.AddComponent<ConfiguradorFuncoesMenu>();
+            componenteCriado = true;
+
+            YouTubeVoteBridgePlugin.Instance.Log.LogInfo(
+                "[Configurador de funções] Componente IMGUI anexado ao gerenciador persistente; pressione F8 no lobby.");
         }
         catch (Exception ex)
         {
@@ -106,7 +103,7 @@ internal sealed class ConfiguradorFuncoesMenu : MonoBehaviour
                 largura,
                 altura);
 
-            GUI.depth = -100;
+            GUI.depth = -200;
             GUI.Box(janela, "YouTubeChatBridge — Funções por jogador (F8)");
             GUILayout.BeginArea(new Rect(
                 janela.x + 14f, janela.y + 32f,
