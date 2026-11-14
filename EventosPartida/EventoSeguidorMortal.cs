@@ -33,6 +33,14 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private static PlayerControl seguidor;
     private static PlayerControl alvoAtual;
 
+    // Estado recebido pelos clientes com o mod para reproduzir a perseguição localmente.
+    private static uint netIdSeguidorCliente;
+    private static byte alvoReplicadoCliente = byte.MaxValue;
+    private static Vector2 destinoReplicadoCliente;
+    private static bool destinoReplicadoRecebido;
+    private static byte ultimoAlvoNotificado = byte.MaxValue;
+    private static bool alvoInicialNotificado;
+
     // Recuperação de vida do NPC usando o registro reservado no GameData.
     private static float proximaVerificacaoVidaNpc;
     private static float restauracaoNpcAgendadaPara;
@@ -406,9 +414,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         }
     }
 
-    // Envia a posição atual do NPC aos outros clientes uma vez por segundo.
-    // Segue o padrão de SnapTo usado pelo EHR: atualiza o estado local, marca
-    // o NetTransform como sujo e transmite o RPC vanilla em broadcast.
+    // Clientes vanilla recebem somente uma correção de posição por segundo.
+    // Clientes com o mod ficam fora deste RPC e reproduzem a perseguição localmente.
     private static void EnviarSnapToRedePeriodico()
     {
         if (!YouTubeVoteBridgePlugin.EhHost() ||
@@ -430,30 +437,190 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             var transformacao = seguidor.NetTransform;
             Vector2 posicao = seguidor.GetTruePosition();
 
-            // O SnapTo local não desloca o NPC para outro ponto: usa a posição
-            // real atual apenas para manter a sequência do NetTransform alinhada.
+            // O ID enviado pela rede precisa ser calculado antes do SnapTo local,
+            // seguindo a mesma ordem usada pelo helper do EHR.
+            ushort sequenciaRede = (ushort)(transformacao.lastSequenceId + 8);
             transformacao.SnapTo(posicao, (ushort)(transformacao.lastSequenceId + 328));
             transformacao.SetDirtyBit(uint.MaxValue);
 
-            ushort sequenciaRede = (ushort)(transformacao.lastSequenceId + 8);
-            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
-                transformacao.NetId,
-                (byte)RpcCalls.SnapTo,
-                SendOption.Reliable);
+            int enviados = 0;
+            foreach (var cliente in AmongUsClient.Instance.allClients.ToArray())
+            {
+                if (cliente == null ||
+                    cliente.Id == AmongUsClient.Instance.ClientId ||
+                    cliente.Id < 0 ||
+                    YouTubeVoteBridgePlugin.ClienteTemMod(cliente.Id))
+                    continue;
 
-            writer.Write(posicao.x);
-            writer.Write(posicao.y);
-            writer.Write(sequenciaRede);
-            AmongUsClient.Instance.FinishRpcImmediately(writer);
+                MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
+                    transformacao.NetId,
+                    (byte)RpcCalls.SnapTo,
+                    SendOption.Reliable,
+                    cliente.Id);
+
+                writer.Write(posicao.x);
+                writer.Write(posicao.y);
+                writer.Write(sequenciaRede);
+                AmongUsClient.Instance.FinishRpcImmediately(writer);
+                enviados++;
+            }
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogDebug(
-                $"[F7/Seguidor] SnapTo de rede enviado: posição={posicao}, sequência={sequenciaRede}.");
+                $"[F7/Seguidor] SnapTo enviado a {enviados} cliente(s) vanilla: posição={posicao}, sequência={sequenciaRede}.");
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
                 "[F7/Seguidor] Falha ao enviar SnapTo periódico: " + ex.Message);
         }
+    }
+
+    // O host informa aos clientes com o mod qual jogador está sendo perseguido.
+    // O PlayerId permite que cada cliente acompanhe a posição atual desse jogador,
+    // sem precisar receber uma coordenada nova a cada frame.
+    private static void EnviarDestinoAosClientesComMod(PlayerControl alvo)
+    {
+        if (!YouTubeVoteBridgePlugin.EhHost() ||
+            seguidor == null ||
+            PlayerControl.LocalPlayer == null ||
+            AmongUsClient.Instance == null)
+            return;
+
+        byte playerIdAlvo = alvo != null ? alvo.PlayerId : byte.MaxValue;
+        Vector2 destino = alvo != null ? alvo.GetTruePosition() : seguidor.GetTruePosition();
+
+        try
+        {
+            int enviados = 0;
+            foreach (int clientId in ObterClientesComModConectados())
+            {
+                if (clientId == AmongUsClient.Instance.ClientId || clientId < 0)
+                    continue;
+
+                MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
+                    PlayerControl.LocalPlayer.NetId,
+                    246,
+                    SendOption.Reliable,
+                    clientId);
+
+                writer.WritePacked(seguidor.NetId);
+                writer.Write(playerIdAlvo);
+                writer.Write(destino.x);
+                writer.Write(destino.y);
+                AmongUsClient.Instance.FinishRpcImmediately(writer);
+                enviados++;
+            }
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                $"[F7/Seguidor] Destino enviado por RPC aos clientes com mod: alvo={playerIdAlvo}, posição={destino}, clientes={enviados}.");
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Seguidor] Falha ao enviar destino aos clientes com mod: " + ex.Message);
+        }
+    }
+
+    private static int[] ObterClientesComModConectados()
+    {
+        // A lista é mantida pelo sinal RPC 248. O filtro de conexão evita
+        // tentar enviar para IDs antigos que já saíram da sala.
+        var conectados = new HashSet<int>();
+        foreach (var cliente in AmongUsClient.Instance.allClients.ToArray())
+        {
+            if (cliente != null && cliente.Id >= 0 &&
+                YouTubeVoteBridgePlugin.ClienteTemMod(cliente.Id))
+                conectados.Add(cliente.Id);
+        }
+        return conectados.ToArray();
+    }
+
+    // Chamado no Update de cada cliente com o mod. O NPC usa a posição replicada
+    // do alvo para caminhar localmente, enquanto o host continua sendo a autoridade
+    // para mortes, seleção de alvo e transportes especiais.
+    internal static void ReceberDestinoCliente(
+        uint netIdNpc, byte playerIdAlvo, Vector2 destino)
+    {
+        netIdSeguidorCliente = netIdNpc;
+        alvoReplicadoCliente = playerIdAlvo;
+        destinoReplicadoCliente = destino;
+        destinoReplicadoRecebido = true;
+    }
+
+    internal static void AtualizarCliente()
+    {
+        if (YouTubeVoteBridgePlugin.EhHost() ||
+            !destinoReplicadoRecebido ||
+            AmongUsClient.Instance == null)
+            return;
+
+        if (MeetingHud.Instance != null || ShipStatus.Instance == null)
+        {
+            PararMovimentoCliente();
+            return;
+        }
+
+        PlayerControl npc = null;
+        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+        {
+            if (jogador != null && jogador.NetId == netIdSeguidorCliente)
+            {
+                npc = jogador;
+                break;
+            }
+        }
+
+        if (npc == null || npc.NetTransform?.body == null)
+            return;
+
+        if (alvoReplicadoCliente == byte.MaxValue)
+        {
+            npc.NetTransform.body.velocity = Vector2.zero;
+            return;
+        }
+
+        PlayerControl alvo = null;
+        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+        {
+            if (jogador != null && jogador != npc &&
+                jogador.PlayerId == alvoReplicadoCliente &&
+                jogador.Data != null && !jogador.Data.IsDead &&
+                !jogador.Data.Disconnected)
+            {
+                alvo = jogador;
+                break;
+            }
+        }
+
+        Vector2 destino = alvo != null
+            ? alvo.GetTruePosition()
+            : destinoReplicadoCliente;
+        Vector2 diferenca = destino - npc.GetTruePosition();
+
+        if (diferenca.magnitude <= AlcanceMorte)
+            npc.NetTransform.body.velocity = Vector2.zero;
+        else
+            npc.NetTransform.body.velocity = diferenca.normalized * Velocidade;
+    }
+
+    internal static void PararMovimentoCliente()
+    {
+        if (YouTubeVoteBridgePlugin.EhHost())
+            return;
+
+        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+        {
+            if (jogador != null && jogador.NetId == netIdSeguidorCliente &&
+                jogador.NetTransform?.body != null)
+            {
+                jogador.NetTransform.body.velocity = Vector2.zero;
+                break;
+            }
+        }
+
+        destinoReplicadoRecebido = false;
+        netIdSeguidorCliente = 0;
+        alvoReplicadoCliente = byte.MaxValue;
     }
 
     private static void AtualizarRegistroVidaNpc()
@@ -2094,7 +2261,18 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         }
 
         proximaBuscaAlvo = Time.realtimeSinceStartup + IntervaloTrocaAlvo;
+        PlayerControl alvoAnterior = alvoAtual;
         alvoAtual = ObterJogadorVivoMaisProximo(seguidor.GetTruePosition());
+
+        if (!alvoInicialNotificado || alvoAnterior != alvoAtual)
+        {
+            alvoInicialNotificado = true;
+            ultimoAlvoNotificado = alvoAtual != null
+                ? alvoAtual.PlayerId
+                : byte.MaxValue;
+            EnviarDestinoAosClientesComMod(alvoAtual);
+        }
+
         return alvoAtual;
     }
 
@@ -2161,6 +2339,9 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
     internal static void Resetar()
     {
+        if (YouTubeVoteBridgePlugin.EhHost() && seguidor != null)
+            EnviarDestinoAosClientesComMod(null);
+
         mostrarCaminhoNpc = false;
         DestruirRenderizacaoCaminho();
         ativo = false;
@@ -2174,6 +2355,12 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         avisoRegistroNpcAusente = false;
         avisoRegistroNpcCompartilhado = false;
         diagnosticoApisMovimentoExecutado = false;
+        netIdSeguidorCliente = 0;
+        alvoReplicadoCliente = byte.MaxValue;
+        destinoReplicadoCliente = Vector2.zero;
+        destinoReplicadoRecebido = false;
+        ultimoAlvoNotificado = byte.MaxValue;
+        alvoInicialNotificado = false;
         proximaEtapa = 0f;
         proximaBuscaAlvo = 0f;
         alvoAtual = null;
