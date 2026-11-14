@@ -1761,11 +1761,13 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             return desejada;
 
         Vector2 melhorDirecao = Vector2.zero;
-        float melhorProgresso = float.NegativeInfinity;
+        float melhorPontuacao = float.NegativeInfinity;
         float[] distanciasTeste = { DistanciaDeslizamentoParede, 0.45f, 0.30f };
 
         // Testa ambos os lados da parede. Ângulos de 90 graus permitem
         // deslizar paralelamente; ângulos menores preservam avanço diagonal.
+        // A pontuação considera tanto o progresso até o destino quanto o
+        // comprimento livre, evitando escolher um avanço curto que termina na parede.
         for (int angulo = 15; angulo <= 180; angulo += (int)PassoAngularDeslizamento)
         {
             for (int lado = -1; lado <= 1; lado += 2)
@@ -1776,7 +1778,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                     desejada.x * Mathf.Sin(radianos) + desejada.y * Mathf.Cos(radianos));
 
                 float progresso = Vector2.Dot(candidata, desejada);
-                if (progresso < -0.05f || progresso < melhorProgresso)
+                if (progresso < -0.05f)
                     continue;
 
                 foreach (float distanciaTeste in distanciasTeste)
@@ -1786,9 +1788,13 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                         !PodeMoverEntre(origem, pontoTeste))
                         continue;
 
-                    melhorProgresso = progresso;
-                    melhorDirecao = candidata;
-                    break;
+                    float pontuacao = progresso * 0.7f +
+                        (distanciaTeste / DistanciaDeslizamentoParede) * 0.3f;
+                    if (pontuacao > melhorPontuacao)
+                    {
+                        melhorPontuacao = pontuacao;
+                        melhorDirecao = candidata;
+                    }
                 }
             }
         }
