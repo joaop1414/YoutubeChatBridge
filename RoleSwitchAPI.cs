@@ -196,15 +196,50 @@ internal static class RoleSwitchAPI
                     continue;
                 }
 
-                // Reenvia o estado vivo somente se o host e o GameData ainda
-                // confirmarem que o jogador está vivo; alguns clientes podem ter
-                // marcado o jogador como morto durante SetRole.
+                // A alteração direta de NetworkedPlayerInfo.IsDead só corrige
+                // o estado local do host; não executa o fluxo nativo de revive
+                // nos clientes vanilla. Reaplicamos o estado local e reenviamos
+                // a função base para provocar a atualização vanilla em todos.
                 dados.IsDead = false;
-                dados.SetDirtyBit(1u << troca.Jogador.PlayerId);
+                troca.Jogador.Revive();
+                dados.IsDead = false;
+                dados.SetDirtyBit(uint.MaxValue);
                 cliente.SendAllStreamedObjects();
 
-                LogInfo($"Estado vivo restaurado pela rede após troca de função: PlayerId={troca.Jogador.PlayerId}.");
-                yield return new WaitForSecondsRealtime(0.08f);
+                // O EHR usa a mesma estratégia para clientes vanilla:
+                // marcar vivo e reaplicar Crewmate antes de restaurar a função
+                // definitiva. Isso evita que SetRole seja processado enquanto
+                // o cliente ainda conserva o estado de morto.
+                RpcSetRoleGlobal(troca.Jogador, RoleTypes.Crewmate);
+
+                LogInfo(
+                    $"Estado vivo aplicado localmente e sincronização vanilla iniciada: PlayerId={troca.Jogador.PlayerId}.");
+
+                yield return new WaitForSecondsRealtime(0.18f);
+                if (loteAtual != identificadorLote)
+                    yield break;
+
+                NetworkedPlayerInfo dadosAtualizados =
+                    GameData.Instance?.GetPlayerById(troca.Jogador.PlayerId);
+
+                // Não reenvia a função se o jogador morreu legitimamente
+                // durante a janela de sincronização.
+                if (dadosAtualizados == null || dadosAtualizados.IsDead ||
+                    troca.Jogador.Data == null || troca.Jogador.Data.IsDead)
+                {
+                    LogInfo(
+                        $"Sincronização da função definitiva cancelada: PlayerId={troca.Jogador.PlayerId} morreu durante o processo.");
+                    yield return new WaitForSecondsRealtime(0.08f);
+                    continue;
+                }
+
+                if (troca.Funcao != RoleTypes.Crewmate)
+                    RpcSetRoleGlobal(troca.Jogador, troca.Funcao);
+
+                LogInfo(
+                    $"Função definitiva reenviada após sincronização de revive: PlayerId={troca.Jogador.PlayerId}, Role={troca.Funcao}.");
+
+                yield return new WaitForSecondsRealtime(0.12f);
                 if (loteAtual != identificadorLote)
                     yield break;
             }
