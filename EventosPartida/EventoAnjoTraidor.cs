@@ -556,7 +556,7 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
             {
                 // O host é o próprio Anjo Traidor: mantém a opção aplicada
                 // durante a partida, sem restaurá-la ao cooldown vanilla.
-                if (!TentarDefinirProtectCooldown(opcoes, killCooldown, out _))
+                if (!TentarDefinirProtectCooldown(opcoesAtuais, killCooldown, out _))
                     return false;
 
                 AplicarOpcoesNaLogicaLocal(opcoesAtuais);
@@ -578,10 +578,10 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
         Action restaurarTemporariamente = null;
         try
         {
-            if (!TentarDefinirProtectCooldown(opcoes, killCooldown, out restaurarTemporariamente))
+            if (!TentarDefinirProtectCooldown(opcoesAtuais, killCooldown, out restaurarTemporariamente))
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "[F7/Anjo Traidor] Não foi possível localizar GuardianAngelRoleOptions.ProtectCooldown.");
+                    "[F7/Anjo Traidor] CurrentGameOptions não disponibilizou IGameOptions para alterar GuardianAngelCooldown.");
                 return false;
             }
 
@@ -689,14 +689,16 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
     /// da serialização do pacote individual; para o host, o valor permanece.
     /// </summary>
     private static bool TentarDefinirProtectCooldown(
-        object opcoes,
+        IGameOptions configuracoes,
         float valor,
         out Action restaurar)
     {
         restaurar = null;
-        if (opcoes is not IGameOptions configuracoes)
+        if (configuracoes == null)
             return false;
 
+        // EHR confirma que GuardianAngelCooldown é uma opção FloatOptionNames
+        // comum em IGameOptions, acessada com GetFloat/SetFloat.
         float anterior = configuracoes.GetFloat(FloatOptionNames.GuardianAngelCooldown);
         configuracoes.SetFloat(FloatOptionNames.GuardianAngelCooldown, valor);
         restaurar = () => configuracoes.SetFloat(
