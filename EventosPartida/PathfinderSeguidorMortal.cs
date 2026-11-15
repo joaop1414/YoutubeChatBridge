@@ -294,6 +294,7 @@ internal static class PathfinderSeguidorMortal
         if (limite <= 0)
             return null;
 
+        rota.Add(Centro(inicio % largura, inicio / largura, minimo, passo));
         rota.Reverse();
         return rota;
     }
