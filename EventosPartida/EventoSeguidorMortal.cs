@@ -24,7 +24,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private const float PenalidadeProximidadeParede = 0.24f;
     private const float AlcanceMorte = 0.48f;
     private const float IntervaloTrocaAlvo = 0.25f;
-    private const string NomeSeguidor = "<color=red>NPC ASSASINO</color>";
+    private const string NomeSeguidor = "<color=red>NPC ASSASSINO</color>";
 
     private static bool armado;
     private static bool ativo;
@@ -146,7 +146,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private static Vector2 pontoDestravamento;
     private static float limiteManobraDestravamento;
 
-    public override string Nome => "NPC seguidor mortal";
+    public override string Nome => "NPC Assassino";
 
     public void Executar()
     {
@@ -246,7 +246,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             LimparCaminho();
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[F7/Seguidor] Role Reveal encerrada. NPC ASSASINO criado; iniciando sincronização. PlayerId=" +
+                "[F7/Seguidor] Role Reveal encerrada. NPC ASSASSINO criado; iniciando sincronização. PlayerId=" +
                 PlayerIdSeguidor + ", posição inicial=" + posicaoInicial + ".");
         }
         catch (Exception ex)
