@@ -1449,6 +1449,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         ZiplineConsole melhorTirolesa = null;
         PlatformConsole melhorConsolePlataforma = null;
         MovingPlatformBehaviour melhorPlataforma = null;
+        Vector2 pontoSaidaTransporte = Vector2.zero;
 
         // Escadas: cada Ladder aponta para a outra extremidade por Destination.
         Ladder[] escadas = ShipStatus.Instance.GetComponentsInChildren<Ladder>();
@@ -1471,6 +1472,9 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             melhorCusto = custo;
             melhorEscada = escada;
             melhorTirolesa = null;
+            melhorConsolePlataforma = null;
+            melhorPlataforma = null;
+            pontoSaidaTransporte = saida;
         }
 
         // Tirolesas: o console define a direção e o ponto de desembarque.
@@ -1501,6 +1505,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             melhorTirolesa = console;
             melhorEscada = null;
             melhorConsolePlataforma = null;
+            pontoSaidaTransporte = saida;
             melhorPlataforma = null;
         }
 
@@ -1539,6 +1544,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             melhorPlataforma = console.Platform;
             melhorEscada = null;
             melhorTirolesa = null;
+            pontoSaidaTransporte = outraConsole.transform.position;
         }
 
         if (melhorEscada == null && melhorTirolesa == null &&
@@ -1573,6 +1579,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             "[F7/Transporte] NPC alcançou a entrada da " + tipoTransporte +
             ". Origem=" + origem +
             ", entrada=" + pontoEntrada +
+            ", saída estimada=" + pontoSaidaTransporte +
             ", alvo=" + posAlvo +
             ", distância=" + distanciaEntrada +
             ", alcance=" + alcance + ".");
