@@ -51,6 +51,9 @@ internal static class ControladorPartidaMenu
     private const int ID_ZOOM = 1014;
     private const int ID_CHAMAR_REUNIAO = 1015;
     private const int ID_ALTERNAR_CAMINHO_NPC = 1016;
+    private const int ID_TELEPORTE_MOUSE = 1017;
+    private const int ID_MAPEAR_MAPA = 1018;
+    private const int ID_EXPLORACAO_JOGADOR = 1019;
 
     private enum TipoAcao
     {
@@ -66,7 +69,10 @@ internal static class ControladorPartidaMenu
         AtualizarJogadores,
         AlternarZoom,
         ChamarReuniao,
-        AlternarCaminhoNpc
+        AlternarCaminhoNpc,
+        AlternarTeleporteMouse,
+        MapearMapa,
+        AlternarExploracaoJogador
     }
 
     private sealed class Acao
@@ -176,6 +182,7 @@ internal static class ControladorPartidaMenu
         while (fila.TryDequeue(out _)) descartadas++;
 
         ZoomCamera.Desativar();
+        ExploracaoMapaF8.Resetar();
         DefinirStatus("Estado do controlador limpo (" + motivo + ").");
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             "[Controlador F8] Ações pendentes descartadas=" + descartadas + ".");
@@ -218,6 +225,8 @@ internal static class ControladorPartidaMenu
     /// </summary>
     public static void ProcessarFilaExecucao()
     {
+        ExploracaoMapaF8.Atualizar();
+
         if (encerrarEm >= 0f && Time.realtimeSinceStartup >= encerrarEm)
         {
             encerrarEm = -1f;
@@ -293,6 +302,25 @@ internal static class ControladorPartidaMenu
                         DefinirStatus(caminhoVisivel
                             ? "Caminho do NPC visível no mapa."
                             : "Visualização do caminho do NPC desativada.");
+                        break;
+
+                    case TipoAcao.AlternarTeleporteMouse:
+                        ConfiguradorFuncoesMenu.AlternarTeleporteMouse();
+                        DefinirStatus(ConfiguradorFuncoesMenu.TeleporteMouseAtivo
+                            ? "Teleporte pelo botão direito ativado."
+                            : "Teleporte pelo botão direito desativado.");
+                        break;
+
+                    case TipoAcao.MapearMapa:
+                        ExploracaoMapaF8.MapearMapaAtual(out string resultadoMapa);
+                        DefinirStatus(resultadoMapa);
+                        break;
+
+                    case TipoAcao.AlternarExploracaoJogador:
+                        bool exploracaoAtiva = ExploracaoMapaF8.AlternarExploracao();
+                        DefinirStatus(exploracaoAtiva
+                            ? "Exploração do jogador ativada; o trajeto será desenhado em ciano."
+                            : "Exploração do jogador desativada.");
                         break;
                 }
             }
@@ -616,7 +644,7 @@ internal static class ControladorPartidaMenu
                 "YouTubeChatBridge — Controlador da partida (F8)",
                 WS_OVERLAPPEDWINDOW,
                 unchecked((int)0x80000000), unchecked((int)0x80000000),
-                760, 740, IntPtr.Zero, IntPtr.Zero, instancia, IntPtr.Zero);
+                760, 830, IntPtr.Zero, IntPtr.Zero, instancia, IntPtr.Zero);
 
             if (janela == IntPtr.Zero)
                 throw new InvalidOperationException("CreateWindowExW falhou: " + Marshal.GetLastWin32Error());
@@ -717,6 +745,9 @@ internal static class ControladorPartidaMenu
                     ID_ZOOM => TipoAcao.AlternarZoom,
                     ID_CHAMAR_REUNIAO => TipoAcao.ChamarReuniao,
                     ID_ALTERNAR_CAMINHO_NPC => TipoAcao.AlternarCaminhoNpc,
+                    ID_TELEPORTE_MOUSE => TipoAcao.AlternarTeleporteMouse,
+                    ID_MAPEAR_MAPA => TipoAcao.MapearMapa,
+                    ID_EXPLORACAO_JOGADOR => TipoAcao.AlternarExploracaoJogador,
                     _ => null
                 };
 
@@ -783,9 +814,12 @@ internal static class ControladorPartidaMenu
         CriarBotao(hwnd, instancia, "Alternar zoom da câmera", 24, 505, 696, 34, ID_ZOOM);
         CriarBotao(hwnd, instancia, "Chamar reunião (auto-report aleatório)", 24, 548, 696, 34, ID_CHAMAR_REUNIAO);
         CriarBotao(hwnd, instancia, "Mostrar / ocultar caminho do NPC", 24, 590, 696, 34, ID_ALTERNAR_CAMINHO_NPC);
+        CriarBotao(hwnd, instancia, "Teleporte pelo botão direito: ativar / desativar", 24, 633, 696, 34, ID_TELEPORTE_MOUSE);
+        CriarBotao(hwnd, instancia, "Mapear mapa atual e salvar JSON", 24, 676, 340, 34, ID_MAPEAR_MAPA);
+        CriarBotao(hwnd, instancia, "Mostrar / ocultar exploração do jogador", 380, 676, 340, 34, ID_EXPLORACAO_JOGADOR);
 
         textoStatus = CriarControle("STATIC", "STATUS: " + mensagem,
-            WS_CHILD | WS_VISIBLE, 24, 638, 700, 32, hwnd, IntPtr.Zero, instancia);
+            WS_CHILD | WS_VISIBLE, 24, 724, 700, 48, hwnd, IntPtr.Zero, instancia);
         AplicarFonte(textoStatus, fonteNormal);
     }
 
