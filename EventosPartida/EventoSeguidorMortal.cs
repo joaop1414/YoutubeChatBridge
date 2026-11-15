@@ -2599,7 +2599,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         if (!encontrouSala)
             return null;
 
-        return PathfinderSeguidorMortal.Calcular(
+        List<Vector2> caminhoMapeado = PathfinderSeguidorMortal.Calcular(
             inicio,
             destino,
             limites,
@@ -2609,6 +2609,30 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             (origem, fim) => PodePassarEntre(origem, fim) &&
                 ExploracaoMapaF8.SegmentoDentroDoMapa(origem, fim),
             ponto => ExploracaoMapaF8.ObterPenalidadeMapa(ponto));
+
+        if (caminhoMapeado != null && caminhoMapeado.Count > 0)
+            return caminhoMapeado;
+
+        // Se o snapshot estiver incompleto (por exemplo, um corredor não
+        // registrado), tenta novamente sem a restrição das salas mapeadas.
+        // A verificação física de colliders continua ativa em cada célula
+        // e em cada segmento, então esse fallback não permite atravessar paredes.
+        if (ExploracaoMapaF8.MapeamentoNavegacaoDisponivel())
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogDebug(
+                "[F7/Seguidor] Nenhuma rota encontrada dentro do mapeamento; " +
+                "tentando uma rota física com pequenos desvios fora do snapshot.");
+
+            return PathfinderSeguidorMortal.Calcular(
+                inicio,
+                destino,
+                limites,
+                TamanhoCelula,
+                ponto => PodeMoverEntre(ponto, ponto),
+                (origem, fim) => PodePassarEntre(origem, fim));
+        }
+
+        return null;
     }
 
         private static Collider2D ObterColliderFisicoNpc()
