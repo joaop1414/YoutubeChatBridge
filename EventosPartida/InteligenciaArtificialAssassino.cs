@@ -98,8 +98,12 @@ internal sealed class InteligenciaArtificialAssassino
             }
         }
 
-        if (agora < proximaAvaliacao && alvo != null)
+        if (agora < proximaAvaliacao)
+        {
+            if (alvo == null)
+                EstadoAtual = EstadoIAAssassino.Patrulhando;
             return alvo;
+        }
 
         proximaAvaliacao = agora + IntervaloAvaliacaoAlvo;
 
