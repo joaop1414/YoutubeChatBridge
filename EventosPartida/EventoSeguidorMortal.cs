@@ -3618,15 +3618,13 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
     private static bool PodeVerJogador(PlayerControl jogador, Vector2 origem)
     {
-        if (jogador == null || jogador.Data == null)
+        if (jogador == null || jogador.Data == null ||
+            jogador.Data.IsDead || jogador.Data.Disconnected)
             return false;
 
+        // Visão ilimitada: não aplica raio de visão nem distância máxima.
+        // Paredes e obstáculos do mapa continuam bloqueando a percepção.
         Vector2 destino = jogador.GetTruePosition();
-        float alcance = ObterAlcanceVisaoTripulante();
-        if (alcance <= 0f || Vector2.Distance(origem, destino) > alcance)
-            return false;
-
-        // A visão também precisa estar desobstruída por paredes e objetos do mapa.
         RaycastHit2D impacto = Physics2D.Linecast(
             origem, destino, Constants.ShipOnlyMask);
 
