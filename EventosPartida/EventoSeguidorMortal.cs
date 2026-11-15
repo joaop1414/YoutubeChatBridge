@@ -32,6 +32,16 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private static float proximaEtapa;
     private static float proximaBuscaAlvo;
     private static float proximoKillNpc;
+    private const float IntervaloReplicacaoDestino = 0.15f;
+    private const float DistanciaMinimaReplicacaoDestino = 0.12f;
+    private static float proximaReplicacaoDestino;
+    private static Vector2 ultimoDestinoReplicado;
+    private static byte ultimoAlvoReplicado = byte.MaxValue;
+    private static bool destinoReplicadoInicializado;
+    private static PlayerControl alvoIgnoradoNavegacao;
+    private static float alcanceVisaoTripulanteCacheado;
+    private static float proximaAtualizacaoAlcanceVisao;
+    private static float proximaTentativaAbrirPorta;
     private static bool resolvendoSabotagemLuzes;
     private static Vector2 destinoEletrica;
     private static float proximaAcaoInterruptor;
@@ -103,7 +113,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private const float FatorEscalaColisaoNavegacao = 1.15f;
     private static Collider2D colliderFisicoNpc;
     private const float IntervaloRecalculoCaminho = 0.40f;
-    private const float DistanciaRecalculoAlvo = 0.35f;
+    private const float DistanciaRecalculoAlvo = 0.65f;
     // A busca usa os 8 vizinhos do grid. A suavização posterior remove
     // pontos intermediários quando a linha está livre, permitindo trajetórias
     // em qualquer ângulo (não apenas nas direções fixas do grid).
@@ -560,6 +570,11 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 enviados++;
             }
 
+            ultimoAlvoReplicado = playerIdAlvo;
+            ultimoDestinoReplicado = destino;
+            destinoReplicadoInicializado = true;
+            proximaReplicacaoDestino = Time.realtimeSinceStartup + IntervaloReplicacaoDestino;
+
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 $"[F7/Seguidor] Destino enviado por RPC aos clientes com mod: alvo={playerIdAlvo}, posição={destino}, clientes={enviados}.");
         }
@@ -568,6 +583,24 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
                 "[F7/Seguidor] Falha ao enviar destino aos clientes com mod: " + ex.Message);
         }
+    }
+
+    private static void AtualizarDestinoReplicado(PlayerControl alvo, Vector2 destino)
+    {
+        if (!YouTubeVoteBridgePlugin.EhHost())
+            return;
+
+        byte playerId = alvo != null ? alvo.PlayerId : byte.MaxValue;
+        float agora = Time.realtimeSinceStartup;
+
+        bool mudouAlvo = !destinoReplicadoInicializado ||
+            playerId != ultimoAlvoReplicado;
+        bool mudouDestino = !destinoReplicadoInicializado ||
+            Vector2.Distance(destino, ultimoDestinoReplicado) >= DistanciaMinimaReplicacaoDestino;
+        bool heartbeat = agora >= proximaReplicacaoDestino;
+
+        if (mudouAlvo || mudouDestino || heartbeat)
+            EnviarDestinoAosClientesComMod(alvo, destino);
     }
 
     private static int[] ObterClientesComModConectados()
@@ -655,34 +688,40 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             return;
         }
 
-        PlayerControl alvo = null;
-        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+        // O cliente nunca consulta a posição atual do alvo para decidir a rota.
+        // O host envia snapshots: posição atual quando há visão e última posição
+        // conhecida durante a investigação. Isso impede perseguição através de paredes.
+        PlayerControl alvoIgnorado = null;
+        if (alvoReplicadoCliente != byte.MaxValue)
         {
-            if (jogador != null && jogador != npc &&
-                jogador.PlayerId == alvoReplicadoCliente &&
-                jogador.Data != null && !jogador.Data.IsDead &&
-                !jogador.Data.Disconnected)
+            foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
             {
-                alvo = jogador;
-                break;
+                if (jogador != null && jogador != npc &&
+                    jogador.PlayerId == alvoReplicadoCliente)
+                {
+                    alvoIgnorado = jogador;
+                    break;
+                }
             }
         }
 
-        Vector2 destino = alvo != null
-            ? alvo.GetTruePosition()
-            : destinoReplicadoCliente;
-        Vector2 diferenca = destino - npc.GetTruePosition();
-
-        if (diferenca.magnitude <= AlcanceMorte)
+        Vector2 destino = destinoReplicadoCliente;
+        if (Vector2.Distance(npc.GetTruePosition(), destino) <= 0.18f)
         {
-            PararCorpo(npc.NetTransform.body, "AtualizarCliente (linha 673)");
+            PararCorpo(npc.NetTransform.body, "AtualizarCliente (destino replicado)");
             LimparCaminho();
         }
         else
         {
-            // Reutiliza o A* do host no cliente para evitar que o NPC tente
-            // atravessar paredes ao perseguir um alvo que mudou de posição.
-            MoverAte(destino);
+            alvoIgnoradoNavegacao = alvoIgnorado;
+            try
+            {
+                MoverAte(destino);
+            }
+            finally
+            {
+                alvoIgnoradoNavegacao = null;
+            }
         }
     }
 
@@ -1019,36 +1058,42 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         Vector2 origem = seguidor.GetTruePosition();
         Vector2 destino = inteligencia.DestinoAtual;
 
-        // Se perdeu a visão, a IA investiga a última posição conhecida em vez
-        // de perseguir através das paredes usando a posição atual do jogador.
+        // Publica snapshots frequentes aos clientes com mod. Durante a perseguição
+        // o destino acompanha o jogador visível; durante a investigação fica parado
+        // na última posição que a IA realmente observou.
+        AtualizarDestinoReplicado(alvo, destino);
+
         if (TentarUsarVentilacao(destino))
         {
             inteligencia.DefinirEstado(EstadoIAAssassino.Transportando);
             return;
         }
 
-        float distancia = Vector2.Distance(destino, origem);
-
-        if (distancia <= AlcanceMorte)
+        // Investigar não significa matar: ao alcançar a última posição vista,
+        // a IA encerra a busca e volta à patrulha.
+        if (inteligencia.EstaInvestigando &&
+            Vector2.Distance(origem, destino) <= 0.35f)
         {
-            PararCorpo(seguidor.NetTransform.body, "Atualizar (linha 1023)");
+            PararCorpo(seguidor.NetTransform.body, "Atualizar (fim da investigação)");
+            inteligencia.EsquecerAlvo();
+            alvoAtual = null;
+            proximaBuscaAlvo = 0f;
+            EnviarDestinoAosClientesComMod(null, origem);
+            return;
+        }
 
-            // Chegar ao último ponto visto não autoriza uma morte: o jogador
-            // precisa estar realmente próximo e visível.
-            if (inteligencia.EstaInvestigando ||
-                Vector2.Distance(origem, alvo.GetTruePosition()) > AlcanceMorte ||
-                !PodeVerJogador(alvo, origem))
-            {
-                inteligencia.EsquecerAlvo();
-                alvoAtual = null;
-                proximaBuscaAlvo = 0f;
-                return;
-            }
-
+        // A morte depende da distância real ao jogador e de visão desobstruída,
+        // nunca da distância até o waypoint de navegação.
+        if (inteligencia.EstadoAtual == EstadoIAAssassino.Perseguindo &&
+            Vector2.Distance(origem, alvo.GetTruePosition()) <= AlcanceMorte &&
+            PodeVerJogador(alvo, origem))
+        {
+            PararCorpo(seguidor.NetTransform.body, "Atualizar (alvo ao alcance)");
             MatarAlvo(alvo);
             inteligencia.EsquecerAlvo();
             alvoAtual = null;
             proximaBuscaAlvo = 0f;
+            EnviarDestinoAosClientesComMod(null, origem);
             return;
         }
 
@@ -1059,7 +1104,17 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             return;
         }
 
-        MoverAte(destino);
+        alvoIgnoradoNavegacao = inteligencia.EstadoAtual == EstadoIAAssassino.Perseguindo
+            ? alvo
+            : null;
+        try
+        {
+            MoverAte(destino);
+        }
+        finally
+        {
+            alvoIgnoradoNavegacao = null;
+        }
     }
 
     /// <summary>
@@ -1369,6 +1424,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         float melhorCusto = float.MaxValue;
         Ladder melhorEscada = null;
         ZiplineConsole melhorTirolesa = null;
+        PlatformConsole melhorConsolePlataforma = null;
+        MovingPlatformBehaviour melhorPlataforma = null;
 
         // Escadas: cada Ladder aponta para a outra extremidade por Destination.
         Ladder[] escadas = ShipStatus.Instance.GetComponentsInChildren<Ladder>();
@@ -1418,17 +1475,61 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             melhorCusto = custo;
             melhorTirolesa = console;
             melhorEscada = null;
+            melhorConsolePlataforma = null;
+            melhorPlataforma = null;
         }
 
-        if (melhorEscada == null && melhorTirolesa == null)
+        // Airship: trata os dois consoles da plataforma como entrada e saída.
+        // Só usa a travessia quando o outro lado reduz o custo total da perseguição.
+        PlatformConsole[] consolesPlataforma =
+            ShipStatus.Instance.GetComponentsInChildren<PlatformConsole>();
+        foreach (PlatformConsole console in consolesPlataforma)
+        {
+            if (console == null || !console.isActiveAndEnabled ||
+                console.Platform == null || !console.Platform.isActiveAndEnabled ||
+                console.Platform.InUse)
+                continue;
+
+            PlatformConsole outraConsole = consolesPlataforma
+                .Where(c => c != null && c != console &&
+                    c.isActiveAndEnabled && c.Platform == console.Platform)
+                .OrderBy(c => Vector2.Distance(c.transform.position, posAlvo))
+                .FirstOrDefault();
+
+            if (outraConsole == null)
+                continue;
+
+            float distanciaSaida = Vector2.Distance(
+                outraConsole.transform.position, posAlvo);
+            float custo = Vector2.Distance(origem, console.transform.position) +
+                distanciaSaida;
+
+            if (distanciaSaida >= distanciaDireta - 0.75f ||
+                custo >= distanciaDireta - 0.25f ||
+                custo >= melhorCusto)
+                continue;
+
+            melhorCusto = custo;
+            melhorConsolePlataforma = console;
+            melhorPlataforma = console.Platform;
+            melhorEscada = null;
+            melhorTirolesa = null;
+        }
+
+        if (melhorEscada == null && melhorTirolesa == null &&
+            melhorConsolePlataforma == null)
             return false;
 
         Vector2 pontoEntrada = melhorEscada != null
             ? (Vector2)melhorEscada.transform.position
-            : (Vector2)melhorTirolesa.transform.position;
+            : melhorTirolesa != null
+                ? (Vector2)melhorTirolesa.transform.position
+                : (Vector2)melhorConsolePlataforma.transform.position;
         float alcance = melhorEscada != null
             ? melhorEscada.UsableDistance
-            : melhorTirolesa.UsableDistance;
+            : melhorTirolesa != null
+                ? melhorTirolesa.UsableDistance
+                : melhorConsolePlataforma.UsableDistance;
 
         float distanciaEntrada = Vector2.Distance(origem, pontoEntrada);
         if (distanciaEntrada > alcance)
@@ -1460,22 +1561,47 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 return true;
             }
 
-            melhorTirolesa.CanUse(seguidor.Data, out bool permitidoTirolesa, out _);
-            if (!permitidoTirolesa || melhorTirolesa.IsCoolingDown())
+            if (melhorTirolesa != null)
             {
-                proximoTransporte = agora + 0.5f;
-                return false;
+                melhorTirolesa.CanUse(seguidor.Data, out bool permitidoTirolesa, out _);
+                if (!permitidoTirolesa || melhorTirolesa.IsCoolingDown())
+                {
+                    proximoTransporte = agora + 0.5f;
+                    return false;
+                }
+
+                seguidor.CmdCheckUseZipline(
+                    seguidor, melhorTirolesa.zipline, melhorTirolesa.atTop);
+                transporteEmAndamento = true;
+                limiteTransporte = agora + 12f;
+                proximoTransporte = agora + 1f;
+
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[F7/Seguidor] NPC iniciou travessia de tirolesa.");
+                return true;
             }
 
-            seguidor.CmdCheckUseZipline(
-                seguidor, melhorTirolesa.zipline, melhorTirolesa.atTop);
-            transporteEmAndamento = true;
-            limiteTransporte = agora + 12f;
-            proximoTransporte = agora + 1f;
+            if (melhorConsolePlataforma != null)
+            {
+                melhorConsolePlataforma.CanUse(
+                    seguidor.Data, out bool permitidoPlataforma, out _);
 
-            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[F7/Seguidor] NPC iniciou travessia de tirolesa.");
-            return true;
+                if (!permitidoPlataforma || melhorPlataforma == null ||
+                    melhorPlataforma.InUse)
+                {
+                    proximoTransporte = agora + 0.5f;
+                    return false;
+                }
+
+                seguidor.RpcUsePlatform();
+                transporteEmAndamento = true;
+                limiteTransporte = agora + 20f;
+                proximoTransporte = agora + 1f;
+
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[F7/Seguidor] NPC iniciou travessia da plataforma móvel do Airship.");
+                return true;
+            }
         }
         catch (Exception ex)
         {
@@ -1573,6 +1699,9 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
             if (novaRota == null || novaRota.Count == 0)
             {
+                if (TentarAbrirPortaNoCaminho(origem, destino, agora))
+                    return;
+
                 caminhoAtual.Clear();
                 indiceCaminho = 0;
                 proximoRecalculoCaminho = agora + 0.30f;
@@ -1671,6 +1800,101 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         ultimaPosicaoMonitorada = origem;
         inicioSemDeslocamento = agora;
         avisoMonitoramentoMovimento = false;
+    }
+
+    private static bool TentarAbrirPortaNoCaminho(
+        Vector2 origem, Vector2 destino, float agora)
+    {
+        if (seguidor == null || ShipStatus.Instance == null ||
+            agora < proximaTentativaAbrirPorta)
+            return false;
+
+        Vector2 direcao = destino - origem;
+        if (direcao.sqrMagnitude <= 0.001f)
+            return false;
+
+        direcao.Normalize();
+
+        OpenableDoor[] portas = ShipStatus.Instance.AllDoors;
+        for (int i = 0; i < portas.Length; i++)
+        {
+            OpenableDoor porta = portas[i];
+            if (porta == null || !porta.isActiveAndEnabled || porta.IsOpen)
+                continue;
+
+            Collider2D colisor = LerMembro(porta, "myCollider", "MyCollider") as Collider2D;
+            if (colisor == null || !colisor.enabled)
+                continue;
+
+            Vector2 pontoProximo = colisor.ClosestPoint(origem);
+            if (Vector2.Distance(origem, pontoProximo) > 1.5f)
+                continue;
+
+            Vector2 centro = colisor.bounds.center;
+            Vector2 relativo = centro - origem;
+            float distanciaNaRota = Vector2.Dot(relativo, direcao);
+            if (distanciaNaRota < 0f ||
+                distanciaNaRota > Vector2.Distance(origem, destino) + 0.75f)
+                continue;
+
+            Vector2 pontoNaRota = origem + direcao * distanciaNaRota;
+            if (Vector2.Distance(pontoNaRota, centro) > 0.70f)
+                continue;
+
+            try
+            {
+                object sistemaPortas = ShipStatus.Instance.Systems != null &&
+                    ShipStatus.Instance.Systems.ContainsKey(SystemTypes.Doors)
+                    ? ShipStatus.Instance.Systems[SystemTypes.Doors]
+                    : null;
+
+                bool portasAutomaticas = sistemaPortas != null &&
+                    sistemaPortas.GetType().Name.IndexOf(
+                        "AutoDoorsSystemType", StringComparison.OrdinalIgnoreCase) >= 0;
+
+                if (portasAutomaticas)
+                {
+                    porta.SetDoorway(true);
+
+                    FieldInfo dirtyBits = sistemaPortas.GetType().GetField(
+                        "dirtyBits",
+                        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+
+                    if (dirtyBits != null && dirtyBits.FieldType == typeof(uint))
+                    {
+                        uint bits = (uint)dirtyBits.GetValue(sistemaPortas);
+                        dirtyBits.SetValue(sistemaPortas, bits | (1u << i));
+                    }
+                }
+                else
+                {
+                    if (porta.Id < 0 || porta.Id > 31)
+                        continue;
+
+                    ShipStatus.Instance.UpdateSystem(
+                        SystemTypes.Doors, seguidor, (byte)(porta.Id | 64));
+                }
+
+                proximaTentativaAbrirPorta = agora + 0.75f;
+                PararCorpo(seguidor.NetTransform.body,
+                    "TentarAbrirPortaNoCaminho");
+
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[F7/Seguidor] NPC solicitou abertura da porta " +
+                    porta.Id + " que bloqueava a rota.");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                proximaTentativaAbrirPorta = agora + 1f;
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[F7/Seguidor] Falha ao abrir porta " +
+                    porta.Id + ": " + ex.Message);
+                return false;
+            }
+        }
+
+        return false;
     }
 
     private static bool TentarDesvioLocal(
@@ -2474,7 +2698,9 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         {
             Collider2D colisor = impacto.collider;
             if (colisor == null || colisor.isTrigger ||
-                colisor.transform.IsChildOf(seguidor.transform))
+                colisor.transform.IsChildOf(seguidor.transform) ||
+                (alvoIgnoradoNavegacao != null &&
+                 colisor.transform.IsChildOf(alvoIgnoradoNavegacao.transform)))
                 continue;
 
             return false;
@@ -2494,7 +2720,9 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         foreach (Collider2D colisor in sobreposicoes)
         {
             if (colisor == null || colisor.isTrigger ||
-                colisor.transform.IsChildOf(seguidor.transform))
+                colisor.transform.IsChildOf(seguidor.transform) ||
+                (alvoIgnoradoNavegacao != null &&
+                 colisor.transform.IsChildOf(alvoIgnoradoNavegacao.transform)))
                 continue;
             return false;
         }
@@ -3268,8 +3496,17 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     // já considera o multiplicador de visão e a sabotagem das luzes.
     private static float ObterAlcanceVisaoTripulante()
     {
+        float agora = Time.realtimeSinceStartup;
+        if (agora < proximaAtualizacaoAlcanceVisao)
+            return alcanceVisaoTripulanteCacheado;
+
+        proximaAtualizacaoAlcanceVisao = agora + 0.5f;
+
         if (ShipStatus.Instance == null)
+        {
+            alcanceVisaoTripulanteCacheado = 0f;
             return 0f;
+        }
 
         try
         {
@@ -3322,10 +3559,14 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 return 0f;
 
             object resultado = calcular.Invoke(ShipStatus.Instance, new object[] { dadosTripulante });
-            return resultado == null ? 0f : Mathf.Max(0f, Convert.ToSingle(resultado));
+            alcanceVisaoTripulanteCacheado = resultado == null
+                ? 0f
+                : Mathf.Max(0f, Convert.ToSingle(resultado));
+            return alcanceVisaoTripulanteCacheado;
         }
         catch (Exception ex)
         {
+            alcanceVisaoTripulanteCacheado = 0f;
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
                 "[F7/Seguidor] Falha ao calcular visão de tripulante: " + ex.Message);
             return 0f;
@@ -3655,6 +3896,14 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         alvoInicialNotificado = false;
         proximaEtapa = 0f;
         proximaBuscaAlvo = 0f;
+        proximaReplicacaoDestino = 0f;
+        ultimoDestinoReplicado = Vector2.zero;
+        ultimoAlvoReplicado = byte.MaxValue;
+        destinoReplicadoInicializado = false;
+        alvoIgnoradoNavegacao = null;
+        alcanceVisaoTripulanteCacheado = 0f;
+        proximaAtualizacaoAlcanceVisao = 0f;
+        proximaTentativaAbrirPorta = 0f;
         alvoAtual = null;
         inteligencia.Resetar();
         jogadoresParaIA.Clear();
