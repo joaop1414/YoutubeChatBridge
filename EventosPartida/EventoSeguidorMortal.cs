@@ -182,6 +182,9 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         etapaInicializacao = 0;
         proximaEtapa = float.MaxValue;
         alvoAtual = null;
+        inteligencia.Resetar();
+        jogadoresParaIA.Clear();
+        inteligencia.DefinirEstado(EstadoIAAssassino.Inicializando);
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             "[F7/Seguidor] Evento preparado; aguardando o fim da Role Reveal.");
