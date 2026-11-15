@@ -291,7 +291,22 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
         if (nomesOriginais.TryGetValue(jogador.PlayerId, out string original))
             return original;
 
-        return jogador.Data.PlayerName ?? string.Empty;
+        string nome = jogador.Data.PlayerName ?? string.Empty;
+
+        // O cliente dono recebe o nome temporário vermelho via SetName.
+        // Remove somente esse invólucro externo, preservando tags internas do Rainbow.
+        const string abertura = "<color=#FF3030>";
+        const string fechamento = "</color>";
+        if (nome.StartsWith(abertura, StringComparison.OrdinalIgnoreCase) &&
+            nome.EndsWith(fechamento, StringComparison.OrdinalIgnoreCase) &&
+            nome.Length >= abertura.Length + fechamento.Length)
+        {
+            nome = nome.Substring(
+                abertura.Length,
+                nome.Length - abertura.Length - fechamento.Length);
+        }
+
+        return nome;
     }
 
     /// <summary>
