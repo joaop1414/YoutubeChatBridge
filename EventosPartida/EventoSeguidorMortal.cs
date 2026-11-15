@@ -1485,7 +1485,9 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             Vector3 pontoPouso = console.atTop
                 ? console.zipline.landingPositionBottom.position
                 : console.zipline.landingPositionTop.position;
-            Vector2 saida = console.zipline.transform.TransformPoint(pontoPouso);
+            // landingPositionBottom/Top.position já está em coordenadas mundiais.
+            // TransformPoint aplicaria a transformação da tirolesa uma segunda vez.
+            Vector2 saida = new Vector2(pontoPouso.x, pontoPouso.y);
             Vector2 entrada = console.transform.position;
             float custo = Vector2.Distance(origem, entrada) +
                           Vector2.Distance(saida, posAlvo);
@@ -1548,6 +1550,12 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             : melhorTirolesa != null
                 ? (Vector2)melhorTirolesa.transform.position
                 : (Vector2)melhorConsolePlataforma.transform.position;
+
+        string tipoTransporte = melhorEscada != null
+            ? "escada"
+            : melhorTirolesa != null
+                ? "tirolesa"
+                : "plataforma do Airship";
         float alcance = melhorEscada != null
             ? melhorEscada.UsableDistance
             : melhorTirolesa != null
@@ -1561,15 +1569,28 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             return true;
         }
 
-        PararCorpo(seguidor.NetTransform.body, "TentarUsarEscadaOuTirolesa (linha 1411)");
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            "[F7/Transporte] NPC alcançou a entrada da " + tipoTransporte +
+            ". Origem=" + origem +
+            ", entrada=" + pontoEntrada +
+            ", alvo=" + posAlvo +
+            ", distância=" + distanciaEntrada +
+            ", alcance=" + alcance + ".");
+
+        PararCorpo(seguidor.NetTransform.body, "TentarUsarEscadaOuTirolesa (entrada de transporte)");
 
         try
         {
             if (melhorEscada != null)
             {
                 melhorEscada.CanUse(seguidor.Data, out bool permitidoEscada, out _);
-                if (!permitidoEscada || melhorEscada.IsCoolingDown())
+                bool escadaEmCooldown = melhorEscada.IsCoolingDown();
+                if (!permitidoEscada || escadaEmCooldown)
                 {
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                        "[F7/Transporte] Escada encontrada, mas não pode ser usada. CanUse=" +
+                        permitidoEscada + ", cooldown=" + escadaEmCooldown +
+                        ", posição NPC=" + origem + ", entrada=" + pontoEntrada + ".");
                     proximoTransporte = agora + 0.5f;
                     return false;
                 }
@@ -1587,8 +1608,13 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             if (melhorTirolesa != null)
             {
                 melhorTirolesa.CanUse(seguidor.Data, out bool permitidoTirolesa, out _);
-                if (!permitidoTirolesa || melhorTirolesa.IsCoolingDown())
+                bool tirolesaEmCooldown = melhorTirolesa.IsCoolingDown();
+                if (!permitidoTirolesa || tirolesaEmCooldown)
                 {
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                        "[F7/Transporte] Tirolesa encontrada, mas não pode ser usada. CanUse=" +
+                        permitidoTirolesa + ", cooldown=" + tirolesaEmCooldown +
+                        ", console=" + pontoEntrada + ", posição NPC=" + origem + ".");
                     proximoTransporte = agora + 0.5f;
                     return false;
                 }
@@ -1612,6 +1638,11 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 if (!permitidoPlataforma || melhorPlataforma == null ||
                     melhorPlataforma.InUse)
                 {
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                        "[F7/Transporte] Plataforma encontrada, mas não pode ser usada. CanUse=" +
+                        permitidoPlataforma + ", plataforma nula=" + (melhorPlataforma == null) +
+                        ", em uso=" + (melhorPlataforma != null && melhorPlataforma.InUse) +
+                        ", console=" + pontoEntrada + ", posição NPC=" + origem + ".");
                     proximoTransporte = agora + 0.5f;
                     return false;
                 }
@@ -1631,7 +1662,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             transporteEmAndamento = false;
             proximoTransporte = agora + 1f;
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "[F7/Seguidor] Não foi possível iniciar transporte: " + ex.Message);
+                "[F7/Transporte] Falha ao iniciar " + tipoTransporte +
+                ": " + ex);
             return false;
         }
 
