@@ -1,13 +1,15 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using Hazel;
 using UnityEngine;
 
 namespace YouTubeVoteBridge;
 
 /// <summary>
-/// Formata os nomes somente nos elementos visuais locais. Não altera PlayerName,
-/// não envia SetName/RPC e reaplica a formatação depois das atualizações do jogo.
+/// Cada jogador vê somente o próprio nome personalizado.
+/// O host envia SetName direcionado ao OwnerId de cada jogador remoto;
+/// o nome de rede dos demais clientes não é alterado.
 /// </summary>
 internal static class SistemaNomesLocais
 {
@@ -19,6 +21,8 @@ internal static class SistemaNomesLocais
     }
 
     private static readonly Dictionary<byte, AvisoLocal> Avisos = new();
+    private static readonly Dictionary<byte, string> UltimosNomesEnviados = new();
+    private static readonly Dictionary<byte, string> NomesOriginaisRemotos = new();
     private static float proximaAtualizacao;
 
     public static void DefinirAviso(byte playerId, string texto, string cor = "#FFD54A", float duracao = 0f)
@@ -52,8 +56,12 @@ internal static class SistemaNomesLocais
 
     public static void Atualizar()
     {
+        // Ao voltar ao lobby, desfaz os SetName direcionados que ainda estiverem ativos.
         if (ShipStatus.Instance == null || !LobbyTagManager.PartidaIniciada())
+        {
+            RestaurarNomesDirecionados();
             return;
+        }
 
         float agora = Time.realtimeSinceStartup;
         if (agora < proximaAtualizacao)
@@ -68,31 +76,35 @@ internal static class SistemaNomesLocais
         foreach (byte id in expirados)
             Avisos.Remove(id);
 
-        AtualizarNomesNoMundo();
-        AtualizarNomesNaReuniao();
+        // Cada cliente com o mod altera somente o próprio HUD.
+        AtualizarNomeDoProprioJogador();
+
+        // Somente o host pode enviar SetName para os clientes vanilla.
+        if (YouTubeVoteBridgePlugin.EhHost())
+            EnviarNomesDirecionados();
     }
 
-    private static void AtualizarNomesNoMundo()
+    private static void AtualizarNomeDoProprioJogador()
     {
-        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
-        {
-            if (jogador == null || jogador.Data == null || jogador.notRealPlayer ||
-                jogador.Data.Disconnected || jogador.cosmetics?.nameText == null)
-                continue;
+        PlayerControl local = PlayerControl.LocalPlayer;
+        if (local == null || local.Data == null || local.Data.Disconnected ||
+            local.cosmetics?.nameText == null)
+            return;
 
-            try
-            {
-                jogador.cosmetics.nameText.text = CriarTexto(jogador);
-            }
-            catch (Exception ex)
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogDebug(
-                    "[Nomes locais] Falha ao atualizar PlayerId=" + jogador.PlayerId + ": " + ex.Message);
-            }
+        try
+        {
+            local.cosmetics.nameText.text = CriarTexto(local);
         }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogDebug(
+                "[Nomes locais] Falha ao atualizar o próprio nome: " + ex.Message);
+        }
+
+        AtualizarNomeProprioNaReuniao(local);
     }
 
-    private static void AtualizarNomesNaReuniao()
+    private static void AtualizarNomeProprioNaReuniao(PlayerControl local)
     {
         MeetingHud reuniao = MeetingHud.Instance;
         if (reuniao == null || reuniao.playerStates == null)
@@ -104,23 +116,128 @@ internal static class SistemaNomesLocais
                 continue;
 
             byte? playerId = ObterPlayerIdDaArea(area);
-            if (!playerId.HasValue)
-                continue;
-
-            PlayerControl jogador = ObterJogador(playerId.Value);
-            if (jogador == null || jogador.Data == null || jogador.Data.Disconnected)
+            if (!playerId.HasValue || playerId.Value != local.PlayerId)
                 continue;
 
             try
             {
-                area.NameText.text = CriarTexto(jogador);
+                area.NameText.text = CriarTexto(local);
             }
             catch (Exception ex)
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogDebug(
-                    "[Nomes locais] Falha ao atualizar reunião PlayerId=" + playerId.Value + ": " + ex.Message);
+                    "[Nomes locais] Falha ao atualizar o próprio nome na reunião: " + ex.Message);
+            }
+
+            break;
+        }
+    }
+
+    private static void EnviarNomesDirecionados()
+    {
+        if (AmongUsClient.Instance == null || PlayerControl.AllPlayerControls == null)
+            return;
+
+        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+        {
+            if (jogador == null || jogador.Data == null || jogador.notRealPlayer ||
+                jogador.Data.Disconnected || jogador.AmOwner)
+                continue;
+
+            try
+            {
+                string nomeOriginal = ObterNomeBase(jogador);
+                string nomeFormatado = CriarTexto(jogador);
+
+                // Guarda o texto original do lado do host. O SetName abaixo é
+                // enviado somente ao dono deste PlayerControl.
+                NomesOriginaisRemotos[jogador.PlayerId] = nomeOriginal;
+
+                if (UltimosNomesEnviados.TryGetValue(jogador.PlayerId, out string anterior) &&
+                    string.Equals(anterior, nomeFormatado, StringComparison.Ordinal))
+                    continue;
+
+                if (EnviarSetNameDirecionado(jogador, nomeFormatado))
+                {
+                    UltimosNomesEnviados[jogador.PlayerId] = nomeFormatado;
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                        "[Nomes locais] SetName direcionado enviado: PlayerId=" +
+                        jogador.PlayerId + ", OwnerId=" + jogador.OwnerId + ".");
+                }
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[Nomes locais] Falha ao enviar SetName direcionado para PlayerId=" +
+                    jogador.PlayerId + ": " + ex.Message);
             }
         }
+    }
+
+    private static bool EnviarSetNameDirecionado(PlayerControl jogador, string nome)
+    {
+        if (jogador == null || string.IsNullOrEmpty(nome) ||
+            AmongUsClient.Instance == null || !YouTubeVoteBridgePlugin.EhHost())
+            return false;
+
+        MessageWriter writer = null;
+        try
+        {
+            writer = AmongUsClient.Instance.StartRpcImmediately(
+                jogador.NetId,
+                (byte)RpcCalls.SetName,
+                SendOption.Reliable,
+                jogador.OwnerId);
+
+            writer.Write(nome);
+            AmongUsClient.Instance.FinishRpcImmediately(writer);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[Nomes locais] RPC SetName direcionado falhou: PlayerId=" +
+                jogador.PlayerId + ", OwnerId=" + jogador.OwnerId + ", " + ex.Message);
+            return false;
+        }
+        finally
+        {
+            writer?.Recycle();
+        }
+    }
+
+    private static void RestaurarNomesDirecionados()
+    {
+        if (UltimosNomesEnviados.Count == 0)
+            return;
+
+        if (AmongUsClient.Instance == null || !YouTubeVoteBridgePlugin.EhHost())
+        {
+            UltimosNomesEnviados.Clear();
+            NomesOriginaisRemotos.Clear();
+            return;
+        }
+
+        foreach (KeyValuePair<byte, string> item in new Dictionary<byte, string>(UltimosNomesEnviados))
+        {
+            PlayerControl jogador = ObterJogador(item.Key);
+            if (jogador == null || jogador.Data == null || jogador.AmOwner)
+                continue;
+
+            if (NomesOriginaisRemotos.TryGetValue(item.Key, out string original) &&
+                !string.IsNullOrEmpty(original))
+            {
+                if (EnviarSetNameDirecionado(jogador, original))
+                {
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                        "[Nomes locais] Nome original restaurado: PlayerId=" +
+                        item.Key + ", OwnerId=" + jogador.OwnerId + ".");
+                }
+            }
+        }
+
+        UltimosNomesEnviados.Clear();
+        NomesOriginaisRemotos.Clear();
     }
 
     private static string CriarTexto(PlayerControl jogador)
@@ -128,12 +245,7 @@ internal static class SistemaNomesLocais
         string funcao = ObterNomeFuncao(jogador);
         bool impostor = EhEquipeImpostora(jogador);
         string corFuncao = impostor ? "#FF4040" : "#00Eaff";
-
-        // O Rainbow já mantém o texto colorido em Data.PlayerName. Como a
-        // formatação é apenas visual, usamos essa string sem reenviar SetName.
-        string nome = EventoAnjoTraidor.ObterNomeOriginalParaExibicao(jogador);
-        if (string.IsNullOrWhiteSpace(nome))
-            nome = jogador.Data.PlayerName ?? string.Empty;
+        string nome = ObterNomeBase(jogador);
 
         string resultado =
             "<color=" + corFuncao + "><size=50%>" + funcao +
@@ -146,6 +258,18 @@ internal static class SistemaNomesLocais
         }
 
         return resultado;
+    }
+
+    private static string ObterNomeBase(PlayerControl jogador)
+    {
+        if (jogador == null || jogador.Data == null)
+            return string.Empty;
+
+        string nome = EventoAnjoTraidor.ObterNomeOriginalParaExibicao(jogador);
+        if (string.IsNullOrWhiteSpace(nome))
+            nome = jogador.Data.PlayerName ?? string.Empty;
+
+        return nome;
     }
 
     private static string ObterNomeFuncao(PlayerControl jogador)
@@ -222,7 +346,6 @@ internal static class SistemaNomesLocais
             catch { }
         }
 
-        // Fallback para builds em que o campo do PlayerVoteArea mudou de nome.
         foreach (FieldInfo campo in tipo.GetFields(flags))
         {
             if (campo.FieldType != typeof(byte) ||
