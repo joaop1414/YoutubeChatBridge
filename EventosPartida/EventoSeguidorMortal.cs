@@ -1459,9 +1459,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     }
 
     /// <summary>
-    /// Navegação conservadora: segue segmentos validados pelo collider real,
-    /// reduz a velocidade perto de obstáculos e para antes de tentar contornar uma parede.
-    /// O A* escolhe a rota; a camada de movimento não tenta raspar pela parede.
+    /// Movimento do NPC baseado em waypoints do novo pathfinder.
+    /// Recalcula a rota quando o destino muda ou o próximo segmento fica bloqueado.
     /// </summary>
     private static void MoverAte(Vector2 destino)
     {
@@ -1509,6 +1508,15 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 corpo.velocity = Vector2.zero;
                 proximoRecalculoCaminho = agora + 0.30f;
 
+                if (!avisoMonitoramentoMovimento)
+                {
+                    avisoMonitoramentoMovimento = true;
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                        "[F7/Pathfinder novo] Nenhuma rota válida encontrada. Origem=" +
+                        origem + ", destino=" + destino +
+                        ". Nova tentativa em 0,30s.");
+                }
+
                 if (possuiDestinoPatrulha &&
                     Vector2.Distance(destino, destinoPatrulha) < 0.20f)
                 {
@@ -1524,6 +1532,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             }
 
             falhasConsecutivasRota = 0;
+            avisoMonitoramentoMovimento = false;
             caminhoAtual = novaRota;
             indiceCaminho = 0;
         }
