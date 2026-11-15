@@ -39,6 +39,7 @@ internal static class ConfiguradorFuncoesMenu
     private const int ID_LIMPAR = 1005;
     private const int ID_ATUALIZAR = 1006;
     private const int ID_FECHAR = 1007;
+    private const int ID_TELEPORTE_MOUSE = 1008;
 
     private static readonly object trava = new();
     private static readonly Dictionary<byte, RoleTypes> atribuicoes = new();
@@ -56,6 +57,8 @@ internal static class ConfiguradorFuncoesMenu
     private static IntPtr comboFuncao;
     private static IntPtr status;
     private static IntPtr fonte;
+    private static IntPtr botaoTeleporteMouse;
+    public static bool TeleporteMouseAtivo { get; private set; }
     private static bool inicializado;
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
@@ -384,6 +387,20 @@ internal static class ConfiguradorFuncoesMenu
                     DefinirStatus("Lista de jogadores atualizada.");
                     return IntPtr.Zero;
                 }
+                if (id == ID_TELEPORTE_MOUSE)
+                {
+                    TeleporteMouseAtivo = !TeleporteMouseAtivo;
+                    string textoBotao = TeleporteMouseAtivo
+                        ? "Teleporte pelo mouse: ATIVADO"
+                        : "Teleporte pelo mouse: DESATIVADO";
+                    if (botaoTeleporteMouse != IntPtr.Zero)
+                        SetWindowTextW(botaoTeleporteMouse, textoBotao);
+                    DefinirStatus(TeleporteMouseAtivo
+                        ? "Teleporte ativado: clique com o botão direito no mapa para ir até o cursor."
+                        : "Teleporte pelo mouse desativado.");
+                    return IntPtr.Zero;
+                }
+
                 if (id == ID_FECHAR)
                 {
                     ShowWindow(hwnd, SW_HIDE);
@@ -423,10 +440,14 @@ internal static class ConfiguradorFuncoesMenu
             332, 210, 120, 34, hwnd, new IntPtr(ID_LIMPAR), instancia);
         CriarControle("BUTTON", "Atualizar jogadores", WS_CHILD | WS_VISIBLE,
             22, 254, 245, 32, hwnd, new IntPtr(ID_ATUALIZAR), instancia);
+        botaoTeleporteMouse = CriarControle("BUTTON",
+            TeleporteMouseAtivo ? "Teleporte pelo mouse: ATIVADO" : "Teleporte pelo mouse: DESATIVADO",
+            WS_CHILD | WS_VISIBLE, 22, 294, 245, 32, hwnd,
+            new IntPtr(ID_TELEPORTE_MOUSE), instancia);
         CriarControle("BUTTON", "Fechar (F8)", WS_CHILD | WS_VISIBLE,
             282, 254, 250, 32, hwnd, new IntPtr(ID_FECHAR), instancia);
         status = CriarControle("STATIC", "STATUS: aguardando configuração",
-            WS_CHILD | WS_VISIBLE, 22, 300, 510, 28, hwnd, IntPtr.Zero, instancia);
+            WS_CHILD | WS_VISIBLE, 22, 334, 510, 28, hwnd, IntPtr.Zero, instancia);
         foreach (IntPtr c in new[] { comboJogador, comboFuncao, status })
             if (c != IntPtr.Zero && fonte != IntPtr.Zero)
                 SendMessageW(c, WM_SETFONT, fonte, new IntPtr(1));
