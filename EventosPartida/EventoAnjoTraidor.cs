@@ -753,10 +753,6 @@ internal static class EventoAnjoTraidorCheckProtectPatch
         PlayerControl __instance,
         [HarmonyArgument(0)] PlayerControl target)
     {
-        // No cliente dono, GuardianAngel só existe localmente. Aplicamos o
-        // cooldown antes que o pedido seja enviado ao host.
-        EventoAnjoTraidor.AplicarCooldownProtectLocal(__instance);
-
         if (!YouTubeVoteBridgePlugin.EhHost())
             return true;
 
@@ -765,6 +761,13 @@ internal static class EventoAnjoTraidorCheckProtectPatch
             return false;
 
         return true;
+    }
+
+    private static void Postfix(PlayerControl __instance)
+    {
+        // Aplicamos depois do processamento vanilla para que o cooldown
+        // padrão do GuardianAngel não sobrescreva o cooldown de Kill.
+        EventoAnjoTraidor.AplicarCooldownProtectLocal(__instance);
     }
 }
 
