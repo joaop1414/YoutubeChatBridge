@@ -66,8 +66,8 @@ internal static class PathfinderSeguidorMortal
         Array.Fill(custos, float.PositiveInfinity);
         Array.Fill(anteriores, -1);
 
-        int inicioId = ParaIndice(inicio, minimo, tamanhoCelula, largura, altura);
-        int destinoId = ParaIndice(destino, minimo, tamanhoCelula, largura, altura);
+        int inicioId = ParaIndice(inicio, minimo, tamanhoCelulaEfetivo, largura, altura);
+        int destinoId = ParaIndice(destino, minimo, tamanhoCelulaEfetivo, largura, altura);
 
         if (inicioId < 0 || destinoId < 0)
             return null;
@@ -98,7 +98,7 @@ internal static class PathfinderSeguidorMortal
             {
                 List<Vector2> rota = Reconstruir(
                     inicioId, destinoId, anteriores, minimo,
-                    tamanhoCelula, largura);
+                    tamanhoCelulaEfetivo, largura);
 
                 if (rota == null || rota.Count == 0)
                     return null;
@@ -126,7 +126,7 @@ internal static class PathfinderSeguidorMortal
 
                 int vizinho = ny * largura + nx;
                 if (fechado[vizinho] || !CelulaLivre(vizinho, minimo,
-                        tamanhoCelula, largura, livre, testada, celulaLivre))
+                        tamanhoCelulaEfetivo, largura, livre, testada, celulaLivre))
                     continue;
 
                 // Impede cortar quinas: ambos os lados da diagonal precisam estar livres.
