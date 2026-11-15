@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Collections;
 using System.Collections.Generic;
+using System.Reflection;
 using AmongUs.GameOptions;
 using HarmonyLib;
 using Hazel;
@@ -25,6 +26,7 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
     private static bool habilidadeEncerrada;
     private static byte playerIdSelecionado = byte.MaxValue;
     private static int clientIdSelecionado = -1;
+    private static Action restaurarCooldownProtectLocal;
 
     // Os nomes são enviados somente ao cliente dono do Phantom escolhido.
     // Assim, nem os demais jogadores nem o GameData do host recebem a cor vermelha.
@@ -359,10 +361,16 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
                 yield break;
             }
 
+            if (!EnviarConfiguracaoProtectAoAnjo(jogador))
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[F7/Anjo Traidor] Não foi possível sincronizar ProtectCooldown com KillCooldown para o cliente do Anjo.");
+            }
+
             AplicarNomesLocais();
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[F7/Anjo Traidor] RPC individual concluído após 0,25 segundo: " +
+                "[F7/Anjo Traidor] RPC individual concluído após 0,25 segundo: "
                 "PlayerId=" + playerIdSelecionado +
                 " recebeu GuardianAngel no cliente dono; demais clientes continuam com ImpostorGhost.");
         }
@@ -420,9 +428,8 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
             {
                 anjo.ProtectPlayer(alvo, 0);
 
-                // No host, CheckProtect será cancelado pelo Prefix. Aplicamos
-                // diretamente o cooldown apenas no botão local do próprio host.
-                AplicarCooldownProtectLocal(anjo);
+                // O host já recebeu a configuração local do GuardianAngel
+                // em EnviarConfiguracaoProtectAoAnjo; o vanilla aplica o cooldown.
             }
             else
             {
@@ -510,70 +517,400 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
     }
 
     /// <summary>
-    /// Altera somente o contador local do botão Protect. O valor vem da opção
-    /// Kill Cooldown da partida; nenhuma opção global ou RPC de configuração é enviado.
+    /// Envia uma LogicOptions serializada somente ao cliente dono do Anjo Traidor.
+    /// O pacote usa o mesmo envelope GameDataTo/LogicOptions do jogo vanilla e
+    /// contém ProtectCooldown igual ao KillCooldown, sem alterar a configuração
+    /// dos demais jogadores.
     /// </summary>
-    internal static void AplicarCooldownProtectLocal(PlayerControl anjo)
+    private static bool EnviarConfiguracaoProtectAoAnjo(PlayerControl anjo)
     {
+        if (!YouTubeVoteBridgePlugin.EhHost() || anjo == null ||
+            AmongUsClient.Instance == null || GameManager.Instance == null)
+            return false;
+
+        IGameOptions opcoesAtuais = GameOptionsManager.Instance?.CurrentGameOptions;
+        if (opcoesAtuais == null)
+            return false;
+
+        NormalGameOptionsV12 opcoes;
         try
         {
-            if (anjo == null || PlayerControl.LocalPlayer == null ||
-                anjo.PlayerId != PlayerControl.LocalPlayer.PlayerId || HudManager.Instance == null)
-                return;
-
-            float cooldownKill = Mathf.Max(0.1f,
-                GameOptionsManager.Instance.CurrentGameOptions.GetFloat(FloatOptionNames.KillCooldown));
-
-            // GuardianAngel usa ProtectButton próprio, não AbilityButton.
-            object botaoProtect = null;
-            const System.Reflection.BindingFlags flags =
-                System.Reflection.BindingFlags.Instance |
-                System.Reflection.BindingFlags.Public |
-                System.Reflection.BindingFlags.NonPublic;
-            Type hudType = HudManager.Instance.GetType();
-            var membro = hudType.GetProperty("ProtectButton", flags);
-            if (membro != null) botaoProtect = membro.GetValue(HudManager.Instance);
-            if (botaoProtect == null)
-            {
-                var campo = hudType.GetField("ProtectButton", flags);
-                if (campo != null) botaoProtect = campo.GetValue(HudManager.Instance);
-            }
-            if (botaoProtect == null)
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "[F7/Anjo Traidor] HudManager.ProtectButton não encontrado.");
-                return;
-            }
-
-            Type tipoBotao = botaoProtect.GetType();
-            var setCooldown = tipoBotao.GetMethods(flags).FirstOrDefault(m =>
-                (m.Name == "SetCoolDown" || m.Name == "SetCooldown") &&
-                m.GetParameters().Length == 2 &&
-                m.GetParameters()[0].ParameterType == typeof(float) &&
-                m.GetParameters()[1].ParameterType == typeof(float));
-            if (setCooldown != null)
-                setCooldown.Invoke(botaoProtect, new object[] { cooldownKill, cooldownKill });
-
-            // Atualiza também o contador interno da role, não só a barra visual.
-            object role = anjo.Data?.Role;
-            if (role != null)
-            {
-                var campoCooldown = role.GetType().GetField("cooldownSecondsRemaining", flags);
-                if (campoCooldown != null && campoCooldown.FieldType == typeof(float))
-                    campoCooldown.SetValue(role, cooldownKill);
-                var propCooldown = role.GetType().GetProperty("cooldownSecondsRemaining", flags);
-                if (propCooldown != null && propCooldown.CanWrite && propCooldown.PropertyType == typeof(float))
-                    propCooldown.SetValue(role, cooldownKill);
-            }
-
-            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[F7/Anjo Traidor] Protect cooldown local sincronizado com KillCooldown: " +
-                cooldownKill.ToString("0.##") + "s.");
+            opcoes = opcoesAtuais.TryCast<NormalGameOptionsV12>();
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "[F7/Anjo Traidor] Não foi possível ajustar cooldown local do Protect: " + ex);
+                "[F7/Anjo Traidor] Não foi possível converter as opções para NormalGameOptionsV12: " + ex.Message);
+            return false;
+        }
+
+        if (opcoes == null)
+            return false;
+
+        float killCooldown = Mathf.Clamp(
+            opcoes.GetFloat(FloatOptionNames.KillCooldown), 0f, 255f);
+
+        // Para o próprio host, a configuração precisa permanecer aplicada
+        // no LogicOptions local, pois não existe outro cliente para receber o pacote.
+        if (anjo.OwnerId == AmongUsClient.Instance.ClientId)
+        {
+            try
+            {
+                restaurarCooldownProtectLocal?.Invoke();
+                restaurarCooldownProtectLocal = null;
+
+                if (!TentarDefinirProtectCooldown(opcoes, killCooldown, out Action restaurar))
+                    return false;
+
+                restaurarCooldownProtectLocal = restaurar;
+                AplicarOpcoesNaLogicaLocal(opcoes);
+
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[F7/Anjo Traidor] ProtectCooldown local do host definido para " +
+                    killCooldown.ToString("0.##") + "s (igual ao KillCooldown).");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                    "[F7/Anjo Traidor] Falha ao aplicar ProtectCooldown local: " + ex);
+                return false;
+            }
+        }
+
+        byte[] dadosOpcoes;
+        Action restaurarTemporariamente = null;
+        try
+        {
+            if (!TentarDefinirProtectCooldown(opcoes, killCooldown, out restaurarTemporariamente))
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[F7/Anjo Traidor] Não foi possível localizar GuardianAngelRoleOptions.ProtectCooldown.");
+                return false;
+            }
+
+            MessageWriter serializador = MessageWriter.Get();
+            try
+            {
+                serializador.Write(opcoes.Version);
+                serializador.StartMessage(0);
+                serializador.Write((byte)opcoes.GameMode);
+                NormalGameOptionsV12.Serialize(serializador, opcoes);
+                serializador.EndMessage();
+                dadosOpcoes = serializador.ToByteArray(false);
+            }
+            finally
+            {
+                serializador.Recycle();
+            }
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "[F7/Anjo Traidor] Falha ao serializar ProtectCooldown individual: " + ex);
+            return false;
+        }
+        finally
+        {
+            // A opção global do host volta ao valor original antes de enviar.
+            try { restaurarTemporariamente?.Invoke(); } catch { }
+        }
+
+        bool encontrouLogica = false;
+        bool enviou = false;
+
+        try
+        {
+            int quantidade = GameManager.Instance.LogicComponents.Count;
+            for (int i = 0; i < quantidade; i++)
+            {
+                if (GameManager.Instance.LogicComponents[i] is not LogicOptions)
+                    continue;
+
+                encontrouLogica = true;
+
+                MessageWriter pacote = MessageWriter.Get(SendOption.Reliable);
+                try
+                {
+                    // GameDataTo: destinatário é exclusivamente o dono do Anjo.
+                    pacote.StartMessage(6);
+                    pacote.Write(AmongUsClient.Instance.GameId);
+                    pacote.WritePacked(anjo.OwnerId);
+
+                    pacote.StartMessage(1);
+                    pacote.WritePacked(GameManager.Instance.NetId);
+                    pacote.StartMessage((byte)i);
+                    pacote.WriteBytesAndSize(dadosOpcoes);
+                    pacote.EndMessage();
+                    pacote.EndMessage();
+                    pacote.EndMessage();
+
+                    AmongUsClient.Instance.SendOrDisconnect(pacote);
+                    enviou = true;
+
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                        "[F7/Anjo Traidor] RPC de configuração enviado somente ao Anjo: " +
+                        "PlayerId=" + anjo.PlayerId + ", OwnerId=" + anjo.OwnerId +
+                        ", LogicOptionsIndex=" + i + ", ProtectCooldown=" +
+                        killCooldown.ToString("0.##") + "s.");
+                }
+                finally
+                {
+                    pacote.Recycle();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "[F7/Anjo Traidor] Falha ao enviar RPC individual de configuração: " + ex);
+            return false;
+        }
+
+        if (!encontrouLogica)
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Anjo Traidor] Nenhum LogicOptions foi encontrado para enviar a configuração.");
+
+        return encontrouLogica && enviou;
+    }
+
+    private static void AplicarOpcoesNaLogicaLocal(IGameOptions opcoes)
+    {
+        GameManager gerenciador = GameManager.Instance;
+        if (gerenciador?.LogicComponents == null)
+            return;
+
+        foreach (GameLogicComponent componente in gerenciador.LogicComponents)
+            if (componente is LogicOptions logicOptions)
+                logicOptions.SetGameOptions(opcoes);
+
+        GameOptionsManager.Instance.CurrentGameOptions = opcoes;
+    }
+
+    /// <summary>
+    /// Localiza o objeto de opções do Anjo da Guarda por reflexão para não
+    /// depender de nomes de campos internos que mudam entre versões do jogo.
+    /// </summary>
+    private static bool TentarDefinirProtectCooldown(
+        object opcoes,
+        float valor,
+        out Action restaurar)
+    {
+        restaurar = null;
+        object guardianOptions = EncontrarOpcoesGuardianAngel(
+            opcoes, 0, new HashSet<int>());
+
+        if (guardianOptions == null)
+            return false;
+
+        const BindingFlags flags = BindingFlags.Instance |
+                                   BindingFlags.Public |
+                                   BindingFlags.NonPublic;
+
+        Type tipo = guardianOptions.GetType();
+        FieldInfo campo = tipo.GetField("ProtectCooldown", flags);
+        PropertyInfo propriedade = tipo.GetProperty("ProtectCooldown", flags);
+
+        object cooldown = campo != null
+            ? campo.GetValue(guardianOptions)
+            : propriedade != null && propriedade.CanRead
+                ? propriedade.GetValue(guardianOptions)
+                : null;
+
+        if (campo != null && EhNumero(campo.FieldType) &&
+            !campo.IsInitOnly && !campo.IsLiteral)
+        {
+            object anterior = campo.GetValue(guardianOptions);
+            campo.SetValue(guardianOptions, ConverterNumero(valor, campo.FieldType));
+            restaurar = () => campo.SetValue(guardianOptions, anterior);
+            return true;
+        }
+
+        if (propriedade != null && propriedade.CanRead && propriedade.CanWrite &&
+            EhNumero(propriedade.PropertyType))
+        {
+            object anterior = propriedade.GetValue(guardianOptions);
+            propriedade.SetValue(guardianOptions, ConverterNumero(valor, propriedade.PropertyType));
+            restaurar = () => propriedade.SetValue(guardianOptions, anterior);
+            return true;
+        }
+
+        // Algumas builds representam a opção como um objeto FloatOption
+        // com a propriedade/field Value.
+        if (cooldown != null && TentarDefinirValorInterno(cooldown, valor, out restaurar))
+            return true;
+
+        return false;
+    }
+
+    private static bool TentarDefinirValorInterno(object alvo, float valor, out Action restaurar)
+    {
+        restaurar = null;
+        if (alvo == null)
+            return false;
+
+        const BindingFlags flags = BindingFlags.Instance |
+                                   BindingFlags.Public |
+                                   BindingFlags.NonPublic;
+        Type tipo = alvo.GetType();
+
+        FieldInfo campo = tipo.GetField("Value", flags);
+        if (campo != null && EhNumero(campo.FieldType) &&
+            !campo.IsInitOnly && !campo.IsLiteral)
+        {
+            object anterior = campo.GetValue(alvo);
+            campo.SetValue(alvo, ConverterNumero(valor, campo.FieldType));
+            restaurar = () => campo.SetValue(alvo, anterior);
+            return true;
+        }
+
+        PropertyInfo propriedade = tipo.GetProperty("Value", flags);
+        if (propriedade != null && propriedade.CanRead && propriedade.CanWrite &&
+            EhNumero(propriedade.PropertyType))
+        {
+            object anterior = propriedade.GetValue(alvo);
+            propriedade.SetValue(alvo, ConverterNumero(valor, propriedade.PropertyType));
+            restaurar = () => propriedade.SetValue(alvo, anterior);
+            return true;
+        }
+
+        MethodInfo setter = tipo.GetMethods(flags).FirstOrDefault(m =>
+        {
+            if (m.Name != "SetValue" && m.Name != "Set")
+                return false;
+            ParameterInfo[] parametros = m.GetParameters();
+            return parametros.Length == 1 && EhNumero(parametros[0].ParameterType);
+        });
+
+        if (setter != null)
+        {
+            // Para wrappers sem getter público, tenta preservar o valor via Value.
+            object anterior = null;
+            PropertyInfo leitura = tipo.GetProperty("Value", flags);
+            if (leitura != null && leitura.CanRead)
+                anterior = leitura.GetValue(alvo);
+            else
+            {
+                FieldInfo leituraCampo = tipo.GetField("Value", flags);
+                if (leituraCampo != null)
+                    anterior = leituraCampo.GetValue(alvo);
+            }
+
+            setter.Invoke(alvo, new[] { ConverterNumero(valor, setter.GetParameters()[0].ParameterType) });
+            if (anterior != null)
+                restaurar = () => setter.Invoke(alvo, new[] { anterior });
+            return true;
+        }
+
+        return false;
+    }
+
+    private static object EncontrarOpcoesGuardianAngel(
+        object atual,
+        int profundidade,
+        HashSet<int> visitados)
+    {
+        if (atual == null || profundidade > 8)
+            return null;
+
+        Type tipo = atual.GetType();
+        if (tipo.Name.IndexOf("GuardianAngel", StringComparison.OrdinalIgnoreCase) >= 0)
+            return atual;
+
+        if (tipo.IsPrimitive || tipo.IsEnum || atual is string || atual is Type)
+            return null;
+
+        int identidade = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(atual);
+        if (!visitados.Add(identidade))
+            return null;
+
+        if (atual is IEnumerable lista)
+        {
+            foreach (object item in lista)
+            {
+                object encontrado = EncontrarOpcoesGuardianAngel(item, profundidade + 1, visitados);
+                if (encontrado != null)
+                    return encontrado;
+            }
+        }
+
+        const BindingFlags flags = BindingFlags.Instance |
+                                   BindingFlags.Public |
+                                   BindingFlags.NonPublic;
+
+        foreach (FieldInfo campo in tipo.GetFields(flags))
+        {
+            if (campo.FieldType.IsPrimitive || campo.FieldType.IsEnum ||
+                campo.FieldType == typeof(string))
+                continue;
+
+            object filho = null;
+            try { filho = campo.GetValue(atual); } catch { }
+            object encontrado = EncontrarOpcoesGuardianAngel(filho, profundidade + 1, visitados);
+            if (encontrado != null)
+                return encontrado;
+        }
+
+        foreach (PropertyInfo propriedade in tipo.GetProperties(flags))
+        {
+            if (!propriedade.CanRead || propriedade.GetIndexParameters().Length != 0 ||
+                propriedade.PropertyType.IsPrimitive || propriedade.PropertyType.IsEnum ||
+                propriedade.PropertyType == typeof(string))
+                continue;
+
+            object filho = null;
+            try { filho = propriedade.GetValue(atual); } catch { }
+            object encontrado = EncontrarOpcoesGuardianAngel(filho, profundidade + 1, visitados);
+            if (encontrado != null)
+                return encontrado;
+        }
+
+        return null;
+    }
+
+    private static bool EhNumero(Type tipo)
+    {
+        return tipo == typeof(byte) || tipo == typeof(sbyte) ||
+               tipo == typeof(short) || tipo == typeof(ushort) ||
+               tipo == typeof(int) || tipo == typeof(uint) ||
+               tipo == typeof(long) || tipo == typeof(ulong) ||
+               tipo == typeof(float) || tipo == typeof(double) ||
+               tipo == typeof(decimal);
+    }
+
+    private static object ConverterNumero(float valor, Type tipo)
+    {
+        if (tipo == typeof(byte)) return (byte)Mathf.Clamp(Mathf.RoundToInt(valor), 0, 255);
+        if (tipo == typeof(sbyte)) return (sbyte)Mathf.Clamp(Mathf.RoundToInt(valor), -128, 127);
+        if (tipo == typeof(short)) return (short)Mathf.RoundToInt(valor);
+        if (tipo == typeof(ushort)) return (ushort)Mathf.Clamp(Mathf.RoundToInt(valor), 0, 65535);
+        if (tipo == typeof(int)) return Mathf.RoundToInt(valor);
+        if (tipo == typeof(uint)) return (uint)Mathf.Max(0, Mathf.RoundToInt(valor));
+        if (tipo == typeof(long)) return (long)Math.Round(valor);
+        if (tipo == typeof(ulong)) return (ulong)Math.Max(0, Math.Round(valor));
+        if (tipo == typeof(double)) return (double)valor;
+        if (tipo == typeof(decimal)) return (decimal)valor;
+        return valor;
+    }
+
+    private static void RestaurarCooldownProtectLocal()
+    {
+        if (restaurarCooldownProtectLocal == null)
+            return;
+
+        try
+        {
+            restaurarCooldownProtectLocal.Invoke();
+            restaurarCooldownProtectLocal = null;
+
+            IGameOptions opcoes = GameOptionsManager.Instance?.CurrentGameOptions;
+            if (opcoes != null)
+                AplicarOpcoesNaLogicaLocal(opcoes);
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Anjo Traidor] Falha ao restaurar ProtectCooldown local: " + ex.Message);
         }
     }
 
@@ -764,6 +1101,7 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
             return;
 
         RestaurarNomesLocais();
+        RestaurarCooldownProtectLocal();
 
         armado = false;
         ativo = false;
@@ -935,20 +1273,6 @@ internal static class EventoAnjoTraidorCheckProtectPatch
         return true;
     }
 
-    // CheckProtect também é executado localmente no cliente dono. O postfix
-    // troca o cooldown vanilla do GuardianAngel pelo Kill Cooldown somente
-    // no HUD desse jogador.
-    private static void Postfix(PlayerControl __instance)
-    {
-        if (__instance == null ||
-            PlayerControl.LocalPlayer == null ||
-            __instance.PlayerId != PlayerControl.LocalPlayer.PlayerId ||
-            __instance.Data == null ||
-            __instance.Data.RoleType != RoleTypes.GuardianAngel)
-            return;
-
-        EventoAnjoTraidor.AplicarCooldownProtectLocal(__instance);
-    }
 }
 
 /// <summary>
