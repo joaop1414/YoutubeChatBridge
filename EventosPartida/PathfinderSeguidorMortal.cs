@@ -59,9 +59,9 @@ internal static class PathfinderSeguidorMortal
             return null;
 
         if (!EncontrarCelulaLivre(ref inicioId, inicio, minimo, tamanhoCelula,
-                largura, altura, livre, testada, celulaLivre) ||
+                largura, altura, livre, testada, celulaLivre, segmentoLivre) ||
             !EncontrarCelulaLivre(ref destinoId, destino, minimo, tamanhoCelula,
-                largura, altura, livre, testada, celulaLivre))
+                largura, altura, livre, testada, celulaLivre, segmentoLivre))
             return null;
 
         PriorityQueue<int, float> abertos = new();
@@ -159,7 +159,8 @@ internal static class PathfinderSeguidorMortal
         int altura,
         bool[] livre,
         bool[] testada,
-        Func<Vector2, bool> celulaLivre)
+        Func<Vector2, bool> celulaLivre,
+        Func<Vector2, Vector2, bool> segmentoLivre)
     {
         if (CelulaLivre(indice, minimo, passo, largura, livre, testada, celulaLivre))
             return true;
@@ -189,7 +190,7 @@ internal static class PathfinderSeguidorMortal
                     continue;
 
                 Vector2 ponto = Centro(x, y, minimo, passo);
-                if (!PodeConectarOrigem(origem, ponto, celulaLivre, out float distancia))
+                if (!PodeConectarOrigem(origem, ponto, celulaLivre, segmentoLivre, out float distancia))
                     continue;
 
                 if (distancia < menorDistancia)
@@ -213,10 +214,10 @@ internal static class PathfinderSeguidorMortal
     // de segmento acontece na expansão do primeiro nó.
     private static bool PodeConectarOrigem(
         Vector2 origem, Vector2 ponto, Func<Vector2, bool> celulaLivre,
-        out float distancia)
+        Func<Vector2, Vector2, bool> segmentoLivre, out float distancia)
     {
         distancia = Vector2.Distance(origem, ponto);
-        return celulaLivre(ponto);
+        return celulaLivre(ponto) && segmentoLivre(origem, ponto);
     }
 
     private static bool CelulaLivre(
