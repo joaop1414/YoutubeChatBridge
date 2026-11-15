@@ -1815,12 +1815,21 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             indiceCaminho = 0;
         }
 
-        // Enquanto o A* aguarda a próxima tentativa, mantém um desvio local
-        // curto e validado. Não deixa o bloco de waypoints zerar a velocidade
-        // logo após o fallback ter encontrado um corredor livre.
+        // Quando o A* falha, TentarDesvioLocal aplica uma velocidade válida
+        // e agenda outra tentativa em 0,18s. Como não existe waypoint global
+        // nesse intervalo, precisamos reaplicar o desvio local em cada chamada.
+        // Antes, este bloco zerava a velocidade no frame seguinte, anulando
+        // imediatamente o próprio fallback e deixando o NPC parado.
         if (caminhoAtual == null || caminhoAtual.Count == 0)
         {
-            PararCorpo(corpo, "MoverAte aguardando nova rota");
+            if (agora < proximoRecalculoCaminho &&
+                TentarDesvioLocal(origem, destino, corpo, agora))
+            {
+                AtualizarRenderizacaoCaminho();
+                return;
+            }
+
+            PararCorpo(corpo, "MoverAte aguardando nova rota sem desvio seguro");
             AtualizarRenderizacaoCaminho();
             return;
         }
