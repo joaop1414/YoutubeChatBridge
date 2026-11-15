@@ -370,11 +370,13 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
     /// </summary>
     internal static bool AoTentarProteger(PlayerControl anjo, PlayerControl alvo)
     {
-        if (!YouTubeVoteBridgePlugin.EhHost() ||
-            !ativo ||
-            anjo == null ||
-            anjo.PlayerId != playerIdSelecionado)
+        if (!YouTubeVoteBridgePlugin.EhHost() || !ativo || anjo == null)
             return false;
+
+        // Durante o evento, somente o jogador impostor escolhido pode usar
+        // Protect. Bloqueia qualquer outro Guardian Angel que tente acioná-lo.
+        if (anjo.PlayerId != playerIdSelecionado)
+            return true;
 
         // Se a habilidade já foi encerrada, ainda bloqueia qualquer Protect
         // residual que chegue atrasado ao host.
