@@ -1472,183 +1472,105 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         float agora = Time.realtimeSinceStartup;
         var corpo = seguidor.NetTransform.body;
 
-        // Manobras antigas de escape eram capazes de empurrar o NPC contra
-        // paredes e objetos. A recuperação agora sempre volta ao A*.
-        if (emManobraDestravamento)
+        // Chegou ao destino: encerra somente a navegação, sem manter estados
+        // de travamento que possam bloquear a próxima ordem de movimento.
+        if (Vector2.Distance(origem, destino) <= 0.18f)
         {
-            emManobraDestravamento = false;
             corpo.velocity = Vector2.zero;
             LimparCaminho();
-            proximoRecalculoCaminho = 0f;
-        }
-
-        if (!monitoramentoMovimentoIniciado)
-        {
-            monitoramentoMovimentoIniciado = true;
-            ultimaPosicaoMonitorada = origem;
-            inicioSemDeslocamento = agora;
-            proximaVerificacaoTravamento = agora + 0.5f;
+            monitoramentoMovimentoIniciado = false;
             avisoMonitoramentoMovimento = false;
-        }
-        else if (agora >= proximaVerificacaoTravamento)
-        {
-            float deslocamento = Vector2.Distance(origem, ultimaPosicaoMonitorada);
-            ultimaPosicaoMonitorada = origem;
-            proximaVerificacaoTravamento = agora + 0.5f;
-
-            if (deslocamento >= DeslocamentoMinimoMonitoramento)
-            {
-                inicioSemDeslocamento = agora;
-                if (avisoMonitoramentoMovimento)
-                {
-                    avisoMonitoramentoMovimento = false;
-                    LimparCaminho();
-                    proximoRecalculoCaminho = 0f;
-                    YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                        "[F7/Seguidor] Movimento retomado; rota será recalculada.");
-                }
-            }
-            else if (agora - inicioSemDeslocamento >= TempoParaConsiderarTravado)
-            {
-                if (alvoAtual != null &&
-                    !resolvendoSabotagemLuzes && !resolvendoOutraSabotagem &&
-                    agora - inicioSemDeslocamento >= TempoParaTrocarAlvoTravado)
-                {
-                    byte alvoAnterior = alvoAtual.PlayerId;
-                    PlayerControl novoAlvo = ObterJogadorVivoMaisProximo(origem, alvoAnterior);
-                    if (novoAlvo != null)
-                    {
-                        alvoAtual = novoAlvo;
-                        proximaBuscaAlvo = agora + IntervaloTrocaAlvo;
-                        corpo.velocity = Vector2.zero;
-                        monitoramentoMovimentoIniciado = false;
-                        avisoMonitoramentoMovimento = false;
-                        LimparCaminho();
-                        proximoRecalculoCaminho = 0f;
-                        EnviarDestinoAosClientesComMod(novoAlvo);
-                        YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                            "[F7/Seguidor] NPC sem progresso; trocando alvo " +
-                            alvoAnterior + " por " + novoAlvo.PlayerId + ".");
-                        return;
-                    }
-                }
-
-                // Não tenta escapar aleatoriamente. Para, limpa a rota e deixa
-                // o A* encontrar outro corredor sem empurrar o collider contra obstáculos.
-                if (!avisoMonitoramentoMovimento)
-                {
-                    avisoMonitoramentoMovimento = true;
-                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                        "[F7/Seguidor] Sem progresso por " +
-                        (agora - inicioSemDeslocamento).ToString("F1") +
-                        "s. Parando para recalcular uma rota segura. Posição=" + origem + ".");
-                }
-
-                corpo.velocity = Vector2.zero;
-                LimparCaminho();
-                proximoRecalculoCaminho = agora + 0.15f;
-                return;
-            }
+            return;
         }
 
         bool precisaRecalcular =
+            caminhoAtual == null ||
             caminhoAtual.Count == 0 ||
             indiceCaminho >= caminhoAtual.Count ||
             agora >= proximoRecalculoCaminho ||
-            Vector2.Distance(destino, destinoCaminhoAnterior) >= DistanciaRecalculoAlvo;
+            Vector2.Distance(destino, destinoCaminhoAnterior) >= 0.28f;
+
+        // Se o próximo segmento ficou bloqueado por uma porta, jogador ou
+        // objeto móvel, descarta a rota e procura outra imediatamente.
+        if (!precisaRecalcular && indiceCaminho < caminhoAtual.Count &&
+            !PodeMoverEntre(origem, caminhoAtual[indiceCaminho]))
+            precisaRecalcular = true;
 
         if (precisaRecalcular)
         {
-            List<Vector2> novoCaminho = CalcularCaminhoAStar(origem, destino);
+            List<Vector2> novaRota = CalcularCaminhoAStar(origem, destino);
             destinoCaminhoAnterior = destino;
-            proximoRecalculoCaminho = agora + IntervaloRecalculoCaminho;
+            proximoRecalculoCaminho = agora + 0.65f;
 
-            if (novoCaminho == null || novoCaminho.Count == 0)
+            if (novaRota == null || novaRota.Count == 0)
             {
                 caminhoAtual.Clear();
                 indiceCaminho = 0;
                 corpo.velocity = Vector2.zero;
+                proximoRecalculoCaminho = agora + 0.30f;
 
-                // Se o destino atual da patrulha não possui uma rota possível,
-                // procura outra sala e só aceita um destino com caminho A* válido.
                 if (possuiDestinoPatrulha &&
                     Vector2.Distance(destino, destinoPatrulha) < 0.20f)
-                    TentarTrocarDestinoPatrulha(origem);
+                {
+                    falhasConsecutivasRota++;
+                    if (falhasConsecutivasRota >= 2)
+                    {
+                        falhasConsecutivasRota = 0;
+                        TentarTrocarDestinoPatrulha(origem);
+                    }
+                }
 
                 return;
             }
 
             falhasConsecutivasRota = 0;
-            caminhoAtual = novoCaminho;
+            caminhoAtual = novaRota;
             indiceCaminho = 0;
         }
 
-        // Avança somente pelos pontos da rota suavizada, sem pular para um
-        // ponto distante apenas porque uma checagem pontual pareceu livre.
+        // Avança por todos os waypoints já alcançados, inclusive quando o
+        // NPC passa por mais de um deles entre duas atualizações.
         while (indiceCaminho < caminhoAtual.Count &&
-               Vector2.Distance(origem, caminhoAtual[indiceCaminho]) <= 0.13f)
+               Vector2.Distance(origem, caminhoAtual[indiceCaminho]) <= 0.20f)
             indiceCaminho++;
 
         if (indiceCaminho >= caminhoAtual.Count)
         {
             corpo.velocity = Vector2.zero;
-            return;
-        }
-
-        Vector2 proximoPonto = caminhoAtual[indiceCaminho];
-        Vector2 delta = proximoPonto - origem;
-        if (delta.sqrMagnitude < 0.0004f)
-        {
-            corpo.velocity = Vector2.zero;
-            indiceCaminho++;
-            return;
-        }
-
-        Vector2 direcao = delta.normalized;
-
-        // Valida o corredor à frente a cada atualização. Isso evita que a
-        // inércia ou uma mudança recente no cenário leve o NPC a bater na parede.
-        float distanciaSegura = Mathf.Min(
-            delta.magnitude,
-            Mathf.Max(0.16f, Velocidade * 0.22f));
-
-        Vector2 pontoPrevisao = origem + direcao * distanciaSegura;
-        if (!PodeMoverEntre(origem, pontoPrevisao))
-        {
-            corpo.velocity = Vector2.zero;
-            LimparCaminho();
-            proximoRecalculoCaminho = agora + 0.12f;
-            direcaoDeslizamentoCache = Vector2.zero;
-            proximaReavaliacaoDeslizamento = 0f;
-
-            // Uma única obstrução pode ser temporária. Depois de três falhas
-            // consecutivas, a patrulha abandona o destino e procura outro.
-            if (possuiDestinoPatrulha &&
-                Vector2.Distance(destino, destinoPatrulha) < 0.20f)
+            if (Vector2.Distance(origem, destino) > 0.28f)
             {
-                falhasConsecutivasRota++;
-                if (falhasConsecutivasRota >= 3)
-                {
-                    falhasConsecutivasRota = 0;
-                    TentarTrocarDestinoPatrulha(origem);
-                }
+                LimparCaminho();
+                proximoRecalculoCaminho = agora + 0.08f;
             }
             return;
         }
 
-        falhasConsecutivasRota = 0;
+        Vector2 waypoint = caminhoAtual[indiceCaminho];
+        Vector2 deslocamento = waypoint - origem;
+        if (deslocamento.sqrMagnitude <= 0.0004f)
+        {
+            indiceCaminho++;
+            return;
+        }
 
-        // Sem aceleração acumulada: a velocidade muda junto com a direção da
-        // rota, evitando que o corpo continue deslizando para dentro de objetos.
-        corpo.velocity = direcao * Velocidade;
+        // A checagem é feita no segmento completo até o waypoint. Se algo
+        // obstruir o trajeto, não fica preso tentando seguir o mesmo ponto.
+        if (!PodeMoverEntre(origem, waypoint))
+        {
+            corpo.velocity = Vector2.zero;
+            LimparCaminho();
+            proximoRecalculoCaminho = agora + 0.08f;
+            return;
+        }
+
+        corpo.velocity = deslocamento.normalized * Velocidade;
+        monitoramentoMovimentoIniciado = true;
+        ultimaPosicaoMonitorada = origem;
+        inicioSemDeslocamento = agora;
+        avisoMonitoramentoMovimento = false;
     }
 
-    /// <summary>
-    /// Abandona um destino de patrulha sem rota e procura outra sala.
-    /// Um novo destino só é aceito quando o A* consegue calcular um caminho
-    /// completo até ele, evitando repetir pontos livres porém inacessíveis.
-    /// </summary>
-    private static bool TentarTrocarDestinoPatrulha(Vector2 origem)
+        private static bool TentarTrocarDestinoPatrulha(Vector2 origem)
     {
         if (seguidor?.NetTransform?.body == null || ShipStatus.Instance == null)
             return false;
@@ -2090,138 +2012,40 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         if (ShipStatus.Instance == null || seguidor == null)
             return null;
 
-        // Primeiro tenta a rota direta: em corredores/salas abertas evita toda
-        // a criação e expansão da grade.
-        if (PodeMoverEntre(inicio, destino))
-            return new List<Vector2> { destino };
-
+        // O novo pathfinder usa uma grade própria e não depende dos caches,
+        // pesos ou do sistema de deslizamento da implementação anterior.
         Bounds limites = new Bounds();
-        bool possuiSala = false;
+        bool encontrouSala = false;
+
         foreach (var sala in ShipStatus.Instance.AllRooms)
         {
             if (sala == null || !sala.roomArea)
                 continue;
 
-            if (possuiSala)
-                limites.Encapsulate(sala.roomArea.bounds);
-            else
+            if (!encontrouSala)
             {
                 limites = sala.roomArea.bounds;
-                possuiSala = true;
+                encontrouSala = true;
+            }
+            else
+            {
+                limites.Encapsulate(sala.roomArea.bounds);
             }
         }
 
-        if (!possuiSala)
+        if (!encontrouSala)
             return null;
 
-        limites.Expand(TamanhoCelula * 2f);
-        Vector2 minimo = limites.min;
-        int largura = Mathf.CeilToInt(limites.size.x / TamanhoCelula);
-        int altura = Mathf.CeilToInt(limites.size.y / TamanhoCelula);
-        if (largura <= 0 || altura <= 0 || (long)largura * altura > 45000)
-            return null;
-
-        Vector2Int inicioGrid = ParaGrid(inicio, minimo, largura, altura);
-        Vector2Int destinoGrid = ParaGrid(destino, minimo, largura, altura);
-        if (!EncontrarCelulaLivre(ref inicioGrid, inicio, minimo, largura, altura) ||
-            !EncontrarCelulaLivre(ref destinoGrid, destino, minimo, largura, altura))
-            return null;
-
-        var abertos = new PriorityQueue<Vector2Int, float>();
-        var cacheCelulasLivres = new Dictionary<Vector2Int, bool>();
-        var custos = new Dictionary<Vector2Int, float>();
-        var cachePenalidadeProximidade = new Dictionary<Vector2Int, float>();
-        var anteriores = new Dictionary<Vector2Int, Vector2Int>();
-        var fechados = new HashSet<Vector2Int>();
-
-        custos[inicioGrid] = 0f;
-        abertos.Enqueue(inicioGrid, Heuristica(inicioGrid, destinoGrid));
-        int expandidos = 0;
-
-        // Weighted A*: o desempate favorece nós mais próximos do destino,
-        // reduzindo explorações laterais e mantendo custo de rota quase ótimo.
-        const float pesoHeuristica = 1.12f;
-        const int limiteExpansoes = 12000;
-
-        while (abertos.Count > 0 && expandidos < limiteExpansoes)
-        {
-            Vector2Int atual = abertos.Dequeue();
-            if (!fechados.Add(atual))
-                continue;
-
-            expandidos++;
-            if (atual == destinoGrid)
-            {
-                List<Vector2> caminho = ReconstruirCaminho(
-                    inicioGrid, destinoGrid, anteriores, minimo);
-                if (caminho == null || caminho.Count == 0)
-                    return null;
-
-                // Conecta a grade ao destino real, validando o último segmento.
-                if (PodeMoverEntre(caminho[caminho.Count - 1], destino))
-                    caminho.Add(destino);
-                else
-                    return null;
-
-                return caminho;
-            }
-
-            Vector2 pontoAtual = CentroCelula(atual, minimo);
-            foreach (Vector2Int direcao in DirecoesCaminho)
-            {
-                Vector2Int vizinho = atual + direcao;
-                if (vizinho.x < 0 || vizinho.y < 0 ||
-                    vizinho.x >= largura || vizinho.y >= altura ||
-                    fechados.Contains(vizinho))
-                    continue;
-
-                if (!CelulaLivre(vizinho, minimo, cacheCelulasLivres))
-                    continue;
-
-                // Diagonais só passam quando os dois lados ortogonais estão livres.
-                if (direcao.x != 0 && direcao.y != 0)
-                {
-                    Vector2Int lateralX = atual + new Vector2Int(direcao.x, 0);
-                    Vector2Int lateralY = atual + new Vector2Int(0, direcao.y);
-                    if (!CelulaLivre(lateralX, minimo, cacheCelulasLivres) ||
-                        !CelulaLivre(lateralY, minimo, cacheCelulasLivres))
-                        continue;
-                }
-
-                Vector2 pontoVizinho = CentroCelula(vizinho, minimo);
-                if (!PodePassarEntre(pontoAtual, pontoVizinho))
-                    continue;
-
-                float distancia = direcao.x != 0 && direcao.y != 0
-                    ? 1.41421356f : 1f;
-                float penalidade = ObterPenalidadeProximidadeParede(
-                    vizinho, minimo, largura, altura,
-                    cacheCelulasLivres, cachePenalidadeProximidade);
-
-                // Evita que o custo de parede domine o comprimento real.
-                float novoCusto = custos[atual] + distancia + penalidade;
-                if (custos.TryGetValue(vizinho, out float custoAnterior) &&
-                    novoCusto >= custoAnterior)
-                    continue;
-
-                custos[vizinho] = novoCusto;
-                anteriores[vizinho] = atual;
-                float h = Heuristica(vizinho, destinoGrid);
-                // Pequeno desempate adicional para preferir progresso direto.
-                float prioridade = novoCusto + h * pesoHeuristica + h * 0.0001f;
-                abertos.Enqueue(vizinho, prioridade);
-            }
-        }
-
-        if (expandidos >= limiteExpansoes)
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "[F7/Pathfinder] A* atingiu o limite de " + limiteExpansoes +
-                " expansões. Origem=" + inicio + ", destino=" + destino + ".");
-
-        return null;
+        return PathfinderSeguidorMortal.Calcular(
+            inicio,
+            destino,
+            limites,
+            TamanhoCelula,
+            ponto => PodeMoverEntre(ponto, ponto),
+            (origem, fim) => PodePassarEntre(origem, fim));
     }
 
-    private static Collider2D ObterColliderFisicoNpc()
+        private static Collider2D ObterColliderFisicoNpc()
     {
         if (seguidor == null)
             return null;
