@@ -1616,12 +1616,11 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         Vector2 velocidadeAnterior = corpo.velocity;
         corpo.velocity = deslocamento.normalized * Velocidade;
 
-        if (destinoMudou && velocidadeAnterior.sqrMagnitude <= 0.0001f)
+        if (velocidadeAnterior.sqrMagnitude <= 0.0001f)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[F7/Movimento] NPC estava parado; novo destino recebido e velocidade retomada pela rota. " +
-                "Destino anterior=" + destinoCaminhoAnterior +
-                " | destino novo=" + destino +
+                "[F7/Movimento] NPC estava parado; rota válida encontrada e velocidade retomada. " +
+                "Destino atual=" + destino +
                 " | waypoint=" + waypoint +
                 " | velocidade aplicada=" + corpo.velocity + ".");
         }
