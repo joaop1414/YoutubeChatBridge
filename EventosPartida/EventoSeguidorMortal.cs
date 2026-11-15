@@ -21,7 +21,10 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private const byte PlayerIdSeguidor = 249;
     private const float Velocidade = 1.35f;
     private const float PenalidadeProximidadeParede = 0.24f;
-    private const float AlcanceMorte = 0.48f;
+    // Hitbox virtual independente dos colliders físicos do prefab do NPC.
+    // A colisão é calculada entre os centros visuais dos dois personagens.
+    private const float RaioHitboxVirtualNpc = 0.62f;
+    private const float DeslocamentoCentroVisualFallback = 0.36f;
     private const float IntervaloTrocaAlvo = 0.25f;
     private const string NomeSeguidor = "<color=red>NPC ASSASSINO</color>";
 
@@ -1101,10 +1104,19 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             return;
         }
 
-        // Sem patrulha, sabotagens ou investigação: o destino acompanha
-        // diretamente a posição atual do alvo escolhido.
-        Vector2 destino = alvo.GetTruePosition();
+        // O centro visual evita que a IA persiga apenas o ponto dos pés.
+        // Para caminhar, convertemos o centro visual novamente para o nível do chão.
+        Vector2 centroAlvo = ObterCentroVisualJogador(alvo);
+        Vector2 destino = ObterPontoDePerseguicao(alvo, centroAlvo);
         AtualizarDestinoReplicado(alvo, destino);
+
+        // Dutos são considerados também durante a perseguição (antes só eram
+        // processados na patrulha, por isso o NPC podia nunca tentar entrar).
+        if (TentarUsarVentilacao(destino))
+        {
+            inteligencia.DefinirEstado(EstadoIAAssassino.Transportando);
+            return;
+        }
 
         // Mantém as travessias de mapa necessárias para alcançar o jogador.
         if (TentarUsarEscadaOuTirolesa(alvo))
@@ -1113,10 +1125,12 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             return;
         }
 
-        if (Vector2.Distance(origem, alvo.GetTruePosition()) <= AlcanceMorte &&
-            PodeAtacarJogador(alvo, origem))
+        Vector2 centroNpc = ObterCentroVisualJogador(seguidor);
+        float distanciaCentros = Vector2.Distance(centroNpc, centroAlvo);
+        if (distanciaCentros <= RaioHitboxVirtualNpc &&
+            PodeAtacarJogador(alvo, centroNpc))
         {
-            PararCorpo(seguidor.NetTransform.body, "Atualizar (alvo ao alcance)");
+            PararCorpo(seguidor.NetTransform.body, "Atualizar (hitbox virtual em contato)");
             if (MatarAlvo(alvo))
             {
                 inteligencia.EsquecerAlvo();
@@ -3992,12 +4006,61 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         return 30f;
     }
 
+    // Retorna o centro visual do personagem, em vez de GetTruePosition(),
+    // que representa o ponto de apoio no chão e faz a perseguição mirar nos pés.
+    private static Vector2 ObterCentroVisualJogador(PlayerControl jogador)
+    {
+        if (jogador == null)
+            return Vector2.zero;
+
+        try
+        {
+            SpriteRenderer[] renderizadores =
+                jogador.GetComponentsInChildren<SpriteRenderer>(true);
+
+            SpriteRenderer melhor = null;
+            foreach (SpriteRenderer renderizador in renderizadores)
+            {
+                if (renderizador == null || !renderizador.enabled ||
+                    !renderizador.gameObject.activeInHierarchy)
+                    continue;
+
+                if (melhor == null ||
+                    renderizador.bounds.size.sqrMagnitude > melhor.bounds.size.sqrMagnitude)
+                    melhor = renderizador;
+            }
+
+            if (melhor != null)
+                return melhor.bounds.center;
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogDebug(
+                "[F7/Seguidor] Não foi possível obter o centro visual do jogador: " + ex.Message);
+        }
+
+        return jogador.GetTruePosition() + Vector2.up * DeslocamentoCentroVisualFallback;
+    }
+
+    // A navegação continua no plano do chão; apenas a aquisição e a hitbox
+    // virtual usam o centro visual do sprite.
+    private static Vector2 ObterPontoDePerseguicao(PlayerControl jogador, Vector2 centroVisual)
+    {
+        if (jogador == null)
+            return centroVisual;
+
+        Vector2 posicaoPe = jogador.GetTruePosition();
+        float deslocamentoY = centroVisual.y - posicaoPe.y;
+        return centroVisual - Vector2.up * deslocamentoY;
+    }
+
     private static bool PodeAtacarJogador(PlayerControl jogador, Vector2 origem)
     {
         if (jogador == null || jogador.Data == null ||
             jogador.Data.IsDead || jogador.Data.Disconnected || EstaNoDuto(jogador))
             return false;
-        Vector2 destino = jogador.GetTruePosition();
+
+        Vector2 destino = ObterCentroVisualJogador(jogador);
         RaycastHit2D impacto = Physics2D.Linecast(origem, destino, Constants.ShipOnlyMask);
         return impacto.collider == null || impacto.collider.transform.IsChildOf(jogador.transform);
     }
