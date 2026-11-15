@@ -22,7 +22,8 @@ internal static class PathfinderSeguidorMortal
         Bounds limites,
         float tamanhoCelula,
         Func<Vector2, bool> celulaLivre,
-        Func<Vector2, Vector2, bool> segmentoLivre)
+        Func<Vector2, Vector2, bool> segmentoLivre,
+        Func<Vector2, float> custoAdicional = null)
     {
         if (tamanhoCelula <= 0f || celulaLivre == null || segmentoLivre == null)
             return null;
@@ -148,7 +149,13 @@ internal static class PathfinderSeguidorMortal
 
                 float passo = direcao.x != 0 && direcao.y != 0
                     ? 1.41421356f : 1f;
-                float novoCusto = custos[atual] + passo;
+                // O mapa salvo orienta a rota, mas seu custo é apenas uma
+                // preferência: um trecho mapeado como obstáculo ainda pode ser
+                // usado quando a geometria real do jogo permitir e for necessário.
+                float penalidadeMapa = custoAdicional != null
+                    ? Mathf.Max(0f, custoAdicional(pontoVizinho))
+                    : 0f;
+                float novoCusto = custos[atual] + passo + penalidadeMapa;
 
                 if (novoCusto >= custos[vizinho])
                     continue;
