@@ -1726,6 +1726,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
                 caminhoAtual.Clear();
                 indiceCaminho = 0;
+                AtualizarRenderizacaoCaminho();
                 // Sem rota calculada, não improvisa uma direção lateral: esse
                 // fallback fazia o NPC oscilar/andar em círculos perto de paredes.
                 // Aguarda um curto intervalo e tenta A* novamente.
@@ -1766,6 +1767,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         if (caminhoAtual == null || caminhoAtual.Count == 0)
         {
             PararCorpo(corpo, "MoverAte aguardando nova rota");
+            AtualizarRenderizacaoCaminho();
             return;
         }
 
@@ -1783,6 +1785,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 LimparCaminho();
                 proximoRecalculoCaminho = agora + 0.08f;
             }
+            AtualizarRenderizacaoCaminho();
             return;
         }
 
@@ -1791,6 +1794,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         if (deslocamento.sqrMagnitude <= 0.0004f)
         {
             indiceCaminho++;
+            AtualizarRenderizacaoCaminho();
             return;
         }
 
@@ -1801,6 +1805,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             PararCorpo(corpo, "MoverAte (linha 1569)");
             LimparCaminho();
             proximoRecalculoCaminho = agora + 0.08f;
+            AtualizarRenderizacaoCaminho();
             return;
         }
 
@@ -1818,6 +1823,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 " | waypoint=" + waypoint +
                 " | velocidade aplicada=" + corpo.velocity + ".");
         }
+        AtualizarRenderizacaoCaminho();
         monitoramentoMovimentoIniciado = true;
         ultimaPosicaoMonitorada = origem;
         inicioSemDeslocamento = agora;
@@ -2921,7 +2927,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
     private static void AtualizarRenderizacaoCaminho()
     {
-        if (!mostrarCaminhoNpc || seguidor == null)
+        if (!mostrarCaminhoNpc || seguidor == null ||
+            caminhoAtual == null || caminhoAtual.Count == 0)
         {
             OcultarRenderizacaoCaminho();
             return;
@@ -2931,16 +2938,23 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         {
             GarantirRenderizadorCaminho();
 
+            // Desenha exclusivamente os waypoints que MoverAte usa.
+            // Nunca completa a linha diretamente até o jogador: isso mostrava
+            // uma rota fictícia atravessando paredes quando o A* falhava.
             int primeiroIndice = Mathf.Clamp(indiceCaminho, 0, caminhoAtual.Count);
             int pontosRestantes = caminhoAtual.Count - primeiroIndice;
-            // Mesmo enquanto o A* recalcula, mantém uma linha de referência
-            // até o destino atual em vez de fazer o botão parecer inoperante.
-            int quantidade = pontosRestantes + 2;
-            renderizadorCaminhoNpc.positionCount = quantidade;
+            if (pontosRestantes <= 0)
+            {
+                OcultarRenderizacaoCaminho();
+                return;
+            }
+
+            renderizadorCaminhoNpc.positionCount = pontosRestantes + 1;
 
             Vector3 posicaoNpc = seguidor.transform.position;
             posicaoNpc.z -= 0.25f;
             renderizadorCaminhoNpc.SetPosition(0, posicaoNpc);
+
             for (int i = 0; i < pontosRestantes; i++)
             {
                 Vector2 ponto = caminhoAtual[primeiroIndice + i];
@@ -2948,17 +2962,12 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                     new Vector3(ponto.x, ponto.y, posicaoNpc.z));
             }
 
-            Vector2 destinoReferencia = pontosRestantes > 0
-                ? caminhoAtual[caminhoAtual.Count - 1]
-                : (alvoAtual != null ? alvoAtual.GetTruePosition() : posicaoNpc);
-            renderizadorCaminhoNpc.SetPosition(quantidade - 1,
-                new Vector3(destinoReferencia.x, destinoReferencia.y, posicaoNpc.z));
-            renderizadorCaminhoNpc.enabled = quantidade >= 2;
+            renderizadorCaminhoNpc.enabled = pontosRestantes >= 1;
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "[F8/Seguidor] Não foi possível desenhar o caminho do NPC: " + ex.Message);
+                "[F8/Seguidor] Não foi possível desenhar o caminho real do NPC: " + ex.Message);
             OcultarRenderizacaoCaminho();
         }
     }
