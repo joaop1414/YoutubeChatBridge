@@ -945,7 +945,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         {
             try
             {
-                CustomNetObject.EnviarSpawn(seguidor, ocultarVisual: false);
+                CustomNetObject.EnviarSpawn(seguidor);
                 instanteSpawnNpc = Time.realtimeSinceStartup;
                 if (PlayerControl.AllPlayerControls.Contains(seguidor))
                     PlayerControl.AllPlayerControls.Remove(seguidor);
@@ -1006,6 +1006,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                     "skin_Wall",
                     "pet_EmptyPet",
                     "visor_EmptyVisor");
+                RestaurarVisualCorpoSeguidor();
 
                 // Mantém o nome especial somente até completar 1 segundo
                 // desde o envio do Spawn. A etapa seguinte reaplica os cosméticos
@@ -1041,6 +1042,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                     "skin_Wall",
                     "pet_EmptyPet",
                     "visor_EmptyVisor");
+                RestaurarVisualCorpoSeguidor();
 
                 etapaInicializacao = 5;
 
@@ -4105,10 +4107,39 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         return impacto.collider == null || impacto.collider.transform.IsChildOf(jogador.transform);
     }
 
+
+    // EnviarSpawn usa o mesmo fluxo de spawn oculto do Raio/Tsunami.
+    // Depois da associação e da aparência, reexibimos o corpo no host.
+    private static void RestaurarVisualCorpoSeguidor()
+    {
+        try
+        {
+            if (seguidor?.cosmetics?.currentBodySprite?.BodySprite != null)
+            {
+                SpriteRenderer corpo = seguidor.cosmetics.currentBodySprite.BodySprite;
+                seguidor.SetPlayerMaterialColors(corpo);
+                corpo.enabled = true;
+                corpo.color = Color.white;
+            }
+
+            if (seguidor?.cosmetics?.colorBlindText != null)
+            {
+                seguidor.cosmetics.colorBlindText.enabled = true;
+                seguidor.cosmetics.colorBlindText.color = Color.white;
+            }
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Seguidor] Não foi possível restaurar o visual do NPC após o Spawn: " + ex.Message);
+        }
+    }
+
     private static bool MatarAlvo(PlayerControl alvo)
     {
         if (!YouTubeVoteBridgePlugin.EhHost() || seguidor == null || alvo == null ||
-            alvo.Data == null || alvo.Data.IsDead || alvo.Data.Disconnected ||
+            seguidor.Data == null || alvo.Data == null ||
+            alvo.Data.IsDead || alvo.Data.Disconnected ||
             EstaNoDuto(alvo) || PlayerControl.LocalPlayer == null ||
             AmongUsClient.Instance == null ||
             Time.realtimeSinceStartup < proximoKillNpc)
@@ -4118,24 +4149,33 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         {
             Vector2 posicaoMorte = alvo.GetTruePosition();
             byte playerId = alvo.PlayerId;
-            string nomeAlvo = alvo.Data.PlayerName;
+            string nomeAlvo = alvo.Data.PlayerName ?? ("PlayerId=" + playerId);
 
-            // Igual ao Tsunami: Exiled remove o jogador sem criar DeadBody.
-            alvo.Exiled();
+            // A vítima recebe Noisemaker ANTES da morte. O RPC é enviado
+            // primeiro para que o OnDeath vanilla dispare o alerta de Noisemaker.
+            alvo.RpcSetRole(RoleTypes.Noisemaker, true);
 
-            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
-                alvo.NetId,
-                (byte)RpcCalls.Exiled,
-                SendOption.Reliable,
-                -1);
-            AmongUsClient.Instance.FinishRpcImmediately(writer);
+            // A morte é executada pelo próprio NPC, usando o mesmo caminho
+            // vanilla de MurderPlayer que cria o corpo e sincroniza a animação.
+            // Não usamos Exiled nem corpo falso: o NPC é o assassino real do RPC.
+            seguidor.RpcMurderPlayer(
+                alvo,
+                true);
 
-            // O RPC Exiled atualiza os clientes, mas em alguns casos o host
-            // não mantém o IsDead no registro autoritativo do GameData.
-            // Sincronizamos explicitamente as duas referências locais para que
-            // a IA pare de considerar esse jogador como um alvo vivo.
             NetworkedPlayerInfo dadosAutoritativos =
                 GameData.Instance?.GetPlayerById(playerId);
+
+            bool morreuNoHost =
+                (alvo.Data != null && alvo.Data.IsDead) ||
+                (dadosAutoritativos != null && dadosAutoritativos.IsDead);
+
+            if (!morreuNoHost)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[F7/Seguidor] O NPC enviou MurderPlayer, mas a morte ainda não foi confirmada no host. " +
+                    "Alvo=" + playerId + ", NPC NetId=" + seguidor.NetId + ".");
+                return false;
+            }
 
             if (alvo.Data != null)
                 alvo.Data.IsDead = true;
@@ -4146,18 +4186,6 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 dadosAutoritativos.SetDirtyBit(uint.MaxValue);
             }
 
-            if (alvo.Data == null || !alvo.Data.IsDead ||
-                (dadosAutoritativos != null && !dadosAutoritativos.IsDead))
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "[F7/Seguidor] Não foi possível confirmar IsDead no host após Exiled; " +
-                    "Data=" + (alvo.Data?.IsDead.ToString() ?? "null") +
-                    ", GameData=" + (dadosAutoritativos?.IsDead.ToString() ?? "null") + ".");
-                return false;
-            }
-
-            // Propaga a alteração do registro autoritativo; o RPC Exiled acima
-            // continua responsável pela animação/estado de morte nos clientes.
             try
             {
                 AmongUsClient.Instance.SendAllStreamedObjects();
@@ -4165,29 +4193,27 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             catch (Exception exSync)
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "[F7/Seguidor] Falha ao transmitir o estado IsDead do GameData: " +
-                    exSync.Message);
+                    "[F7/Seguidor] Falha ao transmitir o estado de morte do alvo: " + exSync.Message);
             }
-
-            EventoCriarCorpoFalso.ExecutarComoNoisemakerParaJogadorNaPosicao(
-                playerId, posicaoMorte);
 
             float cooldown = ObterCooldownKillNpc();
             proximoKillNpc = Time.realtimeSinceStartup + cooldown;
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[F7/Seguidor] NPC eliminou " + nomeAlvo + " (PlayerId=" + playerId +
-                ") via Exiled, sem corpo original; corpo falso Noisemaker solicitado em " +
+                "[F7/Seguidor] NPC executou MurderPlayer em " + nomeAlvo +
+                " (PlayerId=" + playerId + "). A vítima recebeu Noisemaker antes da morte; " +
+                "corpo e alerta devem ser gerados pelo fluxo vanilla. Posição=" +
                 posicaoMorte + ". Próximo kill em " + cooldown.ToString("0.##") + "s.");
             return true;
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[F7/Seguidor] Falha ao eliminar o alvo como Noisemaker: " + ex);
+                "[F7/Seguidor] Falha ao matar o alvo com MurderPlayer do NPC/Noisemaker: " + ex);
             return false;
         }
     }
+
     internal static void Resetar()
     {
         if (YouTubeVoteBridgePlugin.EhHost() && seguidor != null)
