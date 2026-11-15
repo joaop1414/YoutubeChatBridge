@@ -277,6 +277,11 @@ internal static class ExploracaoMapaF8
     /// As salas definem a região preferencial; os colliders geram custos
     /// suaves, nunca bloqueios absolutos. A física atual continua soberana.
     /// </summary>
+    internal static bool MapeamentoNavegacaoDisponivel()
+    {
+        return GarantirMapaNavegacaoCarregado();
+    }
+
     internal static bool PodeUsarPontoNavegacao(Vector2 ponto)
     {
         if (!GarantirMapaNavegacaoCarregado())
