@@ -63,6 +63,8 @@ internal static class PathfinderSeguidorMortal
         float[] custos = new float[total];
         int[] anteriores = new int[total];
         bool[] fechado = new bool[total];
+        float[] penalidadesMapa = new float[total];
+        bool[] penalidadesMapaCalculadas = new bool[total];
 
         Array.Fill(custos, float.PositiveInfinity);
         Array.Fill(anteriores, -1);
@@ -152,9 +154,19 @@ internal static class PathfinderSeguidorMortal
                 // O mapa salvo orienta a rota, mas seu custo é apenas uma
                 // preferência: um trecho mapeado como obstáculo ainda pode ser
                 // usado quando a geometria real do jogo permitir e for necessário.
-                float penalidadeMapa = custoAdicional != null
-                    ? Mathf.Max(0f, custoAdicional(pontoVizinho))
-                    : 0f;
+                float penalidadeMapa = 0f;
+                if (custoAdicional != null)
+                {
+                    if (!penalidadesMapaCalculadas[vizinho])
+                    {
+                        penalidadesMapa[vizinho] = Mathf.Max(
+                            0f, custoAdicional(pontoVizinho));
+                        penalidadesMapaCalculadas[vizinho] = true;
+                    }
+
+                    penalidadeMapa = penalidadesMapa[vizinho];
+                }
+
                 float novoCusto = custos[atual] + passo + penalidadeMapa;
 
                 if (novoCusto >= custos[vizinho])
