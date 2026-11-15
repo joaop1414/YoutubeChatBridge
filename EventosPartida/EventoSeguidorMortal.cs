@@ -52,6 +52,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private static readonly Dictionary<SystemTypes, object> sistemasTipadosCache = new();
     private static PlayerControl seguidor;
     private static PlayerControl alvoAtual;
+    private static readonly InteligenciaArtificialAssassino inteligencia = new();
+    private static readonly List<PlayerControl> jogadoresParaIA = new();
 
     // Estado recebido pelos clientes com o mod para reproduzir a perseguição localmente.
     private static uint netIdSeguidorCliente;
@@ -243,6 +245,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             sequenciaSnapToRedeInicializada = false;
             transporteEmAndamento = false;
             alvoAtual = null;
+            inteligencia.DefinirEstado(EstadoIAAssassino.Inicializando);
             LimparCaminho();
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
@@ -975,14 +978,17 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             return;
         }
 
-        // Sabotagens têm prioridade sobre perseguição e patrulha.
+        // Sabotagens são uma decisão de maior prioridade que perseguição e patrulha.
         if (TentarResolverSabotagemLuzes() || TentarResolverOutrasSabotagens())
+        {
+            inteligencia.DefinirEstado(EstadoIAAssassino.ResolvendoSabotagem);
             return;
+        }
 
-        // Depois de concluir qualquer sabotagem, o NPC permanece parado por
-        // alguns segundos antes de voltar a procurar e perseguir jogadores.
+        // Depois de concluir uma sabotagem, a IA entra explicitamente em espera.
         if (Time.realtimeSinceStartup < aguardarPerseguicaoAte)
         {
+            inteligencia.DefinirEstado(EstadoIAAssassino.Aguardando);
             PararCorpo(seguidor.NetTransform.body, "Atualizar (linha 986)");
             return;
         }
@@ -993,6 +999,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         PlayerControl alvo = ObterAlvoAtual();
         if (alvo == null)
         {
+            inteligencia.DefinirEstado(EstadoIAAssassino.Patrulhando);
             Patrulhar();
             return;
         }
@@ -1008,27 +1015,47 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         }
 
         Vector2 origem = seguidor.GetTruePosition();
-        Vector2 destino = alvo.GetTruePosition();
+        Vector2 destino = inteligencia.DestinoAtual;
 
-        // Se o NPC estiver usando uma ventilação, conclui a travessia antes
-        // de calcular alcance de morte ou tentar qualquer outro transporte.
+        // Se perdeu a visão, a IA investiga a última posição conhecida em vez
+        // de perseguir através das paredes usando a posição atual do jogador.
         if (TentarUsarVentilacao(destino))
+        {
+            inteligencia.DefinirEstado(EstadoIAAssassino.Transportando);
             return;
+        }
 
-        Vector2 diferenca = destino - origem;
-        float distancia = diferenca.magnitude;
+        float distancia = Vector2.Distance(destino, origem);
 
         if (distancia <= AlcanceMorte)
         {
             PararCorpo(seguidor.NetTransform.body, "Atualizar (linha 1023)");
+
+            // Chegar ao último ponto visto não autoriza uma morte: o jogador
+            // precisa estar realmente próximo e visível.
+            if (inteligencia.EstaInvestigando ||
+                Vector2.Distance(origem, alvo.GetTruePosition()) > AlcanceMorte ||
+                !PodeVerJogador(alvo, origem))
+            {
+                inteligencia.EsquecerAlvo();
+                alvoAtual = null;
+                proximaBuscaAlvo = 0f;
+                return;
+            }
+
             MatarAlvo(alvo);
+            inteligencia.EsquecerAlvo();
             alvoAtual = null;
             proximaBuscaAlvo = 0f;
             return;
         }
 
-        if (TentarUsarEscadaOuTirolesa(alvo))
+        if (inteligencia.EstadoAtual == EstadoIAAssassino.Perseguindo &&
+            TentarUsarEscadaOuTirolesa(alvo))
+        {
+            inteligencia.DefinirEstado(EstadoIAAssassino.Transportando);
             return;
+        }
 
         MoverAte(destino);
     }
@@ -1520,11 +1547,14 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             proximoRecalculoCaminho = 0f;
         }
 
+        bool caminhoVazio = caminhoAtual == null || caminhoAtual.Count == 0;
+        bool aguardandoNovaTentativa = caminhoVazio &&
+            agora < proximoRecalculoCaminho;
+
         bool precisaRecalcular =
-            caminhoAtual == null ||
-            caminhoAtual.Count == 0 ||
-            indiceCaminho >= caminhoAtual.Count ||
-            agora >= proximoRecalculoCaminho ||
+            (!aguardandoNovaTentativa && caminhoVazio) ||
+            (!caminhoVazio && indiceCaminho >= caminhoAtual.Count) ||
+            (!caminhoVazio && agora >= proximoRecalculoCaminho) ||
             destinoMudou;
 
         // Se o próximo segmento ficou bloqueado por uma porta, jogador ou
@@ -1543,16 +1573,17 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             {
                 caminhoAtual.Clear();
                 indiceCaminho = 0;
-                PararCorpo(corpo, "MoverAte (linha 1508)");
                 proximoRecalculoCaminho = agora + 0.30f;
+
+                if (!TentarDesvioLocal(origem, destino, corpo, agora))
+                    PararCorpo(corpo, "MoverAte sem rota A*");
 
                 if (!avisoMonitoramentoMovimento)
                 {
                     avisoMonitoramentoMovimento = true;
                     YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                        "[F7/Pathfinder novo] Nenhuma rota válida encontrada. Origem=" +
-                        origem + ", destino=" + destino +
-                        ". Nova tentativa em 0,30s.");
+                        "[F7/Pathfinder] A* não encontrou rota; tentando desvio local validado por colisão. Origem=" +
+                        origem + ", destino=" + destino + ".");
                 }
 
                 if (possuiDestinoPatrulha &&
@@ -1573,6 +1604,15 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             avisoMonitoramentoMovimento = false;
             caminhoAtual = novaRota;
             indiceCaminho = 0;
+        }
+
+        // Enquanto o A* aguarda a próxima tentativa, mantém um desvio local
+        // curto e validado. Não deixa o bloco de waypoints zerar a velocidade
+        // logo após o fallback ter encontrado um corredor livre.
+        if (caminhoAtual == null || caminhoAtual.Count == 0)
+        {
+            TentarDesvioLocal(origem, destino, corpo, agora);
+            return;
         }
 
         // Avança por todos os waypoints já alcançados, inclusive quando o
@@ -1628,6 +1668,47 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         ultimaPosicaoMonitorada = origem;
         inicioSemDeslocamento = agora;
         avisoMonitoramentoMovimento = false;
+    }
+
+    private static bool TentarDesvioLocal(
+        Vector2 origem, Vector2 destino, Rigidbody2D corpo, float agora)
+    {
+        if (corpo == null)
+            return false;
+
+        Vector2 direcao = ObterDirecaoComDeslizamento(origem, destino);
+        if (direcao.sqrMagnitude > 0.0001f)
+        {
+            float corredorLivre = TestarCorredorDeslizamento(
+                origem, direcao, 0.70f);
+
+            if (corredorLivre >= 0.20f)
+            {
+                corpo.velocity = direcao.normalized * Velocidade * 0.68f;
+                monitoramentoMovimentoIniciado = true;
+                ultimaPosicaoMonitorada = origem;
+                inicioSemDeslocamento = agora;
+                return true;
+            }
+        }
+
+        // Último recurso: procura um pequeno passo seguro em qualquer direção
+        // que não atravesse paredes. O A* continuará tentando uma rota completa.
+        if (TentarEncontrarPontoDestravamento(origem, destino, out Vector2 pontoSeguro))
+        {
+            Vector2 deslocamento = pontoSeguro - origem;
+            if (deslocamento.sqrMagnitude > 0.0001f &&
+                PodeMoverEntre(origem, pontoSeguro))
+            {
+                corpo.velocity = deslocamento.normalized * Velocidade * 0.55f;
+                monitoramentoMovimentoIniciado = true;
+                ultimaPosicaoMonitorada = origem;
+                inicioSemDeslocamento = agora;
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool TentarTrocarDestinoPatrulha(Vector2 origem)
@@ -1705,6 +1786,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     /// </summary>
     private static void Patrulhar()
     {
+        inteligencia.DefinirEstado(EstadoIAAssassino.Patrulhando);
+
         if (seguidor?.NetTransform?.body == null || ShipStatus.Instance == null)
             return;
 
@@ -3398,31 +3481,36 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
     private static PlayerControl ObterAlvoAtual()
     {
-        if (alvoAtual != null &&
-            alvoAtual.Data != null &&
-            !alvoAtual.Data.IsDead &&
-            !alvoAtual.Data.Disconnected &&
-            !EstaNoDuto(alvoAtual) &&
-            PodeVerJogador(alvoAtual, seguidor.GetTruePosition()))
-        {
-            if (Time.realtimeSinceStartup < proximaBuscaAlvo)
-                return alvoAtual;
-        }
-        else
-        {
-            // Abandona imediatamente o alvo quando ele entra em um duto.
-            alvoAtual = null;
-            proximaBuscaAlvo = 0f;
-        }
+        if (seguidor == null)
+            return null;
+
+        Vector2 origem = seguidor.GetTruePosition();
+        jogadoresParaIA.Clear();
+
+        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+            jogadoresParaIA.Add(jogador);
+
+        PlayerControl alvoAnterior = alvoAtual;
+        alvoAtual = inteligencia.AtualizarAlvo(
+            jogadoresParaIA,
+            seguidor,
+            origem,
+            Time.realtimeSinceStartup,
+            PodeSerAlvoDaIA,
+            jogador => PodeVerJogador(jogador, origem));
 
         proximaBuscaAlvo = Time.realtimeSinceStartup + IntervaloTrocaAlvo;
-        alvoAtual = ObterJogadorVivoMaisProximo(seguidor.GetTruePosition());
 
         byte novoPlayerIdAlvo = alvoAtual != null
             ? alvoAtual.PlayerId
             : byte.MaxValue;
 
-        if (!alvoInicialNotificado || novoPlayerIdAlvo != ultimoAlvoNotificado)
+        byte playerIdAnterior = alvoAnterior != null
+            ? alvoAnterior.PlayerId
+            : byte.MaxValue;
+
+        if (!alvoInicialNotificado || novoPlayerIdAlvo != ultimoAlvoNotificado ||
+            novoPlayerIdAlvo != playerIdAnterior)
         {
             alvoInicialNotificado = true;
             ultimoAlvoNotificado = novoPlayerIdAlvo;
@@ -3430,6 +3518,16 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         }
 
         return alvoAtual;
+    }
+
+    private static bool PodeSerAlvoDaIA(PlayerControl jogador)
+    {
+        return jogador != null &&
+            jogador != seguidor &&
+            jogador.Data != null &&
+            !jogador.Data.IsDead &&
+            !jogador.Data.Disconnected &&
+            !EstaNoDuto(jogador);
     }
 
     private static PlayerControl ObterJogadorVivoMaisProximo(
@@ -3555,6 +3653,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         proximaEtapa = 0f;
         proximaBuscaAlvo = 0f;
         alvoAtual = null;
+        inteligencia.Resetar();
+        jogadoresParaIA.Clear();
         possuiDestinoPatrulha = false;
         destinoPatrulha = Vector2.zero;
         proximaTentativaDestinoPatrulha = 0f;
