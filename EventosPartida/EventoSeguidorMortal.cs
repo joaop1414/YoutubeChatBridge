@@ -4143,11 +4143,43 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 -1);
             AmongUsClient.Instance.FinishRpcImmediately(writer);
 
-            if (alvo.Data == null || !alvo.Data.IsDead)
+            // O RPC Exiled atualiza os clientes, mas em alguns casos o host
+            // não mantém o IsDead no registro autoritativo do GameData.
+            // Sincronizamos explicitamente as duas referências locais para que
+            // a IA pare de considerar esse jogador como um alvo vivo.
+            NetworkedPlayerInfo dadosAutoritativos =
+                GameData.Instance?.GetPlayerById(playerId);
+
+            if (alvo.Data != null)
+                alvo.Data.IsDead = true;
+
+            if (dadosAutoritativos != null)
+            {
+                dadosAutoritativos.IsDead = true;
+                dadosAutoritativos.SetDirtyBit(uint.MaxValue);
+            }
+
+            if (alvo.Data == null || !alvo.Data.IsDead ||
+                (dadosAutoritativos != null && !dadosAutoritativos.IsDead))
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "[F7/Seguidor] Exiled não marcou o alvo como morto; o NPC continuará perseguindo.");
+                    "[F7/Seguidor] Não foi possível confirmar IsDead no host após Exiled; " +
+                    "Data=" + (alvo.Data?.IsDead.ToString() ?? "null") +
+                    ", GameData=" + (dadosAutoritativos?.IsDead.ToString() ?? "null") + ".");
                 return false;
+            }
+
+            // Propaga a alteração do registro autoritativo; o RPC Exiled acima
+            // continua responsável pela animação/estado de morte nos clientes.
+            try
+            {
+                AmongUsClient.Instance.SendAllStreamedObjects();
+            }
+            catch (Exception exSync)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[F7/Seguidor] Falha ao transmitir o estado IsDead do GameData: " +
+                    exSync.Message);
             }
 
             EventoCriarCorpoFalso.ExecutarComoNoisemakerParaJogadorNaPosicao(
