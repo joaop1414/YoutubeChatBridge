@@ -64,6 +64,11 @@ internal sealed class EventoTrocarIdentidades : EventoVotacao
             return;
         }
 
+        // Suspende somente o Rainbow dos dois jogadores enquanto o evento
+        // mantém os nomes trocados nos clientes vanilla.
+        YouTubeVoteBridgePlugin.PausarRainbowDuranteTrocaDeNome(a.Jogador, "Trocar Identidades");
+        YouTubeVoteBridgePlugin.PausarRainbowDuranteTrocaDeNome(b.Jogador, "Trocar Identidades");
+
         IdentidadesAtivas.Add(a);
         IdentidadesAtivas.Add(b);
 
@@ -194,6 +199,10 @@ internal sealed class EventoTrocarIdentidades : EventoVotacao
         }
         finally
         {
+            foreach (Identidade identidade in IdentidadesAtivas)
+                YouTubeVoteBridgePlugin.RetomarRainbowDepoisDaTrocaDeNome(
+                    identidade?.Jogador, "Trocar Identidades");
+
             IdentidadesAtivas.Clear();
             ExpiraEm = 0f;
         }
