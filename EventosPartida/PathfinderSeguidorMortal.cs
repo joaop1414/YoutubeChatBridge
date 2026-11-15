@@ -1,0 +1,326 @@
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+
+namespace YouTubeVoteBridge;
+
+/// <summary>
+/// Navegação em grade independente da IA do NPC.
+/// Recebe consultas de colisão do chamador e devolve uma rota suavizada.
+/// </summary>
+internal static class PathfinderSeguidorMortal
+{
+    private static readonly Vector2Int[] Direcoes =
+    {
+        new(1, 0), new(0, 1), new(-1, 0), new(0, -1),
+        new(1, 1), new(-1, 1), new(-1, -1), new(1, -1)
+    };
+
+    public static List<Vector2> Calcular(
+        Vector2 inicio,
+        Vector2 destino,
+        Bounds limites,
+        float tamanhoCelula,
+        Func<Vector2, bool> celulaLivre,
+        Func<Vector2, Vector2, bool> segmentoLivre)
+    {
+        if (tamanhoCelula <= 0f || celulaLivre == null || segmentoLivre == null)
+            return null;
+
+        if (Vector2.Distance(inicio, destino) <= 0.08f)
+            return new List<Vector2> { destino };
+
+        if (segmentoLivre(inicio, destino) &&
+            celulaLivre(destino))
+            return new List<Vector2> { destino };
+
+        limites.Expand(tamanhoCelula * 2f);
+        Vector2 minimo = limites.min;
+        int largura = Mathf.CeilToInt(limites.size.x / tamanhoCelula);
+        int altura = Mathf.CeilToInt(limites.size.y / tamanhoCelula);
+
+        if (largura < 2 || altura < 2 || (long)largura * altura > 60000)
+            return null;
+
+        int total = largura * altura;
+        bool[] testada = new bool[total];
+        bool[] livre = new bool[total];
+        float[] custos = new float[total];
+        int[] anteriores = new int[total];
+        bool[] fechado = new bool[total];
+
+        Array.Fill(custos, float.PositiveInfinity);
+        Array.Fill(anteriores, -1);
+
+        int inicioId = ParaIndice(inicio, minimo, tamanhoCelula, largura, altura);
+        int destinoId = ParaIndice(destino, minimo, tamanhoCelula, largura, altura);
+
+        if (inicioId < 0 || destinoId < 0)
+            return null;
+
+        if (!EncontrarCelulaLivre(ref inicioId, inicio, minimo, tamanhoCelula,
+                largura, altura, livre, testada, celulaLivre) ||
+            !EncontrarCelulaLivre(ref destinoId, destino, minimo, tamanhoCelula,
+                largura, altura, livre, testada, celulaLivre))
+            return null;
+
+        PriorityQueue<int, float> abertos = new();
+        custos[inicioId] = 0f;
+        abertos.Enqueue(inicioId, Heuristica(inicioId, destinoId, largura));
+
+        int expandidos = 0;
+        const int limiteExpansoes = 18000;
+
+        while (abertos.Count > 0 && expandidos < limiteExpansoes)
+        {
+            int atual = abertos.Dequeue();
+            if (fechado[atual])
+                continue;
+
+            fechado[atual] = true;
+            expandidos++;
+
+            if (atual == destinoId)
+            {
+                List<Vector2> rota = Reconstruir(
+                    inicioId, destinoId, anteriores, minimo,
+                    tamanhoCelula, largura);
+
+                if (rota == null || rota.Count == 0)
+                    return null;
+
+                if (segmentoLivre(rota[rota.Count - 1], destino))
+                    rota.Add(destino);
+                else
+                    return null;
+
+                return Suavizar(rota, segmentoLivre);
+            }
+
+            int x = atual % largura;
+            int y = atual / largura;
+            Vector2 pontoAtual = Centro(x, y, minimo, tamanhoCelula);
+
+            for (int i = 0; i < Direcoes.Length; i++)
+            {
+                Vector2Int direcao = Direcoes[i];
+                int nx = x + direcao.x;
+                int ny = y + direcao.y;
+
+                if (nx < 0 || ny < 0 || nx >= largura || ny >= altura)
+                    continue;
+
+                int vizinho = ny * largura + nx;
+                if (fechado[vizinho] || !CelulaLivre(vizinho, minimo,
+                        tamanhoCelula, largura, livre, testada, celulaLivre))
+                    continue;
+
+                // Impede cortar quinas: ambos os lados da diagonal precisam estar livres.
+                if (direcao.x != 0 && direcao.y != 0)
+                {
+                    int lateralX = y * largura + nx;
+                    int lateralY = ny * largura + x;
+
+                    if (!CelulaLivre(lateralX, minimo, tamanhoCelula,
+                            largura, livre, testada, celulaLivre) ||
+                        !CelulaLivre(lateralY, minimo, tamanhoCelula,
+                            largura, livre, testada, celulaLivre))
+                        continue;
+                }
+
+                Vector2 pontoVizinho = Centro(nx, ny, minimo, tamanhoCelula);
+                if (!segmentoLivre(pontoAtual, pontoVizinho))
+                    continue;
+
+                float passo = direcao.x != 0 && direcao.y != 0
+                    ? 1.41421356f : 1f;
+                float novoCusto = custos[atual] + passo;
+
+                if (novoCusto >= custos[vizinho])
+                    continue;
+
+                custos[vizinho] = novoCusto;
+                anteriores[vizinho] = atual;
+                float prioridade = novoCusto +
+                    Heuristica(vizinho, destinoId, largura);
+                abertos.Enqueue(vizinho, prioridade);
+            }
+        }
+
+        return null;
+    }
+
+    private static bool EncontrarCelulaLivre(
+        ref int indice,
+        Vector2 origem,
+        Vector2 minimo,
+        float passo,
+        int largura,
+        int altura,
+        bool[] livre,
+        bool[] testada,
+        Func<Vector2, bool> celulaLivre)
+    {
+        if (CelulaLivre(indice, minimo, passo, largura, livre, testada, celulaLivre))
+            return true;
+
+        int x0 = indice % largura;
+        int y0 = indice / largura;
+
+        for (int raio = 1; raio <= 7; raio++)
+        {
+            float menorDistancia = float.PositiveInfinity;
+            int melhor = -1;
+
+            for (int dx = -raio; dx <= raio; dx++)
+            for (int dy = -raio; dy <= raio; dy++)
+            {
+                if (Mathf.Abs(dx) != raio && Mathf.Abs(dy) != raio)
+                    continue;
+
+                int x = x0 + dx;
+                int y = y0 + dy;
+                if (x < 0 || y < 0 || x >= largura || y >= altura)
+                    continue;
+
+                int candidato = y * largura + x;
+                if (!CelulaLivre(candidato, minimo, passo, largura,
+                        livre, testada, celulaLivre))
+                    continue;
+
+                Vector2 ponto = Centro(x, y, minimo, passo);
+                if (!PodeConectarOrigem(origem, ponto, celulaLivre, out float distancia))
+                    continue;
+
+                if (distancia < menorDistancia)
+                {
+                    menorDistancia = distancia;
+                    melhor = candidato;
+                }
+            }
+
+            if (melhor >= 0)
+            {
+                indice = melhor;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // A ligação inicial é validada pelo teste de célula; a verificação completa
+    // de segmento acontece na expansão do primeiro nó.
+    private static bool PodeConectarOrigem(
+        Vector2 origem, Vector2 ponto, Func<Vector2, bool> celulaLivre,
+        out float distancia)
+    {
+        distancia = Vector2.Distance(origem, ponto);
+        return celulaLivre(ponto);
+    }
+
+    private static bool CelulaLivre(
+        int indice,
+        Vector2 minimo,
+        float passo,
+        int largura,
+        bool[] livre,
+        bool[] testada,
+        Func<Vector2, bool> consulta)
+    {
+        if (indice < 0 || indice >= livre.Length)
+            return false;
+
+        if (!testada[indice])
+        {
+            int x = indice % largura;
+            int y = indice / largura;
+            livre[indice] = consulta(Centro(x, y, minimo, passo));
+            testada[indice] = true;
+        }
+
+        return livre[indice];
+    }
+
+    private static int ParaIndice(
+        Vector2 ponto, Vector2 minimo, float passo, int largura, int altura)
+    {
+        int x = Mathf.FloorToInt((ponto.x - minimo.x) / passo);
+        int y = Mathf.FloorToInt((ponto.y - minimo.y) / passo);
+
+        if (x < 0 || y < 0 || x >= largura || y >= altura)
+            return -1;
+
+        return y * largura + x;
+    }
+
+    private static Vector2 Centro(int x, int y, Vector2 minimo, float passo)
+        => minimo + new Vector2((x + 0.5f) * passo, (y + 0.5f) * passo);
+
+    private static float Heuristica(int a, int b, int largura)
+    {
+        int ax = a % largura;
+        int ay = a / largura;
+        int bx = b % largura;
+        int by = b / largura;
+        int dx = Mathf.Abs(ax - bx);
+        int dy = Mathf.Abs(ay - by);
+        return Mathf.Max(dx, dy) + 0.41421356f * Mathf.Min(dx, dy);
+    }
+
+    private static List<Vector2> Reconstruir(
+        int inicio, int fim, int[] anteriores,
+        Vector2 minimo, float passo, int largura)
+    {
+        List<Vector2> rota = new();
+        int atual = fim;
+        int limite = anteriores.Length + 1;
+
+        while (atual != inicio && limite-- > 0)
+        {
+            int x = atual % largura;
+            int y = atual / largura;
+            rota.Add(Centro(x, y, minimo, passo));
+            atual = anteriores[atual];
+            if (atual < 0)
+                return null;
+        }
+
+        if (limite <= 0)
+            return null;
+
+        rota.Reverse();
+        return rota;
+    }
+
+    private static List<Vector2> Suavizar(
+        List<Vector2> rota,
+        Func<Vector2, Vector2, bool> segmentoLivre)
+    {
+        if (rota == null || rota.Count < 3)
+            return rota;
+
+        List<Vector2> resultado = new() { rota[0] };
+        int atual = 0;
+
+        while (atual < rota.Count - 1)
+        {
+            int escolhido = atual + 1;
+
+            // Procura o ponto mais distante alcançável em linha reta.
+            for (int candidato = rota.Count - 1; candidato > atual + 1; candidato--)
+            {
+                if (segmentoLivre(rota[atual], rota[candidato]))
+                {
+                    escolhido = candidato;
+                    break;
+                }
+            }
+
+            resultado.Add(rota[escolhido]);
+            atual = escolhido;
+        }
+
+        return resultado;
+    }
+}
