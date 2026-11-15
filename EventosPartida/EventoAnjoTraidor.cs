@@ -273,6 +273,27 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
             jogador.PlayerId == playerIdSelecionado;
     }
 
+    // O sistema de nomes locais usa a identidade personalizada mesmo depois
+    // que o Phantom vira GuardianAngel/ImpostorGhost.
+    internal static bool EhAnjoTraidor(PlayerControl jogador)
+    {
+        return ativo && jogador != null &&
+            jogador.PlayerId == playerIdSelecionado;
+    }
+
+    // Recupera o nome anterior à coloração privada aplicada ao Anjo Traidor.
+    // Isso preserva também o texto Rainbow que o jogador já possuía.
+    internal static string ObterNomeOriginalParaExibicao(PlayerControl jogador)
+    {
+        if (jogador == null || jogador.Data == null)
+            return string.Empty;
+
+        if (nomesOriginais.TryGetValue(jogador.PlayerId, out string original))
+            return original;
+
+        return jogador.Data.PlayerName ?? string.Empty;
+    }
+
     /// <summary>
     /// Chamado no host quando o Phantom tenta usar Vanish.
     /// Cancela a invisibilidade, mata o jogador e aplica funções diferentes por cliente.
