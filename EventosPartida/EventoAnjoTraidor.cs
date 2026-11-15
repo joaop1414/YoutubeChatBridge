@@ -25,6 +25,7 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
     private static bool habilidadeEncerrada;
     private static byte playerIdSelecionado = byte.MaxValue;
     private static int clientIdSelecionado = -1;
+    private static float proximoDiagnosticoLogicOptions;
 
     // Os nomes são enviados somente ao cliente dono do Phantom escolhido.
     // Assim, nem os demais jogadores nem o GameData do host recebem a cor vermelha.
@@ -702,6 +703,82 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
                 "[F7/Anjo Traidor] Falha ao enviar RPC individual de configuração: " + ex);
             return false;
+        }
+
+        if (!encontrouLogica && Time.realtimeSinceStartup >= proximoDiagnosticoLogicOptions)
+        {
+            proximoDiagnosticoLogicOptions = Time.realtimeSinceStartup + 5f;
+
+            string referenciaDireta = "não consultada";
+            string indiceReferenciaDireta = "não encontrado";
+            string componentes = "indisponível";
+            int quantidade = -1;
+
+            try
+            {
+                GameManager gerenciador = GameManager.Instance;
+                var lista = gerenciador?.LogicComponents;
+                LogicOptions logicaDireta = gerenciador?.LogicOptions;
+
+                if (logicaDireta == null)
+                {
+                    referenciaDireta = "null";
+                }
+                else
+                {
+                    referenciaDireta =
+                        logicaDireta.GetType().FullName +
+                        "; Assembly=" + logicaDireta.GetType().Assembly.GetName().Name;
+                }
+
+                if (lista != null)
+                {
+                    quantidade = lista.Count;
+                    List<string> nomes = new();
+
+                    for (int i = 0; i < lista.Count; i++)
+                    {
+                        GameLogicComponent componente = lista[i];
+                        if (componente == null)
+                        {
+                            nomes.Add(i + ":null");
+                            continue;
+                        }
+
+                        bool mesmaReferencia = logicaDireta != null &&
+                            ReferenceEquals(componente, logicaDireta);
+
+                        nomes.Add(i + ":" + componente.GetType().FullName +
+                            "; Assembly=" + componente.GetType().Assembly.GetName().Name +
+                            "; LogicOptionsDireto=" + mesmaReferencia);
+
+                        if (mesmaReferencia)
+                            indiceReferenciaDireta = i.ToString();
+                    }
+
+                    componentes = nomes.Count == 0
+                        ? "(lista vazia)"
+                        : string.Join(" || ", nomes);
+                }
+                else
+                {
+                    componentes = "LogicComponents=null";
+                }
+            }
+            catch (Exception ex)
+            {
+                componentes = "erro ao inspecionar: " + ex;
+            }
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Anjo Traidor][DIAGNOSTICO] Não foi encontrado LogicOptions na lista. " +
+                "PlayerId=" + anjo.PlayerId +
+                ", OwnerId=" + anjo.OwnerId +
+                ", GameManagerNetId=" + GameManager.Instance?.NetId +
+                ", quantidadeLogicComponents=" + quantidade +
+                ", LogicOptionsDireto=[" + referenciaDireta + "]" +
+                ", indiceLogicOptionsDireto=" + indiceReferenciaDireta +
+                ", componentes=[" + componentes + "].");
         }
 
         return encontrouLogica && enviou;
