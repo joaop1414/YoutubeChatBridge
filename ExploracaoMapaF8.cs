@@ -20,6 +20,8 @@ internal static class ExploracaoMapaF8
     [Serializable]
     private sealed class ArquivoMapa
     {
+        public ArquivoMapa() { }
+
         public string mapa;
         public int mapId;
         public string capturadoEmUtc;
@@ -32,6 +34,8 @@ internal static class ExploracaoMapaF8
     [Serializable]
     private sealed class DadoSala
     {
+        public DadoSala() { }
+
         public string nome;
         public string roomId;
         public float minX;
@@ -43,6 +47,8 @@ internal static class ExploracaoMapaF8
     [Serializable]
     private sealed class DadoCollider
     {
+        public DadoCollider() { }
+
         public string objeto;
         public string hierarquia;
         public string tipo;
