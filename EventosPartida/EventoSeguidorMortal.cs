@@ -1612,6 +1612,10 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 "[F7/Seguidor] Não foi possível iniciar transporte: " + ex.Message);
             return false;
         }
+
+        // Nenhum transporte aplicável foi iniciado. A IA pode continuar
+        // normalmente pelo caminho calculado pelo A*.
+        return false;
     }
 
     /// <summary>
