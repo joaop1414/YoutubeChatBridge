@@ -1509,12 +1509,23 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             return;
         }
 
+        // Uma mudança real de destino invalida imediatamente a rota anterior.
+        // Isso evita que o NPC continue tentando seguir um waypoint calculado
+        // para a posição antiga do jogador/sabotagem.
+        bool destinoMudou = Vector2.Distance(destino, destinoCaminhoAnterior) >= 0.28f;
+        if (destinoMudou)
+        {
+            caminhoAtual.Clear();
+            indiceCaminho = 0;
+            proximoRecalculoCaminho = 0f;
+        }
+
         bool precisaRecalcular =
             caminhoAtual == null ||
             caminhoAtual.Count == 0 ||
             indiceCaminho >= caminhoAtual.Count ||
             agora >= proximoRecalculoCaminho ||
-            Vector2.Distance(destino, destinoCaminhoAnterior) >= 0.28f;
+            destinoMudou;
 
         // Se o próximo segmento ficou bloqueado por uma porta, jogador ou
         // objeto móvel, descarta a rota e procura outra imediatamente.
@@ -1599,7 +1610,21 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             return;
         }
 
+        // A velocidade é reaplicada imediatamente no primeiro waypoint da
+        // rota nova. Se o NPC estava parado quando recebeu outro destino,
+        // registra a recuperação para confirmar que a navegação foi retomada.
+        Vector2 velocidadeAnterior = corpo.velocity;
         corpo.velocity = deslocamento.normalized * Velocidade;
+
+        if (destinoMudou && velocidadeAnterior.sqrMagnitude <= 0.0001f)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[F7/Movimento] NPC estava parado; novo destino recebido e velocidade retomada pela rota. " +
+                "Destino anterior=" + destinoCaminhoAnterior +
+                " | destino novo=" + destino +
+                " | waypoint=" + waypoint +
+                " | velocidade aplicada=" + corpo.velocity + ".");
+        }
         monitoramentoMovimentoIniciado = true;
         ultimaPosicaoMonitorada = origem;
         inicioSemDeslocamento = agora;
