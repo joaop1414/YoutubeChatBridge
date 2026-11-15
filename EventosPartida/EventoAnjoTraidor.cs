@@ -796,9 +796,11 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
                     anterior = leituraCampo.GetValue(alvo);
             }
 
+            if (anterior == null)
+                return false;
+
             setter.Invoke(alvo, new[] { ConverterNumero(valor, setter.GetParameters()[0].ParameterType) });
-            if (anterior != null)
-                restaurar = () => setter.Invoke(alvo, new[] { anterior });
+            restaurar = () => setter.Invoke(alvo, new[] { anterior });
             return true;
         }
 
