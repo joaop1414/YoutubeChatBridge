@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using AmongUs.GameOptions;
 using HarmonyLib;
@@ -177,44 +178,70 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
         {
             CapturarNomesDosImpostores();
 
-            // A morte é real e é executada pelo host. Não usamos Exiled:
-            // o jogador precisa continuar como um fantasma funcional.
+            // Primeiro executa a morte real e envia o papel de fantasma
+            // impostor para todos os clientes.
             jogador.RpcMurderPlayer(jogador, true);
-
-            // Primeiro, todos recebem o fantasma impostor vanilla.
             jogador.RpcSetRole(RoleTypes.ImpostorGhost, true);
 
-            // Somente o dono do jogador recebe GuardianAngel.
-            // RpcSetRoleDesync já trata tanto o caso de o dono ser o host
-            // quanto o caso de ser outro cliente, inclusive vanilla.
-            if (!RoleSwitchAPI.RpcSetRoleDesync(
-                    jogador, RoleTypes.GuardianAngel, clientIdSelecionado))
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "[F7/Anjo Traidor] Não foi possível enviar GuardianAngel ao cliente dono. " +
-                    "O jogador continuará como ImpostorGhost.");
-            }
-
-            AplicarNomesLocais();
+            // O papel privado é enviado depois de a morte e o papel global
+            // terem tido tempo para serem processados pelos clientes.
+            jogador.StartCoroutine(ConcluirTransformacaoAposMorte(jogador));
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[F7/Anjo Traidor] PlayerId=" + playerIdSelecionado +
-                " morreu ao tentar Vanish. Papel global=ImpostorGhost; " +
-                "papel privado do dono=GuardianAngel.");
+                "[F7/Anjo Traidor] Morte enviada para PlayerId=" + playerIdSelecionado +
+                ". ImpostorGhost enviado globalmente; GuardianAngel será enviado " +
+                "ao cliente dono após 0,25 segundo.");
             return true;
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[F7/Anjo Traidor] Falha ao converter o Phantom em Anjo da Guarda: " + ex);
+                "[F7/Anjo Traidor] Falha ao iniciar a conversão do Phantom em Anjo da Guarda: " + ex);
             return true;
         }
     }
 
-    /// <summary>
-    /// O host recebe CheckProtect mesmo quando o dono do jogador é vanilla.
-    /// Em vez de proteger, o alvo selecionado recebe uma ordem de suicídio.
-    /// </summary>
+    private static IEnumerator ConcluirTransformacaoAposMorte(PlayerControl jogador)
+    {
+        yield return new WaitForSecondsRealtime(0.25f);
+
+        if (!YouTubeVoteBridgePlugin.EhHost() ||
+            !ativo ||
+            !transformado ||
+            habilidadeEncerrada ||
+            jogador == null ||
+            jogador.Data == null ||
+            jogador.Data.Disconnected ||
+            jogador.PlayerId != playerIdSelecionado)
+            yield break;
+
+        try
+        {
+            bool enviado = RoleSwitchAPI.RpcSetRoleDesync(
+                jogador, RoleTypes.GuardianAngel, clientIdSelecionado);
+
+            if (!enviado)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[F7/Anjo Traidor] Não foi possível enviar GuardianAngel ao cliente dono. " +
+                    "O jogador continuará como ImpostorGhost.");
+                yield break;
+            }
+
+            AplicarNomesLocais();
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[F7/Anjo Traidor] RPC individual concluído após 0,25 segundo: " +
+                "PlayerId=" + playerIdSelecionado +
+                " recebeu GuardianAngel no cliente dono; demais clientes continuam com ImpostorGhost.");
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "[F7/Anjo Traidor] Falha ao enviar GuardianAngel após a morte: " + ex);
+        }
+    }
+
     internal static bool DeveBloquearEscudo(PlayerControl anjo)
     {
         return ativo &&
