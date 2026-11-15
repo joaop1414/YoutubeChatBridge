@@ -112,7 +112,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     // Isso não altera o collider nem a colisão física do NPC no jogo.
     private const float FatorEscalaColisaoNavegacao = 1.15f;
     private static Collider2D colliderFisicoNpc;
-    private const float IntervaloRecalculoCaminho = 0.40f;
+    private const float IntervaloRecalculoCaminho = 0.65f;
     private const float DistanciaRecalculoAlvo = 0.65f;
     // A busca usa os 8 vizinhos do grid. A suavização posterior remove
     // pontos intermediários quando a linha está livre, permitindo trajetórias
@@ -1668,7 +1668,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         // Uma mudança real de destino invalida imediatamente a rota anterior.
         // Isso evita que o NPC continue tentando seguir um waypoint calculado
         // para a posição antiga do jogador/sabotagem.
-        bool destinoMudou = Vector2.Distance(destino, destinoCaminhoAnterior) >= 0.28f;
+        bool destinoMudou = Vector2.Distance(destino, destinoCaminhoAnterior) >= DistanciaRecalculoAlvo;
         if (destinoMudou)
         {
             caminhoAtual.Clear();
@@ -1696,7 +1696,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         {
             List<Vector2> novaRota = CalcularCaminhoAStar(origem, destino);
             destinoCaminhoAnterior = destino;
-            proximoRecalculoCaminho = agora + 0.65f;
+            proximoRecalculoCaminho = agora + IntervaloRecalculoCaminho;
 
             if (novaRota == null || novaRota.Count == 0)
             {
