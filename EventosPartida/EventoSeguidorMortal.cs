@@ -1119,7 +1119,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         }
 
         // Mantém as travessias de mapa necessárias para alcançar o jogador.
-        if (TentarUsarEscadaOuTirolesa(alvo))
+        if (TentarUsarEscadaOuTirolesa(destino))
         {
             inteligencia.DefinirEstado(EstadoIAAssassino.Transportando);
             return;
@@ -1424,10 +1424,10 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         }
     }
 
-    private static bool TentarUsarEscadaOuTirolesa(PlayerControl alvo)
+    private static bool TentarUsarEscadaOuTirolesa(Vector2 posAlvo)
     {
         if (seguidor == null || seguidor.MyPhysics == null ||
-            seguidor.NetTransform?.body == null || alvo == null)
+            seguidor.NetTransform?.body == null || ShipStatus.Instance == null)
             return false;
 
         float agora = Time.realtimeSinceStartup;
@@ -1455,7 +1455,6 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             return false;
 
         Vector2 origem = seguidor.GetTruePosition();
-        Vector2 posAlvo = alvo.GetTruePosition();
         float distanciaDireta = Vector2.Distance(origem, posAlvo);
         float melhorCusto = float.MaxValue;
         Ladder melhorEscada = null;
@@ -1878,7 +1877,16 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         // obstruir o trajeto, não fica preso tentando seguir o mesmo ponto.
         if (!PodeMoverEntre(origem, waypoint))
         {
-            PararCorpo(corpo, "MoverAte (linha 1569)");
+            // O A* pode retornar uma rota que atravessa uma porta fechada.
+            // Antes de descartar o caminho, tenta abrir a porta que bloqueia o trajeto.
+            if (TentarAbrirPortaNoCaminho(origem, destino, agora))
+            {
+                LimparCaminho();
+                AtualizarRenderizacaoCaminho();
+                return;
+            }
+
+            PararCorpo(corpo, "MoverAte (segmento bloqueado)");
             LimparCaminho();
             proximoRecalculoCaminho = agora + 0.08f;
             AtualizarRenderizacaoCaminho();
@@ -2201,6 +2209,11 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         // interceptar esta etapa e deixar o NPC preso dentro da ventilação.
         if (possuiDestinoPatrulha &&
             TentarUsarVentilacao(destinoPatrulha))
+            return;
+
+        // A patrulha também pode usar escadas, tirolesas e a plataforma do Airship.
+        if (possuiDestinoPatrulha &&
+            TentarUsarEscadaOuTirolesa(destinoPatrulha))
             return;
 
         // Se uma travessia iniciada durante a perseguição ainda estiver acontecendo,
