@@ -3618,18 +3618,13 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
     private static bool PodeVerJogador(PlayerControl jogador, Vector2 origem)
     {
-        if (jogador == null || jogador.Data == null ||
-            jogador.Data.IsDead || jogador.Data.Disconnected)
-            return false;
-
-        // Visão ilimitada: não aplica raio de visão nem distância máxima.
-        // Paredes e obstáculos do mapa continuam bloqueando a percepção.
-        Vector2 destino = jogador.GetTruePosition();
-        RaycastHit2D impacto = Physics2D.Linecast(
-            origem, destino, Constants.ShipOnlyMask);
-
-        return impacto.collider == null ||
-               impacto.collider.transform.IsChildOf(jogador.transform);
+        // Percepção global: o NPC considera todos os jogadores vivos,
+        // conectados e fora dos dutos, mesmo através de paredes.
+        // A seleção do alvo é feita exclusivamente pela menor distância.
+        return jogador != null &&
+            jogador.Data != null &&
+            !jogador.Data.IsDead &&
+            !jogador.Data.Disconnected;
     }
 
     /// <summary>
