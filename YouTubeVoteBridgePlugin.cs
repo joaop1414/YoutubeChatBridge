@@ -387,10 +387,12 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             return preferido;
 
         PlayerControl local = PlayerControl.LocalPlayer;
-        if (PodeSerMensageiro(local))
+        if (PodeSerMensageiro(local) &&
+            !JogadoresRainbowAtivos.Contains(local.PlayerId))
             return local;
 
         List<PlayerControl> candidatos = new();
+        List<PlayerControl> candidatosSemRainbow = new();
         bool existeJogadorVivo = false;
 
         if (PlayerControl.AllPlayerControls != null)
@@ -406,12 +408,23 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 if (!jogador.Data.IsDead)
                     existeJogadorVivo = true;
 
-                if (PodeSerMensageiro(jogador))
-                    candidatos.Add(jogador);
+                if (!PodeSerMensageiro(jogador))
+                    continue;
+
+                candidatos.Add(jogador);
+                if (!JogadoresRainbowAtivos.Contains(jogador.PlayerId))
+                    candidatosSemRainbow.Add(jogador);
             }
         }
 
-        // Mantém o comportamento original: escolhe um jogador vivo aleatório.
+        // Evita usar um nome Rainbow como remetente das mensagens do sistema
+        // quando existe outro jogador vivo disponível. Isso impede que a troca
+        // temporária para "YouTubeChatBridge" interfira no nome animado.
+        if (candidatosSemRainbow.Count > 0)
+            return candidatosSemRainbow[UnityEngine.Random.Range(0, candidatosSemRainbow.Count)];
+
+        // Se todos estiverem em Rainbow, ainda é possível enviar o aviso:
+        // o nome original formatado será restaurado depois da mensagem.
         if (candidatos.Count > 0)
             return candidatos[UnityEngine.Random.Range(0, candidatos.Count)];
 
@@ -3859,7 +3872,12 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 continue;
             }
 
-            string nomeJogador = jogadorAlvo.Data.PlayerName;
+            // O nome usado na saudação deve ser o nome-base, sem as tags
+            // <color> e sem o prefixo animado "Arco-íris" do nick visual.
+            string nomeJogador = Regex.Replace(
+                ObterNomeBaseRainbow(jogadorAlvo) ?? string.Empty,
+                @"<[^>]+>",
+                string.Empty);
             string mensagem =
                 $"Olá {nomeJogador}, esta é uma sala modificada pelo YouTubeChatBridge. " +
                 "A live do YouTube terá votações, e o chat poderá interagir com a partida por meio de eventos.";
@@ -4472,8 +4490,17 @@ public static class YouTubeVotePlayerJoinedPatch
 // ATUALIZAÇÃO DOS AVISOS
 // ============================================================
 
-// Não interceptamos ReportDeadBody nem o RPC recebido de reporte.
-// Bloquear esses métodos impedia o jogo de abrir a reunião após o reporte.
+// O Prefix apenas restaura os nomes e deixa o reporte vanilla continuar.
+// Não bloqueia ReportDeadBody nem o RPC de reporte, portanto a reunião abre normalmente.
+[HarmonyPatch(typeof(PlayerControl), "ReportDeadBody")]
+public static class YouTubeVoteBeforeReportPatch
+{
+    public static void Prefix()
+    {
+        if (YouTubeVoteBridgePlugin.EhHost())
+            EventoAnjoTraidor.AoReportarCorpo();
+    }
+}
 
 [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.StartMeeting))]
 public static class YouTubeVoteCancelMeetingPatch
@@ -4484,6 +4511,11 @@ public static class YouTubeVoteCancelMeetingPatch
         YouTubeVoteBridgePlugin.RetomarRainbowPausadosNaReuniao();
         if (!YouTubeVoteBridgePlugin.EhHost())
             return true;
+
+        // Restaura os nomes do Anjo Traidor antes de a reunião aparecer
+        // e encerra a habilidade conforme a regra do evento.
+        EventoAnjoTraidor.AoIniciarReuniao();
+
         EventoTsunami.PrepararAntesDaReuniao();
         YouTubeVoteBridgePlugin.CancelarReuniaoSolicitada();
         EventoTarefaMataJogador.Desativar();
@@ -4502,6 +4534,8 @@ public static class YouTubeVoteCancelRpcStartMeetingPatch
     {
         if (!YouTubeVoteBridgePlugin.EhHost())
             return true;
+
+        EventoAnjoTraidor.AoIniciarReuniao();
         YouTubeVoteBridgePlugin.CancelarReuniaoSolicitada();
         // Não bloquear o RPC: ele é a chamada que efetivamente abre a reunião.
         return true;
