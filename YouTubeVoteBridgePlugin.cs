@@ -4325,7 +4325,39 @@ public static class YouTubeVoteLobbyKeybindPatch
 }
 
 
-// Teleporte de teste acionado pelo botão do painel F8.
+// F8 durante a partida controla o teleporte pelo botão direito do mouse.
+[HarmonyPatch(typeof(ControllerManager), nameof(ControllerManager.Update))]
+public static class YouTubeVoteTeleporteMouseAtalhoPartidaPatch
+{
+    public static void Postfix()
+    {
+        try
+        {
+            if (AmongUsClient.Instance == null ||
+                !AmongUsClient.Instance.AmHost ||
+                !AmongUsClient.Instance.IsGameStarted ||
+                ShipStatus.Instance == null ||
+                PlayerControl.LocalPlayer == null)
+                return;
+
+            bool chatAberto = HudManager.InstanceExists &&
+                HudManager.Instance?.Chat != null &&
+                HudManager.Instance.Chat.IsOpenOrOpening;
+            if (chatAberto || MeetingHud.Instance != null || ExileController.Instance != null)
+                return;
+
+            if (Input.GetKeyDown(KeyCode.F8))
+                ConfiguradorFuncoesMenu.AlternarTeleporteMouse();
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "[F8/Teleporte] Falha ao alternar teleporte: " + ex);
+        }
+    }
+}
+
+// Com o recurso ativado pelo F8 em partida, o botão direito teletransporta o host.
 [HarmonyPatch(typeof(HudManager), nameof(HudManager.Update))]
 public static class YouTubeVoteTeleporteMousePatch
 {
