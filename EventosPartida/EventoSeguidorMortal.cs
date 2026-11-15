@@ -2693,7 +2693,6 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         indiceCaminho = 0;
         destinoCaminhoAnterior = Vector2.zero;
         proximoRecalculoCaminho = 0f;
-        falhasConsecutivasRota = 0;
         direcaoDeslizamentoCache = Vector2.zero;
         destinoDeslizamentoCache = Vector2.zero;
         proximaReavaliacaoDeslizamento = 0f;
@@ -3707,6 +3706,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         avisoMonitoramentoMovimento = false;
         ultimaPosicaoMonitorada = Vector2.zero;
         proximaVerificacaoTravamento = 0f;
+        falhasConsecutivasRota = 0;
         emManobraDestravamento = false;
         pontoDestravamento = Vector2.zero;
         limiteManobraDestravamento = 0f;
