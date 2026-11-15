@@ -180,10 +180,9 @@ internal static class SistemaNomesLocais
             AmongUsClient.Instance == null || !YouTubeVoteBridgePlugin.EhHost())
             return false;
 
-        MessageWriter writer = null;
         try
         {
-            writer = AmongUsClient.Instance.StartRpcImmediately(
+            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
                 jogador.NetId,
                 (byte)RpcCalls.SetName,
                 SendOption.Reliable,
@@ -199,10 +198,6 @@ internal static class SistemaNomesLocais
                 "[Nomes locais] RPC SetName direcionado falhou: PlayerId=" +
                 jogador.PlayerId + ", OwnerId=" + jogador.OwnerId + ", " + ex.Message);
             return false;
-        }
-        finally
-        {
-            writer?.Recycle();
         }
     }
 
