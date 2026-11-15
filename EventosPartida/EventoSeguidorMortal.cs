@@ -1835,11 +1835,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             agora < proximaTentativaAbrirPorta)
             return false;
 
-        Vector2 direcao = destino - origem;
-        if (direcao.sqrMagnitude <= 0.001f)
+        if ((destino - origem).sqrMagnitude <= 0.001f)
             return false;
-
-        direcao.Normalize();
 
         // Portas de descontaminação não usam o sistema Doors normal.
         // Segue o fluxo da API de navegação: abre pelo lado de dentro ou de fora
@@ -1905,6 +1902,13 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         {
             OpenableDoor porta = portas[i];
             if (porta == null || !porta.isActiveAndEnabled || porta.IsOpen)
+                continue;
+
+            bool portaDecon = sistemasDecon.Any(sistema =>
+                sistema != null &&
+                (ReferenceEquals(sistema.UpperDoor, porta) ||
+                 ReferenceEquals(sistema.LowerDoor, porta)));
+            if (portaDecon)
                 continue;
 
             Collider2D colisor = LerMembro(porta, "myCollider", "MyCollider") as Collider2D;
