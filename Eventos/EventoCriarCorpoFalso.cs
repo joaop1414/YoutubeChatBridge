@@ -274,6 +274,31 @@ internal sealed class EventoCriarCorpoFalso : EventoVotacao
                     writer.Write(true);
                     writer.EndMessage();
 
+                    // O host não recebe de volta o próprio RPC MurderPlayer.
+                    // Tenta executar o OnDeath da função associada ao clone localmente.
+                    try
+                    {
+                        var roleNoisemaker = temporario.Data?.Role?.Cast<NoisemakerRole>();
+                        if (roleNoisemaker != null)
+                        {
+                            roleNoisemaker.OnDeath(DeathReason.Kill);
+                            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                                "NoisemakerRole.OnDeath executado localmente para o corpo falso; PlayerId=" +
+                                temporario.PlayerId + ".");
+                        }
+                        else
+                        {
+                            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                                "O clone ainda não expõe NoisemakerRole em Data.Role no host; " +
+                                "o alerta local pode não ser disparado.");
+                        }
+                    }
+                    catch (Exception exDeath)
+                    {
+                        YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                            "OnDeath local do Noisemaker falhou: " + exDeath);
+                    }
+
                     YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                         "SetRole(Noisemaker) enviado antes de MurderPlayer; PlayerId=" +
                         temporario.PlayerId + ".");
