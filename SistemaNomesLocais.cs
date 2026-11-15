@@ -222,6 +222,23 @@ internal static class SistemaNomesLocais
             catch { }
         }
 
+        // Fallback para builds em que o campo do PlayerVoteArea mudou de nome.
+        foreach (FieldInfo campo in tipo.GetFields(flags))
+        {
+            if (campo.FieldType != typeof(byte) ||
+                (!campo.Name.Contains("player", StringComparison.OrdinalIgnoreCase) &&
+                 !campo.Name.Contains("target", StringComparison.OrdinalIgnoreCase)))
+                continue;
+
+            try
+            {
+                byte id = (byte)campo.GetValue(area);
+                if (ObterJogador(id) != null)
+                    return id;
+            }
+            catch { }
+        }
+
         return null;
     }
 }
