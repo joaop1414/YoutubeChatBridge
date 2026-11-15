@@ -364,39 +364,139 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
             anjo.PlayerId == playerIdSelecionado;
     }
 
+    /// <summary>
+    /// O host aprova exclusivamente o Protect do impostor selecionado.
+    /// O efeito vanilla é cancelado e o alvo recebe uma morte real.
+    /// </summary>
     internal static bool AoTentarProteger(PlayerControl anjo, PlayerControl alvo)
     {
         if (!YouTubeVoteBridgePlugin.EhHost() ||
             !ativo ||
-            !transformado ||
-            habilidadeEncerrada ||
             anjo == null ||
-            anjo.PlayerId != playerIdSelecionado ||
-            alvo == null ||
+            anjo.PlayerId != playerIdSelecionado)
+            return false;
+
+        // Se a habilidade já foi encerrada, ainda bloqueia qualquer Protect
+        // residual que chegue atrasado ao host.
+        if (!transformado || habilidadeEncerrada ||
+            MeetingHud.Instance != null ||
+            ShipStatus.Instance == null)
+            return true;
+
+        if (alvo == null ||
             alvo.Data == null ||
             alvo.Data.IsDead ||
             alvo.Data.Disconnected ||
-            MeetingHud.Instance != null ||
-            ShipStatus.Instance == null)
-            return false;
+            alvo.PlayerId == playerIdSelecionado)
+        {
+            // A tentativa inválida também consome o uso; não deixa o vanilla
+            // aplicar um escudo como efeito colateral.
+            return true;
+        }
 
         try
         {
             alvo.RpcMurderPlayer(alvo, true);
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[F7/Anjo Traidor] O escudo de PlayerId=" + playerIdSelecionado +
-                " foi convertido em morte. Alvo=" + alvo.Data.PlayerName +
+                "[F7/Anjo Traidor] Protect autorizado para o impostor selecionado; " +
+                "o alvo foi morto. Alvo=" + alvo.Data.PlayerName +
                 " (PlayerId=" + alvo.PlayerId + ").");
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[F7/Anjo Traidor] Falha ao matar o alvo do escudo: " + ex);
+                "[F7/Anjo Traidor] Falha ao matar o alvo do Protect: " + ex);
         }
 
-        // Sempre cancela o escudo vanilla: ele nunca deve proteger o alvo.
+        // Nunca permite que Protect aplique o escudo vanilla.
         return true;
+    }
+
+    /// <summary>
+    /// O GuardianAngel só existe no cliente dono. Nesse cliente, iniciamos
+    /// o cooldown visual/funcional do botão usando a mesma duração do Kill.
+    /// </summary>
+    internal static void AplicarCooldownProtectLocal(PlayerControl anjo)
+    {
+        try
+        {
+            AmongUsClient cliente = AmongUsClient.Instance;
+            if (anjo == null ||
+                cliente == null ||
+                anjo.OwnerId != cliente.ClientId ||
+                anjo.Data == null ||
+                anjo.Data.RoleType != RoleTypes.GuardianAngel ||
+                HudManager.Instance == null ||
+                HudManager.Instance.AbilityButton == null ||
+                GameManager.Instance == null ||
+                GameManager.Instance.LogicOptions == null)
+                return;
+
+            float cooldownKill = GameManager.Instance.LogicOptions.GetKillCooldown();
+            object botao = HudManager.Instance.AbilityButton;
+            var metodo = AccessTools.Method(
+                botao.GetType(),
+                "SetCoolDown",
+                new[] { typeof(float), typeof(float) });
+
+            if (metodo == null)
+                metodo = AccessTools.Method(
+                    botao.GetType(),
+                    "SetCooldown",
+                    new[] { typeof(float), typeof(float) });
+
+            if (metodo == null)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[F7/Anjo Traidor] Não foi encontrado SetCoolDown no AbilityButton.");
+                return;
+            }
+
+            metodo.Invoke(botao, new object[] { cooldownKill, cooldownKill });
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[F7/Anjo Traidor] Cooldown do Protect aplicado localmente: " +
+                cooldownKill + "s (igual ao cooldown de Kill).");
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "[F7/Anjo Traidor] Falha ao aplicar cooldown do Protect: " + ex);
+        }
+    }
+
+    /// <summary>
+    /// Antes do encerramento, remove GuardianAngel do cliente dono e publica
+    /// ImpostorGhost globalmente para que nenhum cliente termine com o papel falso.
+    /// </summary>
+    internal static void AntesDeEncerrarPartida()
+    {
+        if (!YouTubeVoteBridgePlugin.EhHost())
+            return;
+
+        if (ativo && transformado)
+        {
+            PlayerControl jogador = ObterJogadorSelecionado();
+            if (jogador != null && jogador.Data != null)
+            {
+                try
+                {
+                    jogador.RpcSetRole(RoleTypes.ImpostorGhost, true);
+                    RoleSwitchAPI.RpcSetRoleDesync(
+                        jogador, RoleTypes.ImpostorGhost, clientIdSelecionado);
+
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                        "[F7/Anjo Traidor] Antes do fim da partida, GuardianAngel foi " +
+                        "substituído por ImpostorGhost globalmente e no cliente dono.");
+                }
+                catch (Exception ex)
+                {
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                        "[F7/Anjo Traidor] Falha ao converter GuardianAngel antes do fim: " + ex);
+                }
+            }
+        }
     }
 
     internal static void AoIniciarReuniao()
@@ -651,6 +751,10 @@ internal static class EventoAnjoTraidorCheckProtectPatch
         PlayerControl __instance,
         [HarmonyArgument(0)] PlayerControl target)
     {
+        // No cliente dono, GuardianAngel só existe localmente. Aplicamos o
+        // cooldown antes que o pedido seja enviado ao host.
+        EventoAnjoTraidor.AplicarCooldownProtectLocal(__instance);
+
         if (!YouTubeVoteBridgePlugin.EhHost())
             return true;
 
@@ -681,6 +785,12 @@ internal static class EventoAnjoTraidorStartMeetingPatch
 [HarmonyPatch(typeof(GameManager), nameof(GameManager.RpcEndGame))]
 internal static class EventoAnjoTraidorEndGamePatch
 {
+    private static void Prefix()
+    {
+        // Precisa ocorrer antes do RPC de fim de jogo ser distribuído.
+        EventoAnjoTraidor.AntesDeEncerrarPartida();
+    }
+
     private static void Postfix()
     {
         EventoAnjoTraidor.EncerrarPartida();
