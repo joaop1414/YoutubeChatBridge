@@ -465,6 +465,65 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         }
     }
 
+    // Força a serialização do CustomNetworkTransform do NPC pelo fluxo nativo
+    // (Data update), em vez de enviar SnapTo que teleporta e zera a velocidade.
+    private static float proximaAtualizacaoTransformVanilla;
+    private const float IntervaloAtualizacaoTransformVanilla = 0.10f;
+
+    private static void SincronizarTransformVanilla()
+    {
+        if (!YouTubeVoteBridgePlugin.EhHost() ||
+            seguidor?.NetTransform == null ||
+            AmongUsClient.Instance == null ||
+            transporteEmAndamento || aguardandoSaidaVent)
+            return;
+
+        float agora = Time.realtimeSinceStartup;
+        if (agora < proximaAtualizacaoTransformVanilla)
+            return;
+        proximaAtualizacaoTransformVanilla = agora + IntervaloAtualizacaoTransformVanilla;
+
+        try
+        {
+            var transformacao = seguidor.NetTransform;
+            Type tipo = transformacao.GetType();
+            const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+
+            // InnerNetObject.SetDirtyBit marca o objeto para que o host
+            // serialize LastSequenceId, TargetPosition e TargetVelocity.
+            MethodInfo setDirty = null;
+            for (Type atual = tipo; atual != null && setDirty == null; atual = atual.BaseType)
+            {
+                setDirty = atual.GetMethods(flags | BindingFlags.DeclaredOnly)
+                    .FirstOrDefault(m => m.Name == "SetDirtyBit" &&
+                        m.GetParameters().Length == 1 &&
+                        (m.GetParameters()[0].ParameterType == typeof(uint) ||
+                         m.GetParameters()[0].ParameterType == typeof(int)));
+            }
+
+            if (setDirty == null)
+            {
+                if (!avisoSyncTransformVanilla)
+                {
+                    avisoSyncTransformVanilla = true;
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                        "[F7/Seguidor] SetDirtyBit não encontrado no CustomNetworkTransform; movimento vanilla pode não sincronizar.");
+                }
+                return;
+            }
+
+            Type parametro = setDirty.GetParameters()[0].ParameterType;
+            setDirty.Invoke(transformacao, new object[] { parametro == typeof(int) ? 1 : 1u });
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Seguidor] Falha ao marcar transform nativo para sincronização: " + ex.Message);
+        }
+    }
+
+    private static bool avisoSyncTransformVanilla;
+
     // Clientes vanilla recebem somente uma correção de posição por segundo.
     // Clientes com o mod ficam fora deste RPC e reproduzem a perseguição localmente.
     private static void EnviarSnapToRedePeriodico()
@@ -1005,7 +1064,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         // Um RPC SnapTo paralelo com sequência artificial disputa com a sequência nativa
         // do transform e pode fazer clientes remotos aplicarem posições incorretas.
 
-        // Corrige a associação dos dados e restaura somente o registro do ID 249.
+        // Atualiza o fluxo de dados nativo do transform para todos os clientes vanilla.\n        SincronizarTransformVanilla();\n\n        // Corrige a associação dos dados e restaura somente o registro do ID 249.
         AtualizarRegistroVidaNpc();
 
         // Verifica em runtime se esta versão expõe RpcMove no PlayerPhysics
@@ -3920,7 +3979,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         diagnosticoRegistroNpcFeito = false;
         avisoRegistroNpcAusente = false;
         avisoRegistroNpcCompartilhado = false;
-        diagnosticoApisMovimentoExecutado = false;
+        diagnosticoApisMovimentoExecutado = false;\n        proximaAtualizacaoTransformVanilla = 0f;\n        avisoSyncTransformVanilla = false;
         netIdSeguidorCliente = 0;
         alvoReplicadoCliente = byte.MaxValue;
         destinoReplicadoCliente = Vector2.zero;
