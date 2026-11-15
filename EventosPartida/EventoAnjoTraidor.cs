@@ -468,6 +468,16 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
                 anjo.MurderPlayer(alvo, resultado);
             }
 
+            // O host deve refletir a vítima como morta imediatamente,
+            // mesmo quando o RPC específico/global não atualiza seu GameData local.
+            alvo.Data.IsDead = true;
+            NetworkedPlayerInfo dadosAlvoHost = GameData.Instance?.GetPlayerById(alvo.PlayerId);
+            if (dadosAlvoHost != null)
+            {
+                dadosAlvoHost.IsDead = true;
+                dadosAlvoHost.SetDirtyBit(uint.MaxValue);
+            }
+
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 "[F7/Anjo Traidor] Primeiro MurderPlayer enviado somente ao dono " +
                 "do Anjo Traidor. Killer=" + anjo.PlayerId + ", alvo=" + alvo.PlayerId + ".");
