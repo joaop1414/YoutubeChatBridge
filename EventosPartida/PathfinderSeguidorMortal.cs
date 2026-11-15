@@ -39,7 +39,7 @@ internal static class PathfinderSeguidorMortal
         int largura = Mathf.CeilToInt(limites.size.x / tamanhoCelula);
         int altura = Mathf.CeilToInt(limites.size.y / tamanhoCelula);
 
-        if (largura < 2 || altura < 2 || (long)largura * altura > 60000)
+        if (largura < 2 || altura < 2 || (long)largura * altura > 45000)
             return null;
 
         int total = largura * altura;
@@ -69,7 +69,7 @@ internal static class PathfinderSeguidorMortal
         abertos.Enqueue(inicioId, Heuristica(inicioId, destinoId, largura));
 
         int expandidos = 0;
-        const int limiteExpansoes = 18000;
+        const int limiteExpansoes = 12000;
 
         while (abertos.Count > 0 && expandidos < limiteExpansoes)
         {
