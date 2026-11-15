@@ -188,7 +188,11 @@ internal static class SistemaNomesLocais
                 SendOption.Reliable,
                 jogador.OwnerId);
 
+            // Formato idêntico ao EHR (CustomRpcSenderExtensions.RpcSetName):
+            // Data.NetId do jogador, nome e flag adicional false.
+            writer.Write(jogador.Data.NetId);
             writer.Write(nome);
+            writer.Write(false);
             AmongUsClient.Instance.FinishRpcImmediately(writer);
             return true;
         }
