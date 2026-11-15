@@ -665,7 +665,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
         // Escadas, tirolesas e outros transportes continuam sendo controlados
         // pelos RPCs nativos recebidos do host.
-        if (!npc.moveable || npc.onLadder || npc.inMovingPlat)
+        if (!npc.moveable || npc.onLadder || npc.inMovingPlat ||
+            npc.inVent || npc.walkingToVent)
         {
             PararCorpo(npc.NetTransform.body, "AtualizarCliente (linha 632)");
             return;
@@ -2077,6 +2078,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 salaEscolhida + ": " + destinoPatrulha + ".");
         }
 
+        AtualizarDestinoReplicado(null, destinoPatrulha);
         MoverAte(destinoPatrulha);
     }
 
@@ -3350,6 +3352,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 // A sabotagem ativa continua tendo prioridade mesmo se a sala
                 // não puder ser identificada; não volta a perseguir jogadores.
                 PararCorpo(seguidor.NetTransform.body, "TentarResolverOutrasSabotagens (linha 2984)");
+                EnviarDestinoAosClientesComMod(null, seguidor.GetTruePosition());
                 return true;
             }
 
@@ -3368,6 +3371,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 "[F7/Seguidor] Sabotagem " + sabotagemAtual +
                 " detectada; NPC indo para " + destinoOutraSabotagem + ".");
         }
+
+        AtualizarDestinoReplicado(null, destinoOutraSabotagem);
 
         // No reator/seismic, o NPC ocupa apenas o scanner 0. O scanner 1
         // precisa ser acionado por outro jogador real; enquanto isso, fica parado
@@ -3679,6 +3684,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 "[F7/Seguidor] Luzes sabotadas; NPC indo para a Elétrica: " +
                 destinoEletrica + ".");
         }
+
+        AtualizarDestinoReplicado(null, destinoEletrica);
 
         Vector2 origem = seguidor.GetTruePosition();
         if (Vector2.Distance(origem, destinoEletrica) > DistanciaChegadaPatrulha)
