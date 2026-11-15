@@ -121,6 +121,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private static int indiceCaminho;
     private static Vector2 destinoCaminhoAnterior;
     private static float proximoRecalculoCaminho;
+    private static int falhasConsecutivasRota;
     private static bool mostrarCaminhoNpc;
     private static LineRenderer renderizadorCaminhoNpc;
     private static Material materialCaminhoNpc;
@@ -1567,9 +1568,17 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 caminhoAtual.Clear();
                 indiceCaminho = 0;
                 corpo.velocity = Vector2.zero;
+
+                // Se o destino atual da patrulha não possui uma rota possível,
+                // procura outra sala e só aceita um destino com caminho A* válido.
+                if (possuiDestinoPatrulha &&
+                    Vector2.Distance(destino, destinoPatrulha) < 0.20f)
+                    TentarTrocarDestinoPatrulha(origem);
+
                 return;
             }
 
+            falhasConsecutivasRota = 0;
             caminhoAtual = novoCaminho;
             indiceCaminho = 0;
         }
@@ -1611,12 +1620,100 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             proximoRecalculoCaminho = agora + 0.12f;
             direcaoDeslizamentoCache = Vector2.zero;
             proximaReavaliacaoDeslizamento = 0f;
+
+            // Uma única obstrução pode ser temporária. Depois de três falhas
+            // consecutivas, a patrulha abandona o destino e procura outro.
+            if (possuiDestinoPatrulha &&
+                Vector2.Distance(destino, destinoPatrulha) < 0.20f)
+            {
+                falhasConsecutivasRota++;
+                if (falhasConsecutivasRota >= 3)
+                {
+                    falhasConsecutivasRota = 0;
+                    TentarTrocarDestinoPatrulha(origem);
+                }
+            }
             return;
         }
+
+        falhasConsecutivasRota = 0;
 
         // Sem aceleração acumulada: a velocidade muda junto com a direção da
         // rota, evitando que o corpo continue deslizando para dentro de objetos.
         corpo.velocity = direcao * Velocidade;
+    }
+
+    /// <summary>
+    /// Abandona um destino de patrulha sem rota e procura outra sala.
+    /// Um novo destino só é aceito quando o A* consegue calcular um caminho
+    /// completo até ele, evitando repetir pontos livres porém inacessíveis.
+    /// </summary>
+    private static bool TentarTrocarDestinoPatrulha(Vector2 origem)
+    {
+        if (seguidor?.NetTransform?.body == null || ShipStatus.Instance == null)
+            return false;
+
+        var salas = ShipStatus.Instance.AllRooms
+            .Where(sala => sala != null && sala.roomArea != null)
+            .Where(sala => sala.RoomId != ultimaSalaPatrulha)
+            .OrderBy(_ => UnityEngine.Random.value)
+            .ToList();
+
+        // Se não houver outra sala, permite tentar novamente a sala anterior.
+        if (salas.Count == 0)
+        {
+            salas = ShipStatus.Instance.AllRooms
+                .Where(sala => sala != null && sala.roomArea != null)
+                .OrderBy(_ => UnityEngine.Random.value)
+                .ToList();
+        }
+
+        foreach (var sala in salas)
+        {
+            Bounds limites = sala.roomArea.bounds;
+            Vector2 centroSala = limites.center;
+
+            if (!sala.roomArea.OverlapPoint(centroSala) ||
+                !TentarEncontrarPontoLivreNaSala(limites, centroSala, out Vector2 pontoLivre) ||
+                Vector2.Distance(origem, pontoLivre) < DistanciaChegadaPatrulha + 0.5f)
+                continue;
+
+            List<Vector2> caminhoTeste = CalcularCaminhoAStar(origem, pontoLivre);
+            if (caminhoTeste == null || caminhoTeste.Count == 0)
+                continue;
+
+            destinoPatrulha = pontoLivre;
+            possuiDestinoPatrulha = true;
+            ultimaSalaPatrulha = sala.RoomId;
+            possuiUltimaSalaPatrulha = true;
+
+            caminhoAtual = caminhoTeste;
+            indiceCaminho = 0;
+            destinoCaminhoAnterior = pontoLivre;
+            proximoRecalculoCaminho =
+                Time.realtimeSinceStartup + IntervaloRecalculoCaminho;
+            falhasConsecutivasRota = 0;
+            monitoramentoMovimentoIniciado = false;
+            avisoMonitoramentoMovimento = false;
+
+            EnviarDestinoAosClientesComMod(null, destinoPatrulha);
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Seguidor] Destino de patrulha sem rota. Trocando para a sala " +
+                sala.RoomId + " com caminho A* válido: " + pontoLivre + ".");
+            return true;
+        }
+
+        // Não deixa uma velocidade antiga continuar empurrando o NPC contra
+        // o obstáculo enquanto aguarda a próxima tentativa de destino.
+        seguidor.NetTransform.body.velocity = Vector2.zero;
+        proximaTentativaDestinoPatrulha =
+            Time.realtimeSinceStartup + 0.50f;
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+            "[F7/Seguidor] Não encontrou outra sala com caminho A* válido; " +
+            "tentará escolher um novo destino novamente.");
+        return false;
     }
 
     /// <summary>
@@ -2596,6 +2693,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         indiceCaminho = 0;
         destinoCaminhoAnterior = Vector2.zero;
         proximoRecalculoCaminho = 0f;
+        falhasConsecutivasRota = 0;
         direcaoDeslizamentoCache = Vector2.zero;
         destinoDeslizamentoCache = Vector2.zero;
         proximaReavaliacaoDeslizamento = 0f;
