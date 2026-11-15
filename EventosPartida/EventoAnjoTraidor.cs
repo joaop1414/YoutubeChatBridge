@@ -493,14 +493,19 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
             MurderResultFlags resultado =
                 MurderResultFlags.Succeeded | MurderResultFlags.DecisionByHost;
 
-            // 2) Primeiro MurderPlayer: somente para o cliente do impostor.
-            // Quando o host é o próprio Anjo, executamos o equivalente local.
-            if (anjo.OwnerId == cliente.ClientId)
+            // 2) Executa a morte com o caminho correto para cada cenário.
+            // Se o Anjo for o próprio host, RpcMurderPlayer faz a morte local
+            // e publica o RPC vanilla, incluindo a criação/sincronização do corpo.
+            // Nesse caso não enviaremos outro MurderPlayer global mais abaixo.
+            bool anjoEhHost = anjo.OwnerId == cliente.ClientId;
+
+            if (anjoEhHost)
             {
-                anjo.MurderPlayer(alvo, resultado);
+                anjo.RpcMurderPlayer(alvo, true);
             }
             else
             {
+                // Primeiro envia a morte somente ao cliente dono do Anjo.
                 MessageWriter murderOwnerWriter = cliente.StartRpcImmediately(
                     anjo.NetId,
                     (byte)RpcCalls.MurderPlayer,
@@ -511,8 +516,7 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
                 murderOwnerWriter.Write((int)resultado);
                 cliente.FinishRpcImmediately(murderOwnerWriter);
 
-                // O host também precisa registrar a morte em seu estado
-                // autoritativo antes de publicar o RPC global.
+                // O host também registra a morte em seu estado autoritativo.
                 anjo.MurderPlayer(alvo, resultado);
             }
 
@@ -530,20 +534,31 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
                 "[F7/Anjo Traidor] Primeiro MurderPlayer enviado somente ao dono " +
                 "do Anjo Traidor. Killer=" + anjo.PlayerId + ", alvo=" + alvo.PlayerId + ".");
 
-            // 3) Segundo MurderPlayer: broadcast para todos os clientes.
-            MessageWriter murderGlobalWriter = cliente.StartRpcImmediately(
-                anjo.NetId,
-                (byte)RpcCalls.MurderPlayer,
-                SendOption.Reliable,
-                -1);
+            // 3) Para Anjo remoto, completa com broadcast global.
+            // Quando o host é o Anjo, RpcMurderPlayer já publicou o RPC global.
+            if (!anjoEhHost)
+            {
+                MessageWriter murderGlobalWriter = cliente.StartRpcImmediately(
+                    anjo.NetId,
+                    (byte)RpcCalls.MurderPlayer,
+                    SendOption.Reliable,
+                    -1);
 
-            murderGlobalWriter.WriteNetObject(alvo);
-            murderGlobalWriter.Write((int)resultado);
-            cliente.FinishRpcImmediately(murderGlobalWriter);
+                murderGlobalWriter.WriteNetObject(alvo);
+                murderGlobalWriter.Write((int)resultado);
+                cliente.FinishRpcImmediately(murderGlobalWriter);
 
-            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[F7/Anjo Traidor] Segundo MurderPlayer enviado globalmente. " +
-                "Impostor=" + anjo.PlayerId + ", vítima=" + alvo.PlayerId + ".");
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[F7/Anjo Traidor] Segundo MurderPlayer enviado globalmente. " +
+                    "Impostor=" + anjo.PlayerId + ", vítima=" + alvo.PlayerId + ".");
+            }
+            else
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[F7/Anjo Traidor] RpcMurderPlayer executado pelo host; morte local " +
+                    "e sincronização global feitas pelo método vanilla. Impostor=" +
+                    anjo.PlayerId + ", vítima=" + alvo.PlayerId + ".");
+            }
         }
         catch (Exception ex)
         {
