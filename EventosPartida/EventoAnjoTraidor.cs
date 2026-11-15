@@ -560,7 +560,7 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
                 if (!TentarDefinirProtectCooldown(opcoes, killCooldown, out _))
                     return false;
 
-                AplicarOpcoesNaLogicaLocal(opcoes);
+                AplicarOpcoesNaLogicaLocal(opcoesAtuais);
 
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                     "[F7/Anjo Traidor] ProtectCooldown local do host definido para " +
