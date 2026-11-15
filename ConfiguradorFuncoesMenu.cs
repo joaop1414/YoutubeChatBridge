@@ -291,7 +291,7 @@ internal static class ConfiguradorFuncoesMenu
             janela = CreateWindowExW(0, CLASSE_JANELA,
                 "YouTubeChatBridge — Configurador de funções (F8)",
                 WS_OVERLAPPEDWINDOW, unchecked((int)0x80000000), unchecked((int)0x80000000),
-                570, 360, IntPtr.Zero, IntPtr.Zero, instancia, IntPtr.Zero);
+                570, 390, IntPtr.Zero, IntPtr.Zero, instancia, IntPtr.Zero);
             if (janela == IntPtr.Zero)
                 throw new InvalidOperationException("CreateWindowExW falhou: " + Marshal.GetLastWin32Error());
 
@@ -448,7 +448,7 @@ internal static class ConfiguradorFuncoesMenu
             282, 254, 250, 32, hwnd, new IntPtr(ID_FECHAR), instancia);
         status = CriarControle("STATIC", "STATUS: aguardando configuração",
             WS_CHILD | WS_VISIBLE, 22, 334, 510, 28, hwnd, IntPtr.Zero, instancia);
-        foreach (IntPtr c in new[] { comboJogador, comboFuncao, status })
+        foreach (IntPtr c in new[] { comboJogador, comboFuncao, botaoTeleporteMouse, status })
             if (c != IntPtr.Zero && fonte != IntPtr.Zero)
                 SendMessageW(c, WM_SETFONT, fonte, new IntPtr(1));
     }
