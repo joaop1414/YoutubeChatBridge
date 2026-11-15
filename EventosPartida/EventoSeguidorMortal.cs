@@ -2794,11 +2794,12 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         {
             Collider2D colisor = impacto.collider;
             if (colisor == null || colisor.isTrigger ||
-                colisor.transform.IsChildOf(seguidor.transform) ||
-                (alvoIgnoradoNavegacao != null &&
-                 colisor.transform.IsChildOf(alvoIgnoradoNavegacao.transform)))
+                colisor.transform.IsChildOf(seguidor.transform))
                 continue;
 
+            // O jogador-alvo não pode ser ignorado na física: ignorá-lo fazia
+            // o cast também ignorar paredes/obstáculos que compartilham sua
+            // hierarquia em alguns mapas. O NPC deve parar antes do collider.
             return false;
         }
 
