@@ -2666,14 +2666,21 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             Mathf.Abs(escala.y) * FatorEscalaColisaoNavegacao);
     }
 
-    // Usa o formato real do collider do personagem na posição hipotética.
-    // Circle, Box e Capsule mantêm sua geometria; outros tipos usam um círculo
-    // conservador baseado nos limites reais do collider.
+    // Margem adicional usada somente pelas consultas de ocupação da navegação.
+    // Ela faz o A* e a validação de waypoints perceberem paredes um pouco antes,
+    // dando espaço para o NPC contornar quinas sem alterar os colliders do mapa.
+    // Os casts de deslocamento abaixo continuam usando a hitbox física normal,
+    // então a colisão real ainda é verificada separadamente.
+    private const float MargemAntecipacaoColisaoMapa = 0.08f;
+
+    // Usa o formato real do collider do personagem, com uma pequena folga
+    // para consultas de antecipação. Circle, Box e Capsule mantêm sua geometria.
     private static Collider2D[] ObterColisoesNaPosicao(Vector2 posicaoRaiz, int mascara)
     {
         Collider2D collider = ObterColliderFisicoNpc();
         if (collider == null)
-            return Physics2D.OverlapCircleAll(posicaoRaiz, RaioColisaoFallback, mascara);
+            return Physics2D.OverlapCircleAll(
+                posicaoRaiz, RaioColisaoFallback + MargemAntecipacaoColisaoMapa, mascara);
 
         Vector2 centro = ObterCentroColliderNaPosicao(collider, posicaoRaiz);
         Vector2 escala = ObterEscalaAbsoluta(collider.transform);
@@ -2681,24 +2688,28 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
         if (collider is CircleCollider2D circulo)
         {
-            float raio = circulo.radius * Mathf.Max(escala.x, escala.y);
+            float raio = circulo.radius * Mathf.Max(escala.x, escala.y) +
+                MargemAntecipacaoColisaoMapa;
             return Physics2D.OverlapCircleAll(centro, raio, mascara);
         }
 
         if (collider is BoxCollider2D caixa)
         {
-            Vector2 tamanho = Vector2.Scale(caixa.size, escala);
+            Vector2 tamanho = Vector2.Scale(caixa.size, escala) +
+                Vector2.one * (MargemAntecipacaoColisaoMapa * 2f);
             return Physics2D.OverlapBoxAll(centro, tamanho, angulo, mascara);
         }
 
         if (collider is CapsuleCollider2D capsula)
         {
-            Vector2 tamanho = Vector2.Scale(capsula.size, escala);
+            Vector2 tamanho = Vector2.Scale(capsula.size, escala) +
+                Vector2.one * (MargemAntecipacaoColisaoMapa * 2f);
             return Physics2D.OverlapCapsuleAll(
                 centro, tamanho, capsula.direction, angulo, mascara);
         }
 
-        float raioFallback = collider.bounds.extents.magnitude * FatorEscalaColisaoNavegacao;
+        float raioFallback = collider.bounds.extents.magnitude *
+            FatorEscalaColisaoNavegacao + MargemAntecipacaoColisaoMapa;
         return Physics2D.OverlapCircleAll(centro, raioFallback, mascara);
     }
 
