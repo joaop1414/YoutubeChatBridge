@@ -534,9 +534,9 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         }
     }
 
-    // O host informa aos clientes com o mod qual jogador está sendo perseguido.
-    // O PlayerId permite que cada cliente acompanhe a posição atual desse jogador,
-    // sem precisar receber uma coordenada nova a cada frame.
+    // O host envia snapshots de destino aos clientes com mod.
+    // Os clientes nunca substituem esse ponto pela posição atual do jogador:
+    // assim também reproduzem a investigação da última posição observada.
     private static void EnviarDestinoAosClientesComMod(PlayerControl alvo, Vector2? destinoForcado = null)
     {
         if (!YouTubeVoteBridgePlugin.EhHost() ||
@@ -1529,7 +1529,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             ? melhorEscada.UsableDistance
             : melhorTirolesa != null
                 ? melhorTirolesa.UsableDistance
-                : melhorConsolePlataforma.UsableDistance;
+                : 1.5f;
 
         float distanciaEntrada = Vector2.Distance(origem, pontoEntrada);
         if (distanciaEntrada > alcance)
@@ -3541,7 +3541,10 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             // como último recurso. O caminho normal sempre prefere dados de tripulante.
             dadosTripulante ??= seguidor?.Data;
             if (dadosTripulante == null)
+            {
+                alcanceVisaoTripulanteCacheado = 0f;
                 return 0f;
+            }
 
             const BindingFlags flags =
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
@@ -3559,7 +3562,10 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 });
 
             if (calcular == null)
+            {
+                alcanceVisaoTripulanteCacheado = 0f;
                 return 0f;
+            }
 
             object resultado = calcular.Invoke(ShipStatus.Instance, new object[] { dadosTripulante });
             alcanceVisaoTripulanteCacheado = resultado == null
