@@ -529,8 +529,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
     private static bool avisoSyncTransformVanilla;
 
-    // Clientes vanilla recebem somente uma correção de posição por segundo.
-    // Clientes com o mod ficam fora deste RPC e reproduzem a perseguição localmente.
+    // Envia a posição verdadeira do NPC para todos os clientes a cada segundo.
+    // O host continua sendo a autoridade da posição; os clientes recebem o SnapTo.
     private static void EnviarSnapToRedePeriodico()
     {
         if (!YouTubeVoteBridgePlugin.EhHost() ||
@@ -566,30 +566,21 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
             ushort sequenciaRede = sequenciaSnapToRede;
 
-            int enviados = 0;
-            foreach (var cliente in AmongUsClient.Instance.allClients.ToArray())
-            {
-                if (cliente == null ||
-                    cliente.Id == AmongUsClient.Instance.ClientId ||
-                    cliente.Id < 0 ||
-                    YouTubeVoteBridgePlugin.ClienteTemMod(cliente.Id))
-                    continue;
+            // Target -1 transmite o mesmo RPC para todos os clientes remotos,
+            // sem precisar filtrar clientes vanilla ou clientes com o mod.
+            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
+                transformacao.NetId,
+                (byte)RpcCalls.SnapTo,
+                SendOption.Reliable,
+                -1);
 
-                MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
-                    transformacao.NetId,
-                    (byte)RpcCalls.SnapTo,
-                    SendOption.Reliable,
-                    cliente.Id);
-
-                writer.Write(posicao.x);
-                writer.Write(posicao.y);
-                writer.Write(sequenciaRede);
-                AmongUsClient.Instance.FinishRpcImmediately(writer);
-                enviados++;
-            }
+            writer.Write(posicao.x);
+            writer.Write(posicao.y);
+            writer.Write(sequenciaRede);
+            AmongUsClient.Instance.FinishRpcImmediately(writer);
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogDebug(
-                $"[F7/Seguidor] SnapTo enviado a {enviados} cliente(s) vanilla: posição={posicao}, sequência={sequenciaRede}.");
+                $"[F7/Seguidor] SnapTo enviado para todos os clientes: posição verdadeira={posicao}, sequência={sequenciaRede}.");
         }
         catch (Exception ex)
         {
@@ -1068,13 +1059,9 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         if (etapaInicializacao < 5)
             return;
 
-        // Não enviar SnapTo manual periódico aos clientes vanilla.
-        // O CustomNetworkTransform do NPC já replica o movimento contínuo do Rigidbody2D.
-        // Um RPC SnapTo paralelo com sequência artificial disputa com a sequência nativa
-        // do transform e pode fazer clientes remotos aplicarem posições incorretas.
-
-        // Atualiza o fluxo de dados nativo do transform para todos os clientes vanilla.
-        SincronizarTransformVanilla();
+        // A cada segundo, corrige a posição de todos os clientes usando
+        // a posição verdadeira do NPC no host.
+        EnviarSnapToRedePeriodico();
 
         // Corrige a associação dos dados e restaura somente o registro do ID 249.
         AtualizarRegistroVidaNpc();
