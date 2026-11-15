@@ -501,7 +501,7 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
 
             float cooldownKill = Mathf.Max(
                 0.1f,
-                GameManager.Instance.LogicOptions.GetFloat(FloatOptionNames.KillCooldown));
+                GameOptionsManager.Instance.CurrentGameOptions.GetFloat(FloatOptionNames.KillCooldown));
 
             HudManager.Instance.AbilityButton.SetCoolDown(cooldownKill, cooldownKill);
 
