@@ -938,7 +938,11 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
                 (jogador.Data.Role != null && jogador.Data.Role.IsImpostor);
 
             if (deveFicarVermelho)
+            {
+                YouTubeVoteBridgePlugin.PausarRainbowDuranteTrocaDeNome(
+                    jogador, "Anjo Traidor");
                 nomesOriginais[jogador.PlayerId] = jogador.Data.PlayerName ?? string.Empty;
+            }
         }
     }
 
@@ -967,6 +971,8 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
                 continue;
 
             EnviarNomeSomenteAoClienteDono(jogador, item.Value);
+            YouTubeVoteBridgePlugin.RetomarRainbowDepoisDaTrocaDeNome(
+                jogador, "Anjo Traidor");
         }
 
         nomesOriginais.Clear();
