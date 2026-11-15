@@ -12,10 +12,9 @@ using Il2CppInterop.Runtime.InteropTypes;
 namespace YouTubeVoteBridge;
 
 /// <summary>
-/// NPC artificial que persegue o jogador vivo mais próximo.
-/// A movimentação usa o Rigidbody2D do CustomNetworkTransform, igual ao
-/// transporte contínuo já usado pelo evento Tsunami. A posição é replicada pelo
-/// transform nativo, sem RPC SnapTo periódico com sequência artificial.
+/// NPC Assassino controlado por uma IA com estados de patrulha, perseguição,
+/// investigação, sabotagem e transporte. A movimentação usa o Rigidbody2D do
+/// CustomNetworkTransform e a posição é replicada pelo transform nativo.
 /// </summary>
 internal sealed class EventoSeguidorMortal : EventoVotacao
 {
@@ -1611,7 +1610,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         // logo após o fallback ter encontrado um corredor livre.
         if (caminhoAtual == null || caminhoAtual.Count == 0)
         {
-            TentarDesvioLocal(origem, destino, corpo, agora);
+            if (!TentarDesvioLocal(origem, destino, corpo, agora))
+                PararCorpo(corpo, "MoverAte aguardando nova rota");
             return;
         }
 
