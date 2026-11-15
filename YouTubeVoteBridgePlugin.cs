@@ -2587,6 +2587,8 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     private static int IndiceCorRainbow;
     private static readonly Dictionary<byte, int> IndicesCorRainbowPorJogador = new();
     private static readonly HashSet<byte> JogadoresRainbowAtivos = new();
+    // Jogadores cujo Rainbow fica suspenso enquanto um evento controla temporariamente o nome.
+    private static readonly HashSet<byte> JogadoresRainbowPausadosPorEvento = new();
     private static readonly Dictionary<byte, int> CoresOriginaisRainbow = new();
     private static readonly Dictionary<byte, string> NomesOriginaisRainbow = new();
     // Shapeshifters rainbow com transformação ativa: não recebem RpcSetColor
@@ -2787,6 +2789,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             NotificarEstadoRainbowVisual(playerId, false);
 
         JogadoresRainbowAtivos.Clear();
+        JogadoresRainbowPausadosPorEvento.Clear();
         CoresOriginaisRainbow.Clear();
         NomesOriginaisRainbow.Clear();
         CoresRainbowRestauradasPorDestransformacao.Clear();
@@ -3348,7 +3351,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
                 // Enquanto o Shapeshifter rainbow estiver transformado, congelamos
                 // também o nome colorido. Antes, só a cor era pausada e o loop continuava
                 // reescrevendo o nome rainbow a cada meio segundo.
-                if (rainbowPausado)
+                if (rainbowPausado || JogadoresRainbowPausadosPorEvento.Contains(playerId))
                     continue;
 
                 string nomeOriginal = NomesRainbowTemporariosPorShapeshift.TryGetValue(playerId, out string nomeTemporario)
@@ -3437,7 +3440,9 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             foreach (PlayerVoteArea area in reuniao.playerStates)
             {
                 byte? playerId = ObterPlayerIdDaArea(area);
-                if (!playerId.HasValue || !JogadoresRainbowAtivos.Contains(playerId.Value))
+                if (!playerId.HasValue ||
+                    !JogadoresRainbowAtivos.Contains(playerId.Value) ||
+                    JogadoresRainbowPausadosPorEvento.Contains(playerId.Value))
                     continue;
 
                 if (!NomesOriginaisRainbow.TryGetValue(
@@ -3630,6 +3635,33 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         return JogadoresRainbowAtivos.Contains(id) ||
                NomesOriginaisRainbow.ContainsKey(id) ||
                IndicesCorRainbowPorJogador.ContainsKey(id);
+    }
+
+    // Eventos que substituem temporariamente o nome precisam suspender o Rainbow
+    // do jogador afetado; assim o ciclo não sobrescreve o nome enviado aos vanilla.
+    public static void PausarRainbowDuranteTrocaDeNome(PlayerControl jogador, string evento)
+    {
+        if (!EhJogadorRainbowRegistrado(jogador))
+            return;
+
+        if (JogadoresRainbowPausadosPorEvento.Add(jogador.PlayerId))
+            Instance?.Log.LogInfo(
+                "Rainbow pausado temporariamente para troca de nome: PlayerId=" +
+                jogador.PlayerId + ", evento=" + (evento ?? "desconhecido") + ".");
+    }
+
+    public static void RetomarRainbowDepoisDaTrocaDeNome(PlayerControl jogador, string evento)
+    {
+        if (jogador == null ||
+            !JogadoresRainbowPausadosPorEvento.Remove(jogador.PlayerId))
+            return;
+
+        // Faz o ciclo reaplicar cor e nome Rainbow no próximo Update, após o
+        // evento já ter restaurado o nome que estava salvo antes da troca.
+        ProximaTrocaCorRainbow = 0f;
+        Instance?.Log.LogInfo(
+            "Rainbow retomado após troca de nome: PlayerId=" +
+            jogador.PlayerId + ", evento=" + (evento ?? "desconhecido") + ".");
     }
 
     private static string ObterNomeBaseRainbow(PlayerControl jogador)
