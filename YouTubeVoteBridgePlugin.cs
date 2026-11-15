@@ -4278,6 +4278,12 @@ public static class YouTubeVoteLobbyKeybindPatch
             if (chatAberto)
                 return;
 
+            if (Input.GetKeyDown(KeyCode.F8))
+            {
+                ConfiguradorFuncoesMenu.Abrir();
+                return;
+            }
+
             bool control = Input.GetKey(KeyCode.LeftControl) ||
                 Input.GetKey(KeyCode.RightControl);
 
