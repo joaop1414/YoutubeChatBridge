@@ -183,8 +183,22 @@ internal static class RoleSwitchAPI
                 if (dados == null)
                     continue;
 
-                // Reenvia o estado vivo mesmo que o host já o considere vivo:
-                // alguns clientes podem ter marcado o jogador como morto durante SetRole.
+                // A troca de função pode levar 0,75s para concluir. Nesse intervalo,
+                // o jogador pode morrer legitimamente. Nunca sobrescreva uma morte
+                // que já esteja registrada no PlayerControl ou no GameData.
+                if (troca.Jogador.Data.IsDead || dados.IsDead)
+                {
+                    LogInfo(
+                        $"Restauração de estado vivo ignorada: PlayerId={troca.Jogador.PlayerId} morreu durante a troca de função.");
+                    yield return new WaitForSecondsRealtime(0.08f);
+                    if (loteAtual != identificadorLote)
+                        yield break;
+                    continue;
+                }
+
+                // Reenvia o estado vivo somente se o host e o GameData ainda
+                // confirmarem que o jogador está vivo; alguns clientes podem ter
+                // marcado o jogador como morto durante SetRole.
                 dados.IsDead = false;
                 dados.SetDirtyBit(1u << troca.Jogador.PlayerId);
                 cliente.SendAllStreamedObjects();
