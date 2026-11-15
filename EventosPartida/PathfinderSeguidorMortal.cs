@@ -163,7 +163,11 @@ internal static class PathfinderSeguidorMortal
         Func<Vector2, Vector2, bool> segmentoLivre)
     {
         if (CelulaLivre(indice, minimo, passo, largura, livre, testada, celulaLivre))
-            return true;
+        {
+            Vector2 centroInicial = Centro(indice % largura, indice / largura, minimo, passo);
+            if (segmentoLivre(origem, centroInicial))
+                return true;
+        }
 
         int x0 = indice % largura;
         int y0 = indice / largura;
