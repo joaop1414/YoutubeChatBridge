@@ -23,7 +23,9 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private const float PenalidadeProximidadeParede = 0.24f;
     // Hitbox virtual independente dos colliders físicos do prefab do NPC.
     // A colisão é calculada entre os centros visuais dos dois personagens.
-    private const float RaioHitboxVirtualNpc = 0.62f;
+    // Margem ampliada para compensar pequenas diferenças entre a posição replicada
+    // do NPC e o centro visual do jogador durante o contato.
+    private const float RaioHitboxVirtualNpc = 0.82f;
     private const float DeslocamentoCentroVisualFallback = 0.36f;
     private const float IntervaloTrocaAlvo = 0.25f;
     private const string NomeSeguidor = "<color=red>NPC ASSASSINO</color>";
