@@ -204,6 +204,7 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
 
             NetworkedPlayerInfo dadosEscolhidos = players[indiceJogador];
             PlayerControl escolhido = ObterJogador(dadosEscolhidos.PlayerId);
+            RoleTypes funcaoSubstituida = roleList[indiceFuncao];
 
             if (!JogadorValido(escolhido))
                 return;
