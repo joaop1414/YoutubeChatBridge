@@ -327,13 +327,11 @@ internal static class ConfiguradorFuncoesMenu
                 return IntPtr.Zero;
 
             case WM_APP_TOGGLE:
-                if (IsWindowVisible(hwnd)) ShowWindow(hwnd, SW_HIDE);
-                else
-                {
-                    AtualizarCombos();
-                    ShowWindow(hwnd, SW_RESTORE);
-                    SetForegroundWindow(hwnd);
-                }
+                // F8 pode disparar repetidamente enquanto a tecla está pressionada.
+                // Cada mensagem apenas garante que a janela permaneça aberta.
+                AtualizarCombos();
+                ShowWindow(hwnd, SW_RESTORE);
+                SetForegroundWindow(hwnd);
                 return IntPtr.Zero;
 
             case 0x8009: // WM_APP_REFRESH
