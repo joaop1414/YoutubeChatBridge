@@ -5,6 +5,8 @@ using AmongUs.GameOptions;
 using HarmonyLib;
 using Hazel;
 using InnerNet;
+using BepInEx.Unity.IL2CPP.Utils;
+using UnityEngine;
 
 namespace YouTubeVoteBridge;
 
@@ -52,12 +54,13 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
     }
 
     /// <summary>
-    /// Executado depois da seleção vanilla. Se já existir um Phantom impostor,
-    /// ele é escolhido; caso contrário, um impostor recebe Phantom antes da Role Reveal.
+    /// Depois que o jogo termina a distribuição, encontra o Phantom que veio
+    /// da lista vanilla. A atribuição forçada, quando necessária, acontece
+    /// antes em LogicRoleSelectionNormal.AssignRolesFromList.
     /// </summary>
     internal static void SelecionarPhantom()
     {
-        if (!YouTubeVoteBridgePlugin.EhHost() || !armado || tentandoSelecionar)
+        if (!YouTubeVoteBridgePlugin.EhHost() || !armado || ativo || tentandoSelecionar)
             return;
 
         tentandoSelecionar = true;
@@ -78,66 +81,176 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
                 }
             }
 
-            if (escolhido != null)
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "[F7/Anjo Traidor] Phantom vanilla encontrado: " +
-                    escolhido.Data.PlayerName + " (PlayerId=" + escolhido.PlayerId + ").");
-            }
-            else
-            {
-                List<PlayerControl> impostores = new();
-
-                foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
-                {
-                    if (!JogadorValido(jogador) ||
-                        jogador.Data.Role == null ||
-                        !jogador.Data.Role.IsImpostor)
-                        continue;
-
-                    impostores.Add(jogador);
-                }
-
-                if (impostores.Count > 0)
-                {
-                    escolhido = impostores[System.Random.Shared.Next(impostores.Count)];
-
-                    // SelectRoles já terminou de montar as atribuições vanilla,
-                    // mas a Role Reveal ainda não começou. Substituímos a função
-                    // escolhida agora, sem fazer uma troca durante a partida.
-                    escolhido.RpcSetRole(RoleTypes.Phantom, true);
-
-                    YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                        "[F7/Anjo Traidor] Nenhum Phantom foi sorteado. " +
-                        "Atribuindo Phantom ao impostor " + escolhido.Data.PlayerName +
-                        " (PlayerId=" + escolhido.PlayerId + ") antes da Role Reveal.");
-                }
-            }
-
             if (escolhido == null)
             {
                 armado = false;
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "[F7/Anjo Traidor] Não foi encontrado nenhum impostor para receber Phantom. Evento cancelado.");
+                    "[F7/Anjo Traidor] A lista vanilla não produziu nenhum Phantom impostor. " +
+                    "Nenhum tripulante será convertido depois da distribuição; evento cancelado.");
                 return;
             }
 
-            playerIdSelecionado = escolhido.PlayerId;
-            clientIdSelecionado = escolhido.OwnerId;
-            ativo = true;
+            RegistrarPhantomSelecionado(escolhido);
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[F7/Anjo Traidor] Jogador escolhido: " + escolhido.Data.PlayerName +
-                " (PlayerId=" + playerIdSelecionado +
-                ", ClientId=" + clientIdSelecionado + ").");
+                "[F7/Anjo Traidor] Phantom vanilla confirmado: " +
+                escolhido.Data.PlayerName + " (PlayerId=" + escolhido.PlayerId + ").");
         }
         catch (Exception ex)
         {
             armado = false;
             ativo = false;
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[F7/Anjo Traidor] Falha ao escolher o Phantom: " + ex);
+                "[F7/Anjo Traidor] Falha ao localizar o Phantom após a distribuição: " + ex);
         }
+    }
+
+    /// <summary>
+    /// Chamado pelo Prefix de AssignRolesFromList quando o pool atual é o dos
+    /// impostores e ainda não existe Phantom na lista. Replica a estratégia do
+    /// Hydra: remove um jogador e uma função do mesmo pool, atribui Phantom
+    /// diretamente e incrementa rolesAssigned para manter a contagem vanilla.
+    /// </summary>
+    internal static void TentarSubstituirImpostorNaLista(
+        ref Il2CppSystem.Collections.Generic.List<NetworkedPlayerInfo> players,
+        ref Il2CppSystem.Collections.Generic.List<RoleTypes> roleList,
+        ref int rolesAssigned)
+    {
+        if (!YouTubeVoteBridgePlugin.EhHost() || !armado || ativo ||
+            players == null || roleList == null)
+            return;
+
+        try
+        {
+            bool poolDeImpostores = false;
+            bool phantomJaNaLista = false;
+
+            for (int i = 0; i < roleList.Count; i++)
+            {
+                RoleTypes role = roleList[i];
+
+                if (role == RoleTypes.Phantom)
+                    phantomJaNaLista = true;
+
+                if (RoleManager.IsImpostorRole(role) && !RoleManager.IsGhostRole(role))
+                    poolDeImpostores = true;
+            }
+
+            // AssignRolesFromList é chamado para diferentes facções.
+            // Só mexemos no pool que contém funções de impostor.
+            if (!poolDeImpostores || phantomJaNaLista)
+                return;
+
+            // Não substitui uma função se um Phantom já tiver sido atribuído
+            // em uma chamada anterior do seletor.
+            foreach (PlayerControl existente in PlayerControl.AllPlayerControls)
+            {
+                if (JogadorValido(existingente) &&
+                    existente.Data.RoleType == RoleTypes.Phantom)
+                {
+                    RegistrarPhantomSelecionado(existente);
+                    return;
+                }
+            }
+
+            List<int> indicesJogadoresValidos = new();
+
+            for (int i = 0; i < players.Count; i++)
+            {
+                NetworkedPlayerInfo dados = players[i];
+                if (dados == null || dados.Disconnected || dados.IsDead)
+                    continue;
+
+                PlayerControl controle = ObterJogador(dados.PlayerId);
+                if (JogadorValido(controle))
+                    indicesJogadoresValidos.Add(i);
+            }
+
+            if (indicesJogadoresValidos.Count == 0)
+                return;
+
+            // Prefere substituir o papel básico Impostor. Se não houver,
+            // substitui outra função impostora não-fantasma do mesmo pool.
+            int indiceFuncao = -1;
+            for (int i = 0; i < roleList.Count; i++)
+            {
+                if (roleList[i] == RoleTypes.Impostor)
+                {
+                    indiceFuncao = i;
+                    break;
+                }
+            }
+
+            if (indiceFuncao < 0)
+            {
+                for (int i = 0; i < roleList.Count; i++)
+                {
+                    RoleTypes role = roleList[i];
+                    if (RoleManager.IsImpostorRole(role) &&
+                        !RoleManager.IsGhostRole(role) &&
+                        role != RoleTypes.Phantom)
+                    {
+                        indiceFuncao = i;
+                        break;
+                    }
+                }
+            }
+
+            if (indiceFuncao < 0)
+                return;
+
+            int indiceJogador = indicesJogadoresValidos[
+                System.Random.Shared.Next(indicesJogadoresValidos.Count)];
+
+            NetworkedPlayerInfo dadosEscolhidos = players[indiceJogador];
+            PlayerControl escolhido = ObterJogador(dadosEscolhidos.PlayerId);
+
+            if (!JogadorValido(escolhido))
+                return;
+
+            // Remove exatamente uma vaga de jogador e uma vaga de função.
+            // Assim Phantom substitui uma atribuição impostora existente,
+            // sem criar um impostor extra e sem tocar na lista de tripulantes.
+            players.RemoveAt(indiceJogador);
+            roleList.RemoveAt(indiceFuncao);
+
+            // O Hydra contorna um bug da cutscene quando a função fantasma
+            // seria a última função atribuída: primeiro envia a função base.
+            if (RoleManager.IsGhostRole(RoleTypes.Phantom) && players.Count == 0)
+                escolhido.RpcSetRole(RoleTypes.Impostor);
+
+            escolhido.RpcSetRole(RoleTypes.Phantom);
+            rolesAssigned++;
+
+            RegistrarPhantomSelecionado(escolhido);
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[F7/Anjo Traidor] Hydra-style AssignRolesFromList: " +
+                "uma vaga impostora foi substituída por Phantom. Jogador=" +
+                escolhido.Data.PlayerName + ", PlayerId=" + escolhido.PlayerId +
+                ", função removida=" + roleList.Count + ".");
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "[F7/Anjo Traidor] Falha ao substituir função na lista de impostores: " + ex);
+        }
+    }
+
+    private static void RegistrarPhantomSelecionado(PlayerControl escolhido)
+    {
+        if (escolhido == null || escolhido.Data == null)
+            return;
+
+        playerIdSelecionado = escolhido.PlayerId;
+        clientIdSelecionado = escolhido.OwnerId;
+        ativo = true;
+        tentandoSelecionar = true;
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            "[F7/Anjo Traidor] Jogador escolhido: " + escolhido.Data.PlayerName +
+            " (PlayerId=" + playerIdSelecionado +
+            ", ClientId=" + clientIdSelecionado + ").");
     }
 
     private static bool JogadorValido(PlayerControl jogador)
@@ -185,7 +298,7 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
 
             // O papel privado é enviado depois de a morte e o papel global
             // terem tido tempo para serem processados pelos clientes.
-            jogador.StartCoroutine(ConcluirTransformacaoAposMorte(jogador));
+            MonoBehaviourExtensions.StartCoroutine(jogador, ConcluirTransformacaoAposMorte(jogador));
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 "[F7/Anjo Traidor] Morte enviada para PlayerId=" + playerIdSelecionado +
@@ -457,11 +570,29 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
 }
 
 /// <summary>
-/// A seleção vanilla já foi concluída neste ponto, mas a Role Reveal ainda
-/// não começou. O evento apenas substitui uma atribuição de impostor por Phantom.
+/// Hydra usa LogicRoleSelectionNormal.AssignRolesFromList para editar o pool
+/// de funções antes que o jogo atribua os papéis. O patch só substitui uma
+/// vaga do pool impostor; nunca escolhe um tripulante.
+/// </summary>
+[HarmonyPatch(typeof(LogicRoleSelectionNormal), nameof(LogicRoleSelectionNormal.AssignRolesFromList))]
+internal static class EventoAnjoTraidorSelecaoFuncoesPatch
+{
+    private static void Prefix(
+        ref Il2CppSystem.Collections.Generic.List<NetworkedPlayerInfo> players,
+        ref Il2CppSystem.Collections.Generic.List<RoleTypes> roleList,
+        ref int rolesAssigned)
+    {
+        EventoAnjoTraidor.TentarSubstituirImpostorNaLista(
+            ref players, ref roleList, ref rolesAssigned);
+    }
+}
+
+/// <summary>
+/// Confirma o Phantom que o seletor vanilla atribuiu, caso ele já estivesse
+/// presente na lista original de funções.
 /// </summary>
 [HarmonyPatch(typeof(RoleManager), nameof(RoleManager.SelectRoles))]
-internal static class EventoAnjoTraidorSelecaoFuncoesPatch
+internal static class EventoAnjoTraidorConfirmarSelecaoPatch
 {
     private static void Postfix()
     {
