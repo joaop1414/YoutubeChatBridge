@@ -391,8 +391,8 @@ internal static class ConfiguradorFuncoesMenu
                 {
                     TeleporteMouseAtivo = !TeleporteMouseAtivo;
                     string textoBotao = TeleporteMouseAtivo
-                        ? "Teleporte pelo mouse: ATIVADO"
-                        : "Teleporte pelo mouse: DESATIVADO";
+                        ? "Teleporte mouse: ATIVADO"
+                        : "Teleporte mouse: DESATIVADO";
                     if (botaoTeleporteMouse != IntPtr.Zero)
                         SetWindowTextW(botaoTeleporteMouse, textoBotao);
                     DefinirStatus(TeleporteMouseAtivo
