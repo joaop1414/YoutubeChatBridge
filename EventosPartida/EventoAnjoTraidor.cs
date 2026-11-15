@@ -215,6 +215,14 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
     /// O host recebe CheckProtect mesmo quando o dono do jogador é vanilla.
     /// Em vez de proteger, o alvo selecionado recebe uma ordem de suicídio.
     /// </summary>
+    internal static bool DeveBloquearEscudo(PlayerControl anjo)
+    {
+        return ativo &&
+            habilidadeEncerrada &&
+            anjo != null &&
+            anjo.PlayerId == playerIdSelecionado;
+    }
+
     internal static bool AoTentarProteger(PlayerControl anjo, PlayerControl alvo)
     {
         if (!YouTubeVoteBridgePlugin.EhHost() ||
@@ -487,7 +495,8 @@ internal static class EventoAnjoTraidorCheckProtectPatch
         if (!YouTubeVoteBridgePlugin.EhHost())
             return true;
 
-        if (EventoAnjoTraidor.AoTentarProteger(__instance, target))
+        if (EventoAnjoTraidor.AoTentarProteger(__instance, target) ||
+            EventoAnjoTraidor.DeveBloquearEscudo(__instance))
             return false;
 
         return true;
