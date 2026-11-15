@@ -1815,7 +1815,10 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
         direcao.Normalize();
 
-        OpenableDoor[] portas = ShipStatus.Instance.AllDoors;
+        var portas = ShipStatus.Instance.AllDoors;
+        if (portas == null)
+            return false;
+
         for (int i = 0; i < portas.Length; i++)
         {
             OpenableDoor porta = portas[i];
