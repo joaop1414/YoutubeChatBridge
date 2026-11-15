@@ -76,9 +76,11 @@ internal static class ExploracaoMapaF8
     private static bool tentativaCarregamentoMapaFeita;
     private static bool mapaNavegacaoDisponivel;
     private static readonly List<Bounds> salasNavegacaoMapeadas = new();
-    private static readonly List<Bounds> obstaculosNavegacaoMapeados = new();
+    private static readonly Dictionary<Vector2Int, List<Bounds>> obstaculosPorCelula = new();
+    private static readonly List<Bounds> obstaculosGrandes = new();
     private const float MargemSalaMapeada = 0.85f;
     private const float MargemProximidadeObstaculoMapeado = 0.20f;
+    private const float TamanhoCelulaIndiceObstaculos = 1f;
 
     internal static bool ExploracaoAtiva => exploracaoAtiva;
 
@@ -322,33 +324,78 @@ internal static class ExploracaoMapaF8
             return 0f;
 
         float penalidade = 0f;
+        Vector2Int celula = new(
+            Mathf.FloorToInt(ponto.x / TamanhoCelulaIndiceObstaculos),
+            Mathf.FloorToInt(ponto.y / TamanhoCelulaIndiceObstaculos));
 
-        foreach (Bounds obstaculo in obstaculosNavegacaoMapeados)
+        foreach (Bounds obstaculo in obstaculosGrandes)
         {
-            if (obstaculo.Contains(ponto))
-            {
-                penalidade += 1.25f;
-            }
-            else
-            {
-                float dx = Mathf.Max(
-                    obstaculo.min.x - ponto.x,
-                    0f,
-                    ponto.x - obstaculo.max.x);
-                float dy = Mathf.Max(
-                    obstaculo.min.y - ponto.y,
-                    0f,
-                    ponto.y - obstaculo.max.y);
-
-                if (Mathf.Sqrt(dx * dx + dy * dy) <= MargemProximidadeObstaculoMapeado)
-                    penalidade += 0.20f;
-            }
-
+            penalidade += CalcularPenalidadeObstaculo(obstaculo, ponto);
             if (penalidade >= 3f)
                 return 3f;
         }
 
+        if (obstaculosPorCelula.TryGetValue(celula, out List<Bounds> candidatos))
+        {
+            foreach (Bounds obstaculo in candidatos)
+            {
+                penalidade += CalcularPenalidadeObstaculo(obstaculo, ponto);
+                if (penalidade >= 3f)
+                    return 3f;
+            }
+        }
+
         return Mathf.Min(penalidade, 3f);
+    }
+
+    private static float CalcularPenalidadeObstaculo(Bounds obstaculo, Vector2 ponto)
+    {
+        if (obstaculo.Contains(ponto))
+            return 1.25f;
+
+        float dx = Mathf.Max(
+            obstaculo.min.x - ponto.x,
+            0f,
+            ponto.x - obstaculo.max.x);
+        float dy = Mathf.Max(
+            obstaculo.min.y - ponto.y,
+            0f,
+            ponto.y - obstaculo.max.y);
+
+        return Mathf.Sqrt(dx * dx + dy * dy) <= MargemProximidadeObstaculoMapeado
+            ? 0.20f
+            : 0f;
+    }
+
+    private static void RegistrarObstaculoNavegacao(Bounds obstaculo)
+    {
+        Bounds expandido = obstaculo;
+        expandido.Expand(MargemProximidadeObstaculoMapeado * 2f);
+
+        int minX = Mathf.FloorToInt(expandido.min.x / TamanhoCelulaIndiceObstaculos);
+        int maxX = Mathf.FloorToInt(expandido.max.x / TamanhoCelulaIndiceObstaculos);
+        int minY = Mathf.FloorToInt(expandido.min.y / TamanhoCelulaIndiceObstaculos);
+        int maxY = Mathf.FloorToInt(expandido.max.y / TamanhoCelulaIndiceObstaculos);
+
+        long quantidadeCelulas = (long)(maxX - minX + 1) * (maxY - minY + 1);
+        if (quantidadeCelulas <= 0 || quantidadeCelulas > 256)
+        {
+            obstaculosGrandes.Add(obstaculo);
+            return;
+        }
+
+        for (int x = minX; x <= maxX; x++)
+        for (int y = minY; y <= maxY; y++)
+        {
+            Vector2Int chave = new(x, y);
+            if (!obstaculosPorCelula.TryGetValue(chave, out List<Bounds> lista))
+            {
+                lista = new List<Bounds>();
+                obstaculosPorCelula.Add(chave, lista);
+            }
+
+            lista.Add(obstaculo);
+        }
     }
 
     internal static void InvalidarCacheNavegacao()
@@ -358,7 +405,8 @@ internal static class ExploracaoMapaF8
         mapaNavegacaoCarregado = null;
         dataArquivoMapaCarregado = default;
         salasNavegacaoMapeadas.Clear();
-        obstaculosNavegacaoMapeados.Clear();
+        obstaculosPorCelula.Clear();
+        obstaculosGrandes.Clear();
     }
 
     private static bool GarantirMapaNavegacaoCarregado()
@@ -401,7 +449,8 @@ internal static class ExploracaoMapaF8
         dataArquivoMapaCarregado = modificacao;
         mapaNavegacaoDisponivel = false;
         salasNavegacaoMapeadas.Clear();
-        obstaculosNavegacaoMapeados.Clear();
+        obstaculosPorCelula.Clear();
+        obstaculosGrandes.Clear();
 
         try
         {
@@ -444,7 +493,7 @@ internal static class ExploracaoMapaF8
                         collider.maxX - collider.minX,
                         collider.maxY - collider.minY,
                         0.1f);
-                    obstaculosNavegacaoMapeados.Add(new Bounds(centro, tamanho));
+                    RegistrarObstaculoNavegacao(new Bounds(centro, tamanho));
                 }
             }
 
@@ -455,7 +504,8 @@ internal static class ExploracaoMapaF8
                 (mapaNavegacaoDisponivel
                     ? " carregado para o Pathfinder: " +
                       salasNavegacaoMapeadas.Count + " salas e " +
-                      obstaculosNavegacaoMapeados.Count + " colliders orientativos."
+                      (obstaculosPorCelula.Values.Sum(lista => lista.Count) +
+                       obstaculosGrandes.Count) + " referências de colliders orientativos."
                     : " inválido ou sem salas; usando navegação física padrão."));
 
             return mapaNavegacaoDisponivel;
@@ -467,7 +517,8 @@ internal static class ExploracaoMapaF8
                 nomeMapa + ": " + ex.Message +
                 ". Usando navegação física padrão.");
             salasNavegacaoMapeadas.Clear();
-            obstaculosNavegacaoMapeados.Clear();
+            obstaculosPorCelula.Clear();
+            obstaculosGrandes.Clear();
             mapaNavegacaoDisponivel = false;
             return false;
         }
