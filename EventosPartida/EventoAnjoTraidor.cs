@@ -145,7 +145,7 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
             // em uma chamada anterior do seletor.
             foreach (PlayerControl existente in PlayerControl.AllPlayerControls)
             {
-                if (JogadorValido(existingente) &&
+                if (JogadorValido(existente) &&
                     existente.Data.RoleType == RoleTypes.Phantom)
                 {
                     RegistrarPhantomSelecionado(existente);
