@@ -1712,16 +1712,17 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
                 caminhoAtual.Clear();
                 indiceCaminho = 0;
-                proximoRecalculoCaminho = agora + 0.30f;
-
-                if (!TentarDesvioLocal(origem, destino, corpo, agora))
-                    PararCorpo(corpo, "MoverAte sem rota A*");
+                // Sem rota calculada, não improvisa uma direção lateral: esse
+                // fallback fazia o NPC oscilar/andar em círculos perto de paredes.
+                // Aguarda um curto intervalo e tenta A* novamente.
+                proximoRecalculoCaminho = agora + 0.35f;
+                PararCorpo(corpo, "MoverAte sem rota A*");
 
                 if (!avisoMonitoramentoMovimento)
                 {
                     avisoMonitoramentoMovimento = true;
                     YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                        "[F7/Pathfinder] A* não encontrou rota; tentando desvio local validado por colisão. Origem=" +
+                        "[F7/Pathfinder] A* sem rota; NPC parado aguardando novo cálculo. Origem=" +
                         origem + ", destino=" + destino + ".");
                 }
 
@@ -1750,8 +1751,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         // logo após o fallback ter encontrado um corredor livre.
         if (caminhoAtual == null || caminhoAtual.Count == 0)
         {
-            if (!TentarDesvioLocal(origem, destino, corpo, agora))
-                PararCorpo(corpo, "MoverAte aguardando nova rota");
+            PararCorpo(corpo, "MoverAte aguardando nova rota");
             return;
         }
 
