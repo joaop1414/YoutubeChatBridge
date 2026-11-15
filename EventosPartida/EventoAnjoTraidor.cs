@@ -346,26 +346,36 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
             jogador.PlayerId != playerIdSelecionado)
             yield break;
 
+        bool enviado = false;
         try
         {
-            bool enviado = RoleSwitchAPI.RpcSetRoleDesync(
+            enviado = RoleSwitchAPI.RpcSetRoleDesync(
                 jogador, RoleTypes.GuardianAngel, clientIdSelecionado);
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "[F7/Anjo Traidor] Falha ao enviar GuardianAngel após a morte: " + ex);
+            yield break;
+        }
 
-            if (!enviado)
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "[F7/Anjo Traidor] Não foi possível enviar GuardianAngel ao cliente dono. " +
-                    "O jogador continuará como ImpostorGhost.");
-                yield break;
-            }
+        if (!enviado)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Anjo Traidor] Não foi possível enviar GuardianAngel ao cliente dono. " +
+                "O jogador continuará como ImpostorGhost.");
+            yield break;
+        }
 
-            // Igual ao evento de congelamento: LogicOptions pode não estar
-            // disponível no primeiro instante. Repetimos o envio a cada 0,75s,
-            // como EventoVelocidadeJogadores, até a configuração ser enviada.
-            bool cooldownEnviado = false;
-            const int maxTentativasCooldown = 10;
+        // Igual ao evento de congelamento: LogicOptions pode não estar
+        // disponível no primeiro instante. Repetimos o envio a cada 0,75s,
+        // como EventoVelocidadeJogadores, até a configuração ser enviada.
+        bool cooldownEnviado = false;
+        const int maxTentativasCooldown = 10;
 
-            for (int tentativa = 1; tentativa <= maxTentativasCooldown; tentativa++)
+        for (int tentativa = 1; tentativa <= maxTentativasCooldown; tentativa++)
+        {
+            try
             {
                 if (EnviarConfiguracaoProtectAoAnjo(jogador))
                 {
@@ -375,29 +385,38 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
                         tentativa + " tentativa(s).");
                     break;
                 }
-
-                if (tentativa < maxTentativasCooldown)
-                    yield return new WaitForSecondsRealtime(0.75f);
             }
-
-            if (!cooldownEnviado)
+            catch (Exception ex)
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "[F7/Anjo Traidor] Não foi possível sincronizar ProtectCooldown com KillCooldown " +
-                    "após " + maxTentativasCooldown + " tentativas.");
+                    "[F7/Anjo Traidor] Tentativa " + tentativa +
+                    " de sincronizar ProtectCooldown falhou: " + ex.Message);
             }
 
+            if (tentativa < maxTentativasCooldown)
+                yield return new WaitForSecondsRealtime(0.75f);
+        }
+
+        if (!cooldownEnviado)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Anjo Traidor] Não foi possível sincronizar ProtectCooldown com KillCooldown " +
+                "após " + maxTentativasCooldown + " tentativas.");
+        }
+
+        try
+        {
             AplicarNomesLocais();
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[F7/Anjo Traidor] RPC individual concluído após 0,25 segundo: " +
+                "[F7/Anjo Traidor] RPC individual concluído após a transformação: " +
                 "PlayerId=" + playerIdSelecionado +
                 " recebeu GuardianAngel no cliente dono; demais clientes continuam com ImpostorGhost.");
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[F7/Anjo Traidor] Falha ao enviar GuardianAngel após a morte: " + ex);
+                "[F7/Anjo Traidor] Falha ao aplicar nomes locais após a transformação: " + ex);
         }
     }
 
