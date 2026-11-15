@@ -402,6 +402,10 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
             if (anjo.OwnerId == cliente.ClientId)
             {
                 anjo.ProtectPlayer(alvo, 0);
+
+                // No host, CheckProtect será cancelado pelo Prefix. Aplicamos
+                // diretamente o cooldown apenas no botão local do próprio host.
+                AplicarCooldownProtectLocal(anjo);
             }
             else
             {
@@ -476,6 +480,41 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
         // O CheckProtect original não pode continuar, pois enviaria Protect
         // vanilla para todos os clientes.
         return true;
+    }
+
+    /// <summary>
+    /// Altera somente o contador local do botão Protect. O valor vem da opção
+    /// Kill Cooldown da partida; nenhuma opção global ou RPC de configuração é enviado.
+    /// </summary>
+    internal static void AplicarCooldownProtectLocal(PlayerControl anjo)
+    {
+        try
+        {
+            if (anjo == null ||
+                PlayerControl.LocalPlayer == null ||
+                anjo.PlayerId != PlayerControl.LocalPlayer.PlayerId ||
+                HudManager.Instance == null ||
+                HudManager.Instance.AbilityButton == null ||
+                GameManager.Instance == null ||
+                GameManager.Instance.LogicOptions == null)
+                return;
+
+            float cooldownKill = Mathf.Max(
+                0.1f,
+                GameManager.Instance.LogicOptions.GetFloat(FloatOptionNames.KillCooldown));
+
+            HudManager.Instance.AbilityButton.SetCoolDown(cooldownKill, cooldownKill);
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[F7/Anjo Traidor] Cooldown local do Protect ajustado para " +
+                cooldownKill.ToString("0.##") + "s (igual ao Kill Cooldown).");
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Anjo Traidor] Não foi possível ajustar o cooldown local do Protect: " +
+                ex.Message);
+        }
     }
 
     /// <summary>
@@ -731,6 +770,50 @@ internal static class EventoAnjoTraidorCheckVanishPatch
 }
 
 /// <summary>
+/// O vanilla possui um caminho problemático para Phantom quando o próprio host
+/// é o dono. Reproduzimos o acionamento de CmdCheckVanish usado pelo EHR,
+/// deixando o Prefix de CheckVanish executar a transformação do evento.
+/// </summary>
+[HarmonyPatch(typeof(PhantomRole), nameof(PhantomRole.UseAbility))]
+internal static class EventoAnjoTraidorPhantomUseAbilityPatch
+{
+    private static bool Prefix(PhantomRole __instance)
+    {
+        if (!YouTubeVoteBridgePlugin.EhHost() ||
+            __instance == null ||
+            __instance.Player == null ||
+            !EventoAnjoTraidor.EhPhantomSelecionado(__instance.Player))
+            return true;
+
+        PlayerControl jogador = __instance.Player;
+
+        // Não deixa o fluxo vanilla do Phantom executar no host: ele pode
+        // falhar antes de chamar CheckVanish. Só dispara quando a habilidade
+        // está realmente disponível e o jogador pode agir.
+        if (!jogador.AmOwner ||
+            jogador.Data == null ||
+            jogador.Data.IsDead ||
+            !jogador.moveable ||
+            Minigame.Instance != null ||
+            __instance.IsCoolingDown ||
+            __instance.fading)
+            return false;
+
+        if (__instance.isInvisible)
+        {
+            __instance.MakePlayerVisible();
+            return false;
+        }
+
+        float duracao = GameManager.Instance.LogicOptions.GetRoleFloat(
+            FloatOptionNames.PhantomDuration);
+
+        jogador.CmdCheckVanish(duracao);
+        return false;
+    }
+}
+
+/// <summary>
 /// Clientes remotos enviam RpcCalls.CheckVanish ao host. Interceptamos esse RPC
 /// também, pois CheckVanish nem sempre é chamado no host para jogadores remotos.
 /// </summary>
@@ -771,6 +854,21 @@ internal static class EventoAnjoTraidorCheckProtectPatch
             return false;
 
         return true;
+    }
+
+    // CheckProtect também é executado localmente no cliente dono. O postfix
+    // troca o cooldown vanilla do GuardianAngel pelo Kill Cooldown somente
+    // no HUD desse jogador.
+    private static void Postfix(PlayerControl __instance)
+    {
+        if (__instance == null ||
+            PlayerControl.LocalPlayer == null ||
+            __instance.PlayerId != PlayerControl.LocalPlayer.PlayerId ||
+            __instance.Data == null ||
+            __instance.Data.RoleType != RoleTypes.GuardianAngel)
+            return;
+
+        EventoAnjoTraidor.AplicarCooldownProtectLocal(__instance);
     }
 }
 
