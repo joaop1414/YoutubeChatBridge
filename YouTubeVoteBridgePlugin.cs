@@ -4319,6 +4319,57 @@ public static class YouTubeVoteLobbyKeybindPatch
 }
 
 
+// Teleporte de teste acionado pelo botão do painel F8.
+[HarmonyPatch(typeof(HudManager), nameof(HudManager.Update))]
+public static class YouTubeVoteTeleporteMousePatch
+{
+    public static void Postfix()
+    {
+        try
+        {
+            if (!ConfiguradorFuncoesMenu.TeleporteMouseAtivo ||
+                AmongUsClient.Instance == null ||
+                !AmongUsClient.Instance.AmHost ||
+                ShipStatus.Instance == null ||
+                PlayerControl.LocalPlayer == null ||
+                !Input.GetMouseButtonDown(1))
+                return;
+
+            if (HudManager.InstanceExists &&
+                HudManager.Instance?.Chat != null &&
+                HudManager.Instance.Chat.IsOpenOrOpening)
+                return;
+
+            if (MeetingHud.Instance != null || ExileController.Instance != null)
+                return;
+
+            Camera cameraJogo = Camera.main;
+            if (cameraJogo == null)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[F8/Teleporte] Câmera principal não encontrada.");
+                return;
+            }
+
+            Vector3 posicaoTela = Input.mousePosition;
+            Vector3 posicaoMundo = cameraJogo.ScreenToWorldPoint(posicaoTela);
+            Vector2 destino = new(posicaoMundo.x, posicaoMundo.y);
+
+            if (TeleporteAPI.Teleportar(PlayerControl.LocalPlayer, destino))
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[F8/Teleporte] Jogador local teleportado pelo botão direito para " +
+                    destino + ".");
+            }
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "[F8/Teleporte] Falha ao teleportar pelo cursor: " + ex);
+        }
+    }
+}
+
 // O host controla o encerramento: enquanto "Sem fim de jogo" estiver ativo,
 // as condições automáticas vanilla não podem finalizar a partida.
 [HarmonyPatch(typeof(LogicGameFlowNormal), nameof(LogicGameFlowNormal.CheckEndCriteria))]
