@@ -365,21 +365,19 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
     }
 
     /// <summary>
-    /// O host aprova exclusivamente o Protect do impostor selecionado.
-    /// O efeito vanilla é cancelado e o alvo recebe uma morte real.
+    /// Aprova o Protect somente no cliente dono do Anjo Traidor para que o
+    /// próprio GuardianAngel aplique o cooldown vanilla. Depois disso, envia
+    /// dois MurderPlayer: primeiro ao dono do Anjo e depois globalmente.
     /// </summary>
     internal static bool AoTentarProteger(PlayerControl anjo, PlayerControl alvo)
     {
         if (!YouTubeVoteBridgePlugin.EhHost() || !ativo || anjo == null)
             return false;
 
-        // Durante o evento, somente o jogador impostor escolhido pode usar
-        // Protect. Bloqueia qualquer outro Guardian Angel que tente acioná-lo.
+        // Durante o evento, nenhum outro GuardianAngel pode executar Protect.
         if (anjo.PlayerId != playerIdSelecionado)
             return true;
 
-        // Se a habilidade já foi encerrada, ainda bloqueia qualquer Protect
-        // residual que chegue atrasado ao host.
         if (!transformado || habilidadeEncerrada ||
             MeetingHud.Instance != null ||
             ShipStatus.Instance == null)
@@ -390,82 +388,94 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
             alvo.Data.IsDead ||
             alvo.Data.Disconnected ||
             alvo.PlayerId == playerIdSelecionado)
-        {
-            // A tentativa inválida também consome o uso; não deixa o vanilla
-            // aplicar um escudo como efeito colateral.
             return true;
-        }
 
-        try
-        {
-            alvo.RpcMurderPlayer(alvo, true);
-
-            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[F7/Anjo Traidor] Protect autorizado para o impostor selecionado; " +
-                "o alvo foi morto. Alvo=" + alvo.Data.PlayerName +
-                " (PlayerId=" + alvo.PlayerId + ").");
-        }
-        catch (Exception ex)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[F7/Anjo Traidor] Falha ao matar o alvo do Protect: " + ex);
-        }
-
-        // Nunca permite que Protect aplique o escudo vanilla.
-        return true;
-    }
-
-    /// <summary>
-    /// O GuardianAngel só existe no cliente dono. Nesse cliente, iniciamos
-    /// o cooldown visual/funcional do botão usando a mesma duração do Kill.
-    /// </summary>
-    internal static void AplicarCooldownProtectLocal(PlayerControl anjo)
-    {
         try
         {
             AmongUsClient cliente = AmongUsClient.Instance;
-            if (anjo == null ||
-                cliente == null ||
-                anjo.OwnerId != cliente.ClientId ||
-                anjo.Data == null ||
-                anjo.Data.RoleType != RoleTypes.GuardianAngel ||
-                HudManager.Instance == null ||
-                HudManager.Instance.AbilityButton == null ||
-                GameManager.Instance == null ||
-                GameManager.Instance.LogicOptions == null)
-                return;
+            if (cliente == null)
+                return true;
 
-            float cooldownKill = GameManager.Instance.LogicOptions.GetKillCooldown();
-            object botao = HudManager.Instance.AbilityButton;
-            var metodo = AccessTools.Method(
-                botao.GetType(),
-                "SetCoolDown",
-                new[] { typeof(float), typeof(float) });
-
-            if (metodo == null)
-                metodo = AccessTools.Method(
-                    botao.GetType(),
-                    "SetCooldown",
-                    new[] { typeof(float), typeof(float) });
-
-            if (metodo == null)
+            // 1) Simula o sucesso vanilla de Protect apenas para o impostor.
+            // Isso permite que o GuardianAngel local execute seu próprio
+            // SetCooldown, sem mostrar proteção aos demais clientes.
+            if (anjo.OwnerId == cliente.ClientId)
             {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "[F7/Anjo Traidor] Não foi encontrado SetCoolDown no AbilityButton.");
-                return;
+                anjo.ProtectPlayer(alvo, 0);
+            }
+            else
+            {
+                MessageWriter protectWriter = cliente.StartRpcImmediately(
+                    anjo.NetId,
+                    (byte)RpcCalls.ProtectPlayer,
+                    SendOption.Reliable,
+                    anjo.OwnerId);
+
+                protectWriter.WriteNetObject(alvo);
+                protectWriter.Write(0);
+                cliente.FinishRpcImmediately(protectWriter);
             }
 
-            metodo.Invoke(botao, new object[] { cooldownKill, cooldownKill });
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[F7/Anjo Traidor] Protect aprovado somente para o cliente dono. " +
+                "PlayerId=" + playerIdSelecionado + ", alvo=" + alvo.PlayerId + ".");
+
+            // O resultado precisa ser um assassinato bem-sucedido e atribuído
+            // ao impostor, não uma morte ambiental nem uma proteção falha.
+            MurderResultFlags resultado =
+                MurderResultFlags.Succeeded | MurderResultFlags.DecisionByHost;
+
+            // 2) Primeiro MurderPlayer: somente para o cliente do impostor.
+            // Quando o host é o próprio Anjo, executamos o equivalente local.
+            if (anjo.OwnerId == cliente.ClientId)
+            {
+                anjo.MurderPlayer(alvo, resultado);
+            }
+            else
+            {
+                MessageWriter murderOwnerWriter = cliente.StartRpcImmediately(
+                    anjo.NetId,
+                    (byte)RpcCalls.MurderPlayer,
+                    SendOption.Reliable,
+                    anjo.OwnerId);
+
+                murderOwnerWriter.WriteNetObject(alvo);
+                murderOwnerWriter.Write((int)resultado);
+                cliente.FinishRpcImmediately(murderOwnerWriter);
+
+                // O host também precisa registrar a morte em seu estado
+                // autoritativo antes de publicar o RPC global.
+                anjo.MurderPlayer(alvo, resultado);
+            }
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[F7/Anjo Traidor] Cooldown do Protect aplicado localmente: " +
-                cooldownKill + "s (igual ao cooldown de Kill).");
+                "[F7/Anjo Traidor] Primeiro MurderPlayer enviado somente ao dono " +
+                "do Anjo Traidor. Killer=" + anjo.PlayerId + ", alvo=" + alvo.PlayerId + ".");
+
+            // 3) Segundo MurderPlayer: broadcast para todos os clientes.
+            MessageWriter murderGlobalWriter = cliente.StartRpcImmediately(
+                anjo.NetId,
+                (byte)RpcCalls.MurderPlayer,
+                SendOption.Reliable,
+                -1);
+
+            murderGlobalWriter.WriteNetObject(alvo);
+            murderGlobalWriter.Write((int)resultado);
+            cliente.FinishRpcImmediately(murderGlobalWriter);
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[F7/Anjo Traidor] Segundo MurderPlayer enviado globalmente. " +
+                "Impostor=" + anjo.PlayerId + ", vítima=" + alvo.PlayerId + ".");
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[F7/Anjo Traidor] Falha ao aplicar cooldown do Protect: " + ex);
+                "[F7/Anjo Traidor] Falha no fluxo Protect + dois MurderPlayer: " + ex);
         }
+
+        // O CheckProtect original não pode continuar, pois enviaria Protect
+        // vanilla para todos os clientes.
+        return true;
     }
 
     /// <summary>
@@ -761,13 +771,6 @@ internal static class EventoAnjoTraidorCheckProtectPatch
             return false;
 
         return true;
-    }
-
-    private static void Postfix(PlayerControl __instance)
-    {
-        // Aplicamos depois do processamento vanilla para que o cooldown
-        // padrão do GuardianAngel não sobrescreva o cooldown de Kill.
-        EventoAnjoTraidor.AplicarCooldownProtectLocal(__instance);
     }
 }
 
