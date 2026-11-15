@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using UnityEngine;
 
 namespace YouTubeVoteBridge;
@@ -220,7 +221,11 @@ internal static class ExploracaoMapaF8
             Directory.CreateDirectory(pasta);
 
             string arquivo = Path.Combine(pasta, nomeMapa + ".json");
-            File.WriteAllText(arquivo, JsonUtility.ToJson(dados, true));
+            File.WriteAllText(arquivo, JsonSerializer.Serialize(dados, new JsonSerializerOptions
+            {
+                WriteIndented = true,
+                IncludeFields = true
+            }));
 
             resultado = "Mapa " + nomeMapa + " mapeado: " +
                 dados.quantidadeColliders + " colliders e " +
