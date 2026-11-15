@@ -229,7 +229,7 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
                 "[F7/Anjo Traidor] Hydra-style AssignRolesFromList: " +
                 "uma vaga impostora foi substituída por Phantom. Jogador=" +
                 escolhido.Data.PlayerName + ", PlayerId=" + escolhido.PlayerId +
-                ", função removida=" + roleList.Count + ".");
+                ", função substituída=" + funcaoSubstituida + ".");
         }
         catch (Exception ex)
         {
