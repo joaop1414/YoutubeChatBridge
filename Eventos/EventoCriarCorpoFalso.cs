@@ -1,4 +1,5 @@
 using AmongUs.GameOptions;
+using BepInEx.Unity.IL2CPP.Utils;
 using System;
 using System.Collections.Generic;
 using Hazel;
@@ -14,6 +15,7 @@ internal sealed class EventoCriarCorpoFalso : EventoVotacao
     private static readonly System.Random Sorteador = new();
     private static byte? jogadorForcado;
     private static Vector2? posicaoJogadorForcada;
+    private static bool criarComoNoisemaker;
 
     // Reutiliza a sequência de sincronização do evento para um jogador específico.
     public static void ExecutarParaJogador(byte playerId)
@@ -41,6 +43,22 @@ internal sealed class EventoCriarCorpoFalso : EventoVotacao
         }
     }
 
+    // Cria o corpo na posição da vítima usando um PlayerControl temporário
+    // que recebe Noisemaker antes do RPC MurderPlayer.
+    public static void ExecutarComoNoisemakerParaJogadorNaPosicao(byte playerId, Vector2 posicao)
+    {
+        jogadorForcado = playerId;
+        posicaoJogadorForcada = posicao;
+        criarComoNoisemaker = true;
+        try { new EventoCriarCorpoFalso().Executar(); }
+        finally
+        {
+            jogadorForcado = null;
+            posicaoJogadorForcada = null;
+            criarComoNoisemaker = false;
+        }
+    }
+
     public void Executar()
     {
         if (!YouTubeVoteBridgePlugin.EhHost() ||
@@ -60,9 +78,9 @@ internal sealed class EventoCriarCorpoFalso : EventoVotacao
 
         if (jogadorForcado.HasValue)
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "Corpo falso do tsunami: execução forçada para PlayerId=" +
-                jogadorForcado.Value + "; MeetingHud ativo=" +
-                (MeetingHud.Instance != null) + ".");
+                (criarComoNoisemaker ? "Corpo falso Noisemaker do NPC" : "Corpo falso do tsunami") +
+                ": execução forçada para PlayerId=" + jogadorForcado.Value +
+                "; MeetingHud ativo=" + (MeetingHud.Instance != null) + ".");
 
         PlayerControl temporario = null;
 
@@ -184,41 +202,6 @@ internal sealed class EventoCriarCorpoFalso : EventoVotacao
             // do jogador temporário fará o jogo criar o corpo correspondente.
             CriarCorpoLocal(modelo, posicaoCorpo);
 
-            // Teste diagnóstico: em 25% dos corpos, tenta chamar o método nativo
-            // OnDeath do Noisemaker. Esse método normalmente depende do Player
-            // associado à instância real da função; o log/catch permite verificar
-            // se a instância obtida pelo RoleManager aceita essa chamada.
-            if (Sorteador.Next(100) < 25)
-            {
-                try
-                {
-                    var roleBase = RoleManager.Instance?.GetRole(RoleTypes.Noisemaker);
-                    var noisemaker = roleBase?.Cast<NoisemakerRole>();
-
-                    if (noisemaker == null)
-                    {
-                        YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                            "Teste Noisemaker.OnDeath: RoleManager não retornou uma instância NoisemakerRole.");
-                    }
-                    else
-                    {
-                        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                            "Teste Noisemaker.OnDeath: chamando OnDeath() na instância obtida por RoleManager. " +
-                            "Isso é apenas um teste local e pode não representar o papel de um jogador real.");
-
-                        noisemaker.OnDeath(DeathReason.Kill);
-
-                        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                            "Teste Noisemaker.OnDeath: chamada concluída sem exceção.");
-                    }
-                }
-                catch (Exception exSeta)
-                {
-                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                        "Teste Noisemaker.OnDeath falhou: " + exSeta);
-                }
-            }
-
             // O clone já nasce na posição correta. Assim não precisamos usar
             // SnapTo local antes do Spawn; a própria mensagem de Spawn replica
             // a posição inicial para os clientes.
@@ -269,6 +252,33 @@ internal sealed class EventoCriarCorpoFalso : EventoVotacao
                 writer.Write(modelo.Data.DefaultOutfit.ColorId);
                 writer.EndMessage();
 
+                if (criarComoNoisemaker)
+                {
+                    // Aplica localmente e transmite SetRole antes de MurderPlayer.
+                    try
+                    {
+                        MonoBehaviourExtensions.StartCoroutine(
+                            PlayerControl.LocalPlayer,
+                            temporario.CoSetRole(RoleTypes.Noisemaker, true));
+                    }
+                    catch (Exception exRole)
+                    {
+                        YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                            "CoSetRole(Noisemaker) local falhou: " + exRole);
+                    }
+
+                    writer.StartMessage(2);
+                    writer.WritePacked(temporario.NetId);
+                    writer.Write((byte)RpcCalls.SetRole);
+                    writer.Write((ushort)RoleTypes.Noisemaker);
+                    writer.Write(true);
+                    writer.EndMessage();
+
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                        "SetRole(Noisemaker) enviado antes de MurderPlayer; PlayerId=" +
+                        temporario.PlayerId + ".");
+                }
+
                 // RPC MurderPlayer: clientes remotos geram o corpo usando
                 // o comportamento normal do jogo, sem matar o jogador real.
                 writer.StartMessage(2);
@@ -302,7 +312,8 @@ internal sealed class EventoCriarCorpoFalso : EventoVotacao
 
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                     $"Sequência de sincronização do corpo falso enviada. " +
-                    $"Modelo PlayerId={modelo.PlayerId}, posição=({posicaoCorpo.x:0.00}, {posicaoCorpo.y:0.00}).");
+                    $"Modelo PlayerId={modelo.PlayerId}, posição=({posicaoCorpo.x:0.00}, {posicaoCorpo.y:0.00}), " +
+                    $"Noisemaker={criarComoNoisemaker}.");
             }
             finally
             {
