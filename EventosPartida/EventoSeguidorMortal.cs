@@ -2604,8 +2604,11 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             destino,
             limites,
             TamanhoCelula,
-            ponto => PodeMoverEntre(ponto, ponto),
-            (origem, fim) => PodePassarEntre(origem, fim));
+            ponto => PodeMoverEntre(ponto, ponto) &&
+                ExploracaoMapaF8.PodeUsarPontoNavegacao(ponto),
+            (origem, fim) => PodePassarEntre(origem, fim) &&
+                ExploracaoMapaF8.SegmentoDentroDoMapa(origem, fim),
+            ponto => ExploracaoMapaF8.ObterPenalidadeMapa(ponto));
     }
 
         private static Collider2D ObterColliderFisicoNpc()
