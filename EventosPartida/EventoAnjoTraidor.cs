@@ -370,7 +370,7 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
             AplicarNomesLocais();
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[F7/Anjo Traidor] RPC individual concluído após 0,25 segundo: "
+                "[F7/Anjo Traidor] RPC individual concluído após 0,25 segundo: " +
                 "PlayerId=" + playerIdSelecionado +
                 " recebeu GuardianAngel no cliente dono; demais clientes continuam com ImpostorGhost.");
         }
