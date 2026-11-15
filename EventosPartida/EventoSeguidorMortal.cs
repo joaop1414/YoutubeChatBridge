@@ -227,7 +227,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             try
             {
                 if (seguidor.NetTransform?.body != null)
-                    seguidor.NetTransform.body.velocity = Vector2.zero;
+                    PararCorpo(seguidor.NetTransform.body, "AoSairDaRoleReveal (linha 230)");
             }
             catch { }
 
@@ -629,7 +629,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         // pelos RPCs nativos recebidos do host.
         if (!npc.moveable || npc.onLadder || npc.inMovingPlat)
         {
-            npc.NetTransform.body.velocity = Vector2.zero;
+            PararCorpo(npc.NetTransform.body, "AtualizarCliente (linha 632)");
             return;
         }
 
@@ -638,7 +638,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             Vector2 destinoPatrulhaCliente = destinoReplicadoCliente;
             if (Vector2.Distance(npc.GetTruePosition(), destinoPatrulhaCliente) <= DistanciaChegadaPatrulha)
             {
-                npc.NetTransform.body.velocity = Vector2.zero;
+                PararCorpo(npc.NetTransform.body, "AtualizarCliente (linha 641)");
                 LimparCaminho();
             }
             else
@@ -670,7 +670,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
         if (diferenca.magnitude <= AlcanceMorte)
         {
-            npc.NetTransform.body.velocity = Vector2.zero;
+            PararCorpo(npc.NetTransform.body, "AtualizarCliente (linha 673)");
             LimparCaminho();
         }
         else
@@ -691,7 +691,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             if (jogador != null && jogador.NetId == netIdSeguidorCliente &&
                 jogador.NetTransform?.body != null)
             {
-                jogador.NetTransform.body.velocity = Vector2.zero;
+                PararCorpo(jogador.NetTransform.body, "PararMovimentoCliente (linha 694)");
                 break;
             }
         }
@@ -983,7 +983,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         // alguns segundos antes de voltar a procurar e perseguir jogadores.
         if (Time.realtimeSinceStartup < aguardarPerseguicaoAte)
         {
-            seguidor.NetTransform.body.velocity = Vector2.zero;
+            PararCorpo(seguidor.NetTransform.body, "Atualizar (linha 986)");
             return;
         }
 
@@ -1020,7 +1020,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
         if (distancia <= AlcanceMorte)
         {
-            seguidor.NetTransform.body.velocity = Vector2.zero;
+            PararCorpo(seguidor.NetTransform.body, "Atualizar (linha 1023)");
             MatarAlvo(alvo);
             alvoAtual = null;
             proximaBuscaAlvo = 0f;
@@ -1155,7 +1155,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
         if (aguardandoSaidaVent)
         {
-            seguidor.NetTransform.body.velocity = Vector2.zero;
+            PararCorpo(seguidor.NetTransform.body, "TentarUsarVentilacao (linha 1158)");
 
             if (agora < proximaTentativaVent)
                 return true;
@@ -1268,7 +1268,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             return true;
         }
 
-        seguidor.NetTransform.body.velocity = Vector2.zero;
+        PararCorpo(seguidor.NetTransform.body, "TentarUsarVentilacao (linha 1271)");
 
         try
         {
@@ -1320,7 +1320,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             {
                 if (agora < limiteTransporte)
                 {
-                    seguidor.NetTransform.body.velocity = Vector2.zero;
+                    PararCorpo(seguidor.NetTransform.body, "TentarUsarEscadaOuTirolesa (linha 1323)");
                     return true;
                 }
 
@@ -1408,7 +1408,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             return true;
         }
 
-        seguidor.NetTransform.body.velocity = Vector2.zero;
+        PararCorpo(seguidor.NetTransform.body, "TentarUsarEscadaOuTirolesa (linha 1411)");
 
         try
         {
@@ -1462,6 +1462,33 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     /// Movimento do NPC baseado em waypoints do novo pathfinder.
     /// Recalcula a rota quando o destino muda ou o próximo segmento fica bloqueado.
     /// </summary>
+    // Centraliza toda interrupção de movimento. O log só aparece quando
+    // alguém realmente troca uma velocidade não-zero por zero, identificando
+    // o método responsável em vez de inundar o log a cada frame.
+    private static void PararCorpo(Rigidbody2D corpo, string motivo)
+    {
+        if (corpo == null)
+            return;
+
+        Vector2 velocidadeAnterior = corpo.velocity;
+        if (velocidadeAnterior.sqrMagnitude > 0.0001f)
+        {
+            Vector2 posicao = corpo.position;
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Movimento] VELOCIDADE ZERADA por " + motivo +
+                " | velocidade anterior=" + velocidadeAnterior +
+                " | posição=" + posicao +
+                " | alvo=" + (alvoAtual != null ? alvoAtual.PlayerId.ToString() : "nenhum") +
+                " | patrulha=" + possuiDestinoPatrulha +
+                " | sabotagemLuzes=" + resolvendoSabotagemLuzes +
+                " | outraSabotagem=" + resolvendoOutraSabotagem +
+                " | transporte=" + transporteEmAndamento +
+                " | vent=" + aguardandoSaidaVent);
+        }
+
+        corpo.velocity = Vector2.zero;
+    }
+
     private static void MoverAte(Vector2 destino)
     {
         if (seguidor?.NetTransform?.body == null)
@@ -1475,7 +1502,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         // de travamento que possam bloquear a próxima ordem de movimento.
         if (Vector2.Distance(origem, destino) <= 0.18f)
         {
-            corpo.velocity = Vector2.zero;
+            PararCorpo(corpo, "MoverAte (linha 1478)");
             LimparCaminho();
             monitoramentoMovimentoIniciado = false;
             avisoMonitoramentoMovimento = false;
@@ -1505,7 +1532,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             {
                 caminhoAtual.Clear();
                 indiceCaminho = 0;
-                corpo.velocity = Vector2.zero;
+                PararCorpo(corpo, "MoverAte (linha 1508)");
                 proximoRecalculoCaminho = agora + 0.30f;
 
                 if (!avisoMonitoramentoMovimento)
@@ -1545,7 +1572,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
         if (indiceCaminho >= caminhoAtual.Count)
         {
-            corpo.velocity = Vector2.zero;
+            PararCorpo(corpo, "MoverAte (linha 1548)");
             if (Vector2.Distance(origem, destino) > 0.28f)
             {
                 LimparCaminho();
@@ -1566,7 +1593,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         // obstruir o trajeto, não fica preso tentando seguir o mesmo ponto.
         if (!PodeMoverEntre(origem, waypoint))
         {
-            corpo.velocity = Vector2.zero;
+            PararCorpo(corpo, "MoverAte (linha 1569)");
             LimparCaminho();
             proximoRecalculoCaminho = agora + 0.08f;
             return;
@@ -1637,7 +1664,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
         // Não deixa uma velocidade antiga continuar empurrando o NPC contra
         // o obstáculo enquanto aguarda a próxima tentativa de destino.
-        seguidor.NetTransform.body.velocity = Vector2.zero;
+        PararCorpo(seguidor.NetTransform.body, "TentarTrocarDestinoPatrulha (linha 1640)");
         proximaTentativaDestinoPatrulha =
             Time.realtimeSinceStartup + 0.50f;
 
@@ -1671,7 +1698,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         {
             if (seguidor.onLadder || seguidor.inMovingPlat || !seguidor.moveable)
             {
-                corpo.velocity = Vector2.zero;
+                PararCorpo(corpo, "Patrulhar (linha 1674)");
                 return;
             }
 
@@ -1685,7 +1712,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         // O destino só muda quando o NPC chega à sala escolhida.
         if (!possuiDestinoPatrulha || chegouAoDestino)
         {
-            corpo.velocity = Vector2.zero;
+            PararCorpo(corpo, "Patrulhar (linha 1688)");
             LimparCaminho();
             emManobraDestravamento = false;
             monitoramentoMovimentoIniciado = false;
@@ -2949,7 +2976,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 aguardandoSegundoJogadorReator = false;
                 proximaTentativaReparo = 0f;
                 aguardarPerseguicaoAte = Time.realtimeSinceStartup + PausaAposSabotagem;
-                seguidor.NetTransform.body.velocity = Vector2.zero;
+                PararCorpo(seguidor.NetTransform.body, "TentarResolverOutrasSabotagens (linha 2952)");
                 possuiDestinoPatrulha = false;
                 LimparCaminho();
                 EnviarDestinoAosClientesComMod(null);
@@ -2981,7 +3008,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
                 // A sabotagem ativa continua tendo prioridade mesmo se a sala
                 // não puder ser identificada; não volta a perseguir jogadores.
-                seguidor.NetTransform.body.velocity = Vector2.zero;
+                PararCorpo(seguidor.NetTransform.body, "TentarResolverOutrasSabotagens (linha 2984)");
                 return true;
             }
 
@@ -3008,7 +3035,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
              sabotagemAtual == SystemTypes.Laboratory) &&
             aguardandoSegundoJogadorReator)
         {
-            seguidor.NetTransform.body.velocity = Vector2.zero;
+            PararCorpo(seguidor.NetTransform.body, "TentarResolverOutrasSabotagens (linha 3011)");
             return true;
         }
 
@@ -3016,7 +3043,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         // enquanto espera o estado vanilla confirmar que a sabotagem terminou.
         if (sabotagemAtual == SystemTypes.LifeSupp && consoleO2Atual >= 2)
         {
-            seguidor.NetTransform.body.velocity = Vector2.zero;
+            PararCorpo(seguidor.NetTransform.body, "TentarResolverOutrasSabotagens (linha 3019)");
             return true;
         }
 
@@ -3027,7 +3054,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             return true;
         }
 
-        seguidor.NetTransform.body.velocity = Vector2.zero;
+        PararCorpo(seguidor.NetTransform.body, "TentarResolverOutrasSabotagens (linha 3030)");
 
         float agora = Time.realtimeSinceStartup;
         if (agora < proximaTentativaReparo)
@@ -3109,7 +3136,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                     break;
             }
 
-            seguidor.NetTransform.body.velocity = Vector2.zero;
+            PararCorpo(seguidor.NetTransform.body, "TentarResolverOutrasSabotagens (linha 3112)");
             proximaTentativaReparo = agora + 1f;
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
@@ -3244,7 +3271,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 resolvendoSabotagemLuzes = false;
                 proximaAcaoInterruptor = 0f;
                 aguardarPerseguicaoAte = Time.realtimeSinceStartup + PausaAposSabotagem;
-                seguidor.NetTransform.body.velocity = Vector2.zero;
+                PararCorpo(seguidor.NetTransform.body, "TentarResolverSabotagemLuzes (linha 3247)");
                 possuiDestinoPatrulha = false;
                 LimparCaminho();
                 EnviarDestinoAosClientesComMod(null);
@@ -3278,7 +3305,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 }
 
                 // Não libera perseguição/patrulha enquanto as luzes estiverem sabotadas.
-                seguidor.NetTransform.body.velocity = Vector2.zero;
+                PararCorpo(seguidor.NetTransform.body, "TentarResolverSabotagemLuzes (linha 3281)");
                 return true;
             }
 
@@ -3300,7 +3327,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             return true;
         }
 
-        seguidor.NetTransform.body.velocity = Vector2.zero;
+        PararCorpo(seguidor.NetTransform.body, "TentarResolverSabotagemLuzes (linha 3303)");
 
         float agora = Time.realtimeSinceStartup;
         if (agora < proximaAcaoInterruptor)
@@ -3322,7 +3349,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 ShipStatus.Instance.UpdateSystem(
                     SystemTypes.Electrical, seguidor, indice);
 
-                seguidor.NetTransform.body.velocity = Vector2.zero;
+                PararCorpo(seguidor.NetTransform.body, "TentarResolverSabotagemLuzes (linha 3325)");
                 proximaAcaoInterruptor = agora + IntervaloInterruptorLuzes;
 
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
@@ -3552,7 +3579,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             try
             {
                 if (seguidor.NetTransform?.body != null)
-                    seguidor.NetTransform.body.velocity = Vector2.zero;
+                    PararCorpo(seguidor.NetTransform.body, "Resetar (linha 3555)");
             }
             catch { }
 
