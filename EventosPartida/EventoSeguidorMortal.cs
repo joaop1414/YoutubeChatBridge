@@ -1721,12 +1721,15 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
             if (novaRota == null || novaRota.Count == 0)
             {
-                if (TentarAbrirPortaNoCaminho(origem, destino, agora))
-                    return;
-
+                // A rota anterior já não é válida. Esconde-a antes de tentar
+                // abrir uma porta, para não continuar exibindo um trajeto velho.
                 caminhoAtual.Clear();
                 indiceCaminho = 0;
                 AtualizarRenderizacaoCaminho();
+
+                if (TentarAbrirPortaNoCaminho(origem, destino, agora))
+                    return;
+
                 // Sem rota calculada, não improvisa uma direção lateral: esse
                 // fallback fazia o NPC oscilar/andar em círculos perto de paredes.
                 // Aguarda um curto intervalo e tenta A* novamente.
