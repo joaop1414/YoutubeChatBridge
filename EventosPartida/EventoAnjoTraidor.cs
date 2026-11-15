@@ -359,10 +359,32 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
                 yield break;
             }
 
-            if (!EnviarConfiguracaoProtectAoAnjo(jogador))
+            // Igual ao evento de congelamento: LogicOptions pode não estar
+            // disponível no primeiro instante. Repetimos o envio a cada 0,75s,
+            // como EventoVelocidadeJogadores, até a configuração ser enviada.
+            bool cooldownEnviado = false;
+            const int maxTentativasCooldown = 10;
+
+            for (int tentativa = 1; tentativa <= maxTentativasCooldown; tentativa++)
+            {
+                if (EnviarConfiguracaoProtectAoAnjo(jogador))
+                {
+                    cooldownEnviado = true;
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                        "[F7/Anjo Traidor] ProtectCooldown sincronizado após " +
+                        tentativa + " tentativa(s).");
+                    break;
+                }
+
+                if (tentativa < maxTentativasCooldown)
+                    yield return new WaitForSecondsRealtime(0.75f);
+            }
+
+            if (!cooldownEnviado)
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "[F7/Anjo Traidor] Não foi possível sincronizar ProtectCooldown com KillCooldown para o cliente do Anjo.");
+                    "[F7/Anjo Traidor] Não foi possível sincronizar ProtectCooldown com KillCooldown " +
+                    "após " + maxTentativasCooldown + " tentativas.");
             }
 
             AplicarNomesLocais();
@@ -662,10 +684,6 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
                 "[F7/Anjo Traidor] Falha ao enviar RPC individual de configuração: " + ex);
             return false;
         }
-
-        if (!encontrouLogica)
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "[F7/Anjo Traidor] Nenhum LogicOptions foi encontrado para enviar a configuração.");
 
         return encontrouLogica && enviou;
     }
