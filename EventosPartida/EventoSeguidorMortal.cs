@@ -30,6 +30,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private static bool aguardandoFimRoleReveal;
     private static int etapaInicializacao;
     private static float proximaEtapa;
+    private static float instanteSpawnNpc;
     private static float proximaBuscaAlvo;
     private static float proximoKillNpc;
     private const float IntervaloReplicacaoDestino = 0.15f;
@@ -950,6 +951,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             try
             {
                 CustomNetObject.EnviarSpawn(seguidor, ocultarVisual: false);
+                instanteSpawnNpc = Time.realtimeSinceStartup;
                 if (PlayerControl.AllPlayerControls.Contains(seguidor))
                     PlayerControl.AllPlayerControls.Remove(seguidor);
 
@@ -1010,13 +1012,16 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                     "pet_EmptyPet",
                     "visor_EmptyVisor");
 
-                // Aguarda a inicialização visual do personagem terminar.
-                // Alguns clientes podem recriar/atualizar os cosméticos logo após o Spawn.
+                // Mantém o nome especial somente até completar 1 segundo
+                // desde o envio do Spawn. A etapa seguinte reaplica os cosméticos
+                // com o nome vazio para não deixar NPC ASSASSINO nas reuniões.
                 etapaInicializacao = 4;
-                proximaEtapa = Time.realtimeSinceStartup + 0.75f;
+                proximaEtapa = Mathf.Max(
+                    Time.realtimeSinceStartup,
+                    instanteSpawnNpc + 1f);
 
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "[F7/Seguidor] Primeira aplicação da aparência enviada; aguardando para reaplicar.");
+                    "[F7/Seguidor] Nome temporário aplicado; será removido 1s após o Spawn.");
             }
             catch (Exception ex)
             {
@@ -1035,7 +1040,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             {
                 CustomNetObject.EnviarAparencia(
                     seguidor,
-                    NomeSeguidor,
+                    string.Empty,
                     0,
                     "hat_pk02_TenGallonHat",
                     "skin_Wall",
@@ -1045,7 +1050,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 etapaInicializacao = 5;
 
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "[F7/Seguidor] Aparência reaplicada após 0,75s: skin_Wall, chapéu TenGallonHat e cor 0.");
+                    "[F7/Seguidor] Nome NPC ASSASSINO removido 1s após o Spawn; cosméticos reaplicados.");
             }
             catch (Exception ex)
             {
@@ -1730,11 +1735,18 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 if (TentarAbrirPortaNoCaminho(origem, destino, agora))
                     return;
 
-                // Sem rota calculada, não improvisa uma direção lateral: esse
-                // fallback fazia o NPC oscilar/andar em círculos perto de paredes.
-                // Aguarda um curto intervalo e tenta A* novamente.
+                // Se o A* falhar temporariamente (por exemplo, ao contornar
+                // uma quina ou uma porta), tenta um passo curto cuja colisão
+                // também é validada. O A* continua sendo recalculado em seguida.
+                if (TentarDesvioLocal(origem, destino, corpo, agora))
+                {
+                    proximoRecalculoCaminho = agora + 0.18f;
+                    avisoMonitoramentoMovimento = false;
+                    return;
+                }
+
                 proximoRecalculoCaminho = agora + 0.35f;
-                PararCorpo(corpo, "MoverAte sem rota A*");
+                PararCorpo(corpo, "MoverAte sem rota A* e sem desvio seguro");
 
                 if (!avisoMonitoramentoMovimento)
                 {
@@ -4044,6 +4056,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         proximaTentativaVent = 0f;
         limiteTransporte = 0f;
         proximoTransporte = 0f;
+        instanteSpawnNpc = 0f;
         proximoSnapToRede = 0f;
         sequenciaSnapToRede = 0;
         sequenciaSnapToRedeInicializada = false;
