@@ -1,8 +1,6 @@
 using System;
 using System.Linq;
-using System.Collections;
 using System.Collections.Generic;
-using System.Reflection;
 using AmongUs.GameOptions;
 using HarmonyLib;
 using Hazel;
@@ -685,8 +683,9 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
     }
 
     /// <summary>
-    /// Localiza o objeto de opções do Anjo da Guarda por reflexão para não
-    /// depender de nomes de campos internos que mudam entre versões do jogo.
+    /// Altera diretamente a opção vanilla GuardianAngelCooldown.
+    /// Para o cliente remoto, a ação de restauração é usada somente depois
+    /// da serialização do pacote individual; para o host, o valor permanece.
     /// </summary>
     private static bool TentarDefinirProtectCooldown(
         object opcoes,
@@ -694,202 +693,14 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
         out Action restaurar)
     {
         restaurar = null;
-        object guardianOptions = EncontrarOpcoesGuardianAngel(
-            opcoes, 0, new HashSet<int>());
-
-        if (guardianOptions == null)
+        if (opcoes is not IGameOptions configuracoes)
             return false;
 
-        const BindingFlags flags = BindingFlags.Instance |
-                                   BindingFlags.Public |
-                                   BindingFlags.NonPublic;
-
-        Type tipo = guardianOptions.GetType();
-        FieldInfo campo = tipo.GetField("ProtectCooldown", flags);
-        PropertyInfo propriedade = tipo.GetProperty("ProtectCooldown", flags);
-
-        object cooldown = campo != null
-            ? campo.GetValue(guardianOptions)
-            : propriedade != null && propriedade.CanRead
-                ? propriedade.GetValue(guardianOptions)
-                : null;
-
-        if (campo != null && EhNumero(campo.FieldType) &&
-            !campo.IsInitOnly && !campo.IsLiteral)
-        {
-            object anterior = campo.GetValue(guardianOptions);
-            campo.SetValue(guardianOptions, ConverterNumero(valor, campo.FieldType));
-            restaurar = () => campo.SetValue(guardianOptions, anterior);
-            return true;
-        }
-
-        if (propriedade != null && propriedade.CanRead && propriedade.CanWrite &&
-            EhNumero(propriedade.PropertyType))
-        {
-            object anterior = propriedade.GetValue(guardianOptions);
-            propriedade.SetValue(guardianOptions, ConverterNumero(valor, propriedade.PropertyType));
-            restaurar = () => propriedade.SetValue(guardianOptions, anterior);
-            return true;
-        }
-
-        // Algumas builds representam a opção como um objeto FloatOption
-        // com a propriedade/field Value.
-        if (cooldown != null && TentarDefinirValorInterno(cooldown, valor, out restaurar))
-            return true;
-
-        return false;
-    }
-
-    private static bool TentarDefinirValorInterno(object alvo, float valor, out Action restaurar)
-    {
-        restaurar = null;
-        if (alvo == null)
-            return false;
-
-        const BindingFlags flags = BindingFlags.Instance |
-                                   BindingFlags.Public |
-                                   BindingFlags.NonPublic;
-        Type tipo = alvo.GetType();
-
-        FieldInfo campo = tipo.GetField("Value", flags);
-        if (campo != null && EhNumero(campo.FieldType) &&
-            !campo.IsInitOnly && !campo.IsLiteral)
-        {
-            object anterior = campo.GetValue(alvo);
-            campo.SetValue(alvo, ConverterNumero(valor, campo.FieldType));
-            restaurar = () => campo.SetValue(alvo, anterior);
-            return true;
-        }
-
-        PropertyInfo propriedade = tipo.GetProperty("Value", flags);
-        if (propriedade != null && propriedade.CanRead && propriedade.CanWrite &&
-            EhNumero(propriedade.PropertyType))
-        {
-            object anterior = propriedade.GetValue(alvo);
-            propriedade.SetValue(alvo, ConverterNumero(valor, propriedade.PropertyType));
-            restaurar = () => propriedade.SetValue(alvo, anterior);
-            return true;
-        }
-
-        MethodInfo setter = tipo.GetMethods(flags).FirstOrDefault(m =>
-        {
-            if (m.Name != "SetValue" && m.Name != "Set")
-                return false;
-            ParameterInfo[] parametros = m.GetParameters();
-            return parametros.Length == 1 && EhNumero(parametros[0].ParameterType);
-        });
-
-        if (setter != null)
-        {
-            // Para wrappers sem getter público, tenta preservar o valor via Value.
-            object anterior = null;
-            PropertyInfo leitura = tipo.GetProperty("Value", flags);
-            if (leitura != null && leitura.CanRead)
-                anterior = leitura.GetValue(alvo);
-            else
-            {
-                FieldInfo leituraCampo = tipo.GetField("Value", flags);
-                if (leituraCampo != null)
-                    anterior = leituraCampo.GetValue(alvo);
-            }
-
-            if (anterior == null)
-                return false;
-
-            setter.Invoke(alvo, new[] { ConverterNumero(valor, setter.GetParameters()[0].ParameterType) });
-            restaurar = () => setter.Invoke(alvo, new[] { anterior });
-            return true;
-        }
-
-        return false;
-    }
-
-    private static object EncontrarOpcoesGuardianAngel(
-        object atual,
-        int profundidade,
-        HashSet<int> visitados)
-    {
-        if (atual == null || profundidade > 8)
-            return null;
-
-        Type tipo = atual.GetType();
-        if (tipo.Name.IndexOf("GuardianAngel", StringComparison.OrdinalIgnoreCase) >= 0)
-            return atual;
-
-        if (tipo.IsPrimitive || tipo.IsEnum || atual is string || atual is Type)
-            return null;
-
-        int identidade = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(atual);
-        if (!visitados.Add(identidade))
-            return null;
-
-        if (atual is IEnumerable lista)
-        {
-            foreach (object item in lista)
-            {
-                object encontrado = EncontrarOpcoesGuardianAngel(item, profundidade + 1, visitados);
-                if (encontrado != null)
-                    return encontrado;
-            }
-        }
-
-        const BindingFlags flags = BindingFlags.Instance |
-                                   BindingFlags.Public |
-                                   BindingFlags.NonPublic;
-
-        foreach (FieldInfo campo in tipo.GetFields(flags))
-        {
-            if (campo.FieldType.IsPrimitive || campo.FieldType.IsEnum ||
-                campo.FieldType == typeof(string))
-                continue;
-
-            object filho = null;
-            try { filho = campo.GetValue(atual); } catch { }
-            object encontrado = EncontrarOpcoesGuardianAngel(filho, profundidade + 1, visitados);
-            if (encontrado != null)
-                return encontrado;
-        }
-
-        foreach (PropertyInfo propriedade in tipo.GetProperties(flags))
-        {
-            if (!propriedade.CanRead || propriedade.GetIndexParameters().Length != 0 ||
-                propriedade.PropertyType.IsPrimitive || propriedade.PropertyType.IsEnum ||
-                propriedade.PropertyType == typeof(string))
-                continue;
-
-            object filho = null;
-            try { filho = propriedade.GetValue(atual); } catch { }
-            object encontrado = EncontrarOpcoesGuardianAngel(filho, profundidade + 1, visitados);
-            if (encontrado != null)
-                return encontrado;
-        }
-
-        return null;
-    }
-
-    private static bool EhNumero(Type tipo)
-    {
-        return tipo == typeof(byte) || tipo == typeof(sbyte) ||
-               tipo == typeof(short) || tipo == typeof(ushort) ||
-               tipo == typeof(int) || tipo == typeof(uint) ||
-               tipo == typeof(long) || tipo == typeof(ulong) ||
-               tipo == typeof(float) || tipo == typeof(double) ||
-               tipo == typeof(decimal);
-    }
-
-    private static object ConverterNumero(float valor, Type tipo)
-    {
-        if (tipo == typeof(byte)) return (byte)Mathf.Clamp(Mathf.RoundToInt(valor), 0, 255);
-        if (tipo == typeof(sbyte)) return (sbyte)Mathf.Clamp(Mathf.RoundToInt(valor), -128, 127);
-        if (tipo == typeof(short)) return (short)Mathf.RoundToInt(valor);
-        if (tipo == typeof(ushort)) return (ushort)Mathf.Clamp(Mathf.RoundToInt(valor), 0, 65535);
-        if (tipo == typeof(int)) return Mathf.RoundToInt(valor);
-        if (tipo == typeof(uint)) return (uint)Mathf.Max(0, Mathf.RoundToInt(valor));
-        if (tipo == typeof(long)) return (long)Math.Round(valor);
-        if (tipo == typeof(ulong)) return (ulong)Math.Max(0, Math.Round(valor));
-        if (tipo == typeof(double)) return (double)valor;
-        if (tipo == typeof(decimal)) return (decimal)valor;
-        return valor;
+        float anterior = configuracoes.GetFloat(FloatOptionNames.GuardianAngelCooldown);
+        configuracoes.SetFloat(FloatOptionNames.GuardianAngelCooldown, valor);
+        restaurar = () => configuracoes.SetFloat(
+            FloatOptionNames.GuardianAngelCooldown, anterior);
+        return true;
     }
 
     /// <summary>
