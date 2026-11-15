@@ -34,10 +34,24 @@ internal static class PathfinderSeguidorMortal
             celulaLivre(destino))
             return new List<Vector2> { destino };
 
-        limites.Expand(tamanhoCelula * 2f);
+        // Ajusta a resolução ao tamanho real do mapa. Uma grade fixa de 0,30
+        // pode ultrapassar o limite de células em mapas maiores e fazer o NPC
+        // declarar que não existe rota mesmo antes de iniciar o A*.
+        float areaMapa = Mathf.Max(1f, limites.size.x * limites.size.y);
+        float tamanhoCelulaEfetivo = Mathf.Max(
+            tamanhoCelula,
+            Mathf.Sqrt(areaMapa / 36000f));
+
+        // Não deixa a grade ficar tão grossa que passe por cima de corredores
+        // estreitos. Se o mapa exigir mais que o dobro da resolução base,
+        // a navegação falha com segurança e o controlador usa o desvio local.
+        if (tamanhoCelulaEfetivo > tamanhoCelula * 2f)
+            return null;
+
+        limites.Expand(tamanhoCelulaEfetivo * 2f);
         Vector2 minimo = limites.min;
-        int largura = Mathf.CeilToInt(limites.size.x / tamanhoCelula);
-        int altura = Mathf.CeilToInt(limites.size.y / tamanhoCelula);
+        int largura = Mathf.CeilToInt(limites.size.x / tamanhoCelulaEfetivo);
+        int altura = Mathf.CeilToInt(limites.size.y / tamanhoCelulaEfetivo);
 
         if (largura < 2 || altura < 2 || (long)largura * altura > 45000)
             return null;
@@ -58,9 +72,9 @@ internal static class PathfinderSeguidorMortal
         if (inicioId < 0 || destinoId < 0)
             return null;
 
-        if (!EncontrarCelulaLivre(ref inicioId, inicio, minimo, tamanhoCelula,
+        if (!EncontrarCelulaLivre(ref inicioId, inicio, minimo, tamanhoCelulaEfetivo,
                 largura, altura, livre, testada, celulaLivre, segmentoLivre) ||
-            !EncontrarCelulaLivre(ref destinoId, destino, minimo, tamanhoCelula,
+            !EncontrarCelulaLivre(ref destinoId, destino, minimo, tamanhoCelulaEfetivo,
                 largura, altura, livre, testada, celulaLivre, segmentoLivre))
             return null;
 
@@ -69,7 +83,7 @@ internal static class PathfinderSeguidorMortal
         abertos.Enqueue(inicioId, Heuristica(inicioId, destinoId, largura));
 
         int expandidos = 0;
-        const int limiteExpansoes = 12000;
+        const int limiteExpansoes = 24000;
 
         while (abertos.Count > 0 && expandidos < limiteExpansoes)
         {
@@ -99,7 +113,7 @@ internal static class PathfinderSeguidorMortal
 
             int x = atual % largura;
             int y = atual / largura;
-            Vector2 pontoAtual = Centro(x, y, minimo, tamanhoCelula);
+            Vector2 pontoAtual = Centro(x, y, minimo, tamanhoCelulaEfetivo);
 
             for (int i = 0; i < Direcoes.Length; i++)
             {
@@ -121,14 +135,14 @@ internal static class PathfinderSeguidorMortal
                     int lateralX = y * largura + nx;
                     int lateralY = ny * largura + x;
 
-                    if (!CelulaLivre(lateralX, minimo, tamanhoCelula,
+                    if (!CelulaLivre(lateralX, minimo, tamanhoCelulaEfetivo,
                             largura, livre, testada, celulaLivre) ||
-                        !CelulaLivre(lateralY, minimo, tamanhoCelula,
+                        !CelulaLivre(lateralY, minimo, tamanhoCelulaEfetivo,
                             largura, livre, testada, celulaLivre))
                         continue;
                 }
 
-                Vector2 pontoVizinho = Centro(nx, ny, minimo, tamanhoCelula);
+                Vector2 pontoVizinho = Centro(nx, ny, minimo, tamanhoCelulaEfetivo);
                 if (!segmentoLivre(pontoAtual, pontoVizinho))
                     continue;
 
@@ -172,7 +186,7 @@ internal static class PathfinderSeguidorMortal
         int x0 = indice % largura;
         int y0 = indice / largura;
 
-        for (int raio = 1; raio <= 7; raio++)
+        for (int raio = 1; raio <= 10; raio++)
         {
             float menorDistancia = float.PositiveInfinity;
             int melhor = -1;
