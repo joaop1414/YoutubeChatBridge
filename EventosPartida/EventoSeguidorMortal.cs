@@ -1087,15 +1087,18 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         // nunca da distância até o waypoint de navegação.
         if (inteligencia.EstadoAtual == EstadoIAAssassino.Perseguindo &&
             Vector2.Distance(origem, alvo.GetTruePosition()) <= AlcanceMorte &&
-            PodeVerJogador(alvo, origem))
+            PodeAtacarJogador(alvo, origem))
         {
             PararCorpo(seguidor.NetTransform.body, "Atualizar (alvo ao alcance)");
-            MatarAlvo(alvo);
-            inteligencia.EsquecerAlvo();
-            alvoAtual = null;
-            proximaBuscaAlvo = 0f;
-            EnviarDestinoAosClientesComMod(null, origem);
-            return;
+            if (MatarAlvo(alvo))
+            {
+                inteligencia.EsquecerAlvo();
+                alvoAtual = null;
+                proximaBuscaAlvo = 0f;
+                EnviarDestinoAosClientesComMod(null, origem);
+                return;
+            }
+            // Se o RPC/cooldown falhar, mantém o alvo e tenta de novo no próximo tick.
         }
 
         if (inteligencia.EstadoAtual == EstadoIAAssassino.Perseguindo &&
@@ -3910,56 +3913,51 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         return 30f;
     }
 
-    private static void MatarAlvo(PlayerControl alvo)
+    private static bool PodeAtacarJogador(PlayerControl jogador, Vector2 origem)
     {
-        if (!YouTubeVoteBridgePlugin.EhHost() ||
-            alvo == null ||
-            alvo.Data == null ||
-            alvo.Data.IsDead ||
-            alvo.Data.Disconnected ||
-            EstaNoDuto(alvo) ||
-            PlayerControl.LocalPlayer == null ||
-            Time.realtimeSinceStartup < proximoKillNpc)
-            return;
+        if (jogador == null || jogador.Data == null ||
+            jogador.Data.IsDead || jogador.Data.Disconnected || EstaNoDuto(jogador))
+            return false;
+        Vector2 destino = jogador.GetTruePosition();
+        RaycastHit2D impacto = Physics2D.Linecast(origem, destino, Constants.ShipOnlyMask);
+        return impacto.collider == null || impacto.collider.transform.IsChildOf(jogador.transform);
+    }
 
+    private static bool MatarAlvo(PlayerControl alvo)
+    {
+        if (!YouTubeVoteBridgePlugin.EhHost() || seguidor == null || alvo == null ||
+            alvo.Data == null || alvo.Data.IsDead || alvo.Data.Disconnected ||
+            EstaNoDuto(alvo) || PlayerControl.LocalPlayer == null ||
+            Time.realtimeSinceStartup < proximoKillNpc)
+            return false;
         try
         {
-            // Primeiro tenta registrar o NPC como autor da morte.
-            // Se o jogo rejeitar o RPC por o NPC artificial não possuir autoridade
-            // de rede, o próprio alvo comete suicídio como alternativa compatível.
             seguidor.RpcMurderPlayer(alvo, true);
-
             if (alvo.Data != null && !alvo.Data.IsDead)
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "[F7/Seguidor] O jogo não aceitou o NPC como autor da morte; usando fallback Alvo killed Alvo.");
-
+                    "[F7/Seguidor] RPC do NPC não matou o alvo; usando fallback Alvo killed Alvo.");
                 alvo.RpcMurderPlayer(alvo, true);
             }
-
             if (alvo.Data != null && alvo.Data.IsDead)
             {
                 float cooldown = ObterCooldownKillNpc();
                 proximoKillNpc = Time.realtimeSinceStartup + cooldown;
-
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "[F7/Seguidor] NPC matou " + alvo.Data.PlayerName +
-                    " (PlayerId=" + alvo.PlayerId + "). Próximo kill em " +
-                    cooldown.ToString("0.##") + "s.");
+                    "[F7/Seguidor] NPC matou " + alvo.Data.PlayerName + " (PlayerId=" +
+                    alvo.PlayerId + "). Próximo kill em " + cooldown.ToString("0.##") + "s.");
+                return true;
             }
-            else
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "[F7/Seguidor] O alvo não morreu; o cooldown do NPC não foi iniciado.");
-            }
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Seguidor] O alvo continua vivo; NPC manterá a perseguição.");
+            return false;
         }
         catch (Exception ex)
         {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[F7/Seguidor] Falha ao matar o alvo: " + ex);
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError("[F7/Seguidor] Falha ao matar o alvo: " + ex);
+            return false;
         }
     }
-
     internal static void Resetar()
     {
         if (YouTubeVoteBridgePlugin.EhHost() && seguidor != null)
