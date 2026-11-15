@@ -214,8 +214,7 @@ internal static class PathfinderSeguidorMortal
         return false;
     }
 
-    // A ligação inicial é validada pelo teste de célula; a verificação completa
-    // de segmento acontece na expansão do primeiro nó.
+    // A ligação da posição real até o centro da célula também precisa estar livre.
     private static bool PodeConectarOrigem(
         Vector2 origem, Vector2 ponto, Func<Vector2, bool> celulaLivre,
         Func<Vector2, Vector2, bool> segmentoLivre, out float distancia)
