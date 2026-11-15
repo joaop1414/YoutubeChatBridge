@@ -877,6 +877,18 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
         }
     }
 
+    // Chamado antes de o jogo processar um reporte. Não encerra a habilidade
+    // aqui: o fluxo normal de StartMeeting fará a conversão definitiva.
+    internal static void AoReportarCorpo()
+    {
+        if (!YouTubeVoteBridgePlugin.EhHost() || !ativo || !transformado)
+            return;
+
+        RestaurarNomesLocais();
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            "[F7/Anjo Traidor] Nomes restaurados antes do reporte do corpo.");
+    }
+
     internal static void AoIniciarReuniao()
     {
         if (!YouTubeVoteBridgePlugin.EhHost() ||
