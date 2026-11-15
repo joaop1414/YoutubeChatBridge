@@ -26,7 +26,6 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
     private static bool habilidadeEncerrada;
     private static byte playerIdSelecionado = byte.MaxValue;
     private static int clientIdSelecionado = -1;
-    private static Action restaurarCooldownProtectLocal;
 
     // Os nomes são enviados somente ao cliente dono do Phantom escolhido.
     // Assim, nem os demais jogadores nem o GameData do host recebem a cor vermelha.
@@ -556,13 +555,11 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
         {
             try
             {
-                restaurarCooldownProtectLocal?.Invoke();
-                restaurarCooldownProtectLocal = null;
-
-                if (!TentarDefinirProtectCooldown(opcoes, killCooldown, out Action restaurar))
+                // O host é o próprio Anjo Traidor: mantém a opção aplicada
+                // durante a partida, sem restaurá-la ao cooldown vanilla.
+                if (!TentarDefinirProtectCooldown(opcoes, killCooldown, out _))
                     return false;
 
-                restaurarCooldownProtectLocal = restaurar;
                 AplicarOpcoesNaLogicaLocal(opcoes);
 
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
@@ -895,27 +892,6 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
         return valor;
     }
 
-    private static void RestaurarCooldownProtectLocal()
-    {
-        if (restaurarCooldownProtectLocal == null)
-            return;
-
-        try
-        {
-            restaurarCooldownProtectLocal.Invoke();
-            restaurarCooldownProtectLocal = null;
-
-            IGameOptions opcoes = GameOptionsManager.Instance?.CurrentGameOptions;
-            if (opcoes != null)
-                AplicarOpcoesNaLogicaLocal(opcoes);
-        }
-        catch (Exception ex)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "[F7/Anjo Traidor] Falha ao restaurar ProtectCooldown local: " + ex.Message);
-        }
-    }
-
     /// <summary>
     /// Antes do encerramento, remove GuardianAngel do cliente dono e publica
     /// ImpostorGhost globalmente para que nenhum cliente termine com o papel falso.
@@ -1103,7 +1079,6 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
             return;
 
         RestaurarNomesLocais();
-        RestaurarCooldownProtectLocal();
 
         armado = false;
         ativo = false;
