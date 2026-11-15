@@ -295,6 +295,22 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
             // Primeiro executa a morte real e envia o papel de fantasma
             // impostor para todos os clientes.
             jogador.RpcMurderPlayer(jogador, true);
+
+            // Corrige o estado autoritativo local quando o Phantom é o host.
+            jogador.Data.IsDead = true;
+            NetworkedPlayerInfo dadosHost = GameData.Instance?.GetPlayerById(jogador.PlayerId);
+            if (dadosHost != null)
+            {
+                dadosHost.IsDead = true;
+                dadosHost.SetDirtyBit(uint.MaxValue);
+            }
+            try { AmongUsClient.Instance?.SendAllStreamedObjects(); }
+            catch (Exception exSync)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[F7/Anjo Traidor] Falha ao propagar estado morto do Phantom: " + exSync.Message);
+            }
+
             jogador.RpcSetRole(RoleTypes.ImpostorGhost, true);
 
             // O papel privado é enviado depois de a morte e o papel global
@@ -490,30 +506,63 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
     {
         try
         {
-            if (anjo == null ||
-                PlayerControl.LocalPlayer == null ||
-                anjo.PlayerId != PlayerControl.LocalPlayer.PlayerId ||
-                HudManager.Instance == null ||
-                HudManager.Instance.AbilityButton == null ||
-                GameManager.Instance == null ||
-                GameManager.Instance.LogicOptions == null)
+            if (anjo == null || PlayerControl.LocalPlayer == null ||
+                anjo.PlayerId != PlayerControl.LocalPlayer.PlayerId || HudManager.Instance == null)
                 return;
 
-            float cooldownKill = Mathf.Max(
-                0.1f,
+            float cooldownKill = Mathf.Max(0.1f,
                 GameOptionsManager.Instance.CurrentGameOptions.GetFloat(FloatOptionNames.KillCooldown));
 
-            HudManager.Instance.AbilityButton.SetCoolDown(cooldownKill, cooldownKill);
+            // GuardianAngel usa ProtectButton próprio, não AbilityButton.
+            object botaoProtect = null;
+            const System.Reflection.BindingFlags flags =
+                System.Reflection.BindingFlags.Instance |
+                System.Reflection.BindingFlags.Public |
+                System.Reflection.BindingFlags.NonPublic;
+            Type hudType = HudManager.Instance.GetType();
+            var membro = hudType.GetProperty("ProtectButton", flags);
+            if (membro != null) botaoProtect = membro.GetValue(HudManager.Instance);
+            if (botaoProtect == null)
+            {
+                var campo = hudType.GetField("ProtectButton", flags);
+                if (campo != null) botaoProtect = campo.GetValue(HudManager.Instance);
+            }
+            if (botaoProtect == null)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[F7/Anjo Traidor] HudManager.ProtectButton não encontrado.");
+                return;
+            }
+
+            Type tipoBotao = botaoProtect.GetType();
+            var setCooldown = tipoBotao.GetMethods(flags).FirstOrDefault(m =>
+                (m.Name == "SetCoolDown" || m.Name == "SetCooldown") &&
+                m.GetParameters().Length == 2 &&
+                m.GetParameters()[0].ParameterType == typeof(float) &&
+                m.GetParameters()[1].ParameterType == typeof(float));
+            if (setCooldown != null)
+                setCooldown.Invoke(botaoProtect, new object[] { cooldownKill, cooldownKill });
+
+            // Atualiza também o contador interno da role, não só a barra visual.
+            object role = anjo.Data?.Role;
+            if (role != null)
+            {
+                var campoCooldown = role.GetType().GetField("cooldownSecondsRemaining", flags);
+                if (campoCooldown != null && campoCooldown.FieldType == typeof(float))
+                    campoCooldown.SetValue(role, cooldownKill);
+                var propCooldown = role.GetType().GetProperty("cooldownSecondsRemaining", flags);
+                if (propCooldown != null && propCooldown.CanWrite && propCooldown.PropertyType == typeof(float))
+                    propCooldown.SetValue(role, cooldownKill);
+            }
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[F7/Anjo Traidor] Cooldown local do Protect ajustado para " +
-                cooldownKill.ToString("0.##") + "s (igual ao Kill Cooldown).");
+                "[F7/Anjo Traidor] Protect cooldown local sincronizado com KillCooldown: " +
+                cooldownKill.ToString("0.##") + "s.");
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "[F7/Anjo Traidor] Não foi possível ajustar o cooldown local do Protect: " +
-                ex.Message);
+                "[F7/Anjo Traidor] Não foi possível ajustar cooldown local do Protect: " + ex);
         }
     }
 
