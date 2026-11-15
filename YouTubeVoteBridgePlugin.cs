@@ -4600,6 +4600,7 @@ public static class YouTubeVoteUpdatePatch
         YouTubeVoteBridgePlugin.AtualizarVotacao();
         RainbowColorTransition.Atualizar();
         YouTubeVoteBridgePlugin.AtualizarRainbow();
+        SistemaNomesLocais.Atualizar();
         EventoEscudoTemporario.Atualizar();
         EventoCooldownIndividual.Atualizar();
         EventoCongelarJogador.Atualizar();
