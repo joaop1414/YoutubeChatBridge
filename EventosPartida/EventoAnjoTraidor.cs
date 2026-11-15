@@ -753,6 +753,25 @@ internal static class EventoAnjoTraidorConfirmarSelecaoPatch
 }
 
 /// <summary>
+/// O EHR corrige o caminho do Phantom no host tratando CmdCheckVanish
+/// diretamente e chamando CheckVanish localmente, em vez de depender do
+/// fluxo vanilla de envio do comando.
+/// </summary>
+[HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.CmdCheckVanish))]
+internal static class EventoAnjoTraidorCmdCheckVanishPatch
+{
+    private static bool Prefix(PlayerControl __instance, float maxDuration)
+    {
+        if (!YouTubeVoteBridgePlugin.EhHost() ||
+            !EventoAnjoTraidor.EhPhantomSelecionado(__instance))
+            return true;
+
+        __instance.CheckVanish();
+        return false;
+    }
+}
+
+/// <summary>
 /// CheckVanish cobre a ativação local do host.
 /// </summary>
 [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.CheckVanish))]
