@@ -20,6 +20,7 @@ internal static class RegistroEventosPartida
         new EventoSeguidorMortal(),
         new EventoImpostorSuicidaAoTentarMatar(),
         new EventoVotoDuplo(),
+        new EventoAnjoTraidor(),
     };
 
     public static IReadOnlyList<EventoVotacao> ObterTodos() => Eventos;
