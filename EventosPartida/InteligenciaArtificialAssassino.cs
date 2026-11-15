@@ -18,16 +18,16 @@ internal enum EstadoIAAssassino
 
 /// <summary>
 /// Controlador de decisões do NPC Assassino.
-/// Mantém o alvo, aplica histerese para evitar trocas constantes e guarda
-/// a última posição vista para investigar quando perde a linha de visão.
-/// Não executa física nem interações de mapa.
+/// A IA só escolhe alvos que consegue ver, mantém a última posição observada
+/// e separa perseguição de investigação. A movimentação e os RPCs de mapa
+/// continuam sob responsabilidade do controlador do evento.
 /// </summary>
 internal sealed class InteligenciaArtificialAssassino
 {
-    private const float TempoMemoriaVisual = 1.8f;
+    private const float TempoMemoriaVisual = 4.0f;
     private const float IntervaloAvaliacaoAlvo = 0.20f;
     private const float MargemTrocaAlvo = 1.25f;
-    private const float DistanciaChegadaInvestigacao = 0.32f;
+    private const float DistanciaChegadaInvestigacao = 0.35f;
 
     private PlayerControl alvo;
     private Vector2 ultimaPosicaoConhecida;
@@ -43,6 +43,11 @@ internal sealed class InteligenciaArtificialAssassino
     public bool EstaInvestigando =>
         EstadoAtual == EstadoIAAssassino.Investigando;
 
+    public bool EstaPerseguindo =>
+        EstadoAtual == EstadoIAAssassino.Perseguindo;
+
+    public Vector2 UltimaPosicaoConhecida => ultimaPosicaoConhecida;
+
     public Vector2 DestinoAtual
     {
         get
@@ -50,7 +55,9 @@ internal sealed class InteligenciaArtificialAssassino
             if (EstaInvestigando && possuiPosicaoConhecida)
                 return ultimaPosicaoConhecida;
 
-            return alvo != null ? alvo.GetTruePosition() : Vector2.zero;
+            return alvo != null
+                ? alvo.GetTruePosition()
+                : possuiPosicaoConhecida ? ultimaPosicaoConhecida : Vector2.zero;
         }
     }
 
@@ -70,44 +77,53 @@ internal sealed class InteligenciaArtificialAssassino
             return null;
         }
 
+        // Primeiro valida o alvo atual. Um jogador morto, desconectado ou
+        // protegido por um estado especial nunca permanece como alvo.
         if (alvo != null && !podeSerAlvo(alvo))
             EsquecerAlvo();
 
         bool alvoVisivel = alvo != null && estaVisivel(alvo);
+
         if (alvoVisivel)
         {
-            ultimaPosicaoConhecida = alvo.GetTruePosition();
-            ultimoAvistamento = agora;
-            possuiPosicaoConhecida = true;
+            RegistrarAvistamento(alvo, agora);
             EstadoAtual = EstadoIAAssassino.Perseguindo;
         }
         else if (alvo != null)
         {
             float tempoSemVer = agora - ultimoAvistamento;
-            if (tempoSemVer <= TempoMemoriaVisual && possuiPosicaoConhecida)
-            {
-                EstadoAtual = EstadoIAAssassino.Investigando;
 
-                // Ao chegar ao último ponto visto, encerra a investigação.
-                if (Vector2.Distance(origem, ultimaPosicaoConhecida) <= DistanciaChegadaInvestigacao)
-                    EsquecerAlvo();
-            }
-            else
+            if (!possuiPosicaoConhecida ||
+                tempoSemVer > TempoMemoriaVisual)
             {
                 EsquecerAlvo();
             }
+            else if (Vector2.Distance(origem, ultimaPosicaoConhecida) <=
+                     DistanciaChegadaInvestigacao)
+            {
+                // Chegou ao local onde viu o jogador pela última vez.
+                // Não continua seguindo a posição atual através das paredes.
+                EsquecerAlvo();
+            }
+            else
+            {
+                EstadoAtual = EstadoIAAssassino.Investigando;
+            }
         }
 
+        // A percepção é limitada a 5 avaliações por segundo. O alvo atual,
+        // entretanto, continua tendo sua visibilidade atualizada a cada tick.
         if (agora < proximaAvaliacao)
         {
             if (alvo == null)
                 EstadoAtual = EstadoIAAssassino.Patrulhando;
+
             return alvo;
         }
 
         proximaAvaliacao = agora + IntervaloAvaliacaoAlvo;
 
-        PlayerControl melhor = null;
+        PlayerControl melhorAlvoVisivel = null;
         float menorDistancia = float.MaxValue;
 
         foreach (PlayerControl jogador in jogadores)
@@ -116,37 +132,43 @@ internal sealed class InteligenciaArtificialAssassino
                 !podeSerAlvo(jogador) || !estaVisivel(jogador))
                 continue;
 
-            float distancia = Vector2.Distance(origem, jogador.GetTruePosition());
+            float distancia = Vector2.Distance(
+                origem, jogador.GetTruePosition());
+
             if (distancia < menorDistancia)
             {
                 menorDistancia = distancia;
-                melhor = jogador;
+                melhorAlvoVisivel = jogador;
             }
         }
 
         if (alvo == null)
         {
-            DefinirAlvo(melhor, agora);
+            DefinirAlvo(melhorAlvoVisivel, agora);
         }
         else if (alvoVisivel)
         {
-            float distanciaAtual = Vector2.Distance(origem, alvo.GetTruePosition());
+            float distanciaAtual = Vector2.Distance(
+                origem, alvo.GetTruePosition());
 
-            // Só troca se o novo alvo estiver claramente mais perto.
-            // Isso evita alternância de alvo quando dois jogadores estão próximos.
-            if (melhor != null && melhor != alvo &&
+            // Mantém o alvo atual para evitar alternância constante.
+            // Só troca quando outro jogador estiver claramente mais perto.
+            if (melhorAlvoVisivel != null &&
+                melhorAlvoVisivel != alvo &&
                 menorDistancia + MargemTrocaAlvo < distanciaAtual)
-                DefinirAlvo(melhor, agora);
+            {
+                DefinirAlvo(melhorAlvoVisivel, agora);
+            }
         }
-        else if (alvo != null && melhor != null)
+        else if (melhorAlvoVisivel != null)
         {
-            float distanciaInvestigacao =
-                Vector2.Distance(origem, ultimaPosicaoConhecida);
+            float distanciaInvestigacao = Vector2.Distance(
+                origem, ultimaPosicaoConhecida);
 
-            // Um jogador visível que se aproxima muito mais pode interromper
-            // a investigação do alvo anterior.
+            // Um jogador visível pode interromper uma investigação se estiver
+            // significativamente mais próximo que o último local investigado.
             if (menorDistancia + MargemTrocaAlvo < distanciaInvestigacao)
-                DefinirAlvo(melhor, agora);
+                DefinirAlvo(melhorAlvoVisivel, agora);
         }
 
         if (alvo == null)
@@ -155,11 +177,11 @@ internal sealed class InteligenciaArtificialAssassino
             return null;
         }
 
+        // Confirma a visibilidade do alvo escolhido. Se perdeu visão durante
+        // a avaliação, conserva somente a posição que foi realmente observada.
         if (estaVisivel(alvo))
         {
-            ultimaPosicaoConhecida = alvo.GetTruePosition();
-            ultimoAvistamento = agora;
-            possuiPosicaoConhecida = true;
+            RegistrarAvistamento(alvo, agora);
             EstadoAtual = EstadoIAAssassino.Perseguindo;
         }
         else if (possuiPosicaoConhecida &&
@@ -176,6 +198,16 @@ internal sealed class InteligenciaArtificialAssassino
         return alvo;
     }
 
+    private void RegistrarAvistamento(PlayerControl jogador, float agora)
+    {
+        if (jogador == null)
+            return;
+
+        ultimaPosicaoConhecida = jogador.GetTruePosition();
+        ultimoAvistamento = agora;
+        possuiPosicaoConhecida = true;
+    }
+
     private void DefinirAlvo(PlayerControl novoAlvo, float agora)
     {
         alvo = novoAlvo;
@@ -183,26 +215,27 @@ internal sealed class InteligenciaArtificialAssassino
 
         if (alvo == null)
         {
-            possuiPosicaoConhecida = false;
-            ultimaPosicaoConhecida = Vector2.zero;
-            ultimoAvistamento = 0f;
+            LimparMemoriaVisual();
             EstadoAtual = EstadoIAAssassino.Patrulhando;
             return;
         }
 
-        ultimaPosicaoConhecida = alvo.GetTruePosition();
-        ultimoAvistamento = agora;
-        possuiPosicaoConhecida = true;
+        RegistrarAvistamento(alvo, agora);
         EstadoAtual = EstadoIAAssassino.Perseguindo;
+    }
+
+    private void LimparMemoriaVisual()
+    {
+        ultimaPosicaoConhecida = Vector2.zero;
+        ultimoAvistamento = 0f;
+        possuiPosicaoConhecida = false;
     }
 
     public void EsquecerAlvo()
     {
         alvo = null;
-        ultimaPosicaoConhecida = Vector2.zero;
-        ultimoAvistamento = 0f;
+        LimparMemoriaVisual();
         proximaAvaliacao = 0f;
-        possuiPosicaoConhecida = false;
         EstadoAtual = EstadoIAAssassino.Patrulhando;
     }
 
