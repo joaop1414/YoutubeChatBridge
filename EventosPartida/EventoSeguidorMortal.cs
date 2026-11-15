@@ -1064,7 +1064,10 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         // Um RPC SnapTo paralelo com sequência artificial disputa com a sequência nativa
         // do transform e pode fazer clientes remotos aplicarem posições incorretas.
 
-        // Atualiza o fluxo de dados nativo do transform para todos os clientes vanilla.\n        SincronizarTransformVanilla();\n\n        // Corrige a associação dos dados e restaura somente o registro do ID 249.
+        // Atualiza o fluxo de dados nativo do transform para todos os clientes vanilla.
+        SincronizarTransformVanilla();
+
+        // Corrige a associação dos dados e restaura somente o registro do ID 249.
         AtualizarRegistroVidaNpc();
 
         // Verifica em runtime se esta versão expõe RpcMove no PlayerPhysics
@@ -3979,7 +3982,9 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         diagnosticoRegistroNpcFeito = false;
         avisoRegistroNpcAusente = false;
         avisoRegistroNpcCompartilhado = false;
-        diagnosticoApisMovimentoExecutado = false;\n        proximaAtualizacaoTransformVanilla = 0f;\n        avisoSyncTransformVanilla = false;
+        diagnosticoApisMovimentoExecutado = false;
+        proximaAtualizacaoTransformVanilla = 0f;
+        avisoSyncTransformVanilla = false;
         netIdSeguidorCliente = 0;
         alvoReplicadoCliente = byte.MaxValue;
         destinoReplicadoCliente = Vector2.zero;
