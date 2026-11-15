@@ -1020,73 +1020,34 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             return;
         }
 
-        // Sabotagens são uma decisão de maior prioridade que perseguição e patrulha.
-        if (TentarResolverSabotagemLuzes() || TentarResolverOutrasSabotagens())
-        {
-            inteligencia.DefinirEstado(EstadoIAAssassino.ResolvendoSabotagem);
-            return;
-        }
-
-        // Depois de concluir uma sabotagem, a IA entra explicitamente em espera.
-        if (Time.realtimeSinceStartup < aguardarPerseguicaoAte)
-        {
-            inteligencia.DefinirEstado(EstadoIAAssassino.Aguardando);
-            PararCorpo(seguidor.NetTransform.body, "Atualizar (linha 986)");
-            return;
-        }
-
-        // O Tsunami já usa este mesmo caminho: velocidade no Rigidbody2D
-        // pertencente ao CustomNetworkTransform. O SnapTo periódico serve apenas
-        // como correção aproximada para os clientes remotos.
+        // IA direta: seleciona e persegue somente o jogador válido mais próximo.
         PlayerControl alvo = ObterAlvoAtual();
+        Vector2 origem = seguidor.GetTruePosition();
+
         if (alvo == null)
         {
-            inteligencia.DefinirEstado(EstadoIAAssassino.Patrulhando);
-            Patrulhar();
+            PararCorpo(seguidor.NetTransform.body, "Atualizar (sem jogador visível)");
+            alvoAtual = null;
+            AtualizarDestinoReplicado(null, origem);
+            EnviarDestinoAosClientesComMod(null, origem);
+            inteligencia.DefinirEstado(EstadoIAAssassino.Aguardando);
+            LimparCaminho();
             return;
         }
 
-        // Ao encontrar um jogador novamente, abandona o destino de patrulha
-        // e força o A* a calcular uma rota nova para a perseguição.
-        if (possuiDestinoPatrulha)
-        {
-            possuiDestinoPatrulha = false;
-            LimparCaminho();
-            emManobraDestravamento = false;
-            monitoramentoMovimentoIniciado = false;
-        }
-
-        Vector2 origem = seguidor.GetTruePosition();
-        Vector2 destino = inteligencia.DestinoAtual;
-
-        // Publica snapshots frequentes aos clientes com mod. Durante a perseguição
-        // o destino acompanha o jogador visível; durante a investigação fica parado
-        // na última posição que a IA realmente observou.
+        // Sem patrulha, sabotagens ou investigação: o destino acompanha
+        // diretamente a posição atual do alvo escolhido.
+        Vector2 destino = alvo.GetTruePosition();
         AtualizarDestinoReplicado(alvo, destino);
 
-        if (TentarUsarVentilacao(destino))
+        // Mantém as travessias de mapa necessárias para alcançar o jogador.
+        if (TentarUsarEscadaOuTirolesa(alvo))
         {
             inteligencia.DefinirEstado(EstadoIAAssassino.Transportando);
             return;
         }
 
-        // Investigar não significa matar: ao alcançar a última posição vista,
-        // a IA encerra a busca e volta à patrulha.
-        if (inteligencia.EstaInvestigando &&
-            Vector2.Distance(origem, destino) <= 0.35f)
-        {
-            PararCorpo(seguidor.NetTransform.body, "Atualizar (fim da investigação)");
-            inteligencia.EsquecerAlvo();
-            alvoAtual = null;
-            proximaBuscaAlvo = 0f;
-            EnviarDestinoAosClientesComMod(null, origem);
-            return;
-        }
-
-        // A morte depende da distância real ao jogador e de visão desobstruída,
-        // nunca da distância até o waypoint de navegação.
-        if (inteligencia.EstadoAtual == EstadoIAAssassino.Perseguindo &&
-            Vector2.Distance(origem, alvo.GetTruePosition()) <= AlcanceMorte &&
+        if (Vector2.Distance(origem, alvo.GetTruePosition()) <= AlcanceMorte &&
             PodeAtacarJogador(alvo, origem))
         {
             PararCorpo(seguidor.NetTransform.body, "Atualizar (alvo ao alcance)");
@@ -1098,19 +1059,10 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 EnviarDestinoAosClientesComMod(null, origem);
                 return;
             }
-            // Se o RPC/cooldown falhar, mantém o alvo e tenta de novo no próximo tick.
+            // Se o RPC/cooldown falhar, mantém a perseguição e tenta novamente.
         }
 
-        if (inteligencia.EstadoAtual == EstadoIAAssassino.Perseguindo &&
-            TentarUsarEscadaOuTirolesa(alvo))
-        {
-            inteligencia.DefinirEstado(EstadoIAAssassino.Transportando);
-            return;
-        }
-
-        alvoIgnoradoNavegacao = inteligencia.EstadoAtual == EstadoIAAssassino.Perseguindo
-            ? alvo
-            : null;
+        alvoIgnoradoNavegacao = alvo;
         try
         {
             MoverAte(destino);
