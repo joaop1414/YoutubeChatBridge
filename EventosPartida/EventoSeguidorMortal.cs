@@ -1803,6 +1803,31 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         avisoMonitoramentoMovimento = false;
     }
 
+    private static bool PortaEstaNaRota(
+        Vector2 origem, Vector2 destino, Collider2D colisor)
+    {
+        if (colisor == null || !colisor.enabled)
+            return false;
+
+        Vector2 delta = destino - origem;
+        float distancia = delta.magnitude;
+        if (distancia <= 0.001f)
+            return false;
+
+        Vector2 direcao = delta / distancia;
+        Vector2 pontoProximo = colisor.ClosestPoint(origem);
+        if (Vector2.Distance(origem, pontoProximo) > 1.5f)
+            return false;
+
+        Vector2 centro = colisor.bounds.center;
+        float distanciaNaRota = Vector2.Dot(centro - origem, direcao);
+        if (distanciaNaRota < 0f || distanciaNaRota > distancia + 0.75f)
+            return false;
+
+        Vector2 pontoNaRota = origem + direcao * distanciaNaRota;
+        return Vector2.Distance(pontoNaRota, centro) <= 0.70f;
+    }
+
     private static bool TentarAbrirPortaNoCaminho(
         Vector2 origem, Vector2 destino, float agora)
     {
@@ -1816,6 +1841,62 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
         direcao.Normalize();
 
+        // Portas de descontaminação não usam o sistema Doors normal.
+        // Segue o fluxo da API de navegação: abre pelo lado de dentro ou de fora
+        // e deixa o ciclo vanilla terminar antes de tentar atravessar.
+        DeconSystem[] sistemasDecon =
+            ShipStatus.Instance.GetComponentsInChildren<DeconSystem>();
+        foreach (DeconSystem sistema in sistemasDecon)
+        {
+            if (sistema == null ||
+                sistema.CurState != DeconSystem.States.Idle)
+                continue;
+
+            Collider2D colisorSuperior =
+                LerMembro(sistema.UpperDoor, "myCollider", "MyCollider") as Collider2D;
+
+            if (PortaEstaNaRota(origem, destino, colisorSuperior))
+            {
+                bool dentro = sistema.RoomArea != null &&
+                    sistema.RoomArea.OverlapPoint(origem);
+
+                if (dentro)
+                    sistema.OpenFromInside(true);
+                else
+                    sistema.OpenDoor(true);
+
+                proximaTentativaAbrirPorta = agora + 0.75f;
+                PararCorpo(seguidor.NetTransform.body,
+                    "TentarAbrirPortaNoCaminho (descontaminação superior)");
+
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[F7/Seguidor] NPC solicitou abertura da porta superior de descontaminação.");
+                return true;
+            }
+
+            Collider2D colisorInferior =
+                LerMembro(sistema.LowerDoor, "myCollider", "MyCollider") as Collider2D;
+
+            if (PortaEstaNaRota(origem, destino, colisorInferior))
+            {
+                bool dentro = sistema.RoomArea != null &&
+                    sistema.RoomArea.OverlapPoint(origem);
+
+                if (dentro)
+                    sistema.OpenFromInside(false);
+                else
+                    sistema.OpenDoor(false);
+
+                proximaTentativaAbrirPorta = agora + 0.75f;
+                PararCorpo(seguidor.NetTransform.body,
+                    "TentarAbrirPortaNoCaminho (descontaminação inferior)");
+
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[F7/Seguidor] NPC solicitou abertura da porta inferior de descontaminação.");
+                return true;
+            }
+        }
+
         var portas = ShipStatus.Instance.AllDoors;
         if (portas == null)
             return false;
@@ -1827,22 +1908,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 continue;
 
             Collider2D colisor = LerMembro(porta, "myCollider", "MyCollider") as Collider2D;
-            if (colisor == null || !colisor.enabled)
-                continue;
-
-            Vector2 pontoProximo = colisor.ClosestPoint(origem);
-            if (Vector2.Distance(origem, pontoProximo) > 1.5f)
-                continue;
-
-            Vector2 centro = colisor.bounds.center;
-            Vector2 relativo = centro - origem;
-            float distanciaNaRota = Vector2.Dot(relativo, direcao);
-            if (distanciaNaRota < 0f ||
-                distanciaNaRota > Vector2.Distance(origem, destino) + 0.75f)
-                continue;
-
-            Vector2 pontoNaRota = origem + direcao * distanciaNaRota;
-            if (Vector2.Distance(pontoNaRota, centro) > 0.70f)
+            if (!PortaEstaNaRota(origem, destino, colisor))
                 continue;
 
             try
