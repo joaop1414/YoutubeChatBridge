@@ -1570,7 +1570,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         avisoMonitoramentoMovimento = false;
     }
 
-        private static bool TentarTrocarDestinoPatrulha(Vector2 origem)
+    private static bool TentarTrocarDestinoPatrulha(Vector2 origem)
     {
         if (seguidor?.NetTransform?.body == null || ShipStatus.Instance == null)
             return false;
