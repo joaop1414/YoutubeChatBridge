@@ -441,7 +441,7 @@ internal static class ConfiguradorFuncoesMenu
         CriarControle("BUTTON", "Atualizar jogadores", WS_CHILD | WS_VISIBLE,
             22, 254, 245, 32, hwnd, new IntPtr(ID_ATUALIZAR), instancia);
         botaoTeleporteMouse = CriarControle("BUTTON",
-            TeleporteMouseAtivo ? "Teleporte pelo mouse: ATIVADO" : "Teleporte pelo mouse: DESATIVADO",
+            TeleporteMouseAtivo ? "Teleporte mouse: ATIVADO" : "Teleporte mouse: DESATIVADO",
             WS_CHILD | WS_VISIBLE, 22, 294, 245, 32, hwnd,
             new IntPtr(ID_TELEPORTE_MOUSE), instancia);
         CriarControle("BUTTON", "Fechar (F8)", WS_CHILD | WS_VISIBLE,
