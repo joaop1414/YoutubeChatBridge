@@ -4007,33 +4007,49 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         if (!YouTubeVoteBridgePlugin.EhHost() || seguidor == null || alvo == null ||
             alvo.Data == null || alvo.Data.IsDead || alvo.Data.Disconnected ||
             EstaNoDuto(alvo) || PlayerControl.LocalPlayer == null ||
+            AmongUsClient.Instance == null ||
             Time.realtimeSinceStartup < proximoKillNpc)
             return false;
+
         try
         {
-            seguidor.RpcMurderPlayer(alvo, true);
-            if (alvo.Data != null && !alvo.Data.IsDead)
+            Vector2 posicaoMorte = alvo.GetTruePosition();
+            byte playerId = alvo.PlayerId;
+            string nomeAlvo = alvo.Data.PlayerName;
+
+            // Igual ao Tsunami: Exiled remove o jogador sem criar DeadBody.
+            alvo.Exiled();
+
+            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
+                alvo.NetId,
+                (byte)RpcCalls.Exiled,
+                SendOption.Reliable,
+                -1);
+            AmongUsClient.Instance.FinishRpcImmediately(writer);
+
+            if (alvo.Data == null || !alvo.Data.IsDead)
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "[F7/Seguidor] RPC do NPC não matou o alvo; usando fallback Alvo killed Alvo.");
-                alvo.RpcMurderPlayer(alvo, true);
+                    "[F7/Seguidor] Exiled não marcou o alvo como morto; o NPC continuará perseguindo.");
+                return false;
             }
-            if (alvo.Data != null && alvo.Data.IsDead)
-            {
-                float cooldown = ObterCooldownKillNpc();
-                proximoKillNpc = Time.realtimeSinceStartup + cooldown;
-                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "[F7/Seguidor] NPC matou " + alvo.Data.PlayerName + " (PlayerId=" +
-                    alvo.PlayerId + "). Próximo kill em " + cooldown.ToString("0.##") + "s.");
-                return true;
-            }
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "[F7/Seguidor] O alvo continua vivo; NPC manterá a perseguição.");
-            return false;
+
+            EventoCriarCorpoFalso.ExecutarComoNoisemakerParaJogadorNaPosicao(
+                playerId, posicaoMorte);
+
+            float cooldown = ObterCooldownKillNpc();
+            proximoKillNpc = Time.realtimeSinceStartup + cooldown;
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[F7/Seguidor] NPC eliminou " + nomeAlvo + " (PlayerId=" + playerId +
+                ") via Exiled, sem corpo original; corpo falso Noisemaker solicitado em " +
+                posicaoMorte + ". Próximo kill em " + cooldown.ToString("0.##") + "s.");
+            return true;
         }
         catch (Exception ex)
         {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogError("[F7/Seguidor] Falha ao matar o alvo: " + ex);
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "[F7/Seguidor] Falha ao eliminar o alvo como Noisemaker: " + ex);
             return false;
         }
     }
