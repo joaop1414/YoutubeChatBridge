@@ -530,9 +530,18 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
                 dadosAlvoHost.SetDirtyBit(uint.MaxValue);
             }
 
-            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[F7/Anjo Traidor] Primeiro MurderPlayer enviado somente ao dono " +
-                "do Anjo Traidor. Killer=" + anjo.PlayerId + ", alvo=" + alvo.PlayerId + ".");
+            if (!anjoEhHost)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[F7/Anjo Traidor] Primeiro MurderPlayer enviado somente ao dono " +
+                    "do Anjo Traidor. Killer=" + anjo.PlayerId + ", alvo=" + alvo.PlayerId + ".");
+            }
+            else
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[F7/Anjo Traidor] Morte local do host processada por RpcMurderPlayer. " +
+                    "Killer=" + anjo.PlayerId + ", alvo=" + alvo.PlayerId + ".");
+            }
 
             // 3) Para Anjo remoto, completa com broadcast global.
             // Quando o host é o Anjo, RpcMurderPlayer já publicou o RPC global.
@@ -563,7 +572,7 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[F7/Anjo Traidor] Falha no fluxo Protect + dois MurderPlayer: " + ex);
+                "[F7/Anjo Traidor] Falha no fluxo Protect + assassinato: " + ex);
         }
 
         // O CheckProtect original não pode continuar, pois enviaria Protect
