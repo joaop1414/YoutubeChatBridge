@@ -257,8 +257,9 @@ internal sealed class EventoCriarCorpoFalso : EventoVotacao
                     // Aplica localmente e transmite SetRole antes de MurderPlayer.
                     try
                     {
-                        MonoBehaviourExtensions.StartCoroutine(
-                            PlayerControl.LocalPlayer,
+                        // Mesmo padrão já utilizado pela RoleSwitchAPI no projeto:
+                        // StartCoroutine diretamente no PlayerControl IL2CPP.
+                        temporario.StartCoroutine(
                             temporario.CoSetRole(RoleTypes.Noisemaker, true));
                     }
                     catch (Exception exRole)
