@@ -65,6 +65,15 @@ internal static class ExploracaoMapaF8
     private static bool exploracaoAtiva;
     private static float proximoRegistro;
 
+    private static string mapaNavegacaoCarregado;
+    private static DateTime dataArquivoMapaCarregado;
+    private static bool tentativaCarregamentoMapaFeita;
+    private static bool mapaNavegacaoDisponivel;
+    private static readonly List<Bounds> salasNavegacaoMapeadas = new();
+    private static readonly List<Bounds> obstaculosNavegacaoMapeados = new();
+    private const float MargemSalaMapeada = 0.85f;
+    private const float MargemProximidadeObstaculoMapeado = 0.20f;
+
     internal static bool ExploracaoAtiva => exploracaoAtiva;
 
     internal static bool AlternarExploracao()
@@ -226,6 +235,7 @@ internal static class ExploracaoMapaF8
                 WriteIndented = true,
                 IncludeFields = true
             }));
+            InvalidarCacheNavegacao();
 
             resultado = "Mapa " + nomeMapa + " mapeado: " +
                 dados.quantidadeColliders + " colliders e " +
@@ -252,6 +262,202 @@ internal static class ExploracaoMapaF8
             resultado = "Falha ao mapear " + nomeMapa + ": " + ex.Message;
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
                 "[F8/Mapeamento] " + ex);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Carrega o snapshot do mapa atual para orientar o Pathfinder.
+    /// As salas definem a região preferencial; os colliders geram custos
+    /// suaves, nunca bloqueios absolutos. A física atual continua soberana.
+    /// </summary>
+    internal static bool PodeUsarPontoNavegacao(Vector2 ponto)
+    {
+        if (!GarantirMapaNavegacaoCarregado())
+            return true;
+
+        foreach (Bounds sala in salasNavegacaoMapeadas)
+        {
+            Bounds expandida = sala;
+            expandida.Expand(MargemSalaMapeada * 2f);
+            if (expandida.Contains(ponto))
+                return true;
+        }
+
+        return false;
+    }
+
+    internal static bool SegmentoDentroDoMapa(Vector2 inicio, Vector2 fim)
+    {
+        if (!GarantirMapaNavegacaoCarregado())
+            return true;
+
+        float distancia = Vector2.Distance(inicio, fim);
+        int passos = Mathf.Max(1, Mathf.CeilToInt(distancia / 0.25f));
+
+        for (int i = 1; i < passos; i++)
+        {
+            Vector2 ponto = Vector2.Lerp(inicio, fim, i / (float)passos);
+            if (!PodeUsarPontoNavegacao(ponto))
+                return false;
+        }
+
+        return true;
+    }
+
+    internal static float ObterPenalidadeMapa(Vector2 ponto)
+    {
+        if (!GarantirMapaNavegacaoCarregado())
+            return 0f;
+
+        float penalidade = 0f;
+
+        foreach (Bounds obstaculo in obstaculosNavegacaoMapeados)
+        {
+            if (obstaculo.Contains(ponto))
+            {
+                penalidade += 1.25f;
+            }
+            else
+            {
+                float dx = Mathf.Max(
+                    obstaculo.min.x - ponto.x,
+                    0f,
+                    ponto.x - obstaculo.max.x);
+                float dy = Mathf.Max(
+                    obstaculo.min.y - ponto.y,
+                    0f,
+                    ponto.y - obstaculo.max.y);
+
+                if (Mathf.Sqrt(dx * dx + dy * dy) <= MargemProximidadeObstaculoMapeado)
+                    penalidade += 0.20f;
+            }
+
+            if (penalidade >= 3f)
+                return 3f;
+        }
+
+        return Mathf.Min(penalidade, 3f);
+    }
+
+    internal static void InvalidarCacheNavegacao()
+    {
+        tentativaCarregamentoMapaFeita = false;
+        mapaNavegacaoDisponivel = false;
+        mapaNavegacaoCarregado = null;
+        dataArquivoMapaCarregado = default;
+        salasNavegacaoMapeadas.Clear();
+        obstaculosNavegacaoMapeados.Clear();
+    }
+
+    private static bool GarantirMapaNavegacaoCarregado()
+    {
+        if (ShipStatus.Instance == null ||
+            GameOptionsManager.Instance?.CurrentGameOptions == null)
+            return false;
+
+        int mapId = GameOptionsManager.Instance.CurrentGameOptions.MapId;
+        string nomeMapa = NomeMapa(mapId);
+
+        // Dleks é espelhado em relação ao Skeld e não possui snapshot próprio.
+        // Não aplicamos coordenadas do Skeld nesse mapa.
+        if (nomeMapa == null)
+            return false;
+
+        string pasta = Path.Combine(
+            BepInEx.Paths.ConfigPath, "YouTubeVoteBridge", "Mapas");
+        string arquivo = Path.Combine(pasta, nomeMapa + ".json");
+
+        DateTime modificacao;
+        try
+        {
+            if (!File.Exists(arquivo))
+                return false;
+            modificacao = File.GetLastWriteTimeUtc(arquivo);
+        }
+        catch
+        {
+            return false;
+        }
+
+        if (tentativaCarregamentoMapaFeita &&
+            mapaNavegacaoCarregado == nomeMapa &&
+            dataArquivoMapaCarregado == modificacao)
+            return mapaNavegacaoDisponivel;
+
+        tentativaCarregamentoMapaFeita = true;
+        mapaNavegacaoCarregado = nomeMapa;
+        dataArquivoMapaCarregado = modificacao;
+        mapaNavegacaoDisponivel = false;
+        salasNavegacaoMapeadas.Clear();
+        obstaculosNavegacaoMapeados.Clear();
+
+        try
+        {
+            ArquivoMapa dados = JsonSerializer.Deserialize<ArquivoMapa>(
+                File.ReadAllText(arquivo),
+                new JsonSerializerOptions { IncludeFields = true });
+
+            if (dados == null || dados.salas == null || dados.salas.Count == 0)
+                return false;
+
+            foreach (DadoSala sala in dados.salas)
+            {
+                if (sala == null || sala.maxX <= sala.minX || sala.maxY <= sala.minY)
+                    continue;
+
+                Vector3 centro = new(
+                    (sala.minX + sala.maxX) * 0.5f,
+                    (sala.minY + sala.maxY) * 0.5f,
+                    0f);
+                Vector3 tamanho = new(
+                    sala.maxX - sala.minX,
+                    sala.maxY - sala.minY,
+                    0.1f);
+                salasNavegacaoMapeadas.Add(new Bounds(centro, tamanho));
+            }
+
+            if (dados.colliders != null)
+            {
+                foreach (DadoCollider collider in dados.colliders)
+                {
+                    if (collider == null || !collider.habilitado || collider.trigger ||
+                        collider.maxX <= collider.minX || collider.maxY <= collider.minY)
+                        continue;
+
+                    Vector3 centro = new(
+                        (collider.minX + collider.maxX) * 0.5f,
+                        (collider.minY + collider.maxY) * 0.5f,
+                        0f);
+                    Vector3 tamanho = new(
+                        collider.maxX - collider.minX,
+                        collider.maxY - collider.minY,
+                        0.1f);
+                    obstaculosNavegacaoMapeados.Add(new Bounds(centro, tamanho));
+                }
+            }
+
+            mapaNavegacaoDisponivel = salasNavegacaoMapeadas.Count > 0;
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[F7/Seguidor] Mapeamento de " + nomeMapa +
+                (mapaNavegacaoDisponivel
+                    ? " carregado para o Pathfinder: " +
+                      salasNavegacaoMapeadas.Count + " salas e " +
+                      obstaculosNavegacaoMapeados.Count + " colliders orientativos."
+                    : " inválido ou sem salas; usando navegação física padrão."));
+
+            return mapaNavegacaoDisponivel;
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Seguidor] Não foi possível carregar o mapeamento de " +
+                nomeMapa + ": " + ex.Message +
+                ". Usando navegação física padrão.");
+            salasNavegacaoMapeadas.Clear();
+            obstaculosNavegacaoMapeados.Clear();
+            mapaNavegacaoDisponivel = false;
             return false;
         }
     }
