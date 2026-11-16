@@ -154,12 +154,12 @@ internal static class SistemaNomesLocais
 
             try
             {
-                area.NameText.text = CriarTexto(local);
+                area.NameText.text = CriarTexto(jogador);
             }
             catch (Exception ex)
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogDebug(
-                    "[Nomes locais] Falha ao atualizar o próprio nome na reunião: " + ex.Message);
+                    "[Nomes locais] Falha ao atualizar nome na reunião: " + ex.Message);
             }
 
             break;
@@ -306,7 +306,7 @@ internal static class SistemaNomesLocais
         if (string.IsNullOrWhiteSpace(nome))
             nome = jogador.Data.PlayerName ?? string.Empty;
 
-        return nome;
+        return EventoOportunista.RemoverMarcador(nome);
     }
 
     internal static string ObterNomeFuncao(PlayerControl jogador)
