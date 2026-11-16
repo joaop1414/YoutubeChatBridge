@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Text;
 using Hazel;
 using UnityEngine;
 
@@ -20,6 +21,9 @@ internal static class SistemaNomesLocais
         public string Cor;
         public float ExpiraEm;
     }
+
+    private const string MARCADOR_FUNCAO_PREFIXO = "<size=0>YTVB_ROLE:";
+    private const string MARCADOR_FUNCAO_FIM = "</size>";
 
     private static readonly Dictionary<byte, AvisoLocal> Avisos = new();
     private static readonly Dictionary<byte, string> UltimosNomesEnviados = new();
@@ -437,8 +441,12 @@ internal static class SistemaNomesLocais
             "<color=" + corFuncao + "><size=50%>" + funcao +
             "\n</size>" + nome + "</color>";
 
-        // Mantém o identificador invisível sincronizado no nome de rede,
-        // inclusive quando o host envia SetName direcionado ao dono.
+        // Mantém os identificadores invisíveis no nome de rede. Isso permite
+        // que todos os clientes reconheçam atributos e funções personalizadas.
+        string marcadorFuncao = ObterMarcadorFuncao(jogador);
+        if (!string.IsNullOrEmpty(marcadorFuncao))
+            resultado += marcadorFuncao;
+
         if (EventoOportunista.EhOportunista(jogador))
             resultado += EventoOportunista.MARCADOR;
 
@@ -461,6 +469,7 @@ internal static class SistemaNomesLocais
             nome = jogador.Data.PlayerName ?? string.Empty;
 
         nome = EventoOportunista.RemoverMarcador(nome);
+        nome = RemoverMarcadoresFuncao(nome);
 
         // Se o SetName direcionado já aplicou o cabeçalho local da função,
         // remove somente esse invólucro para não empilhar cabeçalhos a cada Update.
@@ -482,6 +491,112 @@ internal static class SistemaNomesLocais
         return nome;
     }
 
+    internal static void SincronizarFuncaoPersonalizada(PlayerControl jogador, string funcao)
+    {
+        if (!YouTubeVoteBridgePlugin.EhHost() || jogador == null ||
+            jogador.Data == null || string.IsNullOrWhiteSpace(funcao))
+            return;
+
+        string nomeBase = ObterNomeBase(jogador);
+        bool oportunista = EventoOportunista.EhOportunista(jogador);
+        string novoNome = nomeBase + CriarMarcadorFuncao(funcao) +
+            (oportunista ? EventoOportunista.MARCADOR : string.Empty);
+
+        EventoOportunista.EnviarNomeGlobal(jogador, novoNome);
+    }
+
+    internal static void LimparMarcadoresDeFuncao()
+    {
+        if (!YouTubeVoteBridgePlugin.EhHost() || PlayerControl.AllPlayerControls == null)
+            return;
+
+        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+        {
+            if (jogador == null || jogador.Data == null ||
+                string.IsNullOrEmpty(jogador.Data.PlayerName) ||
+                !jogador.Data.PlayerName.Contains(MARCADOR_FUNCAO_PREFIXO, StringComparison.Ordinal))
+                continue;
+
+            string nome = RemoverMarcadoresFuncao(jogador.Data.PlayerName);
+            EventoOportunista.EnviarNomeGlobal(jogador, nome);
+        }
+    }
+
+    private static string CriarMarcadorFuncao(string funcao)
+    {
+        string codificado = Convert.ToBase64String(Encoding.UTF8.GetBytes(funcao));
+        return MARCADOR_FUNCAO_PREFIXO + codificado + MARCADOR_FUNCAO_FIM;
+    }
+
+    private static string ObterMarcadorFuncao(PlayerControl jogador)
+    {
+        if (jogador == null || jogador.Data == null)
+            return string.Empty;
+
+        string nome = jogador.Data.PlayerName ?? string.Empty;
+        int inicio = nome.IndexOf(MARCADOR_FUNCAO_PREFIXO, StringComparison.Ordinal);
+        if (inicio >= 0)
+        {
+            int fim = nome.IndexOf(MARCADOR_FUNCAO_FIM, inicio, StringComparison.Ordinal);
+            if (fim >= 0)
+                return nome.Substring(inicio, fim + MARCADOR_FUNCAO_FIM.Length - inicio);
+        }
+
+        RegistroFuncoesJogadores.Atribuicao atribuicao =
+            RegistroFuncoesJogadores.Obter(jogador.PlayerId);
+        return atribuicao?.Personalizada == true
+            ? CriarMarcadorFuncao(atribuicao.FuncaoPersonalizada)
+            : string.Empty;
+    }
+
+    private static bool TentarObterFuncaoMarcada(PlayerControl jogador, out string funcao)
+    {
+        funcao = null;
+        if (jogador == null || jogador.Data == null)
+            return false;
+
+        string nome = jogador.Data.PlayerName ?? string.Empty;
+        int inicio = nome.IndexOf(MARCADOR_FUNCAO_PREFIXO, StringComparison.Ordinal);
+        if (inicio < 0)
+            return false;
+
+        int conteudo = inicio + MARCADOR_FUNCAO_PREFIXO.Length;
+        int fim = nome.IndexOf(MARCADOR_FUNCAO_FIM, conteudo, StringComparison.Ordinal);
+        if (fim <= conteudo)
+            return false;
+
+        try
+        {
+            string codificado = nome.Substring(conteudo, fim - conteudo);
+            funcao = Encoding.UTF8.GetString(Convert.FromBase64String(codificado));
+            return !string.IsNullOrWhiteSpace(funcao);
+        }
+        catch
+        {
+            funcao = null;
+            return false;
+        }
+    }
+
+    private static string RemoverMarcadoresFuncao(string nome)
+    {
+        if (string.IsNullOrEmpty(nome))
+            return nome;
+
+        while (true)
+        {
+            int inicio = nome.IndexOf(MARCADOR_FUNCAO_PREFIXO, StringComparison.Ordinal);
+            if (inicio < 0)
+                return nome;
+
+            int fim = nome.IndexOf(MARCADOR_FUNCAO_FIM, inicio, StringComparison.Ordinal);
+            if (fim < 0)
+                return nome;
+
+            nome = nome.Remove(inicio, fim + MARCADOR_FUNCAO_FIM.Length - inicio);
+        }
+    }
+
     internal static string ObterNomeFuncao(PlayerControl jogador)
     {
         if (jogador == null || jogador.Data == null)
@@ -493,6 +608,8 @@ internal static class SistemaNomesLocais
         string nomeFuncao;
         if (atribuicao?.Personalizada == true)
             nomeFuncao = atribuicao.FuncaoPersonalizada;
+        else if (TentarObterFuncaoMarcada(jogador, out string funcaoMarcada))
+            nomeFuncao = funcaoMarcada;
         else if (EventoAnjoTraidor.EhAnjoTraidor(jogador))
             nomeFuncao = "Anjo Traidor";
         else
