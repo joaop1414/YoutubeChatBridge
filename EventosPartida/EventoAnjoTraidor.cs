@@ -1047,7 +1047,12 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
             habilidadeEncerrada)
             return;
 
-        habilidadeEncerrada = true;\n        puxandoAlvo = false;\n        primeiroRpcProtectEm = -1f;\n        alvoPuxadaPlayerId = byte.MaxValue;\n\n        PlayerControl jogador = ObterJogadorSelecionado();
+        habilidadeEncerrada = true;
+        puxandoAlvo = false;
+        primeiroRpcProtectEm = -1f;
+        alvoPuxadaPlayerId = byte.MaxValue;
+
+        PlayerControl jogador = ObterJogadorSelecionado();
         if (jogador != null)
         {
             // Todos já o veem como ImpostorGhost. Reaplicamos a função também
@@ -1197,7 +1202,11 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
 
         RestaurarNomesLocais();
 
-        puxandoAlvo = false;\n        primeiroRpcProtectEm = -1f;\n        alvoPuxadaPlayerId = byte.MaxValue;\n        armado = false;\n        ativo = false;
+        puxandoAlvo = false;
+        primeiroRpcProtectEm = -1f;
+        alvoPuxadaPlayerId = byte.MaxValue;
+        armado = false;
+        ativo = false;
         tentandoSelecionar = false;
         transformado = false;
         habilidadeEncerrada = false;
