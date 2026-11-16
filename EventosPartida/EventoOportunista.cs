@@ -14,6 +14,7 @@ internal sealed class EventoOportunista : EventoVotacao
 {
     internal const string MARCADOR = "<size=0>YTVB_OPPORTUNISTA</size>";
     private static bool ativo;
+    private static byte oportunistaPlayerId = byte.MaxValue;
     private static bool fimPendente;
     private static bool liberarRpcFinal;
     private static byte oportunistaFinalId = byte.MaxValue;
@@ -35,6 +36,7 @@ internal sealed class EventoOportunista : EventoVotacao
 
         PlayerControl escolhido = candidatos[System.Random.Shared.Next(candidatos.Count)];
         ativo = true;
+        oportunistaPlayerId = escolhido.PlayerId;
 
         // Garante que a função original esteja registrada antes de adicionar
         // Oportunista como atributo secundário.
@@ -71,6 +73,7 @@ internal sealed class EventoOportunista : EventoVotacao
     internal static void Resetar()
     {
         ativo = false;
+        oportunistaPlayerId = byte.MaxValue;
         fimPendente = false;
         liberarRpcFinal = false;
         oportunistaFinalId = byte.MaxValue;
@@ -172,10 +175,48 @@ internal sealed class EventoOportunista : EventoVotacao
         return null;
     }
 
+    internal static void ReaplicarAposDistribuicao()
+    {
+        if (!YouTubeVoteBridgePlugin.EhHost() || !ativo ||
+            oportunistaPlayerId == byte.MaxValue)
+            return;
+
+        PlayerControl jogador = EncontrarOportunista(oportunistaPlayerId, exigirMarcador: false);
+        if (jogador == null || jogador.Data == null || jogador.Data.Disconnected)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Oportunista] Não foi possível reaplicar o atributo após a distribuição: jogador não encontrado.");
+            return;
+        }
+
+        // Preserva eventual função personalizada que já tenha sido registrada.
+        RegistroFuncoesJogadores.Atribuicao atual =
+            RegistroFuncoesJogadores.Obter(oportunistaPlayerId);
+        if (atual?.Personalizada != true)
+            RegistroFuncoesJogadores.Registrar(jogador, jogador.Data.RoleType);
+
+        RegistroFuncoesJogadores.DefinirOportunista(oportunistaPlayerId, true);
+
+        // Recoloca o marcador depois que o jogo restaurar os nomes no início.
+        MarcarNomeGlobal(jogador);
+        SistemaNomesLocais.Atualizar();
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            "[F7/Oportunista] Atributo reaplicado após a distribuição: PlayerId=" +
+            oportunistaPlayerId + ", função base=" + jogador.Data.RoleType + ".");
+    }
+
     internal static bool EhOportunista(PlayerControl jogador)
     {
         if (jogador == null || jogador.Data == null)
             return false;
+
+        // O PlayerId é mantido em memória durante a partida. O registro de
+        // funções é limpo no CoStartGame e o jogo pode restaurar o nome original,
+        // então o atributo não pode depender somente do marcador invisível.
+        if (ativo && oportunistaPlayerId != byte.MaxValue &&
+            jogador.PlayerId == oportunistaPlayerId)
+            return true;
 
         if (RegistroFuncoesJogadores.Obter(jogador.PlayerId)?.Oportunista == true)
             return true;
