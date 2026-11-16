@@ -126,7 +126,7 @@ internal sealed class EventoOportunista : EventoVotacao
         {
             try
             {
-                jogador.RpcSetRole(roleFantasma, false);
+                jogador.RpcSetRole(roleFantasma, true);
                 jogador.RpcRevive();
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                     $"[F7/Oportunista] Role {roleFantasma} e RpcRevive enviados para PlayerId={playerId}.");
