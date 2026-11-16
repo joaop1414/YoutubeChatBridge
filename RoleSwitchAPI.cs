@@ -288,8 +288,11 @@ internal static class RoleSwitchAPI
 
         try
         {
-            // Equivalente à extensão SetRole do EHR: inicia CoSetRole localmente.
-            jogador.StartCoroutine(jogador.CoSetRole(funcao, true));
+            // Mesmo fluxo do EHR RpcSetRoleGlobal:
+            // 1) aplica a função diretamente na instância local do host;
+            // 2) transmite o RPC vanilla SetRole para todos os clientes.
+            // SetRole() é usado pelo próprio EHR; não iniciamos CoSetRole aqui.
+            jogador.SetRole(funcao);
 
             MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
                 jogador.NetId,
@@ -322,7 +325,10 @@ internal static class RoleSwitchAPI
         {
             if (AmongUsClient.Instance.ClientId == clientId)
             {
-                jogador.StartCoroutine(jogador.CoSetRole(funcao, true));
+                // Mesmo comportamento do EHR: se o destinatário é o próprio
+                // host, aplica a função localmente sem enviar RPC para si mesmo.
+                jogador.SetRole(funcao);
+                LogInfo($"RpcSetRoleDesync local EHR-style: PlayerId={jogador.PlayerId}, cliente={clientId}, Role={funcao}.");
                 return true;
             }
 
