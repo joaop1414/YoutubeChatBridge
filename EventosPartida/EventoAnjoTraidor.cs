@@ -45,7 +45,8 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
     internal static bool DeveManterPartidaAbertaComoAnjo()
     {
         if (!ativo || !transformado || habilidadeEncerrada ||
-            playerIdSelecionado == byte.MaxValue || GameData.Instance == null)
+            playerIdSelecionado == byte.MaxValue || GameData.Instance == null ||
+            PlayerControl.AllPlayerControls == null)
             return false;
 
         PlayerControl anjo = ObterJogador(playerIdSelecionado);
