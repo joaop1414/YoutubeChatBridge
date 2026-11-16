@@ -35,6 +35,26 @@ internal static class RoleSwitchAPI
     private static int identificadorLote;
     private const float TIMEOUT_LOTE_SEGUNDOS = 10f;
 
+    // RoleMap inspirado no EHR: (seerId, targetId) => função que aquele
+    // observador deve receber para o jogador-alvo.
+    private static readonly Dictionary<(byte SeerId, byte TargetId), RoleTypes> RoleMap = new();
+    private static readonly HashSet<byte> JogadoresDoMapa = new();
+    private static bool mapaInicializado;
+
+    private sealed class RoleCall
+    {
+        public PlayerControl Target;
+        public RoleTypes Role;
+        public int ClientId;
+
+        public RoleCall(PlayerControl target, RoleTypes role, int clientId)
+        {
+            Target = target;
+            Role = role;
+            ClientId = clientId;
+        }
+    }
+
     internal static bool AplicarFuncaoGlobal(PlayerControl jogador, RoleTypes funcao)
     {
         if (jogador == null || jogador.Data == null ||
@@ -43,7 +63,10 @@ internal static class RoleSwitchAPI
 
         try
         {
-            RpcSetRoleGlobal(jogador, funcao);
+            GarantirRoleMapInicializado();
+            AtualizarRoleMapCompleto(jogador, funcao);
+            RpcSetRoleGlobal(jogador, funcao, atualizarMapa: false);
+            AtualizarRegistroLocal(jogador);
             SistemaNomesLocais.Atualizar();
             return true;
         }
@@ -154,8 +177,10 @@ internal static class RoleSwitchAPI
         {
             // Troca global no estilo EHR: aplica localmente e transmite o RPC
             // vanilla SetRole com canOverrideRole=true para todos os clientes.
+            GarantirRoleMapInicializado();
+
             foreach (TrocaPendente troca in trocas)
-                RpcSetRoleGlobal(troca.Jogador, troca.Funcao);
+                AplicarFuncaoComRoleMap(troca.Jogador, troca.Funcao);
 
             AtualizarHudDaFuncaoLocal(trocas);
             SistemaNomesLocais.Atualizar();
@@ -216,7 +241,7 @@ internal static class RoleSwitchAPI
     /// Equivalente ao RpcSetRoleGlobal do EHR para funções globais.
     /// Aplica no host e transmite SetRole bruto para todos os clientes.
     /// </summary>
-    private static void RpcSetRoleGlobal(PlayerControl jogador, RoleTypes funcao)
+    private static void RpcSetRoleGlobal(PlayerControl jogador, RoleTypes funcao, bool atualizarMapa = false)
     {
         if (jogador == null || AmongUsClient.Instance == null ||
             !AmongUsClient.Instance.AmHost)
@@ -224,6 +249,12 @@ internal static class RoleSwitchAPI
 
         try
         {
+            if (atualizarMapa)
+            {
+                GarantirRoleMapInicializado();
+                AtualizarRoleMapCompleto(jogador, funcao);
+            }
+
             // Equivalente ao EHR: SetRole local (extensão do EHR = StartCoroutine(CoSetRole))
             // somente na instância host, seguido do RPC vanilla para todos.
             if (AmongUsClient.Instance.AmClient)
@@ -237,12 +268,9 @@ internal static class RoleSwitchAPI
             writer.Write(true);
             AmongUsClient.Instance.FinishRpcImmediately(writer);
 
-            // Mantém a função atualizada para o sistema de nomes e preserva
-            // atributos já registrados, como Oportunista.
-            RegistroFuncoesJogadores.Atribuicao atual =
-                RegistroFuncoesJogadores.Obter(jogador.PlayerId);
-            RegistroFuncoesJogadores.Registrar(
-                jogador, funcao, atual?.FuncaoPersonalizada);
+            // Mantém a função do ponto de vista do host no registro local e
+            // preserva atributos já registrados, como Oportunista.
+            AtualizarRegistroLocal(jogador);
 
             LogInfo($"RpcSetRoleGlobal EHR-style: PlayerId={jogador.PlayerId}, Role={funcao}, canOverrideRole=true.");
         }
@@ -265,12 +293,17 @@ internal static class RoleSwitchAPI
 
         try
         {
+            PlayerControl observador = EncontrarJogadorPorClientId(clientId);
+            if (observador != null)
+                RoleMap[(observador.PlayerId, jogador.PlayerId)] = funcao;
+
             if (AmongUsClient.Instance.ClientId == clientId)
             {
                 // Mesmo comportamento do EHR: se o destinatário é o próprio
                 // host, aplica a função localmente sem enviar RPC para si mesmo.
                 if (AmongUsClient.Instance.AmClient)
                     jogador.StartCoroutine(jogador.CoSetRole(funcao, true));
+                AtualizarRegistroLocal(jogador);
                 LogInfo($"RpcSetRoleDesync local EHR-style: PlayerId={jogador.PlayerId}, cliente={clientId}, Role={funcao}.");
                 return true;
             }
@@ -292,6 +325,226 @@ internal static class RoleSwitchAPI
             LogErro($"RpcSetRoleDesync falhou: {ex}");
             return false;
         }
+    }
+
+
+    /// <summary>
+    /// Inicializa a matriz de funções observadas usando o estado vanilla atual.
+    /// A inicialização é tardia: ocorre na primeira troca, quando as funções
+    /// já foram distribuídas pelo jogo.
+    /// </summary>
+    private static void GarantirRoleMapInicializado()
+    {
+        if (PlayerControl.AllPlayerControls == null)
+            return;
+
+        List<PlayerControl> jogadores = new();
+        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+        {
+            if (jogador == null || jogador.Data == null || jogador.Data.Disconnected)
+                continue;
+            jogadores.Add(jogador);
+        }
+
+        HashSet<byte> idsAtuais = jogadores.Select(p => p.PlayerId).ToHashSet();
+        if (mapaInicializado && idsAtuais.SetEquals(JogadoresDoMapa))
+            return;
+
+        RoleMap.Clear();
+        JogadoresDoMapa.Clear();
+
+        foreach (PlayerControl jogador in jogadores)
+            JogadoresDoMapa.Add(jogador.PlayerId);
+
+        foreach (PlayerControl seer in jogadores)
+        {
+            foreach (PlayerControl target in jogadores)
+                RoleMap[(seer.PlayerId, target.PlayerId)] = target.Data.RoleType;
+        }
+
+        mapaInicializado = true;
+        LogInfo($"RoleMap inicializado a partir das funções vanilla atuais: {jogadores.Count} jogadores, {RoleMap.Count} relações observador/alvo.");
+    }
+
+    /// <summary>
+    /// Atualiza todas as visões de um alvo. Usado quando a operação deve ser
+    /// global, como a conversão do Oportunista.
+    /// </summary>
+    private static void AtualizarRoleMapCompleto(PlayerControl target, RoleTypes role)
+    {
+        if (target == null || !mapaInicializado)
+            return;
+
+        foreach (byte seerId in JogadoresDoMapa)
+            RoleMap[(seerId, target.PlayerId)] = role;
+    }
+
+    /// <summary>
+    /// Equivalente simplificado ao caminho normal->normal do RpcChangeRoleBasis.
+    /// Preserva entradas que já diferem da visão-base do próprio alvo e envia
+    /// correções individuais depois do SetRole global, quando necessário.
+    /// </summary>
+    private static void AplicarFuncaoComRoleMap(PlayerControl target, RoleTypes novaFuncao)
+    {
+        if (target == null || target.Data == null)
+            return;
+
+        GarantirRoleMapInicializado();
+
+        if (!mapaInicializado)
+        {
+            RpcSetRoleGlobal(target, novaFuncao);
+            return;
+        }
+
+        RoleTypes funcaoBaseAnterior = RoleMap.TryGetValue(
+            (target.PlayerId, target.PlayerId), out RoleTypes selfRole)
+            ? selfRole
+            : target.Data.RoleType;
+
+        List<PlayerControl> jogadores = ObterJogadoresDoMapa();
+        List<RoleCall> chamadas = new();
+
+        foreach (PlayerControl seer in jogadores)
+        {
+            if (seer.OwnerId < 0)
+                continue;
+
+            RoleTypes roleObservada = RoleMap.TryGetValue(
+                (seer.PlayerId, target.PlayerId), out RoleTypes roleAtual)
+                ? roleAtual
+                : funcaoBaseAnterior;
+
+            // Em uma troca normal->normal, observadores que já tinham uma
+            // visão especial diferente da base mantêm essa visão.
+            if (seer.PlayerId == target.PlayerId || roleObservada == funcaoBaseAnterior)
+                roleObservada = novaFuncao;
+
+            RoleMap[(seer.PlayerId, target.PlayerId)] = roleObservada;
+            chamadas.Add(new RoleCall(target, roleObservada, seer.OwnerId));
+        }
+
+        if (chamadas.Count == 0)
+        {
+            RpcSetRoleGlobal(target, novaFuncao);
+            return;
+        }
+
+        Dictionary<RoleTypes, int> contagens = new();
+        RoleTypes funcaoGlobal = chamadas[0].Role;
+        int maiorContagem = 0;
+
+        foreach (RoleCall chamada in chamadas)
+        {
+            int quantidade = contagens.TryGetValue(chamada.Role, out int atual)
+                ? atual + 1
+                : 1;
+            contagens[chamada.Role] = quantidade;
+
+            if (quantidade > maiorContagem)
+            {
+                maiorContagem = quantidade;
+                funcaoGlobal = chamada.Role;
+            }
+        }
+
+        // Segue a estratégia do EHR: usa o SetRole global para a função
+        // majoritária e corrige os observadores divergentes após 0,2 segundo.
+        if (maiorContagem > 1)
+        {
+            RpcSetRoleGlobal(target, funcaoGlobal);
+
+            List<RoleCall> correcoes = chamadas
+                .Where(x => x.Role != funcaoGlobal)
+                .ToList();
+
+            if (correcoes.Count > 0)
+            {
+                PlayerControl local = PlayerControl.LocalPlayer;
+                if (local != null)
+                    MonoBehaviourExtensions.StartCoroutine(
+                        local, EnviarCorrecoesAposRoleGlobal(correcoes, funcaoGlobal));
+                else
+                    foreach (RoleCall correcao in correcoes)
+                        RpcSetRoleDesync(target, correcao.Role, correcao.ClientId);
+            }
+        }
+        else
+        {
+            // Sem uma função majoritária, cada observador recebe sua função
+            // diretamente, como no caminho desync->desync do EHR.
+            foreach (RoleCall chamada in chamadas)
+                RpcSetRoleDesync(target, chamada.Role, chamada.ClientId);
+        }
+
+        AtualizarRegistroLocal(target);
+        LogInfo($"RoleMap atualizado: alvo={target.PlayerId}, base anterior={funcaoBaseAnterior}, nova função={novaFuncao}, observadores={chamadas.Count}, função global={funcaoGlobal}, maioria={maiorContagem}.");
+    }
+
+    private static System.Collections.IEnumerator EnviarCorrecoesAposRoleGlobal(
+        List<RoleCall> correcoes, RoleTypes funcaoGlobal)
+    {
+        yield return new WaitForSecondsRealtime(0.2f);
+
+        foreach (RoleCall correcao in correcoes)
+        {
+            if (correcao == null || correcao.Target == null ||
+                correcao.Role == funcaoGlobal)
+                continue;
+
+            RpcSetRoleDesync(
+                correcao.Target, correcao.Role, correcao.ClientId);
+        }
+    }
+
+    private static List<PlayerControl> ObterJogadoresDoMapa()
+    {
+        List<PlayerControl> resultado = new();
+        if (PlayerControl.AllPlayerControls == null)
+            return resultado;
+
+        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+        {
+            if (jogador != null && jogador.Data != null &&
+                !jogador.Data.Disconnected && JogadoresDoMapa.Contains(jogador.PlayerId))
+                resultado.Add(jogador);
+        }
+
+        return resultado;
+    }
+
+    private static PlayerControl EncontrarJogadorPorClientId(int clientId)
+    {
+        foreach (PlayerControl jogador in ObterJogadoresDoMapa())
+            if (jogador.OwnerId == clientId)
+                return jogador;
+        return null;
+    }
+
+    private static void AtualizarRegistroLocal(PlayerControl jogador)
+    {
+        if (jogador == null)
+            return;
+
+        RoleTypes funcaoLocal = jogador.Data != null ? jogador.Data.RoleType : RoleTypes.Crewmate;
+        PlayerControl local = PlayerControl.LocalPlayer;
+
+        if (local != null && RoleMap.TryGetValue(
+            (local.PlayerId, jogador.PlayerId), out RoleTypes roleMapLocal))
+            funcaoLocal = roleMapLocal;
+
+        RegistroFuncoesJogadores.Atribuicao atual =
+            RegistroFuncoesJogadores.Obter(jogador.PlayerId);
+        RegistroFuncoesJogadores.Registrar(
+            jogador, funcaoLocal, atual?.FuncaoPersonalizada);
+    }
+
+    internal static void LimparMapa()
+    {
+        RoleMap.Clear();
+        JogadoresDoMapa.Clear();
+        mapaInicializado = false;
+        LogInfo("RoleMap limpo ao encerrar a partida.");
     }
 
     private static void AtualizarHudDaFuncaoLocal(List<TrocaPendente> trocas)
