@@ -102,7 +102,8 @@ internal sealed class EventoOportunista : EventoVotacao
             return false;
         }
 
-        // Segunda chamada: a preparação já terminou, deixa o jogo encerrar.
+        // Segunda chamada: a preparação terminou. Libera exatamente o motivo
+        // original que iniciou este fluxo, sem substituí-lo por outra vitória.
         if (liberarRpcFinal)
         {
             liberarRpcFinal = false;
@@ -110,6 +111,7 @@ internal sealed class EventoOportunista : EventoVotacao
             return true;
         }
 
+        // Impede que mais de uma condição de vitória inicie a preparação.
         if (fimPendente)
             return false;
 
@@ -117,64 +119,142 @@ internal sealed class EventoOportunista : EventoVotacao
         if (oportunista == null)
             return true;
 
-        RoleTypes roleFantasma;
-        if ((int)motivo == 0 || motivo == GameOverReason.CrewmatesByTask)
-            roleFantasma = RoleTypes.CrewmateGhost;
-        else if ((int)motivo == 3 || (int)motivo == 4)
-            roleFantasma = RoleTypes.ImpostorGhost;
-        else
-            return true; // empate ou motivo sem um time convencional vencedor
+        if (!TentarObterFantasmaOposto(motivo, out RoleTypes roleFantasma))
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[F7/Oportunista] Fim de jogo sem vencedor convencional (" + motivo +
+                "); mantendo a função atual.");
+            return true;
+        }
 
-        if (HudManager.Instance == null)
+        if (manager == null || PlayerControl.LocalPlayer == null)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "[F7/Oportunista] HudManager indisponível; encerramento seguirá sem conversão/revive.");
+                "[F7/Oportunista] GameManager ou jogador local indisponível; não foi possível preparar a vitória.");
             return true;
         }
 
         fimPendente = true;
         oportunistaFinalId = oportunista.PlayerId;
+
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"[F7/Oportunista] Vitória {motivo}; preparando {roleFantasma} e revive para PlayerId={oportunistaFinalId}.");
-        MonoBehaviourExtensions.StartCoroutine(PlayerControl.LocalPlayer, PrepararOportunistaEEncerrar(manager, motivo, oportunistaFinalId, roleFantasma));
+            "[F7/Oportunista] Fim de jogo interceptado. Motivo original=" + motivo +
+            "; vencedor=" + (roleFantasma == RoleTypes.ImpostorGhost ? "Tripulantes" : "Impostores") +
+            "; função oposta=" + roleFantasma +
+            "; PlayerId=" + oportunistaFinalId + ".");
+
+        MonoBehaviourExtensions.StartCoroutine(
+            PlayerControl.LocalPlayer,
+            PrepararOportunistaEEncerrar(manager, motivo, oportunistaFinalId, roleFantasma));
+
+        // O primeiro encerramento é bloqueado. A coroutine aplica função e revive
+        // na rede antes de chamar RpcEndGame novamente com o mesmo motivo.
         return false;
     }
 
-    private static System.Collections.IEnumerator PrepararOportunistaEEncerrar(
+    private static bool TentarObterFantasmaOposto(
+        GameOverReason motivo, out RoleTypes roleFantasma)
+    {
+        string nome = motivo.ToString();
+
+        // O Oportunista pertence ao time oposto ao vencedor:
+        // vitória dos tripulantes -> ImpostorGhost;
+        // vitória dos impostores -> CrewmateGhost.
+        if (nome.IndexOf("Crewmates", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            nome.IndexOf("Crewmate", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            roleFantasma = RoleTypes.ImpostorGhost;
+            return true;
+        }
+
+        if (nome.IndexOf("Impostors", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            nome.IndexOf("Impostor", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            roleFantasma = RoleTypes.CrewmateGhost;
+            return true;
+        }
+
+        roleFantasma = default;
+        return false;
+    }
+
+    private static IEnumerator PrepararOportunistaEEncerrar(
         GameManager manager, GameOverReason motivo, byte playerId, RoleTypes roleFantasma)
     {
-        // Pequena janela para impedir que a primeira tela de vitória seja criada
-        // antes da mudança de função e dos RPCs de revive chegarem aos clientes.
-        yield return new WaitForSecondsRealtime(0.35f);
+        // Deixa o primeiro RpcEndGame terminar de ser interceptado antes de
+        // iniciar a sequência de sincronização.
+        yield return new WaitForSecondsRealtime(0.15f);
 
         PlayerControl jogador = EncontrarOportunista(playerId, exigirMarcador: false);
-        if (jogador != null)
+        if (jogador == null || jogador.Data == null || jogador.Data.Disconnected)
         {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Oportunista] O jogador não foi encontrado para a preparação final. " +
+                "O encerramento original será liberado sem a conversão.");
+        }
+        else
+        {
+            // Etapa 1: aplica a função fantasma globalmente, como na troca de
+            // função vanilla/EHR, antes de restaurar o estado vivo.
             try
             {
                 jogador.RpcSetRole(roleFantasma, true);
-                EnviarReviveSincronizado(jogador);
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    $"[F7/Oportunista] Role {roleFantasma} e revive sincronizado para PlayerId={playerId}.");
+                    "[F7/Oportunista] Função fantasma enviada: PlayerId=" +
+                    playerId + ", Role=" + roleFantasma + ".");
             }
             catch (Exception ex)
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                    "[F7/Oportunista] Falha ao sincronizar fantasma/revive: " + ex);
+                    "[F7/Oportunista] Falha ao enviar a função fantasma: " + ex);
             }
-        }
-        else
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "[F7/Oportunista] Jogador não encontrado no momento do revive.");
+
+            // Aguarda a função chegar aos clientes antes de publicar IsDead=false.
+            yield return new WaitForSecondsRealtime(0.15f);
+
+            // Etapa 2: revive localmente e replica o NetworkedPlayerInfo usando
+            // o mesmo fluxo de estado de rede usado pelo NPC Assassino:
+            // IsDead=false -> SetDirtyBit -> SendAllStreamedObjects.
+            try
+            {
+                EnviarReviveSincronizado(jogador);
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[F7/Oportunista] Revive de rede concluído para PlayerId=" + playerId + ".");
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                    "[F7/Oportunista] Falha ao sincronizar o revive: " + ex);
+            }
+
+            // Dá tempo para os clientes aplicarem o estado vivo e atualizarem
+            // os componentes visuais antes de criar a tela de vitória.
+            yield return new WaitForSecondsRealtime(0.35f);
         }
 
-        // EndGameManager.Start adicionará o Oportunista à lista nativa já montada.
+        if (manager == null)
+            manager = GameManager.Instance;
+
+        if (manager == null)
+        {
+            fimPendente = false;
+            liberarRpcFinal = false;
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "[F7/Oportunista] GameManager indisponível; não foi possível liberar o encerramento original.");
+            yield break;
+        }
+
+        // A chamada recursiva passa pelo Harmony novamente. A flag libera apenas
+        // esta chamada e mantém o GameOverReason que o jogo havia escolhido.
         liberarRpcFinal = true;
         fimPendente = false;
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            "[F7/Oportunista] Conversão e revive preparados. Liberando RpcEndGame " +
+            "com o motivo original: " + motivo + ".");
+
         manager.RpcEndGame(motivo, false);
     }
-
 
     private const byte RpcReviveOportunista = 251;
 
@@ -184,75 +264,50 @@ internal sealed class EventoOportunista : EventoVotacao
     /// </summary>
     private static void EnviarReviveSincronizado(PlayerControl jogador)
     {
-        if (!YouTubeVoteBridgePlugin.EhHost() || jogador == null ||
-            jogador.Data == null || AmongUsClient.Instance == null)
+        if (!YouTubeVoteBridgePlugin.EhHost() ||
+            jogador == null ||
+            jogador.Data == null ||
+            AmongUsClient.Instance == null)
             return;
 
         AmongUsClient cliente = AmongUsClient.Instance;
 
-        // O método nativo atualiza a instância local; ele sozinho não é um RPC
-        // de revive para os demais clientes.
+        // Atualiza a instância do jogador no host.
         jogador.Revive();
         jogador.Data.IsDead = false;
-        jogador.Data.SetDirtyBit(uint.MaxValue);
 
-        // Clientes que possuem o mod executam o revive localmente para atualizar
-        // também os componentes visuais do PlayerControl.
-        if (PlayerControl.LocalPlayer != null)
+        // Mesmo padrão de sincronização de vida usado pelo NPC Assassino:
+        // marca o campo de morte como alterado e força o envio dos objetos
+        // transmitidos pelo GameData para todos os clientes, inclusive vanilla.
+        jogador.Data.SetDirtyBit(1u << jogador.PlayerId);
+        cliente.SendAllStreamedObjects();
+
+        // O fluxo vanilla acima replica NetworkedPlayerInfo. Para os clientes
+        // com o mod, também chamamos Revive() localmente para atualizar
+        // PlayerControl e os componentes visuais caso IsDead já tenha chegado.
+        if (PlayerControl.LocalPlayer == null)
+            return;
+
+        foreach (int clientId in YouTubeVoteBridgePlugin.ClientesComModSnapshot())
         {
-            foreach (int clientId in YouTubeVoteBridgePlugin.ClientesComModSnapshot())
-            {
-                if (clientId < 0 || clientId == cliente.ClientId)
-                    continue;
+            if (clientId < 0 || clientId == cliente.ClientId)
+                continue;
 
-                try
-                {
-                    MessageWriter rpc = cliente.StartRpcImmediately(
-                        PlayerControl.LocalPlayer.NetId,
-                        RpcReviveOportunista,
-                        SendOption.Reliable,
-                        clientId);
-                    rpc.Write(jogador.PlayerId);
-                    cliente.FinishRpcImmediately(rpc);
-                }
-                catch (Exception ex)
-                {
-                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                        "[F7/Oportunista] Falha ao enviar RPC de revive para ClientId=" +
-                        clientId + ": " + ex.Message);
-                }
+            try
+            {
+                MessageWriter rpc = cliente.StartRpcImmediately(
+                    PlayerControl.LocalPlayer.NetId,
+                    RpcReviveOportunista,
+                    SendOption.Reliable,
+                    clientId);
+                rpc.Write(jogador.PlayerId);
+                cliente.FinishRpcImmediately(rpc);
             }
-        }
-
-        // Atualiza o estado de morte no GameData para todos os clientes,
-        // inclusive os vanilla que não conhecem o RPC personalizado acima.
-        MessageWriter writer = null;
-        try
-        {
-            writer = MessageWriter.Get(SendOption.Reliable);
-            writer.StartMessage(5); // GameData
-            writer.Write(cliente.GameId);
-            writer.StartMessage(1); // Data / NetworkedPlayerInfo
-            writer.WritePacked(jogador.Data.NetId);
-            jogador.Data.Serialize(writer, true);
-            writer.EndMessage();
-            writer.EndMessage();
-            cliente.SendOrDisconnect(writer);
-
-            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[F7/Oportunista] Estado IsDead=false publicado no GameData para PlayerId=" +
-                jogador.PlayerId + ".");
-        }
-        catch (Exception ex)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[F7/Oportunista] Falha ao publicar o estado de revive no GameData: " + ex);
-        }
-        finally
-        {
-            if (writer != null)
+            catch (Exception ex)
             {
-                try { writer.Recycle(); } catch { }
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[F7/Oportunista] Falha ao enviar RPC de atualização visual do revive para ClientId=" +
+                    clientId + ": " + ex.Message);
             }
         }
     }
@@ -271,12 +326,18 @@ internal sealed class EventoOportunista : EventoVotacao
             foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
             {
                 if (jogador == null || jogador.Data == null ||
-                    jogador.PlayerId != playerId || !jogador.Data.IsDead)
+                    jogador.PlayerId != playerId || jogador.Data.Disconnected)
                     continue;
 
+                // Não verificamos IsDead aqui: o GameData pode ter recebido
+                // IsDead=false antes deste RPC, mas o PlayerControl ainda pode
+                // conservar a aparência/animação de morto. Revive() é reaplicado
+                // para sincronizar também a representação visual.
                 jogador.Revive();
+                jogador.Data.IsDead = false;
+
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "[F7/Oportunista] RPC de revive aplicado localmente para PlayerId=" +
+                    "[F7/Oportunista] Revive visual aplicado no cliente para PlayerId=" +
                     playerId + ".");
                 break;
             }
