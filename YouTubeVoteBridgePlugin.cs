@@ -4787,8 +4787,6 @@ public static class YouTubeVoteResetTaskEventsOnEndPatch
         YouTubeVoteBridgePlugin.ResetarVotacaoLobbyFimDePartida();
         EventoTesteMenu.ResetarEstadoPartida("fim de partida");
         ControladorPartidaMenu.ResetarEstadoPartida("fim de partida");
-        EventoOportunista.Resetar();
-        EventoOportunista.LimparMarcadores();
         YouTubeVoteBridgePlugin.BloquearFimDeJogoDuranteTrocaDeFuncoes = false;
         RoleSwitchAPI.LimparMapa();
         TeleporteAPI.Resetar();
