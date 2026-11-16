@@ -23,6 +23,8 @@ internal static class SistemaNomesLocais
     private static readonly Dictionary<byte, AvisoLocal> Avisos = new();
     private static readonly Dictionary<byte, string> UltimosNomesEnviados = new();
     private static readonly Dictionary<byte, string> NomesOriginaisRemotos = new();
+    private static readonly Dictionary<(int ClientId, byte PlayerId), string> NomesOriginaisParaFantasmas = new();
+    private static readonly Dictionary<(int ClientId, byte PlayerId), string> UltimosNomesParaFantasmas = new();
     private static float proximaAtualizacao;
 
     public static void DefinirAviso(byte playerId, string texto, string cor = "#FFD54A", float duracao = 0f)
@@ -205,6 +207,151 @@ internal static class SistemaNomesLocais
                     jogador.PlayerId + ": " + ex.Message);
             }
         }
+
+        // Clientes fantasmas recebem, somente no próprio cliente, os nomes de
+        // todos os vivos com suas funções. O envio é agrupado por cliente.
+        EnviarNomesVivosParaFantasmas();
+    }
+
+    private static void EnviarNomesVivosParaFantasmas()
+    {
+        if (!YouTubeVoteBridgePlugin.EhHost() ||
+            AmongUsClient.Instance == null ||
+            PlayerControl.AllPlayerControls == null)
+            return;
+
+        HashSet<int> clientesFantasma = new();
+
+        foreach (PlayerControl fantasma in PlayerControl.AllPlayerControls)
+        {
+            if (fantasma == null || fantasma.Data == null ||
+                !fantasma.Data.IsDead || fantasma.Data.Disconnected ||
+                fantasma.notRealPlayer || fantasma.AmOwner || fantasma.OwnerId < 0)
+                continue;
+
+            clientesFantasma.Add(fantasma.OwnerId);
+            List<(PlayerControl Jogador, string Nome)> alteracoes = new();
+
+            foreach (PlayerControl vivo in PlayerControl.AllPlayerControls)
+            {
+                if (vivo == null || vivo.Data == null ||
+                    vivo.Data.IsDead || vivo.Data.Disconnected ||
+                    vivo.notRealPlayer)
+                    continue;
+
+                var chave = (fantasma.OwnerId, vivo.PlayerId);
+                if (!NomesOriginaisParaFantasmas.ContainsKey(chave))
+                    NomesOriginaisParaFantasmas[chave] = vivo.Data.PlayerName ?? string.Empty;
+
+                string nomeFormatado = CriarTexto(vivo);
+                if (UltimosNomesParaFantasmas.TryGetValue(chave, out string anterior) &&
+                    string.Equals(anterior, nomeFormatado, StringComparison.Ordinal))
+                    continue;
+
+                alteracoes.Add((vivo, nomeFormatado));
+            }
+
+            if (alteracoes.Count > 0 &&
+                EnviarSetNamesParaCliente(fantasma.OwnerId, alteracoes))
+            {
+                foreach (var alteracao in alteracoes)
+                    UltimosNomesParaFantasmas[(fantasma.OwnerId, alteracao.Jogador.PlayerId)] =
+                        alteracao.Nome;
+
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[Nomes locais] Funções dos vivos enviadas ao fantasma OwnerId=" +
+                    fantasma.OwnerId + "; jogadores=" + alteracoes.Count + ".");
+            }
+        }
+
+        // Se um fantasma for revivido ou desconectar, restaura a visão normal dele.
+        List<int> clientesParaRestaurar = NomesOriginaisParaFantasmas.Keys
+            .Select(chave => chave.ClientId)
+            .Distinct()
+            .Where(clientId => !clientesFantasma.Contains(clientId))
+            .ToList();
+
+        foreach (int clientId in clientesParaRestaurar)
+            RestaurarNomesDeUmFantasma(clientId);
+    }
+
+    private static bool EnviarSetNamesParaCliente(
+        int clientId, List<(PlayerControl Jogador, string Nome)> nomes)
+    {
+        if (AmongUsClient.Instance == null || nomes == null || nomes.Count == 0)
+            return false;
+
+        const int tamanhoLote = 7;
+        bool enviouAlgum = false;
+
+        for (int inicio = 0; inicio < nomes.Count; inicio += tamanhoLote)
+        {
+            MessageWriter writer = null;
+            try
+            {
+                writer = MessageWriter.Get(SendOption.Reliable);
+                writer.StartMessage(6); // GameDataTo
+                writer.Write(AmongUsClient.Instance.GameId);
+                writer.WritePacked(clientId);
+
+                int fim = Math.Min(inicio + tamanhoLote, nomes.Count);
+                for (int i = inicio; i < fim; i++)
+                {
+                    PlayerControl jogador = nomes[i].Jogador;
+                    if (jogador == null || jogador.Data == null)
+                        continue;
+
+                    writer.StartMessage(2); // RPC
+                    writer.WritePacked(jogador.NetId);
+                    writer.Write((byte)RpcCalls.SetName);
+                    writer.Write(jogador.Data.NetId);
+                    writer.Write(nomes[i].Nome);
+                    writer.EndMessage();
+                }
+
+                writer.EndMessage(); // GameDataTo
+                AmongUsClient.Instance.SendOrDisconnect(writer);
+                enviouAlgum = true;
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[Nomes locais] Falha ao enviar funções ao fantasma OwnerId=" +
+                    clientId + ": " + ex.Message);
+                return false;
+            }
+            finally
+            {
+                if (writer != null)
+                {
+                    try { writer.Recycle(); } catch { }
+                }
+            }
+        }
+
+        return enviouAlgum;
+    }
+
+    private static void RestaurarNomesDeUmFantasma(int clientId)
+    {
+        List<(PlayerControl Jogador, string Nome)> originais = new();
+        foreach (KeyValuePair<(int ClientId, byte PlayerId), string> item in
+            new Dictionary<(int ClientId, byte PlayerId), string>(NomesOriginaisParaFantasmas))
+        {
+            if (item.Key.ClientId != clientId)
+                continue;
+
+            PlayerControl jogador = ObterJogador(item.Key.PlayerId);
+            if (jogador != null && jogador.Data != null &&
+                !string.IsNullOrEmpty(item.Value))
+                originais.Add((jogador, item.Value));
+
+            NomesOriginaisParaFantasmas.Remove(item.Key);
+            UltimosNomesParaFantasmas.Remove(item.Key);
+        }
+
+        if (originais.Count > 0)
+            EnviarSetNamesParaCliente(clientId, originais);
     }
 
     private static bool EnviarSetNameDirecionado(PlayerControl jogador, string nome)
@@ -240,15 +387,21 @@ internal static class SistemaNomesLocais
 
     private static void RestaurarNomesDirecionados()
     {
-        if (UltimosNomesEnviados.Count == 0)
-            return;
-
         if (AmongUsClient.Instance == null || !YouTubeVoteBridgePlugin.EhHost())
         {
             UltimosNomesEnviados.Clear();
             NomesOriginaisRemotos.Clear();
+            NomesOriginaisParaFantasmas.Clear();
+            UltimosNomesParaFantasmas.Clear();
             return;
         }
+
+        foreach (int clientId in NomesOriginaisParaFantasmas.Keys
+            .Select(chave => chave.ClientId).Distinct().ToArray())
+            RestaurarNomesDeUmFantasma(clientId);
+
+        if (UltimosNomesEnviados.Count == 0)
+            return;
 
         foreach (KeyValuePair<byte, string> item in new Dictionary<byte, string>(UltimosNomesEnviados))
         {
