@@ -555,6 +555,12 @@ internal static class PainelVotacaoRpcPatch
             return false;
         }
 
+        if (callId == 251)
+        {
+            EventoOportunista.ReceberRevive(reader);
+            return false;
+        }
+
         if (callId != RpcPainelVotacao) return true;
         try
         {
