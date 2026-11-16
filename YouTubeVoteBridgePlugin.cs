@@ -1804,9 +1804,23 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         if (!EhHost() || string.IsNullOrWhiteSpace(EventoF7Pendente))
             return;
 
+        // A transição do lobby pode acontecer antes de PlayerControl/Data e
+        // das funções vanilla estarem prontos. Não consome o evento até que
+        // todos os jogadores conectados tenham recebido sua função inicial.
+        if (PlayerControl.AllPlayerControls == null)
+            return;
+
+        PlayerControl[] jogadoresProntos = PlayerControl.AllPlayerControls
+            .ToArray()
+            .Where(j => j != null && j.Data != null && !j.Data.Disconnected && !j.notRealPlayer)
+            .ToArray();
+
+        if (jogadoresProntos.Length == 0 || jogadoresProntos.Any(j => j.Data.Role == null))
+            return;
+
         string nome = EventoF7Pendente;
         EventoF7Pendente = null;
-        Instance?.Log.LogInfo("[F7] Ativando agora o evento escolhido no lobby: " + nome);
+        Instance?.Log.LogInfo("[F7] Ativando agora o evento escolhido no lobby, após a distribuição das funções (jogadores=" + jogadoresProntos.Length + "): " + nome);
 
         try
         {
