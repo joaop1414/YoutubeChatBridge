@@ -87,15 +87,14 @@ internal sealed class EventoOportunista : EventoVotacao
         if (fimPendente)
             return false;
 
-        PlayerControl oportunista = PlayerControl.AllPlayerControls?.ToArray()
-            .FirstOrDefault(p => p != null && p.Data != null && !p.Data.Disconnected && EhOportunista(p));
+        PlayerControl oportunista = EncontrarOportunista();
         if (oportunista == null)
             return true;
 
         RoleTypes roleFantasma;
-        if (motivo == GameOverReason.CrewmatesByVote || motivo == GameOverReason.CrewmatesByTask)
+        if ((int)motivo == 0 || motivo == GameOverReason.CrewmatesByTask)
             roleFantasma = RoleTypes.CrewmateGhost;
-        else if (motivo == GameOverReason.ImpostorsByKill || motivo == GameOverReason.ImpostorsBySabotage)
+        else if ((int)motivo == 3 || motivo == GameOverReason.ImpostorsBySabotage)
             roleFantasma = RoleTypes.ImpostorGhost;
         else
             return true; // empate ou motivo sem um time convencional vencedor
@@ -122,8 +121,7 @@ internal sealed class EventoOportunista : EventoVotacao
         // antes da mudança de função e dos RPCs de revive chegarem aos clientes.
         yield return new WaitForSecondsRealtime(0.35f);
 
-        PlayerControl jogador = PlayerControl.AllPlayerControls?.ToArray()
-            .FirstOrDefault(p => p != null && p.PlayerId == playerId && p.Data != null);
+        PlayerControl jogador = EncontrarOportunista(playerId, exigirMarcador: false);
         if (jogador != null)
         {
             try
@@ -150,6 +148,20 @@ internal sealed class EventoOportunista : EventoVotacao
         liberarRpcFinal = true;
         fimPendente = false;
         manager.RpcEndGame(motivo);
+    }
+
+
+    private static PlayerControl EncontrarOportunista(byte playerId = byte.MaxValue, bool exigirMarcador = true)
+    {
+        if (PlayerControl.AllPlayerControls == null) return null;
+        foreach (PlayerControl p in PlayerControl.AllPlayerControls)
+        {
+            if (p == null || p.Data == null || p.Data.Disconnected) continue;
+            if (playerId != byte.MaxValue && p.PlayerId != playerId) continue;
+            if (exigirMarcador && !EhOportunista(p)) continue;
+            return p;
+        }
+        return null;
     }
 
     internal static bool EhOportunista(PlayerControl jogador)
@@ -424,9 +436,9 @@ internal sealed class EventoOportunista : EventoVotacao
 [HarmonyPatch(typeof(GameManager), nameof(GameManager.RpcEndGame))]
 internal static class EventoOportunistaPrepararVitoriaPatch
 {
-    private static bool Prefix(GameManager __instance, GameOverReason reason)
+    private static bool Prefix(GameManager __instance, GameOverReason __0)
     {
-        return EventoOportunista.InterceptarFimDeJogo(__instance, reason);
+        return EventoOportunista.InterceptarFimDeJogo(__instance, __0);
     }
 }
 
