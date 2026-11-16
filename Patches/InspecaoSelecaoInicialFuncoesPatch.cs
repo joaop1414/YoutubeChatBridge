@@ -23,6 +23,8 @@ internal static class InspecaoSelecaoInicialFuncoesPatch
     [HarmonyPostfix]
     private static void DepoisDeSelecionar()
     {
+        // Captura o resultado vanilla para manter um registro completo por jogador.
+        RegistroFuncoesJogadores.RegistrarDistribuicaoVanilla();
         Registrar("DEPOIS");
     }
 
