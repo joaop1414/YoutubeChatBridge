@@ -670,6 +670,7 @@ internal sealed class EventoOportunista : EventoVotacao
 }
 
 [HarmonyPatch(typeof(GameManager), nameof(GameManager.RpcEndGame))]
+[HarmonyPriority(Priority.First)]
 internal static class EventoOportunistaPrepararVitoriaPatch
 {
     private static bool Prefix(GameManager __instance, GameOverReason __0)
