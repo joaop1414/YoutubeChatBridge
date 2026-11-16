@@ -508,8 +508,16 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
             !alvo.Data.Disconnected && alvo.PlayerId == alvoPuxadaPlayerId)
         {
             PlayerControl anjo = ObterJogadorSelecionado();
-            if (anjo == null || anjo.Data == null || anjo.Data.IsDead)
+            // O Anjo Traidor está morto no estado global por design:
+            // ele recebeu ImpostorGhost nos outros clientes e GuardianAngel
+            // apenas localmente. Não podemos exigir !Data.IsDead aqui,
+            // senão a coroutine termina antes do primeiro SnapTo.
+            if (anjo == null || anjo.Data == null)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[F7/Anjo Traidor] Puxada encerrada: instância do Anjo indisponível.");
                 break;
+            }
 
             float agora = Time.realtimeSinceStartup;
             if (agora >= proximoSnap)
