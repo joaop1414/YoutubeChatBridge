@@ -90,13 +90,13 @@ internal static class SistemaNomesLocais
     private static void AtualizarNomeDoProprioJogador()
     {
         PlayerControl local = PlayerControl.LocalPlayer;
-        if (local == null || local.Data == null || local.Data.Disconnected ||
-            local.cosmetics?.nameText == null)
+        if (local == null || local.Data == null || local.Data.Disconnected)
             return;
 
         try
         {
-            local.cosmetics.nameText.text = CriarTexto(local);
+            if (local.cosmetics?.nameText != null)
+                local.cosmetics.nameText.text = CriarTexto(local);
         }
         catch (Exception ex)
         {
