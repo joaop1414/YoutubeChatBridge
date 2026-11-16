@@ -88,7 +88,7 @@ internal sealed class EventoOportunista : EventoVotacao
         EnviarNomeGlobal(jogador, nomeAtual + MARCADOR);
     }
 
-    private static void EnviarNomeGlobal(PlayerControl jogador, string nome)
+    internal static void EnviarNomeGlobal(PlayerControl jogador, string nome)
     {
         if (jogador == null || jogador.Data == null ||
             AmongUsClient.Instance == null || string.IsNullOrEmpty(nome))
