@@ -549,6 +549,12 @@ internal static class PainelVotacaoRpcPatch
             return false;
         }
 
+        if (callId == 249)
+        {
+            LobbyModLabelManager.ReceberLista(reader);
+            return false;
+        }
+
         if (callId != RpcPainelVotacao) return true;
         try
         {
