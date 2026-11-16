@@ -552,6 +552,7 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
     /// dois MurderPlayer: primeiro ao dono do Anjo e depois globalmente.
     /// </summary>
     internal static bool AoTentarProteger(PlayerControl anjo, PlayerControl alvo)
+    {
         // Detecta o segundo RPC antes de executar qualquer Protect/Murder vanilla.
         // Um RPC isolado apenas inicia a puxada e não aplica cooldown de escudo.
         if (ativo && transformado && !habilidadeEncerrada &&
@@ -585,7 +586,7 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
                 "[F7/Anjo Traidor] Segundo RPC Protect dentro de 0,5s: matando PlayerId=" +
                 alvo.PlayerId + ".");
         }
-    {
+
         if (!YouTubeVoteBridgePlugin.EhHost() || !ativo || anjo == null)
             return false;
 
