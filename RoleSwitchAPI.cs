@@ -22,13 +22,11 @@ internal static class RoleSwitchAPI
     {
         public PlayerControl Jogador;
         public RoleTypes Funcao;
-        public bool EstavaVivo;
 
         public TrocaPendente(PlayerControl jogador, RoleTypes funcao)
         {
             Jogador = jogador;
             Funcao = funcao;
-            EstavaVivo = jogador != null && jogador.Data != null && !jogador.Data.IsDead;
         }
     }
 
@@ -36,6 +34,25 @@ internal static class RoleSwitchAPI
     private static float inicioLoteRealtime;
     private static int identificadorLote;
     private const float TIMEOUT_LOTE_SEGUNDOS = 10f;
+
+    internal static bool AplicarFuncaoGlobal(PlayerControl jogador, RoleTypes funcao)
+    {
+        if (jogador == null || jogador.Data == null ||
+            AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost)
+            return false;
+
+        try
+        {
+            RpcSetRoleGlobal(jogador, funcao);
+            SistemaNomesLocais.Atualizar();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            LogErro($"AplicarFuncaoGlobal falhou para PlayerId={jogador.PlayerId}: {ex}");
+            return false;
+        }
+    }
 
     internal static bool TrocarFuncao(PlayerControl jogador, string nomeFuncao)
     {
@@ -141,9 +158,10 @@ internal static class RoleSwitchAPI
                 RpcSetRoleGlobal(troca.Jogador, troca.Funcao);
 
             AtualizarHudDaFuncaoLocal(trocas);
-            LogInfo($"Lote {loteAtual} iniciado com {trocas.Count} atribuição(ões). Iniciando restauração de estado vivo.");
+            SistemaNomesLocais.Atualizar();
+            LogInfo($"Lote {loteAtual} enviado pelo fluxo global do EHR com {trocas.Count} atribuição(ões). Nenhum jogador será revivido ou rebaixado para Crewmate durante a troca.");
             MonoBehaviourExtensions.StartCoroutine(
-                local, RestaurarJogadoresVivosAposTroca(trocas, loteAtual));
+                local, FinalizarLoteAposTroca(loteAtual));
             return true;
         }
         catch (Exception ex)
@@ -159,100 +177,18 @@ internal static class RoleSwitchAPI
         }
     }
 
-    private static System.Collections.IEnumerator RestaurarJogadoresVivosAposTroca(
-        List<TrocaPendente> trocas, int loteAtual)
+    private static System.Collections.IEnumerator FinalizarLoteAposTroca(int loteAtual)
     {
-        try
-        {
-            yield return new WaitForSecondsRealtime(0.75f);
+        // Dá tempo para CoSetRole e o RPC vanilla serem processados sem alterar
+        // novamente as funções ou o estado de vida dos jogadores.
+        yield return new WaitForSecondsRealtime(0.75f);
 
-            if (loteAtual != identificadorLote)
-                yield break;
+        if (loteAtual != identificadorLote)
+            yield break;
 
-            AmongUsClient cliente = AmongUsClient.Instance;
-            if (cliente == null || !cliente.AmHost || GameData.Instance == null)
-                yield break;
-
-            foreach (TrocaPendente troca in trocas)
-            {
-                if (troca == null || !troca.EstavaVivo || troca.Jogador == null ||
-                    troca.Jogador.Data == null || troca.Jogador.Data.Disconnected)
-                    continue;
-
-                NetworkedPlayerInfo dados = GameData.Instance.GetPlayerById(troca.Jogador.PlayerId);
-                if (dados == null)
-                    continue;
-
-                // A troca de função pode levar 0,75s para concluir. Nesse intervalo,
-                // o jogador pode morrer legitimamente. Nunca sobrescreva uma morte
-                // que já esteja registrada no PlayerControl ou no GameData.
-                if (troca.Jogador.Data.IsDead || dados.IsDead)
-                {
-                    LogInfo(
-                        $"Restauração de estado vivo ignorada: PlayerId={troca.Jogador.PlayerId} morreu durante a troca de função.");
-                    yield return new WaitForSecondsRealtime(0.08f);
-                    if (loteAtual != identificadorLote)
-                        yield break;
-                    continue;
-                }
-
-                // A alteração direta de NetworkedPlayerInfo.IsDead só corrige
-                // o estado local do host; não executa o fluxo nativo de revive
-                // nos clientes vanilla. Reaplicamos o estado local e reenviamos
-                // a função base para provocar a atualização vanilla em todos.
-                dados.IsDead = false;
-                troca.Jogador.Revive();
-                dados.IsDead = false;
-                dados.SetDirtyBit(uint.MaxValue);
-                cliente.SendAllStreamedObjects();
-
-                // O EHR usa a mesma estratégia para clientes vanilla:
-                // marcar vivo e reaplicar Crewmate antes de restaurar a função
-                // definitiva. Isso evita que SetRole seja processado enquanto
-                // o cliente ainda conserva o estado de morto.
-                RpcSetRoleGlobal(troca.Jogador, RoleTypes.Crewmate);
-
-                LogInfo(
-                    $"Estado vivo aplicado localmente e sincronização vanilla iniciada: PlayerId={troca.Jogador.PlayerId}.");
-
-                yield return new WaitForSecondsRealtime(0.18f);
-                if (loteAtual != identificadorLote)
-                    yield break;
-
-                NetworkedPlayerInfo dadosAtualizados =
-                    GameData.Instance?.GetPlayerById(troca.Jogador.PlayerId);
-
-                // Não reenvia a função se o jogador morreu legitimamente
-                // durante a janela de sincronização.
-                if (dadosAtualizados == null || dadosAtualizados.IsDead ||
-                    troca.Jogador.Data == null || troca.Jogador.Data.IsDead)
-                {
-                    LogInfo(
-                        $"Sincronização da função definitiva cancelada: PlayerId={troca.Jogador.PlayerId} morreu durante o processo.");
-                    yield return new WaitForSecondsRealtime(0.08f);
-                    continue;
-                }
-
-                if (troca.Funcao != RoleTypes.Crewmate)
-                    RpcSetRoleGlobal(troca.Jogador, troca.Funcao);
-
-                LogInfo(
-                    $"Função definitiva reenviada após sincronização de revive: PlayerId={troca.Jogador.PlayerId}, Role={troca.Funcao}.");
-
-                yield return new WaitForSecondsRealtime(0.12f);
-                if (loteAtual != identificadorLote)
-                    yield break;
-            }
-        }
-        finally
-        {
-            if (loteAtual == identificadorLote)
-            {
-                loteEmAndamento = false;
-                YouTubeVoteBridgePlugin.BloquearFimDeJogoDuranteTrocaDeFuncoes = false;
-                LogInfo($"Lote {loteAtual} finalizado. Novas trocas estão liberadas.");
-            }
-        }
+        loteEmAndamento = false;
+        YouTubeVoteBridgePlugin.BloquearFimDeJogoDuranteTrocaDeFuncoes = false;
+        LogInfo($"Lote {loteAtual} finalizado. Funções enviadas; estado de vida original preservado.");
     }
 
     /// <summary>
@@ -288,11 +224,10 @@ internal static class RoleSwitchAPI
 
         try
         {
-            // Mesmo fluxo do EHR RpcSetRoleGlobal:
-            // 1) aplica a função diretamente na instância local do host;
-            // 2) transmite o RPC vanilla SetRole para todos os clientes.
-            // SetRole() é usado pelo próprio EHR; não iniciamos CoSetRole aqui.
-            jogador.StartCoroutine(jogador.CoSetRole(funcao, true));
+            // Equivalente ao EHR: SetRole local (extensão do EHR = StartCoroutine(CoSetRole))
+            // somente na instância host, seguido do RPC vanilla para todos.
+            if (AmongUsClient.Instance.AmClient)
+                jogador.StartCoroutine(jogador.CoSetRole(funcao, true));
 
             MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
                 jogador.NetId,
@@ -301,6 +236,13 @@ internal static class RoleSwitchAPI
             writer.Write((ushort)funcao);
             writer.Write(true);
             AmongUsClient.Instance.FinishRpcImmediately(writer);
+
+            // Mantém a função atualizada para o sistema de nomes e preserva
+            // atributos já registrados, como Oportunista.
+            RegistroFuncoesJogadores.Atribuicao atual =
+                RegistroFuncoesJogadores.Obter(jogador.PlayerId);
+            RegistroFuncoesJogadores.Registrar(
+                jogador, funcao, atual?.FuncaoPersonalizada);
 
             LogInfo($"RpcSetRoleGlobal EHR-style: PlayerId={jogador.PlayerId}, Role={funcao}, canOverrideRole=true.");
         }
@@ -327,7 +269,8 @@ internal static class RoleSwitchAPI
             {
                 // Mesmo comportamento do EHR: se o destinatário é o próprio
                 // host, aplica a função localmente sem enviar RPC para si mesmo.
-                jogador.StartCoroutine(jogador.CoSetRole(funcao, true));
+                if (AmongUsClient.Instance.AmClient)
+                    jogador.StartCoroutine(jogador.CoSetRole(funcao, true));
                 LogInfo($"RpcSetRoleDesync local EHR-style: PlayerId={jogador.PlayerId}, cliente={clientId}, Role={funcao}.");
                 return true;
             }
