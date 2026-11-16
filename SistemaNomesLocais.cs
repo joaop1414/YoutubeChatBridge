@@ -448,7 +448,10 @@ internal static class SistemaNomesLocais
             resultado += marcadorFuncao;
 
         if (EventoOportunista.EhOportunista(jogador))
+        {
+            resultado += " <color=#B56BFF><size=50%>[Oportunista]</size></color>";
             resultado += EventoOportunista.MARCADOR;
+        }
 
         if (Avisos.TryGetValue(jogador.PlayerId, out AvisoLocal aviso) &&
             aviso != null && !string.IsNullOrWhiteSpace(aviso.Texto))
