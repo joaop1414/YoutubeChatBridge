@@ -35,8 +35,15 @@ internal sealed class EventoOportunista : EventoVotacao
 
         PlayerControl escolhido = candidatos[System.Random.Shared.Next(candidatos.Count)];
         ativo = true;
+
+        // Garante que a função original esteja registrada antes de adicionar
+        // Oportunista como atributo secundário.
+        RegistroFuncoesJogadores.Registrar(escolhido, escolhido.Data.RoleType);
         RegistroFuncoesJogadores.DefinirOportunista(escolhido.PlayerId, true);
+
+        // O marcador permite que os demais clientes com o mod reconheçam o atributo.
         MarcarNomeGlobal(escolhido);
+        SistemaNomesLocais.Atualizar();
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             "[F7/Oportunista] " + escolhido.Data.PlayerName +
