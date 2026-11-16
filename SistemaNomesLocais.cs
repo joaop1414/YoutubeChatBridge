@@ -107,7 +107,7 @@ internal static class SistemaNomesLocais
         AtualizarNomeNaReuniao(local);
 
         // Um fantasma vê as funções de todos os jogadores vivos apenas no seu cliente.
-        if (local.Data.IsDead)
+        if (local.Data.IsDead && YouTubeVoteBridgePlugin.EhHost())
             AtualizarNomesVisiveisParaFantasma();
     }
 
