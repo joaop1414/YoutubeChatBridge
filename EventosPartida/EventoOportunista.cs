@@ -111,7 +111,7 @@ internal sealed class EventoOportunista : EventoVotacao
         oportunistaFinalId = oportunista.PlayerId;
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             $"[F7/Oportunista] Vitória {motivo}; preparando {roleFantasma} e revive para PlayerId={oportunistaFinalId}.");
-        HudManager.Instance.StartCoroutine(PrepararOportunistaEEncerrar(manager, motivo, oportunistaFinalId, roleFantasma));
+        MonoBehaviourExtensions.StartCoroutine(PlayerControl.LocalPlayer, PrepararOportunistaEEncerrar(manager, motivo, oportunistaFinalId, roleFantasma));
         return false;
     }
 
@@ -128,7 +128,7 @@ internal sealed class EventoOportunista : EventoVotacao
             try
             {
                 jogador.RpcSetRole(roleFantasma, true);
-                jogador.RpcRevive();
+                jogador.Revive();
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                     $"[F7/Oportunista] Role {roleFantasma} e RpcRevive enviados para PlayerId={playerId}.");
             }
@@ -147,7 +147,7 @@ internal sealed class EventoOportunista : EventoVotacao
         // EndGameManager.Start adicionará o Oportunista à lista nativa já montada.
         liberarRpcFinal = true;
         fimPendente = false;
-        manager.RpcEndGame(motivo);
+        manager.RpcEndGame(motivo, false);
     }
 
 
