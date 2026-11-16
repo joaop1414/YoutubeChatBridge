@@ -73,16 +73,21 @@ internal sealed class ConfiguracoesModLobbyUI : MonoBehaviour
         janela.x = Mathf.Clamp(janela.x, 12f, Mathf.Max(12f, Screen.width - largura - 12f));
         janela.y = Mathf.Clamp(janela.y, 12f, Mathf.Max(12f, Screen.height - altura - 12f));
 
-        // O wrapper IL2CPP do Unity pode não resolver diretamente o method group
-        // para GUI.WindowFunction. A lambda cria o delegate com a assinatura esperada.
-        janela = GUI.Window(
-            73421,
-            janela,
-            id => DesenharJanela(id),
-            "YouTubeVoteBridge - Configurações");
+        // Não usamos GUI.Window: algumas versões dos assemblies IL2CPP
+        // expõem WindowFunction como tipo incompatível com delegates C#.
+        // Desenhamos o painel diretamente no OnGUI, sem callback.
+        GUI.Box(janela, "YouTubeVoteBridge - Configurações");
+        GUILayout.BeginArea(new Rect(
+            janela.x + 12f,
+            janela.y + 28f,
+            janela.width - 24f,
+            janela.height - 40f));
+
+        DesenharJanela();
+        GUILayout.EndArea();
     }
 
-    private void DesenharJanela(int id)
+    private void DesenharJanela()
     {
         bool precisaSalvar = false;
 
@@ -137,7 +142,6 @@ internal sealed class ConfiguracoesModLobbyUI : MonoBehaviour
         if (precisaSalvar)
             SalvarConfiguracoes();
 
-        GUI.DragWindow(new Rect(0f, 0f, 10000f, 24f));
     }
 
     private static void DesenharBooleano(
