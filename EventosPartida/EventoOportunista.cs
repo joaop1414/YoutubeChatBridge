@@ -4,6 +4,7 @@ using System.Linq;
 using System.Reflection;
 using HarmonyLib;
 using AmongUs.GameOptions;
+using BepInEx.Unity.IL2CPP.Utils;
 using Hazel;
 using UnityEngine;
 
