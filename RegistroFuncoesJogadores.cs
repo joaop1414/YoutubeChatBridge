@@ -67,8 +67,30 @@ internal static class RegistroFuncoesJogadores
     {
         lock (sync)
         {
-            if (registros.TryGetValue(playerId, out var item))
-                item.DefinirOportunista(valor);
+            if (!registros.TryGetValue(playerId, out var item))
+            {
+                PlayerControl jogador = null;
+                if (PlayerControl.AllPlayerControls != null)
+                {
+                    foreach (PlayerControl candidato in PlayerControl.AllPlayerControls)
+                    {
+                        if (candidato != null && candidato.PlayerId == playerId &&
+                            candidato.Data != null && !candidato.Data.Disconnected)
+                        {
+                            jogador = candidato;
+                            break;
+                        }
+                    }
+                }
+
+                if (jogador == null)
+                    return;
+
+                item = new Atribuicao(playerId, jogador.Data.RoleType);
+                registros[playerId] = item;
+            }
+
+            item.DefinirOportunista(valor);
         }
     }
 
