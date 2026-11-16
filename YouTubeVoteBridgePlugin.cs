@@ -663,8 +663,11 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         if (!EhHost() || clientId < 0)
             return;
 
-        ClientesComMod.Add(clientId);
+        bool novoCliente = ClientesComMod.Add(clientId);
         Instance?.Log.LogInfo("Cliente com YouTubeVoteBridge detectado: " + clientId);
+
+        if (novoCliente)
+            LobbyModLabelManager.SincronizarComClientes();
 
     }
 
@@ -4635,6 +4638,7 @@ public static class YouTubeVoteUpdatePatch
         RainbowColorTransition.Atualizar();
         YouTubeVoteBridgePlugin.AtualizarRainbow();
         SistemaNomesLocais.Atualizar();
+        LobbyModLabelManager.Atualizar();
         EventoEscudoTemporario.Atualizar();
         EventoCooldownIndividual.Atualizar();
         EventoCongelarJogador.Atualizar();
