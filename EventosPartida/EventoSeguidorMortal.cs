@@ -32,6 +32,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
     private static bool armado;
     private static bool ativo;
+    private static bool recriarNpcAposReuniao;
     private static bool aguardandoFimRoleReveal;
     private static int etapaInicializacao;
     private static float proximaEtapa;
@@ -914,15 +915,31 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
     internal static void Atualizar()
     {
-        if (!ativo || !YouTubeVoteBridgePlugin.EhHost() ||
+        if (!YouTubeVoteBridgePlugin.EhHost() ||
             AmongUsClient.Instance == null || ShipStatus.Instance == null)
+            return;
+
+        // Depois que a reunião termina, recria o NPC no spawn original.
+        if (recriarNpcAposReuniao && MeetingHud.Instance == null)
+        {
+            recriarNpcAposReuniao = false;
+            armado = true;
+            IniciarPartida();
+            AoSairDaRoleReveal();
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[F7/Seguidor] Reunião encerrada; NPC recriado no spawn do mapa.");
+            return;
+        }
+
+        if (!ativo)
             return;
 
         if (MeetingHud.Instance != null)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[F7/Seguidor] Reunião iniciada; removendo o NPC.");
+                "[F7/Seguidor] Reunião iniciada; removendo NPC temporariamente.");
             Resetar();
+            recriarNpcAposReuniao = true;
             return;
         }
 
