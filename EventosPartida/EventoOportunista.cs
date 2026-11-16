@@ -184,12 +184,42 @@ internal sealed class EventoOportunista : EventoVotacao
         return null;
     }
 
+    private static System.Collections.Generic.IEnumerable<object> Enumerar(object colecao)
+    {
+        if (colecao is IEnumerable itens)
+        {
+            foreach (object item in itens)
+                yield return item;
+            yield break;
+        }
+
+        // Fallback para listas IL2CPP que expõem GetEnumerator, mas não
+        // implementam System.Collections.IEnumerable no wrapper gerenciado.
+        object enumerador = null;
+        try
+        {
+            MethodInfo obter = colecao?.GetType().GetMethod(
+                "GetEnumerator", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            enumerador = obter?.Invoke(colecao, null);
+            if (enumerador == null)
+                yield break;
+
+            MethodInfo mover = enumerador.GetType().GetMethod("MoveNext");
+            PropertyInfo atual = enumerador.GetType().GetProperty("Current");
+            while (mover != null && atual != null &&
+                Convert.ToBoolean(mover.Invoke(enumerador, null)))
+                yield return atual.GetValue(enumerador);
+        }
+        finally
+        {
+            if (enumerador is IDisposable disposable)
+                disposable.Dispose();
+        }
+    }
+
     private static bool JaEstaNaLista(object vencedores, byte playerId, string nome)
     {
-        if (vencedores is not IEnumerable itens)
-            return false;
-
-        foreach (object item in itens)
+        foreach (object item in Enumerar(vencedores))
         {
             object id = LerMembro(item, "PlayerId", "playerId", "PlayerID");
             if (id != null)
@@ -225,6 +255,11 @@ internal sealed class EventoOportunista : EventoVotacao
                     "[F7/Oportunista] Não foi possível localizar TempData.winners/WinningPlayerData.");
                 return;
             }
+
+            // Se a lista está vazia, o resultado não tem um time vencedor (ex.: empate).
+            object quantidade = LerMembro(vencedores, "Count", "count");
+            if (quantidade != null && Convert.ToInt32(quantidade) <= 0)
+                return;
 
             if (PlayerControl.AllPlayerControls == null)
                 return;
