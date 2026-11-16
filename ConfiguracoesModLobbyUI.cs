@@ -73,10 +73,12 @@ internal sealed class ConfiguracoesModLobbyUI : MonoBehaviour
         janela.x = Mathf.Clamp(janela.x, 12f, Mathf.Max(12f, Screen.width - largura - 12f));
         janela.y = Mathf.Clamp(janela.y, 12f, Mathf.Max(12f, Screen.height - altura - 12f));
 
+        // O wrapper IL2CPP do Unity pode não resolver diretamente o method group
+        // para GUI.WindowFunction. A lambda cria o delegate com a assinatura esperada.
         janela = GUI.Window(
             73421,
             janela,
-            DesenharJanela,
+            id => DesenharJanela(id),
             "YouTubeVoteBridge - Configurações");
     }
 
