@@ -58,7 +58,10 @@ internal static class RegistroFuncoesJogadores
     }
 
     internal static void RegistrarPersonalizada(PlayerControl jogador, string nome, RoleTypes baseVanilla)
-        => Registrar(jogador, baseVanilla, nome);
+    {
+        Registrar(jogador, baseVanilla, nome);
+        SistemaNomesLocais.SincronizarFuncaoPersonalizada(jogador, nome);
+    }
 
     internal static void DefinirOportunista(byte playerId, bool valor)
     {
