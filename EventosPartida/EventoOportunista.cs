@@ -340,6 +340,7 @@ internal static class EventoOportunistaVencedoresPatch
     {
         // O marcador só precisa existir até a lista de vencedores ser montada.
         EventoOportunista.LimparMarcadores();
+        SistemaNomesLocais.LimparMarcadoresDeFuncao();
         EventoOportunista.Resetar();
     }
 }
@@ -350,6 +351,7 @@ internal static class EventoOportunistaLimparInicioPatch
     private static void Prefix()
     {
         EventoOportunista.LimparMarcadores();
+        SistemaNomesLocais.LimparMarcadoresDeFuncao();
         EventoOportunista.Resetar();
     }
 }
