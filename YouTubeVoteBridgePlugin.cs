@@ -4737,6 +4737,7 @@ public static class YouTubeVoteResetTaskEventsOnStartPatch
         ControladorPartidaMenu.ResetarEstadoPartida("início de partida");
         YouTubeVoteBridgePlugin.BloquearFimDeJogoDuranteTrocaDeFuncoes = false;
         TeleporteAPI.Resetar();
+        RegistroFuncoesJogadores.Limpar();
         YouTubeVoteBridgePlugin.LimparRegistroTarefasShapeshift();
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             "Shapeshift/tarefas: histórico de jogador + tarefa concluída limpo no início da partida.");
