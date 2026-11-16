@@ -4449,6 +4449,13 @@ public static class YouTubeVoteSemFimDeJogoCriteriaPatch
         if (!YouTubeVoteBridgePlugin.EhHost())
             return true;
 
+        if (EventoAnjoTraidor.DeveManterPartidaAbertaComoAnjo())
+        {
+            // O Phantom está como GuardianAngel apenas no cliente dono. O
+            // host não deve contabilizá-lo como impostor eliminado e encerrar.
+            return false;
+        }
+
         return YouTubeVoteBridgePlugin.PermitirFimDeJogoForcado ||
                (!YouTubeVoteBridgePlugin.BloquearFimDeJogoDuranteTrocaDeFuncoes &&
                 (YouTubeVoteBridgePlugin.SemFimDeJogo == null ||
