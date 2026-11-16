@@ -14,6 +14,7 @@ internal static class RegistroFuncoesJogadores
         public RoleTypes FuncaoVanilla { get; private set; }
         public string FuncaoPersonalizada { get; private set; }
         public bool Personalizada => !string.IsNullOrWhiteSpace(FuncaoPersonalizada);
+        public bool Oportunista { get; private set; }
 
         public Atribuicao(byte playerId, RoleTypes vanilla, string personalizada = null)
         {
@@ -27,6 +28,8 @@ internal static class RegistroFuncoesJogadores
             FuncaoVanilla = vanilla;
             FuncaoPersonalizada = personalizada;
         }
+
+        internal void DefinirOportunista(bool valor) => Oportunista = valor;
     }
 
     private static readonly Dictionary<byte, Atribuicao> registros = new();
@@ -56,6 +59,15 @@ internal static class RegistroFuncoesJogadores
 
     internal static void RegistrarPersonalizada(PlayerControl jogador, string nome, RoleTypes baseVanilla)
         => Registrar(jogador, baseVanilla, nome);
+
+    internal static void DefinirOportunista(byte playerId, bool valor)
+    {
+        lock (sync)
+        {
+            if (registros.TryGetValue(playerId, out var item))
+                item.DefinirOportunista(valor);
+        }
+    }
 
     internal static Atribuicao Obter(byte playerId)
     {
