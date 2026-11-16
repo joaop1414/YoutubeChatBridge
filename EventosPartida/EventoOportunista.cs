@@ -616,9 +616,10 @@ internal sealed class EventoOportunista : EventoVotacao
 
             foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
             {
+                // O Oportunista pode ter acabado de ser convertido em fantasma.
+                // Mesmo que IsDead ainda esteja sincronizando, ele deve entrar nos vencedores.
                 if (jogador == null || jogador.Data == null ||
-                    jogador.Data.IsDead || jogador.Data.Disconnected ||
-                    !EhOportunista(jogador))
+                    jogador.Data.Disconnected || !EhOportunista(jogador))
                     continue;
 
                 string nome = jogador.Data.PlayerName ?? string.Empty;
@@ -701,17 +702,8 @@ internal static class EventoOportunistaVencedoresPatch
     }
 }
 
-[HarmonyPatch(typeof(AmongUsClient), nameof(AmongUsClient.CoStartGame))]
-internal static class EventoOportunistaLimparInicioPatch
-{
-    private static void Prefix()
-    {
-        EventoOportunista.LimparMarcadores();
-        SistemaNomesLocais.LimparMarcadoresDeFuncao();
-        EventoOportunista.Resetar();
-    }
-}
-
+// O estado do Oportunista é preservado durante a transição para a partida.
+// A limpeza ocorre após a montagem da lista de vencedores ou em OnGameEnd.
 
 [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.HandleRpc))]
 internal static class EventoOportunistaReviveRpcPatch
