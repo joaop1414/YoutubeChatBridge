@@ -281,6 +281,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         PainelVotacaoRpc.Inicializar();
         EventoTesteMenu.Inicializar();
         ConfiguradorFuncoesMenu.Inicializar();
+        ConfiguracoesModLobbyUI.Inicializar();
         ControladorPartidaMenu.Inicializar();
 
         Log.LogInfo("YouTubeVoteBridge carregado!");
