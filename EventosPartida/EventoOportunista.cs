@@ -160,7 +160,9 @@ internal sealed class EventoOportunista : EventoVotacao
         // O Oportunista pertence ao time oposto ao vencedor:
         // vitória dos tripulantes -> ImpostorGhost;
         // vitória dos impostores -> CrewmateGhost.
-        if (nome.IndexOf("Crewmates", StringComparison.OrdinalIgnoreCase) >= 0 ||
+        // O enum vanilla usa HumansByVote/HumansByTask e
+        // HumansDisconnect, não necessariamente Crewmates.
+        if (nome.IndexOf("Human", StringComparison.OrdinalIgnoreCase) >= 0 ||
             nome.IndexOf("Crewmate", StringComparison.OrdinalIgnoreCase) >= 0)
         {
             roleFantasma = RoleTypes.ImpostorGhost;
@@ -198,9 +200,10 @@ internal sealed class EventoOportunista : EventoVotacao
             // função vanilla/EHR, antes de restaurar o estado vivo.
             try
             {
-                jogador.RpcSetRole(roleFantasma, true);
+                if (!RoleSwitchAPI.AplicarFuncaoGlobal(jogador, roleFantasma))
+                    throw new InvalidOperationException("RoleSwitchAPI não conseguiu aplicar a função fantasma.");
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "[F7/Oportunista] Função fantasma enviada: PlayerId=" +
+                    "[F7/Oportunista] Função fantasma enviada pelo fluxo EHR: PlayerId=" +
                     playerId + ", Role=" + roleFantasma + ".");
             }
             catch (Exception ex)
@@ -256,7 +259,7 @@ internal sealed class EventoOportunista : EventoVotacao
         manager.RpcEndGame(motivo, false);
     }
 
-    private const byte RpcReviveOportunista = 251;
+    private const byte RpcReviveOportunista = 249;
 
     /// <summary>
     /// Revive no host, envia um RPC local aos clientes com o mod e publica
@@ -279,7 +282,7 @@ internal sealed class EventoOportunista : EventoVotacao
         // Mesmo padrão de sincronização de vida usado pelo NPC Assassino:
         // marca o campo de morte como alterado e força o envio dos objetos
         // transmitidos pelo GameData para todos os clientes, inclusive vanilla.
-        jogador.Data.SetDirtyBit(1u << jogador.PlayerId);
+        jogador.Data.SetDirtyBit(uint.MaxValue);
         cliente.SendAllStreamedObjects();
 
         // O fluxo vanilla acima replica NetworkedPlayerInfo. Para os clientes
@@ -706,5 +709,29 @@ internal static class EventoOportunistaLimparInicioPatch
         EventoOportunista.LimparMarcadores();
         SistemaNomesLocais.LimparMarcadoresDeFuncao();
         EventoOportunista.Resetar();
+    }
+}
+
+
+[HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.HandleRpc))]
+internal static class EventoOportunistaReviveRpcPatch
+{
+    private const byte RpcReviveOportunista = 249;
+
+    [HarmonyPrefix]
+    private static bool Prefix(
+        PlayerControl __instance,
+        [HarmonyArgument(0)] byte callId,
+        [HarmonyArgument(1)] MessageReader reader)
+    {
+        if (callId != RpcReviveOportunista)
+            return true;
+
+        // O RPC é enviado apenas aos clientes com o mod. Ele não deve chegar
+        // ao fluxo vanilla de HandleRpc nem colidir com o RPC de nome do NPC (251).
+        if (!YouTubeVoteBridgePlugin.EhHost())
+            EventoOportunista.ReceberRevive(reader);
+
+        return false;
     }
 }
