@@ -273,10 +273,16 @@ internal static class SistemaNomesLocais
 
     private static string ObterNomeFuncao(PlayerControl jogador)
     {
+        RegistroFuncoesJogadores.Atribuicao atribuicao =
+            RegistroFuncoesJogadores.Obter(jogador.PlayerId);
+        if (atribuicao?.Personalizada == true)
+            return atribuicao.FuncaoPersonalizada;
+
         if (EventoAnjoTraidor.EhAnjoTraidor(jogador))
             return "Anjo Traidor";
 
-        string nome = jogador.Data?.RoleType.ToString() ?? "Crewmate";
+        string nome = atribuicao?.FuncaoVanilla.ToString() ??
+            jogador.Data?.RoleType.ToString() ?? "Crewmate";
         switch (nome.Trim().ToLowerInvariant())
         {
             case "crewmate": return "Tripulante";
