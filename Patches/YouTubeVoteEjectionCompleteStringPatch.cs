@@ -93,10 +93,19 @@ internal static class YouTubeVoteEjectionCompleteStringPatch
             {
                 object nomeInfo = LerMembro(info, "PlayerName", "playerName", "Name");
                 string nomeInfoTexto = nomeInfo?.ToString();
+
                 if (!string.IsNullOrEmpty(nomeInfoTexto) &&
                     texto.Contains(nomeInfoTexto, StringComparison.Ordinal))
                 {
                     __instance.completeString = texto.Replace(nomeInfoTexto, nomeRevelado, StringComparison.Ordinal);
+                    substituiu = true;
+                }
+                else if (!string.IsNullOrEmpty(nomeOriginal) &&
+                    texto.Contains(nomeOriginal, StringComparison.Ordinal))
+                {
+                    // Fallback para versões que já formatam/limpam PlayerName
+                    // antes de preencher completeString.
+                    __instance.completeString = texto.Replace(nomeOriginal, nomeRevelado, StringComparison.Ordinal);
                     substituiu = true;
                 }
             }
