@@ -49,7 +49,10 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
             return false;
 
         PlayerControl anjo = ObterJogador(playerIdSelecionado);
-        if (anjo == null || anjo.Data == null || anjo.Data.IsDead || anjo.Data.Disconnected)
+        // O Anjo é morto de propósito na transformação para receber
+        // ImpostorGhost globalmente; o cliente dono recebe GuardianAngel.
+        // Portanto Data.IsDead=true é esperado e não pode desativar o bloqueio.
+        if (anjo == null || anjo.Data == null || anjo.Data.Disconnected)
             return false;
 
         int impostoresVivos = 0;
