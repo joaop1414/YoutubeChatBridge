@@ -1035,12 +1035,10 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
 
         if (jogador.OwnerId == cliente.ClientId)
         {
-            jogador.SetName(nome);
-            jogador.Data.PlayerName = nome;
-
+            // Host: altera somente o TMP local. SetName/Data.PlayerName são
+            // globais e fariam o nome vermelho vazar para os demais clientes.
             if (jogador.cosmetics != null && jogador.cosmetics.nameText != null)
                 jogador.cosmetics.nameText.text = nome;
-
             return;
         }
 
@@ -1057,6 +1055,7 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
             writer.Write((byte)RpcCalls.SetName);
             writer.Write(jogador.Data.NetId);
             writer.Write(nome);
+            writer.Write(false);
             writer.EndMessage();
 
             writer.EndMessage();
