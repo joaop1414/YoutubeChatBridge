@@ -5032,9 +5032,8 @@ public static class YouTubeVoteExileNamePatch
             }
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "Ejeção: resultado final recebido em RpcVotingComplete; preparando o nome antes do fechamento da reunião.");
-
-            YouTubeVoteBridgePlugin.PrepararNomeGlobalDeEjecao(exilado);
+                "Ejeção: resultado final confirmado em RpcVotingComplete. A revelação será aplicada " +
+                "diretamente em ExileController.Begin, usando o jogador efetivamente ejetado.");
         }
         catch (Exception ex)
         {
