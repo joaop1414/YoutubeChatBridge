@@ -1400,10 +1400,26 @@ internal static class EventoAnjoTraidorStartMeetingPatch
 [HarmonyPatch(typeof(GameManager), nameof(GameManager.RpcEndGame))]
 internal static class EventoAnjoTraidorEndGamePatch
 {
-    private static void Prefix()
+    private static bool Prefix(GameOverReason __0)
     {
+        // Quando o Anjo é o último impostor, o cliente dono o enxerga como
+        // GuardianAngel. O vanilla pode interpretar isso como vitória dos
+        // tripulantes. Bloqueamos somente os motivos de vitória da tripulação;
+        // vitórias legítimas dos impostores continuam encerrando normalmente.
+        bool vitoriaTripulantes =
+            (int)__0 == 0 || __0 == GameOverReason.CrewmatesByTask;
+
+        if (vitoriaTripulantes && EventoAnjoTraidor.DeveManterPartidaAbertaComoAnjo())
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[F7/Anjo Traidor] RpcEndGame bloqueado: o Anjo ainda está vivo e é o último impostor. " +
+                "A partida continuará até a reunião encerrar a habilidade.");
+            return false;
+        }
+
         // Precisa ocorrer antes do RPC de fim de jogo ser distribuído.
         EventoAnjoTraidor.AntesDeEncerrarPartida();
+        return true;
     }
 
     private static void Postfix()
