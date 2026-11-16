@@ -292,7 +292,7 @@ internal static class RoleSwitchAPI
             // 1) aplica a função diretamente na instância local do host;
             // 2) transmite o RPC vanilla SetRole para todos os clientes.
             // SetRole() é usado pelo próprio EHR; não iniciamos CoSetRole aqui.
-            jogador.SetRole(funcao);
+            jogador.StartCoroutine(jogador.CoSetRole(funcao, true));
 
             MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
                 jogador.NetId,
@@ -327,7 +327,7 @@ internal static class RoleSwitchAPI
             {
                 // Mesmo comportamento do EHR: se o destinatário é o próprio
                 // host, aplica a função localmente sem enviar RPC para si mesmo.
-                jogador.SetRole(funcao);
+                jogador.StartCoroutine(jogador.CoSetRole(funcao, true));
                 LogInfo($"RpcSetRoleDesync local EHR-style: PlayerId={jogador.PlayerId}, cliente={clientId}, Role={funcao}.");
                 return true;
             }
