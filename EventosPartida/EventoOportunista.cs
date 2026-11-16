@@ -139,9 +139,9 @@ internal sealed class EventoOportunista : EventoVotacao
             try
             {
                 jogador.RpcSetRole(roleFantasma, true);
-                jogador.Revive();
+                EnviarReviveSincronizado(jogador);
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    $"[F7/Oportunista] Role {roleFantasma} e RpcRevive enviados para PlayerId={playerId}.");
+                    $"[F7/Oportunista] Role {roleFantasma} e revive sincronizado para PlayerId={playerId}.");
             }
             catch (Exception ex)
             {
@@ -161,6 +161,118 @@ internal sealed class EventoOportunista : EventoVotacao
         manager.RpcEndGame(motivo, false);
     }
 
+
+    private const byte RpcReviveOportunista = 251;
+
+    /// <summary>
+    /// Revive no host, envia um RPC local aos clientes com o mod e publica
+    /// NetworkedPlayerInfo atualizado para que clientes vanilla recebam IsDead=false.
+    /// </summary>
+    private static void EnviarReviveSincronizado(PlayerControl jogador)
+    {
+        if (!YouTubeVoteBridgePlugin.EhHost() || jogador == null ||
+            jogador.Data == null || AmongUsClient.Instance == null)
+            return;
+
+        AmongUsClient cliente = AmongUsClient.Instance;
+
+        // O método nativo atualiza a instância local; ele sozinho não é um RPC
+        // de revive para os demais clientes.
+        jogador.Revive();
+        jogador.Data.IsDead = false;
+        jogador.Data.SetDirtyBit(uint.MaxValue);
+
+        // Clientes que possuem o mod executam o revive localmente para atualizar
+        // também os componentes visuais do PlayerControl.
+        if (PlayerControl.LocalPlayer != null)
+        {
+            foreach (int clientId in YouTubeVoteBridgePlugin.ClientesComModSnapshot())
+            {
+                if (clientId < 0 || clientId == cliente.ClientId)
+                    continue;
+
+                try
+                {
+                    MessageWriter rpc = cliente.StartRpcImmediately(
+                        PlayerControl.LocalPlayer.NetId,
+                        RpcReviveOportunista,
+                        SendOption.Reliable,
+                        clientId);
+                    rpc.Write(jogador.PlayerId);
+                    cliente.FinishRpcImmediately(rpc);
+                }
+                catch (Exception ex)
+                {
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                        "[F7/Oportunista] Falha ao enviar RPC de revive para ClientId=" +
+                        clientId + ": " + ex.Message);
+                }
+            }
+        }
+
+        // Atualiza o estado de morte no GameData para todos os clientes,
+        // inclusive os vanilla que não conhecem o RPC personalizado acima.
+        MessageWriter writer = null;
+        try
+        {
+            writer = MessageWriter.Get(SendOption.Reliable);
+            writer.StartMessage(5); // GameData
+            writer.Write(cliente.GameId);
+            writer.StartMessage(1); // Data / NetworkedPlayerInfo
+            writer.WritePacked(jogador.Data.NetId);
+            jogador.Data.Serialize(writer, true);
+            writer.EndMessage();
+            writer.EndMessage();
+            cliente.SendOrDisconnect(writer);
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[F7/Oportunista] Estado IsDead=false publicado no GameData para PlayerId=" +
+                jogador.PlayerId + ".");
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "[F7/Oportunista] Falha ao publicar o estado de revive no GameData: " + ex);
+        }
+        finally
+        {
+            if (writer != null)
+            {
+                try { writer.Recycle(); } catch { }
+            }
+        }
+    }
+
+    internal static void ReceberRevive(MessageReader reader)
+    {
+        if (YouTubeVoteBridgePlugin.EhHost() || reader == null)
+            return;
+
+        try
+        {
+            byte playerId = reader.ReadByte();
+            if (PlayerControl.AllPlayerControls == null)
+                return;
+
+            foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+            {
+                if (jogador == null || jogador.Data == null ||
+                    jogador.PlayerId != playerId || !jogador.Data.IsDead)
+                    continue;
+
+                jogador.Revive();
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[F7/Oportunista] RPC de revive aplicado localmente para PlayerId=" +
+                    playerId + ".");
+                break;
+            }
+        }
+        catch (Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Oportunista] Erro ao processar RPC de revive: " + ex.Message);
+        }
+    }
 
     private static PlayerControl EncontrarOportunista(byte playerId = byte.MaxValue, bool exigirMarcador = true)
     {
