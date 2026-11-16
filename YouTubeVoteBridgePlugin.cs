@@ -3956,6 +3956,20 @@ public static class YouTubeVoteChatPatch
         bool ehLocal = sourcePlayer == PlayerControl.LocalPlayer;
         bool host = YouTubeVoteBridgePlugin.EhHost();
 
+        // /m mostra somente ao autor a descrição da própria função.
+        if (mensagem.Equals("/m", StringComparison.OrdinalIgnoreCase))
+        {
+            string descricao = DescricaoFuncoes.Obter(sourcePlayer);
+
+            if (ehLocal)
+                YouTubeVoteBridgePlugin.Responder(__instance, descricao);
+            else if (host)
+                YouTubeVoteBridgePlugin.EnviarMensagemIndividual(sourcePlayer, descricao);
+
+            // O host processa o pedido dos outros jogadores e responde em privado.
+            return !host || ehLocal;
+        }
+
         if (mensagem.Equals("/color", StringComparison.OrdinalIgnoreCase) ||
             mensagem.StartsWith("/color ", StringComparison.OrdinalIgnoreCase))
         {
@@ -4186,7 +4200,7 @@ public static class YouTubeVoteChatPatch
         if (mensagem.Equals("/help", StringComparison.OrdinalIgnoreCase) ||
             mensagem.Equals("/ajuda", StringComparison.OrdinalIgnoreCase))
         {
-            const string ajuda1 = "Ajuda 1/3: /color <id|nome|rainbow> (cor); /evento, /eventof7 ou /eventosf7 (eventos F7); /ytconfig, /ytconfiguracoes ou /ytconfigurações (configurações); /s ou /say <mensagem> (anúncio global do host).";
+            const string ajuda1 = "Ajuda 1/3: /m (descrição da sua função); /color <id|nome|rainbow> (cor); /evento, /eventof7 ou /eventosf7 (eventos F7); /ytconfig, /ytconfiguracoes ou /ytconfigurações (configurações); /s ou /say <mensagem> (anúncio global do host).";
             const string ajuda2 = "Ajuda 2/3 — host: /youtube ajuda; /youtube live, colar/clipboard/area ou /youtube <ID/URL>; /youtube iniciar/on/ligar; parar/off/desligar; status/info; tempo <5-600>; intervalo <0-600>; preparacao <0-120>; config/configuracoes.";
             const string ajuda3 = "Ajuda 3/3: /youtube multi|multitransmissao on/off; permitirids|permitirlives on/off; aceitar/aprovar; recusar/negar. /live <ID/URL> pede inclusão de outra live (só no lobby). /tpout, /tpin, /rn <nome>, /rename <nome> (lobby). /tag update (host).";
             if (ehLocal)
