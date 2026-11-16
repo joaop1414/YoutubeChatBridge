@@ -15,7 +15,6 @@ internal sealed class ConfiguracoesModLobbyUI : MonoBehaviour
     private static bool painelAberto;
     private static Rect janela = new Rect(0f, 0f, 520f, 590f);
     private static Vector2 rolagem;
-    private static string liveIdEditando = string.Empty;
 
     public ConfiguracoesModLobbyUI(IntPtr ptr) : base(ptr) { }
 
@@ -45,7 +44,7 @@ internal sealed class ConfiguracoesModLobbyUI : MonoBehaviour
             ShipStatus.Instance == null;
     }
 
-    private void OnGUI()
+    public void OnGUI()
     {
         if (!HostNoLobby())
         {
@@ -53,14 +52,14 @@ internal sealed class ConfiguracoesModLobbyUI : MonoBehaviour
             return;
         }
 
+        GUI.depth = -1000;
+
         float larguraBotao = Mathf.Min(250f, Screen.width - 24f);
         Rect botao = new Rect(14f, Screen.height - 58f, larguraBotao, 42f);
 
         if (GUI.Button(botao, "⚙  Configurações do mod"))
         {
             painelAberto = !painelAberto;
-            if (painelAberto)
-                liveIdEditando = YouTubeVoteBridgePlugin.LiveId?.Value ?? string.Empty;
         }
 
         if (!painelAberto)
@@ -103,32 +102,11 @@ internal sealed class ConfiguracoesModLobbyUI : MonoBehaviour
 
         GUILayout.Space(8f);
         DesenharBooleano("Sem fim de jogo", YouTubeVoteBridgePlugin.SemFimDeJogo, ref precisaSalvar);
-        DesenharBooleano("Iniciar partida com Enter", YouTubeVoteBridgePlugin.EnterKeyToStartGame, ref precisaSalvar);
-        DesenharBooleano("Pular fase de votos quando o Juiz usa sua habilidade", YouTubeVoteBridgePlugin.PularFaseVotosJuiz, ref precisaSalvar);
+        DesenharBooleano("Pular fase de votos quando o juiz usa sua habilidade", YouTubeVoteBridgePlugin.PularFaseVotosJuiz, ref precisaSalvar);
         DesenharBooleano("Multitransmissão", YouTubeVoteBridgePlugin.MultiTransmissaoAtiva, ref precisaSalvar);
         DesenharBooleano("Permitir IDs de outros jogadores", YouTubeVoteBridgePlugin.PermitirIdsDeOutrosJogadores, ref precisaSalvar);
-        DesenharBooleano("Escolher mapa aleatório ao iniciar", YouTubeVoteBridgePlugin.TrocarMapaAoIniciar, ref precisaSalvar);
-        DesenharBooleano("Permitir que o NPC Assassino use ventilações", YouTubeVoteBridgePlugin.PermitirVentilacaoNPC, ref precisaSalvar);
-
-        GUILayout.Space(10f);
-        GUILayout.Label("ID da live principal");
-        liveIdEditando = GUILayout.TextField(liveIdEditando ?? string.Empty, 100);
-        if (GUILayout.Button("Salvar ID da live"))
-        {
-            if (YouTubeVoteBridgePlugin.LiveId != null)
-            {
-                YouTubeVoteBridgePlugin.LiveId.Value = (liveIdEditando ?? string.Empty).Trim();
-                precisaSalvar = true;
-            }
-        }
-
-        GUILayout.Space(6f);
-        GUILayout.Label("Estado da live: " +
-            (YouTubeVoteBridgePlugin.LiveConectada != null && YouTubeVoteBridgePlugin.LiveConectada.Value
-                ? "Conectada" : "Desconectada"));
-        GUILayout.Label("Votação ativa: " +
-            (YouTubeVoteBridgePlugin.VotacaoAtiva != null && YouTubeVoteBridgePlugin.VotacaoAtiva.Value
-                ? "Sim" : "Não"));
+        DesenharBooleano("Escolher mapa aleatório ao iniciar (Dleks: 20%)", YouTubeVoteBridgePlugin.TrocarMapaAoIniciar, ref precisaSalvar);
+        DesenharBooleano("Permitir se o NPC Assassino possa usar ventilações", YouTubeVoteBridgePlugin.PermitirVentilacaoNPC, ref precisaSalvar);
 
         GUILayout.EndScrollView();
 
