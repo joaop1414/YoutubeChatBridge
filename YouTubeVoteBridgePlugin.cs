@@ -152,6 +152,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     private static readonly Dictionary<byte, string> NomesOriginaisPlacarLocal = new();
     private static readonly HashSet<int> ClientesComMod = new();
     private static bool SinalModEnviado;
+    private static float EnviarSinalModApos = -1f;
     // A transição é visual e detectada nos clientes pela sequência de cores.
     // Não enviamos RPC personalizado, para manter compatibilidade com clientes vanilla.
     private static void NotificarEstadoRainbowVisual(byte playerId, bool ativo)
@@ -628,6 +629,17 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             SinalModEnviado)
             return;
 
+        // Aguarda 1s após o PlayerControl existir para evitar enviar RPC 248
+        // durante o handshake/spawn inicial, quando o host ainda pode não
+        // ter registrado o objeto de rede do cliente.
+        if (EnviarSinalModApos < 0f)
+        {
+            EnviarSinalModApos = Time.realtimeSinceStartup + 1f;
+            return;
+        }
+        if (Time.realtimeSinceStartup < EnviarSinalModApos)
+            return;
+
         try
         {
             MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
@@ -638,6 +650,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             );
             AmongUsClient.Instance.FinishRpcImmediately(writer);
             SinalModEnviado = true;
+            EnviarSinalModApos = -1f;
         }
         catch (Exception ex)
         {
