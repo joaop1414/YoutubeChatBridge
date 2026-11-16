@@ -27,6 +27,13 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
     private static int clientIdSelecionado = -1;
     private static float proximoDiagnosticoLogicOptions;
 
+    // Clique único inicia a puxada; segundo ProtectPlayer em até 0,5s mata.
+    private static float primeiroRpcProtectEm = -1f;
+    private static byte alvoPuxadaPlayerId = byte.MaxValue;
+    private static bool puxandoAlvo;
+    private static ushort sequenciaSnapPuxada;
+    private static bool sequenciaSnapPuxadaInicializada;
+
     // Os nomes são enviados somente ao cliente dono do Phantom escolhido.
     // Assim, nem os demais jogadores nem o GameData do host recebem a cor vermelha.
     private static readonly Dictionary<byte, string> nomesOriginais = new();
@@ -486,6 +493,51 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
         }
     }
 
+    private static IEnumerator PuxarAlvoAteAnjo(PlayerControl alvo)
+    {
+        float proximoSnap = 0f;
+        while (puxandoAlvo && ativo && transformado && !habilidadeEncerrada &&
+            MeetingHud.Instance == null && ShipStatus.Instance != null &&
+            alvo != null && alvo.Data != null && !alvo.Data.IsDead &&
+            !alvo.Data.Disconnected && alvo.PlayerId == alvoPuxadaPlayerId)
+        {
+            PlayerControl anjo = ObterJogadorSelecionado();
+            if (anjo == null || anjo.Data == null || anjo.Data.IsDead)
+                break;
+
+            float agora = Time.realtimeSinceStartup;
+            if (agora >= proximoSnap)
+            {
+                proximoSnap = agora + 1f;
+                try
+                {
+                    Vector2 destino = anjo.GetTruePosition();
+                    // O host move a vítima localmente e replica SnapTo a todos.
+                    alvo.NetTransform.SnapTo(destino);
+                    ushort seq = sequenciaSnapPuxadaInicializada
+                        ? (ushort)(sequenciaSnapPuxada + 8)
+                        : (ushort)(alvo.NetTransform.lastSequenceId + 8);
+                    sequenciaSnapPuxada = seq;
+                    sequenciaSnapPuxadaInicializada = true;
+
+                    MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
+                        alvo.NetTransform.NetId, (byte)RpcCalls.SnapTo,
+                        SendOption.Reliable, -1);
+                    writer.Write(destino.x);
+                    writer.Write(destino.y);
+                    writer.Write(seq);
+                    AmongUsClient.Instance.FinishRpcImmediately(writer);
+                }
+                catch (Exception ex)
+                {
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                        "[F7/Anjo Traidor] Falha ao replicar puxada: " + ex.Message);
+                }
+            }
+            yield return new WaitForSecondsRealtime(0.1f);
+        }
+    }
+
     internal static bool DeveBloquearEscudo(PlayerControl anjo)
     {
         return ativo &&
@@ -500,6 +552,39 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
     /// dois MurderPlayer: primeiro ao dono do Anjo e depois globalmente.
     /// </summary>
     internal static bool AoTentarProteger(PlayerControl anjo, PlayerControl alvo)
+        // Detecta o segundo RPC antes de executar qualquer Protect/Murder vanilla.
+        // Um RPC isolado apenas inicia a puxada e não aplica cooldown de escudo.
+        if (ativo && transformado && !habilidadeEncerrada &&
+            anjo != null && anjo.PlayerId == playerIdSelecionado &&
+            alvo != null && alvo.Data != null && !alvo.Data.IsDead &&
+            !alvo.Data.Disconnected && MeetingHud.Instance == null &&
+            ShipStatus.Instance != null)
+        {
+            float agoraRpc = Time.realtimeSinceStartup;
+            bool segundoClique = primeiroRpcProtectEm >= 0f &&
+                agoraRpc - primeiroRpcProtectEm <= 0.5f &&
+                alvoPuxadaPlayerId == alvo.PlayerId;
+
+            if (!segundoClique)
+            {
+                primeiroRpcProtectEm = agoraRpc;
+                alvoPuxadaPlayerId = alvo.PlayerId;
+                puxandoAlvo = true;
+                sequenciaSnapPuxadaInicializada = false;
+                MonoBehaviourExtensions.StartCoroutine(anjo, PuxarAlvoAteAnjo(alvo));
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[F7/Anjo Traidor] Primeiro RPC Protect: iniciando puxada de PlayerId=" +
+                    alvo.PlayerId + ". Segundo RPC em até 0,5s executará a morte.");
+                return true;
+            }
+
+            primeiroRpcProtectEm = -1f;
+            puxandoAlvo = false;
+            alvoPuxadaPlayerId = byte.MaxValue;
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[F7/Anjo Traidor] Segundo RPC Protect dentro de 0,5s: matando PlayerId=" +
+                alvo.PlayerId + ".");
+        }
     {
         if (!YouTubeVoteBridgePlugin.EhHost() || !ativo || anjo == null)
             return false;
@@ -962,9 +1047,7 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
             habilidadeEncerrada)
             return;
 
-        habilidadeEncerrada = true;
-
-        PlayerControl jogador = ObterJogadorSelecionado();
+        habilidadeEncerrada = true;\n        puxandoAlvo = false;\n        primeiroRpcProtectEm = -1f;\n        alvoPuxadaPlayerId = byte.MaxValue;\n\n        PlayerControl jogador = ObterJogadorSelecionado();
         if (jogador != null)
         {
             // Todos já o veem como ImpostorGhost. Reaplicamos a função também
@@ -1114,8 +1197,7 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
 
         RestaurarNomesLocais();
 
-        armado = false;
-        ativo = false;
+        puxandoAlvo = false;\n        primeiroRpcProtectEm = -1f;\n        alvoPuxadaPlayerId = byte.MaxValue;\n        armado = false;\n        ativo = false;
         tentandoSelecionar = false;
         transformado = false;
         habilidadeEncerrada = false;
