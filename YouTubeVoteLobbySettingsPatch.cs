@@ -223,41 +223,66 @@ namespace YouTubeVoteBridge
         internal static void Alterar(StringOption option, int delta)
         {
             if (option == null || !EhControle(option) || delta == 0 ||
-                !YouTubeVoteBridgePlugin.EhHost() ||
-                YouTubeVoteBridgePlugin.TempoVotacao == null ||
-                YouTubeVoteBridgePlugin.IntervaloRodadas == null ||
-                YouTubeVoteBridgePlugin.PreparacaoChat == null ||
-                YouTubeVoteBridgePlugin.PularFaseVotosJuiz == null ||
-                YouTubeVoteBridgePlugin.SemFimDeJogo == null ||
-                YouTubeVoteBridgePlugin.MultiTransmissaoAtiva == null ||
-                YouTubeVoteBridgePlugin.PermitirIdsDeOutrosJogadores == null ||
-                YouTubeVoteBridgePlugin.TrocarMapaAoIniciar == null ||
-                YouTubeVoteBridgePlugin.PermitirVentilacaoNPC == null)
+                !YouTubeVoteBridgePlugin.EhHost())
                 return;
 
-            if (option.name == PREFIX + "TEMPO")
+            // Cada controle valida somente sua própria configuração. Antes, uma
+            // opção nula bloqueava a alteração de todos os outros controles,
+            // inclusive a ação de diminuir valores.
+            string nome = option.name;
+
+            if (nome == PREFIX + "TEMPO")
+            {
+                if (YouTubeVoteBridgePlugin.TempoVotacao == null) return;
                 YouTubeVoteBridgePlugin.TempoVotacao.Value = Mathf.Clamp(
                     YouTubeVoteBridgePlugin.TempoVotacao.Value + delta * 5, 5, 600);
-            else if (option.name == PREFIX + "INTERVALO")
+            }
+            else if (nome == PREFIX + "INTERVALO")
+            {
+                if (YouTubeVoteBridgePlugin.IntervaloRodadas == null) return;
                 YouTubeVoteBridgePlugin.IntervaloRodadas.Value = Mathf.Clamp(
                     YouTubeVoteBridgePlugin.IntervaloRodadas.Value + delta * 5, 0, 600);
-            else if (option.name == PREFIX + "PREPARACAO")
+            }
+            else if (nome == PREFIX + "PREPARACAO")
+            {
+                if (YouTubeVoteBridgePlugin.PreparacaoChat == null) return;
                 YouTubeVoteBridgePlugin.PreparacaoChat.Value = Mathf.Clamp(
                     YouTubeVoteBridgePlugin.PreparacaoChat.Value + delta * 5, 0, 120);
-            else if (option.name == PREFIX + "JUIZ")
+            }
+            else if (nome == PREFIX + "JUIZ")
+            {
+                if (YouTubeVoteBridgePlugin.PularFaseVotosJuiz == null) return;
                 YouTubeVoteBridgePlugin.PularFaseVotosJuiz.Value = delta > 0;
-            else if (option.name == PREFIX + "SEMFIM")
+            }
+            else if (nome == PREFIX + "SEMFIM")
+            {
+                if (YouTubeVoteBridgePlugin.SemFimDeJogo == null) return;
                 YouTubeVoteBridgePlugin.SemFimDeJogo.Value = delta > 0;
-            else if (option.name == PREFIX + "MULTI")
+            }
+            else if (nome == PREFIX + "MULTI")
+            {
+                if (YouTubeVoteBridgePlugin.MultiTransmissaoAtiva == null) return;
                 YouTubeVoteBridgePlugin.MultiTransmissaoAtiva.Value = delta > 0;
-            else if (option.name == PREFIX + "PERMITIRIDS")
+            }
+            else if (nome == PREFIX + "PERMITIRIDS")
+            {
+                if (YouTubeVoteBridgePlugin.PermitirIdsDeOutrosJogadores == null) return;
                 YouTubeVoteBridgePlugin.PermitirIdsDeOutrosJogadores.Value = delta > 0;
-            else if (option.name == PREFIX + "TROCAMAPA")
+            }
+            else if (nome == PREFIX + "TROCAMAPA")
+            {
+                if (YouTubeVoteBridgePlugin.TrocarMapaAoIniciar == null) return;
                 YouTubeVoteBridgePlugin.TrocarMapaAoIniciar.Value = delta > 0;
-            else if (option.name == PREFIX + "VENTNPC")
+            }
+            else if (nome == PREFIX + "VENTNPC")
+            {
+                if (YouTubeVoteBridgePlugin.PermitirVentilacaoNPC == null) return;
                 YouTubeVoteBridgePlugin.PermitirVentilacaoNPC.Value = delta > 0;
+            }
             else
+            {
                 return;
+            }
 
             YouTubeVoteBridgePlugin.Instance?.Config.Save();
             AtualizarUmControle(option);
