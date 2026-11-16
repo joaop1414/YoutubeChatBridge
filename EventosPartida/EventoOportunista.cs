@@ -10,12 +10,13 @@ namespace YouTubeVoteBridge;
 internal sealed class EventoOportunista : EventoVotacao
 {
     internal const string MARCADOR = "<size=0>YTVB_OPPORTUNISTA</size>";
+    private static bool ativo;
 
     public override string Nome => "Um jogador aleatório será Oportunista";
 
     public void Executar()
     {
-        if (!YouTubeVoteBridgePlugin.EhHost())
+        if (!YouTubeVoteBridgePlugin.EhHost() || ativo)
             return;
 
         ListarCandidatos(out var candidatos);
@@ -27,6 +28,7 @@ internal sealed class EventoOportunista : EventoVotacao
         }
 
         PlayerControl escolhido = candidatos[System.Random.Shared.Next(candidatos.Count)];
+        ativo = true;
         RegistroFuncoesJogadores.DefinirOportunista(escolhido.PlayerId, true);
         MarcarNomeGlobal(escolhido);
 
@@ -52,6 +54,8 @@ internal sealed class EventoOportunista : EventoVotacao
             candidatos.Add(jogador);
         }
     }
+
+    internal static void Resetar() => ativo = false;
 
     internal static bool EhOportunista(PlayerControl jogador)
     {
@@ -336,6 +340,7 @@ internal static class EventoOportunistaVencedoresPatch
     {
         // O marcador só precisa existir até a lista de vencedores ser montada.
         EventoOportunista.LimparMarcadores();
+        EventoOportunista.Resetar();
     }
 }
 
@@ -345,5 +350,6 @@ internal static class EventoOportunistaLimparInicioPatch
     private static void Prefix()
     {
         EventoOportunista.LimparMarcadores();
+        EventoOportunista.Resetar();
     }
 }
