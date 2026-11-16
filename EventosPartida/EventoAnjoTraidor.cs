@@ -33,6 +33,35 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
 
     public override string Nome => "Anjo Traidor";
 
+    // Enquanto o Anjo Traidor estiver localmente como GuardianAngel, o host
+    // mantém a partida aberta se ele for o último impostor (0 impostores ativos).
+    internal static bool DeveManterPartidaAbertaComoAnjo()
+    {
+        if (!ativo || !transformado || habilidadeEncerrada ||
+            playerIdSelecionado == byte.MaxValue || GameData.Instance == null)
+            return false;
+
+        PlayerControl anjo = ObterJogador(playerIdSelecionado);
+        if (anjo == null || anjo.Data == null || anjo.Data.IsDead || anjo.Data.Disconnected)
+            return false;
+
+        int impostoresVivos = 0;
+        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+        {
+            if (jogador == null || jogador.Data == null ||
+                jogador.Data.IsDead || jogador.Data.Disconnected)
+                continue;
+
+            if (jogador.PlayerId == playerIdSelecionado)
+                continue; // no cliente do Anjo, ele é GuardianAngel
+
+            if (jogador.Data.Role != null && jogador.Data.Role.IsImpostor)
+                impostoresVivos++;
+        }
+
+        return impostoresVivos == 0;
+    }
+
     public void Executar()
     {
         if (!YouTubeVoteBridgePlugin.EhHost())
