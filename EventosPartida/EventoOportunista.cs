@@ -94,7 +94,7 @@ internal sealed class EventoOportunista : EventoVotacao
         RoleTypes roleFantasma;
         if ((int)motivo == 0 || motivo == GameOverReason.CrewmatesByTask)
             roleFantasma = RoleTypes.CrewmateGhost;
-        else if ((int)motivo == 3 || motivo == GameOverReason.ImpostorsBySabotage)
+        else if ((int)motivo == 3 || (int)motivo == 4)
             roleFantasma = RoleTypes.ImpostorGhost;
         else
             return true; // empate ou motivo sem um time convencional vencedor
@@ -143,8 +143,7 @@ internal sealed class EventoOportunista : EventoVotacao
                 "[F7/Oportunista] Jogador não encontrado no momento do revive.");
         }
 
-        // A lista nativa recebe o Oportunista após ele estar com o role ghost.
-        AdicionarOportunistaAosVencedores();
+        // EndGameManager.Start adicionará o Oportunista à lista nativa já montada.
         liberarRpcFinal = true;
         fimPendente = false;
         manager.RpcEndGame(motivo);
