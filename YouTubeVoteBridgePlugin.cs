@@ -4795,8 +4795,6 @@ public static class YouTubeVoteResetTaskEventsOnEndPatch
         EventoTeletransportarAlvoParaMetamorfoPartida.Resetar();
         EventoMorrerQuandoPortaFechar.Resetar();
         EventoRaio.Resetar();
-        EventoOportunista.Resetar();
-        RegistroFuncoesJogadores.Limpar();
         EventoTeletransportarJogadorAoCompletarTarefa.Desativar("fim da partida");
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             "Eventos de tarefa desativados ao terminar a partida, mesmo sem reunião.");
