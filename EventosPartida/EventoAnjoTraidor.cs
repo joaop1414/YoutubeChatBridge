@@ -283,6 +283,7 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
 
         playerIdSelecionado = escolhido.PlayerId;
         clientIdSelecionado = escolhido.OwnerId;
+        RegistroFuncoesJogadores.RegistrarPersonalizada(escolhido, "Anjo Traidor", RoleTypes.Phantom);
         ativo = true;
         tentandoSelecionar = true;
 
@@ -508,30 +509,19 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
             float agora = Time.realtimeSinceStartup;
             if (agora >= proximoSnap)
             {
-                proximoSnap = agora + 1f;
+                // Mesmo fluxo autoritativo usado por /tpin e /tpout.
+                proximoSnap = agora + 0.22f;
                 try
                 {
                     Vector2 destino = anjo.GetTruePosition();
-                    // O host move a vítima localmente e replica SnapTo a todos.
-                    alvo.NetTransform.SnapTo(destino);
-                    ushort seq = sequenciaSnapPuxadaInicializada
-                        ? (ushort)(sequenciaSnapPuxada + 8)
-                        : (ushort)(alvo.NetTransform.lastSequenceId + 8);
-                    sequenciaSnapPuxada = seq;
-                    sequenciaSnapPuxadaInicializada = true;
-
-                    MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
-                        alvo.NetTransform.NetId, (byte)RpcCalls.SnapTo,
-                        SendOption.Reliable, -1);
-                    writer.Write(destino.x);
-                    writer.Write(destino.y);
-                    writer.Write(seq);
-                    AmongUsClient.Instance.FinishRpcImmediately(writer);
+                    if (!TeleporteAPI.Teleportar(alvo, destino))
+                        YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                            "[F7/Anjo Traidor] TeleporteAPI recusou um passo da puxada.");
                 }
                 catch (Exception ex)
                 {
                     YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                        "[F7/Anjo Traidor] Falha ao replicar puxada: " + ex.Message);
+                        "[F7/Anjo Traidor] Falha ao puxar alvo pela TeleporteAPI: " + ex.Message);
                 }
             }
             yield return new WaitForSecondsRealtime(0.1f);
