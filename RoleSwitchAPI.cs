@@ -255,24 +255,16 @@ internal static class RoleSwitchAPI
                 AtualizarRoleMapCompleto(jogador, funcao);
             }
 
-            // Equivalente ao EHR: SetRole local (extensão do EHR = StartCoroutine(CoSetRole))
-            // somente na instância host, seguido do RPC vanilla para todos.
-            if (AmongUsClient.Instance.AmClient)
-                jogador.StartCoroutine(jogador.CoSetRole(funcao, true));
+            // Usa o método vanilla completo. Ele aplica a função localmente
+            // e envia o RPC SetRole no formato esperado pelo próprio jogo.
+            // Evita duplicar manualmente CoSetRole + StartRpcImmediately.
+            jogador.RpcSetRole(funcao, true);
 
-            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
-                jogador.NetId,
-                (byte)RpcCalls.SetRole,
-                SendOption.Reliable);
-            writer.Write((ushort)funcao);
-            writer.Write(true);
-            AmongUsClient.Instance.FinishRpcImmediately(writer);
+            // Registra a função solicitada imediatamente, sem depender do
+            // momento em que Data.Role é atualizado pela coroutine vanilla.
+            AtualizarRegistroLocal(jogador, funcao);
 
-            // Mantém a função do ponto de vista do host no registro local e
-            // preserva atributos já registrados, como Oportunista.
-            AtualizarRegistroLocal(jogador);
-
-            LogInfo($"RpcSetRoleGlobal EHR-style: PlayerId={jogador.PlayerId}, Role={funcao}, canOverrideRole=true.");
+            LogInfo($"RpcSetRoleGlobal vanilla: PlayerId={jogador.PlayerId}, Role={funcao}, canOverrideRole=true.");
         }
         catch (Exception ex)
         {
@@ -391,94 +383,14 @@ internal static class RoleSwitchAPI
 
         GarantirRoleMapInicializado();
 
-        if (!mapaInicializado)
-        {
-            RpcSetRoleGlobal(target, novaFuncao);
-            return;
-        }
+        // Neste mod, as trocas solicitadas são globais: todos os clientes
+        // devem enxergar a mesma função. O caminho desync do EHR só é
+        // necessário quando existe uma função diferente por observador.
+        AtualizarRoleMapCompleto(target, novaFuncao);
+        RpcSetRoleGlobal(target, novaFuncao);
+        AtualizarRegistroLocal(target, novaFuncao);
 
-        RoleTypes funcaoBaseAnterior = RoleMap.TryGetValue(
-            (target.PlayerId, target.PlayerId), out RoleTypes selfRole)
-            ? selfRole
-            : target.Data.RoleType;
-
-        List<PlayerControl> jogadores = ObterJogadoresDoMapa();
-        List<RoleCall> chamadas = new();
-
-        foreach (PlayerControl seer in jogadores)
-        {
-            if (seer.OwnerId < 0)
-                continue;
-
-            RoleTypes roleObservada = RoleMap.TryGetValue(
-                (seer.PlayerId, target.PlayerId), out RoleTypes roleAtual)
-                ? roleAtual
-                : funcaoBaseAnterior;
-
-            // Em uma troca normal->normal, observadores que já tinham uma
-            // visão especial diferente da base mantêm essa visão.
-            if (seer.PlayerId == target.PlayerId || roleObservada == funcaoBaseAnterior)
-                roleObservada = novaFuncao;
-
-            RoleMap[(seer.PlayerId, target.PlayerId)] = roleObservada;
-            chamadas.Add(new RoleCall(target, roleObservada, seer.OwnerId));
-        }
-
-        if (chamadas.Count == 0)
-        {
-            RpcSetRoleGlobal(target, novaFuncao);
-            return;
-        }
-
-        Dictionary<RoleTypes, int> contagens = new();
-        RoleTypes funcaoGlobal = chamadas[0].Role;
-        int maiorContagem = 0;
-
-        foreach (RoleCall chamada in chamadas)
-        {
-            int quantidade = contagens.TryGetValue(chamada.Role, out int atual)
-                ? atual + 1
-                : 1;
-            contagens[chamada.Role] = quantidade;
-
-            if (quantidade > maiorContagem)
-            {
-                maiorContagem = quantidade;
-                funcaoGlobal = chamada.Role;
-            }
-        }
-
-        // Segue a estratégia do EHR: usa o SetRole global para a função
-        // majoritária e corrige os observadores divergentes após 0,2 segundo.
-        if (maiorContagem > 1)
-        {
-            RpcSetRoleGlobal(target, funcaoGlobal);
-
-            List<RoleCall> correcoes = chamadas
-                .Where(x => x.Role != funcaoGlobal)
-                .ToList();
-
-            if (correcoes.Count > 0)
-            {
-                PlayerControl local = PlayerControl.LocalPlayer;
-                if (local != null)
-                    MonoBehaviourExtensions.StartCoroutine(
-                        local, EnviarCorrecoesAposRoleGlobal(correcoes, funcaoGlobal));
-                else
-                    foreach (RoleCall correcao in correcoes)
-                        RpcSetRoleDesync(target, correcao.Role, correcao.ClientId);
-            }
-        }
-        else
-        {
-            // Sem uma função majoritária, cada observador recebe sua função
-            // diretamente, como no caminho desync->desync do EHR.
-            foreach (RoleCall chamada in chamadas)
-                RpcSetRoleDesync(target, chamada.Role, chamada.ClientId);
-        }
-
-        AtualizarRegistroLocal(target);
-        LogInfo($"RoleMap atualizado: alvo={target.PlayerId}, base anterior={funcaoBaseAnterior}, nova função={novaFuncao}, observadores={chamadas.Count}, função global={funcaoGlobal}, maioria={maiorContagem}.");
+        LogInfo($"Troca global aplicada pelo RpcSetRole vanilla: PlayerId={target.PlayerId}, Role={novaFuncao}.");
     }
 
     private static System.Collections.IEnumerator EnviarCorrecoesAposRoleGlobal(
@@ -521,16 +433,18 @@ internal static class RoleSwitchAPI
         return null;
     }
 
-    private static void AtualizarRegistroLocal(PlayerControl jogador)
+    private static void AtualizarRegistroLocal(
+        PlayerControl jogador, RoleTypes? funcaoForcada = null)
     {
-        if (jogador == null)
+        if (jogador == null || jogador.Data == null)
             return;
 
-        RoleTypes funcaoLocal = jogador.Data != null ? jogador.Data.RoleType : RoleTypes.Crewmate;
-        PlayerControl local = PlayerControl.LocalPlayer;
+        RoleTypes funcaoLocal = funcaoForcada ??
+            (jogador.Data.Role != null ? jogador.Data.Role.Role : jogador.Data.RoleType);
 
-        if (local != null && RoleMap.TryGetValue(
-            (local.PlayerId, jogador.PlayerId), out RoleTypes roleMapLocal))
+        PlayerControl local = PlayerControl.LocalPlayer;
+        if (!funcaoForcada.HasValue && local != null &&
+            RoleMap.TryGetValue((local.PlayerId, jogador.PlayerId), out RoleTypes roleMapLocal))
             funcaoLocal = roleMapLocal;
 
         RegistroFuncoesJogadores.Atribuicao atual =
