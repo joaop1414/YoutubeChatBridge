@@ -23,6 +23,10 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
     private static bool tentandoSelecionar;
     private static bool transformado;
     private static bool habilidadeEncerrada;
+    // Quando um corpo é reportado, aguardamos a animação de entrada na reunião
+    // antes de encerrar a partida com vitória dos impostores.
+    private static bool reporteSolicitado;
+    private static bool aguardandoAnimacaoReporte;
     private static byte playerIdSelecionado = byte.MaxValue;
     private static int clientIdSelecionado = -1;
     private static float proximoDiagnosticoLogicOptions;
@@ -44,7 +48,8 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
     // mantém a partida aberta se ele for o último impostor (0 impostores ativos).
     internal static bool DeveManterPartidaAbertaComoAnjo()
     {
-        if (!ativo || !transformado || habilidadeEncerrada ||
+        if (!ativo || !transformado ||
+            (habilidadeEncerrada && !aguardandoAnimacaoReporte) ||
             playerIdSelecionado == byte.MaxValue || GameData.Instance == null ||
             PlayerControl.AllPlayerControls == null)
             return false;
@@ -84,6 +89,8 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
         tentandoSelecionar = false;
         transformado = false;
         habilidadeEncerrada = false;
+        reporteSolicitado = false;
+        aguardandoAnimacaoReporte = false;
         playerIdSelecionado = byte.MaxValue;
         clientIdSelecionado = -1;
 
@@ -597,9 +604,10 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
         if (!YouTubeVoteBridgePlugin.EhHost() || !ativo || anjo == null)
             return false;
 
-        // Durante o evento, nenhum outro GuardianAngel pode executar Protect.
+        // O evento só intercepta a habilidade do Anjo Traidor.
+        // Outros Anjos da Guarda continuam usando o Protect vanilla normalmente.
         if (anjo.PlayerId != playerIdSelecionado)
-            return true;
+            return false;
 
         if (!transformado || habilidadeEncerrada ||
             MeetingHud.Instance != null ||
@@ -1042,9 +1050,11 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
         if (!YouTubeVoteBridgePlugin.EhHost() || !ativo || !transformado)
             return;
 
+        reporteSolicitado = true;
         RestaurarNomesLocais();
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            "[F7/Anjo Traidor] Nomes restaurados antes do reporte do corpo.");
+            "[F7/Anjo Traidor] Reporte detectado. Nomes restaurados; a partida aguardará " +
+            "a animação da reunião antes de encerrar.");
     }
 
     internal static void AoIniciarReuniao()
@@ -1060,6 +1070,18 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
         primeiroRpcProtectEm = -1f;
         alvoPuxadaPlayerId = byte.MaxValue;
 
+        bool encerrarDepoisDaAnimacao = reporteSolicitado;
+        if (encerrarDepoisDaAnimacao && !aguardandoAnimacaoReporte)
+        {
+            aguardandoAnimacaoReporte = true;
+            MonoBehaviourExtensions.StartCoroutine(
+                PlayerControl.LocalPlayer,
+                EncerrarPartidaAposAnimacaoReporte());
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[F7/Anjo Traidor] Reunião de reporte iniciada. Aguardando 3 segundos " +
+                "para os clientes assistirem à animação antes do fim da partida.");
+        }
+
         PlayerControl jogador = ObterJogadorSelecionado();
         if (jogador != null)
         {
@@ -1074,6 +1096,38 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             "[F7/Anjo Traidor] Reunião iniciada. O Anjo da Guarda perdeu a habilidade " +
             "e agora é ImpostorGhost também no próprio cliente.");
+    }
+
+    private static IEnumerator EncerrarPartidaAposAnimacaoReporte()
+    {
+        // A transição de reporte precisa ser visível nos outros clientes antes
+        // de a tela de vitória substituir a reunião.
+        yield return new WaitForSecondsRealtime(3f);
+
+        if (!YouTubeVoteBridgePlugin.EhHost() ||
+            !ativo ||
+            !transformado ||
+            !aguardandoAnimacaoReporte)
+            yield break;
+
+        GameManager manager = GameManager.Instance;
+        if (manager == null)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Anjo Traidor] GameManager indisponível após a animação do reporte; " +
+                "não foi possível encerrar a partida.");
+            yield break;
+        }
+
+        aguardandoAnimacaoReporte = false;
+        reporteSolicitado = false;
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            "[F7/Anjo Traidor] Animação do reporte concluída. Encerrando a partida " +
+            "com vitória dos impostores.");
+        // GameOverReason 3 é ImpostorsByKill, o motivo de vitória impostora
+        // também reconhecido pelo fluxo de preparação do Oportunista.
+        manager.RpcEndGame((GameOverReason)3, false);
     }
 
     private static PlayerControl ObterJogadorSelecionado()
@@ -1218,6 +1272,8 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
         tentandoSelecionar = false;
         transformado = false;
         habilidadeEncerrada = false;
+        reporteSolicitado = false;
+        aguardandoAnimacaoReporte = false;
         playerIdSelecionado = byte.MaxValue;
         clientIdSelecionado = -1;
         nomesOriginais.Clear();
