@@ -27,6 +27,7 @@ internal static class LobbyModLabelManager
             PlayerControl.LocalPlayer == null)
             return;
 
+        proximaSincronizacao = Time.realtimeSinceStartup + 2.5f;
         List<byte> ids = ObterIdsComMod();
 
         // O host também aplica a lista localmente, sem precisar enviar RPC para si.
@@ -59,7 +60,6 @@ internal static class LobbyModLabelManager
             }
         }
 
-        proximaSincronizacao = Time.realtimeSinceStartup + 2.5f;
     }
 
     internal static void ReceberLista(MessageReader reader)
@@ -145,7 +145,7 @@ internal static class LobbyModLabelManager
     private static int[] ObterClientesComMod()
     {
         // A lista é obtida pelo método público já usado pelo sistema de sincronização.
-        return LobbyModClientesSnapshot.Obter();
+        return YouTubeVoteBridgePlugin.ClientesComModSnapshot();
     }
 
     private static void AplicarLista(IEnumerable<byte> ids)
