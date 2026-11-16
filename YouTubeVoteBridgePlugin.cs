@@ -164,6 +164,8 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
     // inclusive em clientes vanilla, sem replicar a mudança para a sala inteira.
     public static bool ClienteTemMod(int clientId) => ClientesComMod.Contains(clientId);
 
+    internal static int[] ClientesComModSnapshot() => ClientesComMod.ToArray();
+
     private static CancellationTokenSource leitorToken;
     private static Task tarefaLeitor;
 
