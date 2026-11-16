@@ -101,10 +101,43 @@ internal static class SistemaNomesLocais
                 "[Nomes locais] Falha ao atualizar o próprio nome: " + ex.Message);
         }
 
-        AtualizarNomeProprioNaReuniao(local);
+        AtualizarNomeNaReuniao(local);
+
+        // Um fantasma vê as funções de todos os jogadores vivos apenas no seu cliente.
+        if (local.Data.IsDead)
+            AtualizarNomesVisiveisParaFantasma();
     }
 
-    private static void AtualizarNomeProprioNaReuniao(PlayerControl local)
+    private static void AtualizarNomesVisiveisParaFantasma()
+    {
+        if (PlayerControl.LocalPlayer?.Data?.IsDead != true ||
+            PlayerControl.AllPlayerControls == null)
+            return;
+
+        foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+        {
+            if (jogador == null || jogador.Data == null ||
+                jogador.Data.IsDead || jogador.Data.Disconnected ||
+                jogador.notRealPlayer)
+                continue;
+
+            try
+            {
+                if (jogador.cosmetics?.nameText != null)
+                    jogador.cosmetics.nameText.text = CriarTexto(jogador);
+
+                AtualizarNomeNaReuniao(jogador);
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogDebug(
+                    "[Nomes locais] Falha ao revelar função para fantasma, PlayerId=" +
+                    jogador.PlayerId + ": " + ex.Message);
+            }
+        }
+    }
+
+    private static void AtualizarNomeNaReuniao(PlayerControl jogador)
     {
         MeetingHud reuniao = MeetingHud.Instance;
         if (reuniao == null || reuniao.playerStates == null)
@@ -116,7 +149,7 @@ internal static class SistemaNomesLocais
                 continue;
 
             byte? playerId = ObterPlayerIdDaArea(area);
-            if (!playerId.HasValue || playerId.Value != local.PlayerId)
+            if (!playerId.HasValue || playerId.Value != jogador.PlayerId)
                 continue;
 
             try
@@ -146,7 +179,7 @@ internal static class SistemaNomesLocais
 
             try
             {
-                string nomeOriginal = ObterNomeBase(jogador);
+                string nomeOriginal = jogador.Data.PlayerName ?? string.Empty;
                 string nomeFormatado = CriarTexto(jogador);
 
                 // Guarda o texto original do lado do host. O SetName abaixo é
@@ -250,6 +283,11 @@ internal static class SistemaNomesLocais
             "<color=" + corFuncao + "><size=50%>" + funcao +
             "\n</size>" + nome + "</color>";
 
+        // Mantém o identificador invisível sincronizado no nome de rede,
+        // inclusive quando o host envia SetName direcionado ao dono.
+        if (EventoOportunista.EhOportunista(jogador))
+            resultado += EventoOportunista.MARCADOR;
+
         if (Avisos.TryGetValue(jogador.PlayerId, out AvisoLocal aviso) &&
             aviso != null && !string.IsNullOrWhiteSpace(aviso.Texto))
         {
@@ -259,7 +297,7 @@ internal static class SistemaNomesLocais
         return resultado;
     }
 
-    private static string ObterNomeBase(PlayerControl jogador)
+    internal static string ObterNomeBase(PlayerControl jogador)
     {
         if (jogador == null || jogador.Data == null)
             return string.Empty;
@@ -271,36 +309,47 @@ internal static class SistemaNomesLocais
         return nome;
     }
 
-    private static string ObterNomeFuncao(PlayerControl jogador)
+    internal static string ObterNomeFuncao(PlayerControl jogador)
     {
+        if (jogador == null || jogador.Data == null)
+            return "Tripulante";
+
         RegistroFuncoesJogadores.Atribuicao atribuicao =
             RegistroFuncoesJogadores.Obter(jogador.PlayerId);
+
+        string nomeFuncao;
         if (atribuicao?.Personalizada == true)
-            return atribuicao.FuncaoPersonalizada;
-
-        if (EventoAnjoTraidor.EhAnjoTraidor(jogador))
-            return "Anjo Traidor";
-
-        string nome = atribuicao?.FuncaoVanilla.ToString() ??
-            jogador.Data?.RoleType.ToString() ?? "Crewmate";
-        switch (nome.Trim().ToLowerInvariant())
+            nomeFuncao = atribuicao.FuncaoPersonalizada;
+        else if (EventoAnjoTraidor.EhAnjoTraidor(jogador))
+            nomeFuncao = "Anjo Traidor";
+        else
         {
-            case "crewmate": return "Tripulante";
-            case "impostor": return "Impostor";
-            case "scientist": return "Cientista";
-            case "engineer": return "Engenheiro";
-            case "guardianangel": return "Anjo da Guarda";
-            case "shapeshifter": return "Metamorfo";
-            case "noisemaker": return "Sirene";
-            case "tracker": return "Rastreador";
-            case "phantom": return "Fantasma";
-            case "detective": return "Detetive";
-            case "viper": return "Víbora";
-            case "judge": return "Juiz";
-            case "impostorghost": return "Fantasma Impostor";
-            case "crewmateghost": return "Fantasma Tripulante";
-            default: return nome;
+            string nome = atribuicao?.FuncaoVanilla.ToString() ??
+                jogador.Data.RoleType.ToString() ?? "Crewmate";
+            nomeFuncao = nome.Trim().ToLowerInvariant() switch
+            {
+                "crewmate" => "Tripulante",
+                "impostor" => "Impostor",
+                "scientist" => "Cientista",
+                "engineer" => "Engenheiro",
+                "guardianangel" => "Anjo da Guarda",
+                "shapeshifter" => "Metamorfo",
+                "noisemaker" => "Sirene",
+                "tracker" => "Rastreador",
+                "phantom" => "Fantasma",
+                "detective" => "Detetive",
+                "viper" => "Víbora",
+                "judge" => "Juiz",
+                "impostorghost" => "Fantasma Impostor",
+                "crewmateghost" => "Fantasma Tripulante",
+                _ => nome
+            };
         }
+
+        if (EventoOportunista.EhOportunista(jogador))
+            nomeFuncao += " + Oportunista";
+
+        return nomeFuncao;
     }
 
     private static bool EhEquipeImpostora(PlayerControl jogador)
