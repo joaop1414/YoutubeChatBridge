@@ -306,7 +306,26 @@ internal static class SistemaNomesLocais
         if (string.IsNullOrWhiteSpace(nome))
             nome = jogador.Data.PlayerName ?? string.Empty;
 
-        return EventoOportunista.RemoverMarcador(nome);
+        nome = EventoOportunista.RemoverMarcador(nome);
+
+        // Se o SetName direcionado já aplicou o cabeçalho local da função,
+        // remove somente esse invólucro para não empilhar cabeçalhos a cada Update.
+        if (nome.StartsWith("<color=", StringComparison.OrdinalIgnoreCase))
+        {
+            int inicioTamanho = nome.IndexOf("<size=50%>", StringComparison.OrdinalIgnoreCase);
+            int fimTamanho = inicioTamanho >= 0
+                ? nome.IndexOf("</size>", inicioTamanho, StringComparison.OrdinalIgnoreCase)
+                : -1;
+
+            if (fimTamanho >= 0)
+            {
+                nome = nome.Substring(fimTamanho + "</size>".Length);
+                if (nome.EndsWith("</color>", StringComparison.OrdinalIgnoreCase))
+                    nome = nome.Substring(0, nome.Length - "</color>".Length);
+            }
+        }
+
+        return nome;
     }
 
     internal static string ObterNomeFuncao(PlayerControl jogador)
