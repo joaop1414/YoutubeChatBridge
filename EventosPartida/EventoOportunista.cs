@@ -72,6 +72,10 @@ internal sealed class EventoOportunista : EventoVotacao
 
     internal static void Resetar()
     {
+        if (oportunistaPlayerId != byte.MaxValue &&
+            RegistroFuncoesJogadores.Obter(oportunistaPlayerId) != null)
+            RegistroFuncoesJogadores.DefinirOportunista(oportunistaPlayerId, false);
+
         ativo = false;
         oportunistaPlayerId = byte.MaxValue;
         fimPendente = false;
