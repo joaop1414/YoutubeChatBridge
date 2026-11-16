@@ -25,6 +25,7 @@ internal static class InspecaoSelecaoInicialFuncoesPatch
     {
         // Captura o resultado vanilla para manter um registro completo por jogador.
         RegistroFuncoesJogadores.RegistrarDistribuicaoVanilla();
+        EventoOportunista.ReaplicarAposDistribuicao();
         Registrar("DEPOIS");
     }
 
