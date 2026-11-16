@@ -1409,10 +1409,11 @@ internal static class EventoAnjoTraidorEndGamePatch
         // GuardianAngel. O vanilla pode interpretar isso como vitória dos
         // tripulantes. Bloqueamos somente os motivos de vitória da tripulação;
         // vitórias legítimas dos impostores continuam encerrando normalmente.
-        bool vitoriaTripulantes =
-            (int)__0 == 0 || __0 == GameOverReason.CrewmatesByTask;
+        // O código 0 é o encerramento por ausência de impostores ativos.
+        // Vitória por tarefas concluídas continua sendo uma condição legítima.
+        bool vitoriaPorAusenciaDeImpostores = (int)__0 == 0;
 
-        if (vitoriaTripulantes && EventoAnjoTraidor.DeveManterPartidaAbertaComoAnjo())
+        if (vitoriaPorAusenciaDeImpostores && EventoAnjoTraidor.DeveManterPartidaAbertaComoAnjo())
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 "[F7/Anjo Traidor] RpcEndGame bloqueado: o Anjo ainda está vivo e é o último impostor. " +
