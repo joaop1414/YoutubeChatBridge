@@ -66,7 +66,7 @@ internal static class RoleSwitchAPI
             GarantirRoleMapInicializado();
             AtualizarRoleMapCompleto(jogador, funcao);
             RpcSetRoleGlobal(jogador, funcao, atualizarMapa: false);
-            AtualizarRegistroLocal(jogador);
+            AtualizarRegistroLocal(jogador, funcao);
             SistemaNomesLocais.Atualizar();
             return true;
         }
@@ -295,7 +295,7 @@ internal static class RoleSwitchAPI
                 // host, aplica a função localmente sem enviar RPC para si mesmo.
                 if (AmongUsClient.Instance.AmClient)
                     jogador.StartCoroutine(jogador.CoSetRole(funcao, true));
-                AtualizarRegistroLocal(jogador);
+                AtualizarRegistroLocal(jogador, funcao);
                 LogInfo($"RpcSetRoleDesync local EHR-style: PlayerId={jogador.PlayerId}, cliente={clientId}, Role={funcao}.");
                 return true;
             }
