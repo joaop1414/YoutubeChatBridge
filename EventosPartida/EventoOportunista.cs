@@ -88,6 +88,16 @@ internal sealed class EventoOportunista : EventoVotacao
         if (!YouTubeVoteBridgePlugin.EhHost())
             return true;
 
+        // A proteção do Anjo precisa prevalecer também quando este Prefix for
+        // executado antes do Prefix de EventoAnjoTraidorEndGamePatch.
+        if ((int)motivo == 0 &&
+            EventoAnjoTraidor.DeveManterPartidaAbertaComoAnjo())
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[F7/Oportunista] Preparação da vitória adiada: o Anjo Traidor ainda mantém a partida aberta.");
+            return false;
+        }
+
         // Segunda chamada: a preparação já terminou, deixa o jogo encerrar.
         if (liberarRpcFinal)
         {
