@@ -4,6 +4,7 @@ using System.Linq;
 using System.Reflection;
 using HarmonyLib;
 using Hazel;
+using UnityEngine;
 
 namespace YouTubeVoteBridge;
 
@@ -11,6 +12,9 @@ internal sealed class EventoOportunista : EventoVotacao
 {
     internal const string MARCADOR = "<size=0>YTVB_OPPORTUNISTA</size>";
     private static bool ativo;
+    private static bool fimPendente;
+    private static bool liberarRpcFinal;
+    private static byte oportunistaFinalId = byte.MaxValue;
 
     public override string Nome => "Um jogador aleatório será Oportunista";
 
@@ -55,7 +59,98 @@ internal sealed class EventoOportunista : EventoVotacao
         }
     }
 
-    internal static void Resetar() => ativo = false;
+    internal static void Resetar()
+    {
+        ativo = false;
+        fimPendente = false;
+        liberarRpcFinal = false;
+        oportunistaFinalId = byte.MaxValue;
+    }
+
+    /// <summary>
+    /// Intercepta o primeiro RpcEndGame para converter o Oportunista no fantasma
+    /// do time vencedor, sincronizar o revive e só então liberar o encerramento.
+    /// </summary>
+    internal static bool InterceptarFimDeJogo(GameManager manager, GameOverReason motivo)
+    {
+        if (!YouTubeVoteBridgePlugin.EhHost())
+            return true;
+
+        // Segunda chamada: a preparação já terminou, deixa o jogo encerrar.
+        if (liberarRpcFinal)
+        {
+            liberarRpcFinal = false;
+            fimPendente = false;
+            return true;
+        }
+
+        if (fimPendente)
+            return false;
+
+        PlayerControl oportunista = PlayerControl.AllPlayerControls?.ToArray()
+            .FirstOrDefault(p => p != null && p.Data != null && !p.Data.Disconnected && EhOportunista(p));
+        if (oportunista == null)
+            return true;
+
+        RoleTypes roleFantasma;
+        if (motivo == GameOverReason.CrewmatesByVote || motivo == GameOverReason.CrewmatesByTask)
+            roleFantasma = RoleTypes.CrewmateGhost;
+        else if (motivo == GameOverReason.ImpostorsByKill || motivo == GameOverReason.ImpostorsBySabotage)
+            roleFantasma = RoleTypes.ImpostorGhost;
+        else
+            return true; // empate ou motivo sem um time convencional vencedor
+
+        if (HudManager.Instance == null)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Oportunista] HudManager indisponível; encerramento seguirá sem conversão/revive.");
+            return true;
+        }
+
+        fimPendente = true;
+        oportunistaFinalId = oportunista.PlayerId;
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"[F7/Oportunista] Vitória {motivo}; preparando {roleFantasma} e revive para PlayerId={oportunistaFinalId}.");
+        HudManager.Instance.StartCoroutine(PrepararOportunistaEEncerrar(manager, motivo, oportunistaFinalId, roleFantasma));
+        return false;
+    }
+
+    private static System.Collections.IEnumerator PrepararOportunistaEEncerrar(
+        GameManager manager, GameOverReason motivo, byte playerId, RoleTypes roleFantasma)
+    {
+        // Pequena janela para impedir que a primeira tela de vitória seja criada
+        // antes da mudança de função e dos RPCs de revive chegarem aos clientes.
+        yield return new WaitForSecondsRealtime(0.35f);
+
+        PlayerControl jogador = PlayerControl.AllPlayerControls?.ToArray()
+            .FirstOrDefault(p => p != null && p.PlayerId == playerId && p.Data != null);
+        if (jogador != null)
+        {
+            try
+            {
+                jogador.RpcSetRole(roleFantasma, false);
+                jogador.RpcRevive();
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    $"[F7/Oportunista] Role {roleFantasma} e RpcRevive enviados para PlayerId={playerId}.");
+            }
+            catch (Exception ex)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                    "[F7/Oportunista] Falha ao sincronizar fantasma/revive: " + ex);
+            }
+        }
+        else
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[F7/Oportunista] Jogador não encontrado no momento do revive.");
+        }
+
+        // A lista nativa recebe o Oportunista após ele estar com o role ghost.
+        AdicionarOportunistaAosVencedores();
+        liberarRpcFinal = true;
+        fimPendente = false;
+        manager.RpcEndGame(motivo);
+    }
 
     internal static bool EhOportunista(PlayerControl jogador)
     {
@@ -323,6 +418,15 @@ internal sealed class EventoOportunista : EventoVotacao
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
                 "[F7/Oportunista] Não foi possível incluir o jogador na tela de vitória: " + ex);
         }
+    }
+}
+
+[HarmonyPatch(typeof(GameManager), nameof(GameManager.RpcEndGame))]
+internal static class EventoOportunistaPrepararVitoriaPatch
+{
+    private static bool Prefix(GameManager __instance, GameOverReason reason)
+    {
+        return EventoOportunista.InterceptarFimDeJogo(__instance, reason);
     }
 }
 
