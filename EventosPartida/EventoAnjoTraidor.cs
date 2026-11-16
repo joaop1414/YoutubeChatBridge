@@ -367,25 +367,30 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
         {
             CapturarNomesDosImpostores();
 
-            // Primeiro executa a morte real e envia o papel de fantasma
-            // impostor para todos os clientes.
-            jogador.RpcMurderPlayer(jogador, true);
-
-            // Corrige o estado autoritativo local quando o Phantom é o host.
-            jogador.Data.IsDead = true;
-            NetworkedPlayerInfo dadosHost = GameData.Instance?.GetPlayerById(jogador.PlayerId);
-            if (dadosHost != null)
+            // O EHR separa o fluxo do host do fluxo de jogadores remotos:
+            // quando o Phantom é o próprio host, executamos MurderPlayer
+            // diretamente para que a rotina local crie também o cadáver.
+            // Para um Phantom remoto, mantemos o RPC de morte enviado pelo host.
+            if (jogador.AmOwner)
             {
-                dadosHost.IsDead = true;
-                dadosHost.SetDirtyBit(uint.MaxValue);
+                jogador.MurderPlayer(
+                    jogador,
+                    MurderResultFlags.Succeeded | MurderResultFlags.DecisionByHost);
+
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[F7/Anjo Traidor] Morte local executada para o Phantom host; " +
+                    "cadáver criado pela rotina MurderPlayer.");
             }
-            try { AmongUsClient.Instance?.SendAllStreamedObjects(); }
-            catch (Exception exSync)
+            else
             {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "[F7/Anjo Traidor] Falha ao propagar estado morto do Phantom: " + exSync.Message);
+                jogador.RpcMurderPlayer(jogador, true);
+
+                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                    "[F7/Anjo Traidor] RPC de morte enviado para o Phantom remoto.");
             }
 
+            // Não forçamos Data.IsDead manualmente aqui: MurderPlayer/RpcMurderPlayer
+            // precisam concluir o processamento normal da morte e criar o cadáver.
             jogador.RpcSetRole(RoleTypes.ImpostorGhost, true);
 
             // O papel privado é enviado depois de a morte e o papel global
