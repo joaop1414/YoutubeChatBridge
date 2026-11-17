@@ -360,10 +360,12 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         botao.transform.localRotation = Quaternion.identity;
         botao.transform.localScale = escala;
 
-        // Nunca herda o callback do botão Editar nem callbacks de outro clone.
+        // Não usa UnityAction: nesta versão IL2CPP ele não é exposto como
+        // delegado C# compatível com lambdas. O PassiveButton clonado mantém
+        // o collider e a hierarquia nativa; este componente recebe o clique.
         botao.OnClick = new();
-        // Mesmo formato de callback usado pelo SimpleButton do EHR.
-        botao.OnClick.AddListener(() => acao());
+        CliqueIndependente clique = botao.gameObject.AddComponent<CliqueIndependente>();
+        clique.AoClicar = acao;
 
         Transform labelTransform = botao.transform.Find("FontPlacer/Text_TMP");
         TextMeshPro label = labelTransform != null
