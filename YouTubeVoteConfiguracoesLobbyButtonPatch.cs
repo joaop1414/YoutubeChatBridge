@@ -360,10 +360,42 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         botao.transform.localRotation = Quaternion.identity;
         botao.transform.localScale = escala;
 
-        // Não usa UnityAction: nesta versão IL2CPP ele não é exposto como
-        // delegado C# compatível com lambdas. O PassiveButton clonado mantém
-        // o collider e a hierarquia nativa; este componente recebe o clique.
+        // O prefab clonado fornece a hierarquia e o texto nativos, mas sua
+        // aparência depende do estado interno do PassiveButton. Desativamos
+        // esse controlador e desenhamos o fundo diretamente no objeto raiz.
+        // Assim o botão continua visível mesmo sem a inicialização interna
+        // feita pelo jogo no prefab original.
         botao.OnClick = new();
+        botao.enabled = false;
+
+        SpriteRenderer fundoProprio = botao.gameObject.GetComponent<SpriteRenderer>();
+        if (fundoProprio == null)
+            fundoProprio = botao.gameObject.AddComponent<SpriteRenderer>();
+
+        fundoProprio.sprite = ObterSprite();
+        fundoProprio.drawMode = SpriteDrawMode.Sliced;
+        fundoProprio.size = tamanho;
+        fundoProprio.color = cor;
+        fundoProprio.sortingOrder = ordem;
+
+        // Esconde os sprites de estado herdados; o fundo próprio não depende
+        // deles nem muda de estado por causa do PassiveButton.
+        SpriteRenderer normalHerdado = botao.inactiveSprites != null
+            ? botao.inactiveSprites.GetComponent<SpriteRenderer>()
+            : null;
+        SpriteRenderer hoverHerdado = botao.activeSprites != null
+            ? botao.activeSprites.GetComponent<SpriteRenderer>()
+            : null;
+        if (normalHerdado != null) normalHerdado.enabled = false;
+        if (hoverHerdado != null) hoverHerdado.enabled = false;
+
+        BoxCollider2D colliderRaiz = botao.GetComponent<BoxCollider2D>();
+        if (colliderRaiz == null)
+            colliderRaiz = botao.gameObject.AddComponent<BoxCollider2D>();
+        colliderRaiz.offset = Vector2.zero;
+        colliderRaiz.size = tamanho;
+        colliderRaiz.isTrigger = false;
+
         CliqueIndependente clique = botao.gameObject.AddComponent<CliqueIndependente>();
         clique.AoClicar = acao;
 
@@ -399,35 +431,8 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         label.enableWordWrapping = false;
         label.color = Color.white;
 
-        SpriteRenderer normal = botao.inactiveSprites != null
-            ? botao.inactiveSprites.GetComponent<SpriteRenderer>()
-            : null;
-        SpriteRenderer hover = botao.activeSprites != null
-            ? botao.activeSprites.GetComponent<SpriteRenderer>()
-            : null;
-        BoxCollider2D collider = botao.GetComponent<BoxCollider2D>();
-
-        if (normal != null)
-        {
-            normal.color = cor;
-            normal.size = tamanho;
-            normal.sortingOrder = ordem;
-        }
-
-        if (hover != null)
-        {
-            hover.color = Color.Lerp(cor, Color.white, 0.22f);
-            hover.size = tamanho;
-            hover.sortingOrder = ordem;
-        }
-
-        if (collider != null)
-        {
-            collider.offset = Vector2.zero;
-            collider.size = tamanho;
-        }
-
-        // Mantém os sprites e o collider com a mesma dimensão, como EHR.Scale.
+        // O SpriteRenderer e o collider próprios já foram configurados
+        // acima; aqui apenas ativamos a instância e sua hierarquia visual.
         botao.gameObject.SetActive(true);
         return botao.gameObject;
     }
