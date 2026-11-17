@@ -362,12 +362,8 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
 
         // Nunca herda o callback do botão Editar nem callbacks de outro clone.
         botao.OnClick = new();
-        botao.OnClick.AddListener(() =>
-        {
-            if (botao != null && botao.gameObject != null &&
-                botao.gameObject.activeInHierarchy)
-                acao();
-        });
+        // Mesmo formato de callback usado pelo SimpleButton do EHR.
+        botao.OnClick.AddListener(() => acao());
 
         Transform labelTransform = botao.transform.Find("FontPlacer/Text_TMP");
         TextMeshPro label = labelTransform != null
