@@ -290,11 +290,11 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
 
         // Remove o comportamento original do botão Editar e registra somente
         // a ação deste controle.
-        if (passive.OnClick == null)
-            passive.OnClick = new Button.ButtonClickedEvent();
-        else
-            passive.OnClick.RemoveAllListeners();
-
+        // Não basta RemoveAllListeners(): ele remove listeners adicionados
+        // em runtime, mas pode preservar callbacks persistentes serializados
+        // no prefab EditButton. Substituímos o evento inteiro para impedir que
+        // o clone continue chamando também a ação original de Editar.
+        passive.OnClick = new Button.ButtonClickedEvent();
         passive.OnClick.AddListener((UnityEngine.Events.UnityAction)(() =>
         {
             if (objeto != null && objeto.activeInHierarchy)
@@ -307,6 +307,10 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
 
         if (renderer != null)
         {
+            // O sprite do EditButton também é herdado pelo Instantiate.
+            // Troca-o por uma superfície neutra para que os controles do mod
+            // não mantenham a aparência/estado visual do botão Editar.
+            renderer.sprite = ObterSprite();
             renderer.drawMode = SpriteDrawMode.Sliced;
             renderer.size = tamanho;
             renderer.color = cor;
