@@ -26,20 +26,10 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
     private static bool painelAberto;
     private static bool erroRegistrado;
 
-    // Entrada própria, sem PassiveButton. O componente padrão do Among Us
-    // depende de referências internas preenchidas pelo prefab do jogo; ao ser
-    // adicionado diretamente por código, pode lançar NullReferenceException
-    // continuamente e interferir nos outros controles.
-    private sealed class CliqueIndependente : MonoBehaviour
-    {
-        public Action AoClicar;
-
-        private void OnMouseUpAsButton()
-        {
-            if (isActiveAndEnabled && gameObject.activeInHierarchy)
-                AoClicar?.Invoke();
-        }
-    }
+    // Base de botão preparada a partir de um PassiveButton nativo, como no EHR.
+    // Nunca adicionamos PassiveButton vazio: clonamos um prefab já inicializado.
+    private static PassiveButton botaoBase;
+    private static GameObject paiBotaoBase;
 
     private sealed class ConfigItem
     {
@@ -108,6 +98,9 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
 
         Transform pai = referencia.transform.parent;
         if (pai == null) return;
+
+        InicializarBotaoBase(referencia);
+        if (botaoBase == null) return;
 
         botaoObjeto = CriarBotaoUnity(
             NomeBotao, pai,
@@ -273,48 +266,122 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         }
     }
 
+    private static void InicializarBotaoBase(PassiveButton referencia)
+    {
+        if (botaoBase != null || referencia == null) return;
+
+        paiBotaoBase = new GameObject("YouTubeVoteBridge_ButtonBase");
+        UnityEngine.Object.DontDestroyOnLoad(paiBotaoBase);
+
+        botaoBase = UnityEngine.Object.Instantiate(referencia, paiBotaoBase.transform);
+        botaoBase.gameObject.SetActive(false);
+        UnityEngine.Object.DontDestroyOnLoad(botaoBase);
+        botaoBase.name = "YouTubeVoteBridge_ButtonBase_Prefab";
+
+        // Remove o posicionamento automático herdado e todos os listeners
+        // do botão original (por exemplo, abrir o menu Editar).
+        AspectPosition aspect = botaoBase.GetComponent<AspectPosition>();
+        if (aspect != null) UnityEngine.Object.Destroy(aspect);
+        botaoBase.OnClick = new();
+
+        Transform labelTransform = botaoBase.transform.Find("FontPlacer/Text_TMP");
+        if (labelTransform != null)
+        {
+            TextMeshPro label = labelTransform.GetComponent<TextMeshPro>();
+            if (label != null)
+            {
+                Transform container = label.transform.parent;
+                if (container != null)
+                {
+                    Vector3 containerPosition = container.localPosition;
+                    containerPosition.x = 0f;
+                    container.localPosition = containerPosition;
+                }
+
+                Vector3 labelPosition = label.transform.localPosition;
+                labelPosition.x = 0f;
+                label.transform.localPosition = labelPosition;
+                label.horizontalAlignment = HorizontalAlignmentOptions.Center;
+                label.fontSize = label.fontSizeMin = label.fontSizeMax = 3.5f;
+                label.enableWordWrapping = false;
+                label.text = "YTVB BUTTON BASE";
+            }
+        }
+
+        BoxCollider2D collider = botaoBase.GetComponent<BoxCollider2D>();
+        if (collider != null) collider.offset = Vector2.zero;
+    }
+
     private static GameObject CriarBotaoUnity(
         string nome, Transform pai, Vector3 posicao, Vector3 escala,
         Vector2 tamanho, string titulo, Color cor, Action acao, int ordem = 70)
     {
-        if (pai == null || acao == null)
+        if (pai == null || acao == null || botaoBase == null)
             return null;
 
-        // Botão 100% independente: nenhum GameObject, componente visual,
-        // listener ou referência do botão Editar é clonado.
-        GameObject objeto = new GameObject(nome);
-        // A camada Default evita entrar na máscara de raycast da interface nativa.
-        objeto.layer = 0;
-        objeto.transform.SetParent(pai, false);
-        objeto.transform.localPosition = posicao;
-        objeto.transform.localRotation = Quaternion.identity;
-        objeto.transform.localScale = escala;
-
-        SpriteRenderer renderer = objeto.AddComponent<SpriteRenderer>();
-        renderer.sprite = ObterSprite();
-        renderer.drawMode = SpriteDrawMode.Sliced;
-        renderer.size = tamanho;
-        renderer.color = cor;
-        renderer.sortingOrder = ordem;
-
-        // Collider 2D local e callback independente. Não registra o objeto
-        // no sistema de PassiveButtons do jogo nem captura o fluxo global de UI.
-        BoxCollider2D collider = objeto.AddComponent<BoxCollider2D>();
-        collider.size = tamanho;
-        collider.isTrigger = false;
-
-        CliqueIndependente clique = objeto.AddComponent<CliqueIndependente>();
-        clique.AoClicar = () =>
+        // Mesmo padrão do EHR: cada botão é uma cópia do PassiveButton-base,
+        // com listener próprio, sprites nativos e collider já configurado.
+        PassiveButton botao = UnityEngine.Object.Instantiate(botaoBase, pai);
+        botao.name = nome;
+        botao.gameObject.SetActive(true);
+        botao.transform.localPosition = posicao;
+        botao.transform.localRotation = Quaternion.identity;
+        botao.transform.localScale = escala;
+        botao.OnClick = new();
+        botao.OnClick.AddListener(() =>
         {
-            if (objeto != null && objeto.activeInHierarchy)
+            if (botao != null && botao.gameObject.activeInHierarchy)
                 acao();
-        };
+        });
 
-        CriarTexto(objeto.transform, titulo,
-            new Vector3(0f, 0f, -0.04f), tamanho,
-            1.65f, Color.white, FontStyles.Bold, ordem + 1);
+        SpriteRenderer normal = botao.inactiveSprites != null
+            ? botao.inactiveSprites.GetComponent<SpriteRenderer>()
+            : null;
+        SpriteRenderer hover = botao.activeSprites != null
+            ? botao.activeSprites.GetComponent<SpriteRenderer>()
+            : null;
+        BoxCollider2D collider = botao.GetComponent<BoxCollider2D>();
 
-        return objeto;
+        if (normal != null)
+        {
+            normal.color = cor;
+            normal.size = tamanho;
+            normal.sortingOrder = ordem;
+        }
+
+        if (hover != null)
+        {
+            hover.color = Color.Lerp(cor, Color.white, 0.22f);
+            hover.size = tamanho;
+            hover.sortingOrder = ordem;
+        }
+
+        if (collider != null)
+        {
+            collider.size = tamanho;
+            collider.offset = Vector2.zero;
+        }
+
+        Transform labelTransform = botao.transform.Find("FontPlacer/Text_TMP");
+        if (labelTransform != null)
+        {
+            TextMeshPro label = labelTransform.GetComponent<TextMeshPro>();
+            if (label != null)
+            {
+                label.text = titulo;
+                label.color = Color.white;
+                label.alignment = TextAlignmentOptions.Center;
+                label.horizontalAlignment = HorizontalAlignmentOptions.Center;
+                label.fontSize = label.fontSizeMin = label.fontSizeMax = 1.65f;
+                label.enableWordWrapping = true;
+                label.overflowMode = TextOverflowModes.Overflow;
+
+                MeshRenderer textRenderer = label.GetComponent<MeshRenderer>();
+                if (textRenderer != null) textRenderer.sortingOrder = ordem + 1;
+            }
+        }
+
+        return botao.gameObject;
     }
 
     private static TextMeshPro CriarTexto(
