@@ -3,23 +3,29 @@ using System.Collections.Generic;
 using HarmonyLib;
 using TMPro;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace YouTubeVoteBridge;
 
 /// <summary>
 /// Botão e painel de configurações próprios do YouTubeVoteBridge.
-/// Todos os elementos visuais são GameObjects Unity criados pelo mod.
+/// O painel é ancorado ao centro da câmera e redimensionado para ocupar
+/// quase toda a área visível, independentemente da posição do botão Editar.
 /// </summary>
 [HarmonyPatch(typeof(GameStartManager), nameof(GameStartManager.Update))]
 internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
 {
     private const string NomeBotao = "YouTubeVoteBridge_ConfigButton";
+    private const float LarguraBasePainel = 10f;
+    private const float AlturaBasePainel = 5.8f;
+
     private static GameObject botaoObjeto;
     private static GameObject painelObjeto;
     private static GameStartManager gerenteAssociado;
     private static Sprite sprite;
     private static readonly Dictionary<string, TextMeshPro> valores = new();
     private static bool painelAberto;
+    private static bool erroRegistrado;
 
     private sealed class ConfigItem
     {
@@ -35,6 +41,7 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         try
         {
             if (__instance == null) return;
+
             bool hostLobby = AmongUsClient.Instance != null &&
                 AmongUsClient.Instance.AmHost &&
                 !AmongUsClient.Instance.IsGameStarted &&
@@ -51,25 +58,46 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
             if (botaoObjeto == null || gerenteAssociado != __instance)
                 CriarBotao(__instance);
 
+            if (painelObjeto == null)
+                CriarPainel();
+
             if (botaoObjeto != null) botaoObjeto.SetActive(true);
-            if (painelObjeto != null) painelObjeto.SetActive(painelAberto);
-            if (painelAberto) AtualizarValores();
+            if (painelObjeto != null)
+            {
+                painelObjeto.SetActive(painelAberto);
+                if (painelAberto)
+                {
+                    AtualizarPosicaoETamanhoPainel();
+                    AtualizarValores();
+                }
+            }
+
+            erroRegistrado = false;
         }
         catch (Exception ex)
         {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogError("[Configurações Unity] " + ex);
+            // Evita inundar o console com a mesma exceção em todos os frames.
+            if (!erroRegistrado)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogError("[Configurações Unity] " + ex);
+                erroRegistrado = true;
+            }
         }
     }
 
     private static void CriarBotao(GameStartManager gerente)
     {
-        if (botaoObjeto != null) UnityEngine.Object.Destroy(botaoObjeto);
-        if (painelObjeto != null) UnityEngine.Object.Destroy(painelObjeto);
+        DestruirObjeto(ref botaoObjeto);
+        DestruirObjeto(ref painelObjeto);
         valores.Clear();
         painelAberto = false;
 
         PassiveButton referencia = gerente.EditButton;
+        if (referencia == null || referencia.transform == null) return;
+
         Transform pai = referencia.transform.parent;
+        if (pai == null) return;
+
         botaoObjeto = CriarBotaoUnity(
             NomeBotao, pai,
             referencia.transform.localPosition + new Vector3(0f, -0.78f, 0f),
@@ -77,82 +105,110 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
             new Vector2(2.5f, 0.72f),
             "CONFIG. MOD",
             new Color(0.12f, 0.34f, 0.55f, 1f),
-            () => AlternarPainel());
+            AlternarPainel);
 
         gerenteAssociado = gerente;
-        CriarPainel(gerente);
     }
 
-    private static void CriarPainel(GameStartManager gerente)
+    private static void CriarPainel()
     {
-        Transform pai = gerente.EditButton.transform.parent;
+        Camera camera = Camera.main;
+        if (camera == null) return;
+
         painelObjeto = new GameObject("YouTubeVoteBridge_ConfigPanel");
-        painelObjeto.layer = gerente.EditButton.gameObject.layer;
-        painelObjeto.transform.SetParent(pai, false);
-        painelObjeto.transform.localPosition =
-            gerente.EditButton.transform.localPosition + new Vector3(0f, 0.25f, -0.5f);
+        painelObjeto.layer = botaoObjeto != null
+            ? botaoObjeto.layer
+            : 0;
+
+        // O painel fica diretamente na câmera: (0, 0) é sempre o centro da tela.
+        painelObjeto.transform.SetParent(camera.transform, false);
+        painelObjeto.transform.localPosition = new Vector3(0f, 0f, 10f);
         painelObjeto.transform.localRotation = Quaternion.identity;
-        painelObjeto.transform.localScale = gerente.EditButton.transform.localScale * 0.78f;
+        painelObjeto.transform.localScale = Vector3.one;
 
         SpriteRenderer fundo = painelObjeto.AddComponent<SpriteRenderer>();
         fundo.sprite = ObterSprite();
-        fundo.color = new Color(0.055f, 0.075f, 0.12f, 0.98f);
+        fundo.color = new Color(0.035f, 0.05f, 0.085f, 0.985f);
         fundo.drawMode = SpriteDrawMode.Sliced;
-        fundo.size = new Vector2(8.2f, 5.5f);
-        fundo.sortingOrder = 80;
+        fundo.size = new Vector2(LarguraBasePainel, AlturaBasePainel);
+        fundo.sortingOrder = 200;
 
         CriarTexto(painelObjeto.transform, "CONFIGURAÇÕES DO MOD",
-            new Vector3(0f, 2.18f, -0.08f), new Vector2(7.2f, 0.38f),
-            2.35f, Color.white, FontStyles.Bold, 81);
+            new Vector3(0f, 2.48f, -0.08f), new Vector2(8.8f, 0.42f),
+            2.45f, Color.white, FontStyles.Bold, 201);
 
         CriarTexto(painelObjeto.transform, "Altere as opções da sala. Somente o anfitrião pode editar.",
-            new Vector3(0f, 1.82f, -0.08f), new Vector2(7.2f, 0.28f),
-            1.05f, new Color(0.72f, 0.82f, 0.92f), FontStyles.Normal, 81);
+            new Vector3(0f, 2.08f, -0.08f), new Vector2(8.8f, 0.3f),
+            1.12f, new Color(0.72f, 0.82f, 0.92f), FontStyles.Normal, 201);
 
         List<ConfigItem> itens = ObterConfiguracoes();
-        float y = 1.35f;
+        float y = 1.62f;
+        const float espacamento = 0.405f;
+
         foreach (ConfigItem item in itens)
         {
             CriarTexto(painelObjeto.transform, item.Titulo,
-                new Vector3(-1.55f, y, -0.08f), new Vector2(4.45f, 0.34f),
-                1.12f, Color.white, FontStyles.Normal, 82);
+                new Vector3(-1.45f, y, -0.08f), new Vector2(6.0f, 0.34f),
+                1.16f, Color.white, FontStyles.Normal, 202);
 
             TextMeshPro valor = CriarTexto(painelObjeto.transform, item.Ler(),
-                new Vector3(1.75f, y, -0.08f), new Vector2(1.35f, 0.34f),
-                1.15f, new Color(0.45f, 0.9f, 1f), FontStyles.Bold, 82);
+                new Vector3(2.0f, y, -0.08f), new Vector2(1.55f, 0.34f),
+                1.16f, new Color(0.45f, 0.9f, 1f), FontStyles.Bold, 202);
             valores[item.Id] = valor;
 
             if (item.Binario)
             {
                 CriarBotaoUnity("Toggle_" + item.Id, painelObjeto.transform,
-                    new Vector3(3.15f, y, -0.1f), Vector3.one,
-                    new Vector2(1.25f, 0.34f), "ALTERAR",
+                    new Vector3(3.75f, y, -0.1f), Vector3.one,
+                    new Vector2(1.35f, 0.34f), "ALTERAR",
                     new Color(0.12f, 0.38f, 0.52f, 1f),
-                    () => { item.Alterar(1); AtualizarValores(); }, 83);
+                    () => { item.Alterar(1); AtualizarValores(); }, 203);
             }
             else
             {
                 CriarBotaoUnity("Menos_" + item.Id, painelObjeto.transform,
-                    new Vector3(2.78f, y, -0.1f), Vector3.one,
-                    new Vector2(0.38f, 0.34f), "−",
+                    new Vector3(3.35f, y, -0.1f), Vector3.one,
+                    new Vector2(0.42f, 0.34f), "−",
                     new Color(0.35f, 0.18f, 0.22f, 1f),
-                    () => { item.Alterar(-1); AtualizarValores(); }, 83);
+                    () => { item.Alterar(-1); AtualizarValores(); }, 203);
                 CriarBotaoUnity("Mais_" + item.Id, painelObjeto.transform,
-                    new Vector3(3.25f, y, -0.1f), Vector3.one,
-                    new Vector2(0.38f, 0.34f), "+",
+                    new Vector3(3.88f, y, -0.1f), Vector3.one,
+                    new Vector2(0.42f, 0.34f), "+",
                     new Color(0.12f, 0.38f, 0.3f, 1f),
-                    () => { item.Alterar(1); AtualizarValores(); }, 83);
+                    () => { item.Alterar(1); AtualizarValores(); }, 203);
             }
-            y -= 0.36f;
+
+            y -= espacamento;
         }
 
         CriarBotaoUnity("Fechar", painelObjeto.transform,
-            new Vector3(0f, -2.18f, -0.1f), Vector3.one,
-            new Vector2(2.0f, 0.38f), "FECHAR",
+            new Vector3(0f, -2.55f, -0.1f), Vector3.one,
+            new Vector2(2.2f, 0.42f), "FECHAR",
             new Color(0.42f, 0.16f, 0.2f, 1f),
-            () => AlternarPainel(), 83);
+            AlternarPainel, 203);
 
+        AtualizarPosicaoETamanhoPainel();
         painelObjeto.SetActive(false);
+    }
+
+    private static void AtualizarPosicaoETamanhoPainel()
+    {
+        if (painelObjeto == null) return;
+
+        Camera camera = Camera.main;
+        if (camera == null || !camera.orthographic) return;
+
+        float alturaVisivel = camera.orthographicSize * 2f;
+        float larguraVisivel = alturaVisivel * camera.aspect;
+
+        // Mantém margens pequenas e preserva a proporção do layout.
+        float escala = Mathf.Min(
+            (alturaVisivel * 0.92f) / AlturaBasePainel,
+            (larguraVisivel * 0.92f) / LarguraBasePainel);
+
+        escala = Mathf.Max(0.01f, escala);
+        painelObjeto.transform.localPosition = new Vector3(0f, 0f, 10f);
+        painelObjeto.transform.localScale = Vector3.one * escala;
     }
 
     private static List<ConfigItem> ObterConfiguracoes()
@@ -182,8 +238,11 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
     private static void AtualizarValores()
     {
         foreach (ConfigItem item in ObterConfiguracoes())
+        {
             if (valores.TryGetValue(item.Id, out TextMeshPro texto) && texto != null)
                 texto.text = item.Ler();
+        }
+
         YouTubeVoteBridgePlugin.Instance?.Config.Save();
     }
 
@@ -192,15 +251,23 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         if (AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost ||
             AmongUsClient.Instance.IsGameStarted || painelObjeto == null)
             return;
+
         painelAberto = !painelAberto;
         painelObjeto.SetActive(painelAberto);
-        if (painelAberto) AtualizarValores();
+
+        if (painelAberto)
+        {
+            AtualizarPosicaoETamanhoPainel();
+            AtualizarValores();
+        }
     }
 
     private static GameObject CriarBotaoUnity(
         string nome, Transform pai, Vector3 posicao, Vector3 escala,
         Vector2 tamanho, string titulo, Color cor, Action acao, int ordem = 70)
     {
+        if (pai == null || acao == null) return null;
+
         GameObject objeto = new GameObject(nome);
         objeto.layer = pai.gameObject.layer;
         objeto.transform.SetParent(pai, false);
@@ -220,10 +287,21 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         collider.size = tamanho;
 
         PassiveButton passive = objeto.AddComponent<PassiveButton>();
-        passive.OnClick.AddListener((Action)(() => acao()));
+        if (passive != null)
+        {
+            // PassiveButton criado por AddComponent não recebe o evento serializado
+            // que normalmente vem pronto nos botões dos prefabs do jogo.
+            passive.OnClick = new Button.ButtonClickedEvent();
+            passive.OnClick.AddListener((Action)(() =>
+            {
+                if (objeto != null && objeto.activeInHierarchy)
+                    acao();
+            }));
+        }
 
         CriarTexto(objeto.transform, titulo, new Vector3(0f, 0f, -0.04f),
             tamanho, 1.65f, Color.white, FontStyles.Bold, ordem + 1);
+
         return objeto;
     }
 
@@ -231,6 +309,8 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         Transform pai, string conteudo, Vector3 posicao, Vector2 tamanho,
         float fonte, Color cor, FontStyles estilo, int ordem)
     {
+        if (pai == null) return null;
+
         GameObject go = new GameObject("Texto_" + conteudo);
         go.layer = pai.gameObject.layer;
         go.transform.SetParent(pai, false);
@@ -239,6 +319,8 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         go.transform.localScale = Vector3.one;
 
         TextMeshPro texto = go.AddComponent<TextMeshPro>();
+        if (texto == null) return null;
+
         texto.text = conteudo;
         texto.alignment = TextAlignmentOptions.Center;
         texto.fontSize = fonte;
@@ -247,26 +329,41 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         texto.enableWordWrapping = true;
         texto.overflowMode = TextOverflowModes.Overflow;
         texto.rectTransform.sizeDelta = tamanho;
+
         if (TMP_Settings.defaultFontAsset != null)
             texto.font = TMP_Settings.defaultFontAsset;
 
         MeshRenderer mesh = go.GetComponent<MeshRenderer>();
         if (mesh != null) mesh.sortingOrder = ordem;
+
         return texto;
     }
 
     private static Sprite ObterSprite()
     {
         if (sprite != null) return sprite;
+
         const int w = 64, h = 64;
         Texture2D tex = new Texture2D(w, h, TextureFormat.RGBA32, false);
         tex.name = "YouTubeVoteBridge_UnityUiTexture";
         tex.filterMode = FilterMode.Bilinear;
+
         Color[] pixels = new Color[w * h];
-        for (int i = 0; i < pixels.Length; i++) pixels[i] = Color.white;
+        for (int i = 0; i < pixels.Length; i++)
+            pixels[i] = Color.white;
+
         tex.SetPixels(pixels);
         tex.Apply(false, true);
-        sprite = Sprite.Create(tex, new Rect(0, 0, w, h), new Vector2(0.5f, 0.5f), 64f);
+        sprite = Sprite.Create(tex, new Rect(0, 0, w, h),
+            new Vector2(0.5f, 0.5f), 64f);
+
         return sprite;
+    }
+
+    private static void DestruirObjeto(ref GameObject objeto)
+    {
+        if (objeto != null)
+            UnityEngine.Object.Destroy(objeto);
+        objeto = null;
     }
 }
