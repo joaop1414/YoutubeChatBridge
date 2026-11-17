@@ -274,7 +274,8 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
             botaoModelo.gameObject, pai, false);
 
         objeto.name = nome;
-        objeto.layer = pai.gameObject.layer;
+        // Mantém a layer original do botão do jogo, usada pelo sistema de clique.
+        objeto.layer = botaoModelo.gameObject.layer;
         objeto.transform.localPosition = posicao;
         objeto.transform.localRotation = Quaternion.identity;
         objeto.transform.localScale = escala;
@@ -294,7 +295,7 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         else
             passive.OnClick.RemoveAllListeners();
 
-        passive.OnClick.AddListener((Action)(() =>
+        passive.OnClick.AddListener((UnityEngine.Events.UnityAction)(() =>
         {
             if (objeto != null && objeto.activeInHierarchy)
                 acao();
@@ -320,8 +321,7 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
             collider = objeto.AddComponent<BoxCollider2D>();
 
         collider.size = tamanho;
-        collider.isTrigger = true;
-        collider.enabled = true;
+        // Preserva isTrigger e demais propriedades herdadas do botão funcional.
 
         TextMeshPro texto = objeto.GetComponentInChildren<TextMeshPro>(true);
         if (texto != null)
