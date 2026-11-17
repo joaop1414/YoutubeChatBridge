@@ -22,6 +22,7 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
     private static GameObject botaoObjeto;
     private static GameObject painelObjeto;
     private static GameStartManager gerenteAssociado;
+    private static PassiveButton botaoModelo;
     private static Sprite sprite;
     private static readonly Dictionary<string, TextMeshPro> valores = new();
     private static bool painelAberto;
@@ -91,6 +92,7 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
 
         PassiveButton referencia = gerente.EditButton;
         if (referencia == null || referencia.transform == null) return;
+        botaoModelo = referencia;
 
         Transform pai = referencia.transform.parent;
         if (pai == null) return;
@@ -263,42 +265,87 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         string nome, Transform pai, Vector3 posicao, Vector3 escala,
         Vector2 tamanho, string titulo, Color cor, Action acao, int ordem = 70)
     {
-        if (pai == null || acao == null) return null;
+        if (pai == null || acao == null || botaoModelo == null)
+            return null;
 
-        GameObject objeto = new GameObject(nome);
+        // Clona um botão real do lobby para preservar ClickMask, collider,
+        // handlers e demais componentes internos que o jogo espera encontrar.
+        GameObject objeto = UnityEngine.Object.Instantiate(
+            botaoModelo.gameObject, pai, false);
+
+        objeto.name = nome;
         objeto.layer = pai.gameObject.layer;
-        objeto.transform.SetParent(pai, false);
         objeto.transform.localPosition = posicao;
         objeto.transform.localRotation = Quaternion.identity;
         objeto.transform.localScale = escala;
 
-        SpriteRenderer renderer = objeto.AddComponent<SpriteRenderer>();
-        renderer.sprite = ObterSprite();
-        renderer.drawMode = SpriteDrawMode.Sliced;
-        renderer.size = tamanho;
-        renderer.color = cor;
-        renderer.sortingOrder = ordem;
-
-        BoxCollider2D collider = objeto.AddComponent<BoxCollider2D>();
-        collider.isTrigger = true;
-        collider.size = tamanho;
-
-        PassiveButton passive = objeto.AddComponent<PassiveButton>();
-        if (passive != null)
+        PassiveButton passive = objeto.GetComponent<PassiveButton>();
+        if (passive == null)
         {
-            // PassiveButton criado por AddComponent não recebe o evento serializado
-            // que normalmente vem pronto nos botões dos prefabs do jogo.
-            passive.OnClick = new Button.ButtonClickedEvent();
-            passive.OnClick.AddListener((Action)(() =>
-            {
-                if (objeto != null && objeto.activeInHierarchy)
-                    acao();
-            }));
+            UnityEngine.Object.Destroy(objeto);
+            throw new InvalidOperationException(
+                "O botão clonado do lobby não contém PassiveButton.");
         }
 
-        CriarTexto(objeto.transform, titulo, new Vector3(0f, 0f, -0.04f),
-            tamanho, 1.65f, Color.white, FontStyles.Bold, ordem + 1);
+        // Remove o comportamento original do botão Editar e registra somente
+        // a ação deste controle.
+        if (passive.OnClick == null)
+            passive.OnClick = new Button.ButtonClickedEvent();
+        else
+            passive.OnClick.RemoveAllListeners();
 
+        passive.OnClick.AddListener((Action)(() =>
+        {
+            if (objeto != null && objeto.activeInHierarchy)
+                acao();
+        }));
+
+        SpriteRenderer renderer = objeto.GetComponent<SpriteRenderer>();
+        if (renderer == null)
+            renderer = objeto.GetComponentInChildren<SpriteRenderer>(true);
+
+        if (renderer != null)
+        {
+            renderer.drawMode = SpriteDrawMode.Sliced;
+            renderer.size = tamanho;
+            renderer.color = cor;
+            renderer.sortingOrder = ordem;
+        }
+
+        BoxCollider2D collider = objeto.GetComponent<BoxCollider2D>();
+        if (collider == null)
+            collider = objeto.GetComponentInChildren<BoxCollider2D>(true);
+
+        if (collider == null)
+            collider = objeto.AddComponent<BoxCollider2D>();
+
+        collider.size = tamanho;
+        collider.isTrigger = true;
+        collider.enabled = true;
+
+        TextMeshPro texto = objeto.GetComponentInChildren<TextMeshPro>(true);
+        if (texto != null)
+        {
+            texto.text = titulo;
+            texto.alignment = TextAlignmentOptions.Center;
+            texto.enableWordWrapping = true;
+            texto.overflowMode = TextOverflowModes.Overflow;
+            texto.rectTransform.sizeDelta = tamanho;
+            texto.transform.localPosition = new Vector3(0f, 0f, -0.04f);
+
+            MeshRenderer mesh = texto.GetComponent<MeshRenderer>();
+            if (mesh != null)
+                mesh.sortingOrder = ordem + 1;
+        }
+        else
+        {
+            CriarTexto(objeto.transform, titulo,
+                new Vector3(0f, 0f, -0.04f), tamanho,
+                1.65f, Color.white, FontStyles.Bold, ordem + 1);
+        }
+
+        // O clone não deve manter animações/estado visual de hover do Editar.
+        objeto.SetActive(true);
         return objeto;
     }
 
