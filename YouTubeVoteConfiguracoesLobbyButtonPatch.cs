@@ -97,56 +97,58 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         SpriteRenderer fundo = painelObjeto.AddComponent<SpriteRenderer>();
         fundo.sprite = ObterSprite();
         fundo.color = new Color(0.055f, 0.075f, 0.12f, 0.98f);
+        fundo.drawMode = SpriteDrawMode.Sliced;
+        fundo.size = new Vector2(8.2f, 5.5f);
         fundo.sortingOrder = 80;
 
         CriarTexto(painelObjeto.transform, "CONFIGURAÇÕES DO MOD",
-            new Vector3(0f, 2.15f, -0.08f), new Vector2(7.2f, 0.48f),
-            3.0f, Color.white, FontStyles.Bold, 81);
+            new Vector3(0f, 2.18f, -0.08f), new Vector2(7.2f, 0.38f),
+            2.35f, Color.white, FontStyles.Bold, 81);
 
         CriarTexto(painelObjeto.transform, "Altere as opções da sala. Somente o anfitrião pode editar.",
-            new Vector3(0f, 1.78f, -0.08f), new Vector2(7.2f, 0.32f),
-            1.25f, new Color(0.72f, 0.82f, 0.92f), FontStyles.Normal, 81);
+            new Vector3(0f, 1.82f, -0.08f), new Vector2(7.2f, 0.28f),
+            1.05f, new Color(0.72f, 0.82f, 0.92f), FontStyles.Normal, 81);
 
         List<ConfigItem> itens = ObterConfiguracoes();
-        float y = 1.15f;
+        float y = 1.35f;
         foreach (ConfigItem item in itens)
         {
             CriarTexto(painelObjeto.transform, item.Titulo,
-                new Vector3(-1.75f, y, -0.08f), new Vector2(4.15f, 0.42f),
-                1.55f, Color.white, FontStyles.Normal, 82);
+                new Vector3(-1.55f, y, -0.08f), new Vector2(4.45f, 0.34f),
+                1.12f, Color.white, FontStyles.Normal, 82);
 
             TextMeshPro valor = CriarTexto(painelObjeto.transform, item.Ler(),
-                new Vector3(1.45f, y, -0.08f), new Vector2(1.65f, 0.42f),
-                1.55f, new Color(0.45f, 0.9f, 1f), FontStyles.Bold, 82);
+                new Vector3(1.75f, y, -0.08f), new Vector2(1.35f, 0.34f),
+                1.15f, new Color(0.45f, 0.9f, 1f), FontStyles.Bold, 82);
             valores[item.Id] = valor;
 
             if (item.Binario)
             {
                 CriarBotaoUnity("Toggle_" + item.Id, painelObjeto.transform,
-                    new Vector3(2.85f, y, -0.1f), Vector3.one,
-                    new Vector2(1.35f, 0.42f), "ALTERAR",
+                    new Vector3(3.15f, y, -0.1f), Vector3.one,
+                    new Vector2(1.25f, 0.34f), "ALTERAR",
                     new Color(0.12f, 0.38f, 0.52f, 1f),
                     () => { item.Alterar(1); AtualizarValores(); }, 83);
             }
             else
             {
                 CriarBotaoUnity("Menos_" + item.Id, painelObjeto.transform,
-                    new Vector3(2.55f, y, -0.1f), Vector3.one,
-                    new Vector2(0.48f, 0.42f), "−",
+                    new Vector3(2.78f, y, -0.1f), Vector3.one,
+                    new Vector2(0.38f, 0.34f), "−",
                     new Color(0.35f, 0.18f, 0.22f, 1f),
                     () => { item.Alterar(-1); AtualizarValores(); }, 83);
                 CriarBotaoUnity("Mais_" + item.Id, painelObjeto.transform,
-                    new Vector3(3.12f, y, -0.1f), Vector3.one,
-                    new Vector2(0.48f, 0.42f), "+",
+                    new Vector3(3.25f, y, -0.1f), Vector3.one,
+                    new Vector2(0.38f, 0.34f), "+",
                     new Color(0.12f, 0.38f, 0.3f, 1f),
                     () => { item.Alterar(1); AtualizarValores(); }, 83);
             }
-            y -= 0.48f;
+            y -= 0.36f;
         }
 
         CriarBotaoUnity("Fechar", painelObjeto.transform,
             new Vector3(0f, -2.18f, -0.1f), Vector3.one,
-            new Vector2(2.0f, 0.48f), "FECHAR",
+            new Vector2(2.0f, 0.38f), "FECHAR",
             new Color(0.42f, 0.16f, 0.2f, 1f),
             () => AlternarPainel(), 83);
 
@@ -208,6 +210,8 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
 
         SpriteRenderer renderer = objeto.AddComponent<SpriteRenderer>();
         renderer.sprite = ObterSprite();
+        renderer.drawMode = SpriteDrawMode.Sliced;
+        renderer.size = tamanho;
         renderer.color = cor;
         renderer.sortingOrder = ordem;
 
