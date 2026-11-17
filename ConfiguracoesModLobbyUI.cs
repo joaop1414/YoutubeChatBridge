@@ -513,6 +513,13 @@ internal static class ConfiguracoesModLobbyUI
     [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "SetWindowTextW", SetLastError = true)]
     private static extern bool SetWindowTextW(IntPtr hWnd, string lpString);
 
+    [DllImport("gdi32.dll", CharSet = CharSet.Unicode, EntryPoint = "CreateFontW", SetLastError = true)]
+    private static extern IntPtr CreateFontW(
+        int cHeight, int cWidth, int cEscapement, int cOrientation, int cWeight,
+        bool bItalic, bool bUnderline, bool bStrikeOut, uint iCharSet,
+        uint iOutPrecision, uint iClipPrecision, uint iQuality, uint iPitchAndFamily,
+        string pszFaceName);
+
     [DllImport("user32.dll", EntryPoint = "SendMessageW")]
     private static extern IntPtr SendMessageW(
         IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
