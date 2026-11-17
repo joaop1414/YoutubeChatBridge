@@ -323,16 +323,51 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
     {
         if (pai == null) return null;
 
-        GameObject go = new GameObject("Texto_" + conteudo);
+        // Usa um TextMeshPro já inicializado pelo próprio Among Us. Um TMP
+        // criado vazio pode ficar sem FontAsset/material e resultar apenas no
+        // quadrado de fundo visível, sem nenhum texto.
+        TextMeshPro modelo = null;
+
+        if (PlayerControl.LocalPlayer != null &&
+            PlayerControl.LocalPlayer.cosmetics != null)
+            modelo = PlayerControl.LocalPlayer.cosmetics.nameText;
+
+        if (modelo == null && PlayerControl.AllPlayerControls != null)
+        {
+            foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+            {
+                if (jogador?.cosmetics?.nameText != null)
+                {
+                    modelo = jogador.cosmetics.nameText;
+                    break;
+                }
+            }
+        }
+
+        GameObject go;
+        TextMeshPro texto;
+
+        if (modelo != null)
+        {
+            texto = UnityEngine.Object.Instantiate(modelo, pai, false);
+            go = texto.gameObject;
+            go.name = "Texto_" + conteudo;
+        }
+        else
+        {
+            go = new GameObject("Texto_" + conteudo);
+            go.transform.SetParent(pai, false);
+            texto = go.AddComponent<TextMeshPro>();
+        }
+
         go.layer = 0;
-        go.transform.SetParent(pai, false);
         go.transform.localPosition = posicao;
         go.transform.localRotation = Quaternion.identity;
         go.transform.localScale = Vector3.one;
 
-        TextMeshPro texto = go.AddComponent<TextMeshPro>();
         if (texto == null) return null;
 
+        texto.enabled = true;
         texto.text = conteudo;
         texto.alignment = TextAlignmentOptions.Center;
         texto.fontSize = fonte;
@@ -342,11 +377,12 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         texto.overflowMode = TextOverflowModes.Overflow;
         texto.rectTransform.sizeDelta = tamanho;
 
-        if (TMP_Settings.defaultFontAsset != null)
-            texto.font = TMP_Settings.defaultFontAsset;
-
         MeshRenderer mesh = go.GetComponent<MeshRenderer>();
-        if (mesh != null) mesh.sortingOrder = ordem;
+        if (mesh != null)
+        {
+            mesh.enabled = true;
+            mesh.sortingOrder = ordem;
+        }
 
         return texto;
     }
@@ -367,7 +403,8 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         tex.SetPixels(pixels);
         tex.Apply(false, true);
         sprite = Sprite.Create(tex, new Rect(0, 0, w, h),
-            new Vector2(0.5f, 0.5f), 64f);
+            new Vector2(0.5f, 0.5f), 64f, 0,
+            SpriteMeshType.FullRect);
 
         return sprite;
     }
