@@ -327,26 +327,24 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         collider.size = tamanho;
         // Preserva isTrigger e demais propriedades herdadas do botão funcional.
 
-        TextMeshPro texto = objeto.GetComponentInChildren<TextMeshPro>(true);
-        if (texto != null)
+        // O prefab EditButton pode conter mais de um componente de texto
+        // (TMP 3D, TMP UI ou textos aninhados). Não reutilizamos nenhum deles:
+        // desativamos todos os textos herdados para que "Editar" nunca apareça
+        // por trás ou ao lado do rótulo deste botão.
+        TMP_Text[] textosHerdados = objeto.GetComponentsInChildren<TMP_Text>(true);
+        foreach (TMP_Text textoHerdado in textosHerdados)
         {
-            texto.text = titulo;
-            texto.alignment = TextAlignmentOptions.Center;
-            texto.enableWordWrapping = true;
-            texto.overflowMode = TextOverflowModes.Overflow;
-            texto.rectTransform.sizeDelta = tamanho;
-            texto.transform.localPosition = new Vector3(0f, 0f, -0.04f);
+            if (textoHerdado != null)
+            {
+                textoHerdado.text = string.Empty;
+                textoHerdado.enabled = false;
+            }
+        }
 
-            MeshRenderer mesh = texto.GetComponent<MeshRenderer>();
-            if (mesh != null)
-                mesh.sortingOrder = ordem + 1;
-        }
-        else
-        {
-            CriarTexto(objeto.transform, titulo,
-                new Vector3(0f, 0f, -0.04f), tamanho,
-                1.65f, Color.white, FontStyles.Bold, ordem + 1);
-        }
+        // Cada botão recebe um rótulo independente, criado pelo mod.
+        CriarTexto(objeto.transform, titulo,
+            new Vector3(0f, 0f, -0.04f), tamanho,
+            1.65f, Color.white, FontStyles.Bold, ordem + 1);
 
         // O clone não deve manter animações/estado visual de hover do Editar.
         objeto.SetActive(true);
