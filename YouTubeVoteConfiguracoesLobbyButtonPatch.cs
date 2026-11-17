@@ -66,10 +66,7 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
             {
                 painelObjeto.SetActive(painelAberto);
                 if (painelAberto)
-                {
                     AtualizarPosicaoETamanhoPainel();
-                    AtualizarValores();
-                }
             }
 
             erroRegistrado = false;
