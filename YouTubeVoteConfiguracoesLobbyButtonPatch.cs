@@ -22,7 +22,6 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
     private static GameObject botaoObjeto;
     private static GameObject painelObjeto;
     private static GameStartManager gerenteAssociado;
-    private static PassiveButton botaoModelo;
     private static Sprite sprite;
     private static readonly Dictionary<string, TextMeshPro> valores = new();
     private static bool painelAberto;
@@ -92,7 +91,6 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
 
         PassiveButton referencia = gerente.EditButton;
         if (referencia == null || referencia.transform == null) return;
-        botaoModelo = referencia;
 
         Transform pai = referencia.transform.parent;
         if (pai == null) return;
@@ -265,35 +263,33 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         string nome, Transform pai, Vector3 posicao, Vector3 escala,
         Vector2 tamanho, string titulo, Color cor, Action acao, int ordem = 70)
     {
-        if (pai == null || acao == null || botaoModelo == null)
+        if (pai == null || acao == null)
             return null;
 
-        // Clona um botão real do lobby para preservar ClickMask, collider,
-        // handlers e demais componentes internos que o jogo espera encontrar.
-        GameObject objeto = UnityEngine.Object.Instantiate(
-            botaoModelo.gameObject, pai, false);
-
-        objeto.name = nome;
-        // Mantém a layer original do botão do jogo, usada pelo sistema de clique.
-        objeto.layer = botaoModelo.gameObject.layer;
+        // Botão 100% independente: nenhum GameObject, componente visual,
+        // listener ou referência do botão Editar é clonado.
+        GameObject objeto = new GameObject(nome);
+        objeto.layer = pai.gameObject.layer;
+        objeto.transform.SetParent(pai, false);
         objeto.transform.localPosition = posicao;
         objeto.transform.localRotation = Quaternion.identity;
         objeto.transform.localScale = escala;
 
-        PassiveButton passive = objeto.GetComponent<PassiveButton>();
-        if (passive == null)
-        {
-            UnityEngine.Object.Destroy(objeto);
-            throw new InvalidOperationException(
-                "O botão clonado do lobby não contém PassiveButton.");
-        }
+        SpriteRenderer renderer = objeto.AddComponent<SpriteRenderer>();
+        renderer.sprite = ObterSprite();
+        renderer.drawMode = SpriteDrawMode.Sliced;
+        renderer.size = tamanho;
+        renderer.color = cor;
+        renderer.sortingOrder = ordem;
 
-        // Remove o comportamento original do botão Editar e registra somente
-        // a ação deste controle.
-        // Não basta RemoveAllListeners(): ele remove listeners adicionados
-        // em runtime, mas pode preservar callbacks persistentes serializados
-        // no prefab EditButton. Substituímos o evento inteiro para impedir que
-        // o clone continue chamando também a ação original de Editar.
+        // O PassiveButton recebe seu próprio evento e collider.
+        // A layer é herdada do container do lobby para respeitar o sistema
+        // de raycast/click mask usado pelo Among Us.
+        BoxCollider2D collider = objeto.AddComponent<BoxCollider2D>();
+        collider.size = tamanho;
+        collider.isTrigger = true;
+
+        PassiveButton passive = objeto.AddComponent<PassiveButton>();
         passive.OnClick = new Button.ButtonClickedEvent();
         passive.OnClick.AddListener((UnityEngine.Events.UnityAction)(() =>
         {
@@ -301,53 +297,10 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
                 acao();
         }));
 
-        SpriteRenderer renderer = objeto.GetComponent<SpriteRenderer>();
-        if (renderer == null)
-            renderer = objeto.GetComponentInChildren<SpriteRenderer>(true);
-
-        if (renderer != null)
-        {
-            // O sprite do EditButton também é herdado pelo Instantiate.
-            // Troca-o por uma superfície neutra para que os controles do mod
-            // não mantenham a aparência/estado visual do botão Editar.
-            renderer.sprite = ObterSprite();
-            renderer.drawMode = SpriteDrawMode.Sliced;
-            renderer.size = tamanho;
-            renderer.color = cor;
-            renderer.sortingOrder = ordem;
-        }
-
-        BoxCollider2D collider = objeto.GetComponent<BoxCollider2D>();
-        if (collider == null)
-            collider = objeto.GetComponentInChildren<BoxCollider2D>(true);
-
-        if (collider == null)
-            collider = objeto.AddComponent<BoxCollider2D>();
-
-        collider.size = tamanho;
-        // Preserva isTrigger e demais propriedades herdadas do botão funcional.
-
-        // O prefab EditButton pode conter mais de um componente de texto
-        // (TMP 3D, TMP UI ou textos aninhados). Não reutilizamos nenhum deles:
-        // desativamos todos os textos herdados para que "Editar" nunca apareça
-        // por trás ou ao lado do rótulo deste botão.
-        TMP_Text[] textosHerdados = objeto.GetComponentsInChildren<TMP_Text>(true);
-        foreach (TMP_Text textoHerdado in textosHerdados)
-        {
-            if (textoHerdado != null)
-            {
-                textoHerdado.text = string.Empty;
-                textoHerdado.enabled = false;
-            }
-        }
-
-        // Cada botão recebe um rótulo independente, criado pelo mod.
         CriarTexto(objeto.transform, titulo,
             new Vector3(0f, 0f, -0.04f), tamanho,
             1.65f, Color.white, FontStyles.Bold, ordem + 1);
 
-        // O clone não deve manter animações/estado visual de hover do Editar.
-        objeto.SetActive(true);
         return objeto;
     }
 
