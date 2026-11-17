@@ -1,0 +1,95 @@
+name: Compilar e publicar release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publicar-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-release:
+    name: Calcular versão, compilar e publicar
+    runs-on: windows-latest
+
+    steps:
+      - name: Baixar repositório
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Instalar .NET 6
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 6.0.x
+
+      - name: Calcular próxima versão
+        id: version
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $releaseTags = gh api "repos/$env:GITHUB_REPOSITORY/releases?per_page=100" --paginate --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name'
+          $versions = @()
+
+          foreach ($tag in $releaseTags) {
+            if ($tag -match '^v?(\d+)\.(\d+)\.(\d+)$') {
+              $versions += [pscustomobject]@{ X = [int]$Matches[1]; Y = [int]$Matches[2]; Z = [int]$Matches[3] }
+            }
+          }
+
+          if ($versions.Count -eq 0) {
+            $gitTags = git tag --list
+            foreach ($tag in $gitTags) {
+              if ($tag -match '^v?(\d+)\.(\d+)\.(\d+)$') {
+                $versions += [pscustomobject]@{ X = [int]$Matches[1]; Y = [int]$Matches[2]; Z = [int]$Matches[3] }
+              }
+            }
+          }
+
+          if ($versions.Count -eq 0) {
+            $x = 1; $y = 0; $z = 0
+          }
+          else {
+            $latest = $versions | Sort-Object X, Y, Z | Select-Object -Last 1
+            $x = $latest.X; $y = $latest.Y; $z = $latest.Z
+            if ($z -lt 9) {
+              $z++
+            }
+            else {
+              $z = 0
+              if ($y -lt 9) { $y++ }
+              else { $y = 0; $x++ }
+            }
+          }
+
+          $version = "$x.$y.$z"
+          "VERSION=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "Versão calculada: v$version"
+
+      - name: Restaurar dependências
+        run: dotnet restore YouTubeVoteBridge.csproj
+
+      - name: Compilar mod
+        run: dotnet build YouTubeVoteBridge.csproj --configuration Release --no-restore -p:Version=${{ steps.version.outputs.VERSION }} -p:VersionPrefix=${{ steps.version.outputs.VERSION }} -p:VersionSuffix=
+
+      - name: Preparar arquivo da release
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dll = Get-ChildItem -Path 'bin/Release' -Filter 'YouTubeVoteBridge.dll' -Recurse | Select-Object -First 1
+          if ($null -eq $dll) { throw 'A compilação terminou, mas YouTubeVoteBridge.dll não foi encontrado.' }
+          New-Item -ItemType Directory -Force -Path 'release' | Out-Null
+          Copy-Item $dll.FullName "release/YouTubeVoteBridge-v${{ steps.version.outputs.VERSION }}.dll"
+
+      - name: Publicar GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "v${{ steps.version.outputs.VERSION }}" "release/YouTubeVoteBridge-v${{ steps.version.outputs.VERSION }}.dll" --title "YouTubeChatBridge v${{ steps.version.outputs.VERSION }}" --generate-notes
