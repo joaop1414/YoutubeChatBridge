@@ -9,7 +9,7 @@ using UnityEngine;
 namespace YouTubeVoteBridge;
 
 /// <summary>
-/// Mostra uma etiqueta abaixo dos personagens dos jogadores que possuem o mod.
+/// Mostra uma etiqueta acima do nome dos jogadores que possuem o mod.
 /// A lista é enviada pelo host somente aos clientes que confirmaram o mod.
 /// </summary>
 internal static class LobbyModLabelManager
@@ -209,7 +209,7 @@ internal static class LobbyModLabelManager
                 etiqueta.text = "Jogador com o mod";
 
                 Vector3 posicao = modelo.transform.localPosition;
-                etiqueta.transform.localPosition = posicao + new Vector3(0f, -0.82f, -0.01f);
+                etiqueta.transform.localPosition = posicao + new Vector3(0f, 0.58f, -0.01f);
                 etiqueta.transform.localRotation = modelo.transform.localRotation;
                 etiqueta.transform.localScale = modelo.transform.localScale;
 
