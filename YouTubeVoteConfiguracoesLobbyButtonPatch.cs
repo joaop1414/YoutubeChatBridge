@@ -22,6 +22,7 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
     private static GameObject painelObjeto;
     private static GameStartManager gerenteAssociado;
     private static Sprite sprite;
+    private static PassiveButton botaoBase;
     private static readonly Dictionary<string, TextMeshPro> valores = new();
     private static bool painelAberto;
     private static bool erroRegistrado;
@@ -108,6 +109,9 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
 
         Transform pai = referencia.transform.parent;
         if (pai == null) return;
+
+        InicializarBotaoBase(referencia);
+        if (botaoBase == null) return;
 
         botaoObjeto = CriarBotaoUnity(
             NomeBotao, pai,
@@ -273,48 +277,161 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         }
     }
 
+    private static void InicializarBotaoBase(PassiveButton referencia)
+    {
+        if (botaoBase != null || referencia == null)
+            return;
+
+        GameObject container = new GameObject("YouTubeVoteBridge_ButtonBaseContainer");
+        UnityEngine.Object.DontDestroyOnLoad(container);
+
+        botaoBase = UnityEngine.Object.Instantiate(referencia, container.transform);
+        if (botaoBase == null)
+        {
+            UnityEngine.Object.Destroy(container);
+            return;
+        }
+
+        botaoBase.name = "YouTubeVoteBridge_NativeButtonBase";
+        botaoBase.gameObject.SetActive(false);
+
+        // Igual ao SimpleButton do EHR: remove o posicionamento automático,
+        // limpa os eventos do botão original e mantém o prefab nativo intacto.
+        AspectPosition aspect = botaoBase.GetComponent<AspectPosition>();
+        if (aspect != null)
+            UnityEngine.Object.Destroy(aspect);
+
+        botaoBase.OnClick = new();
+
+        Transform labelTransform = botaoBase.transform.Find("FontPlacer/Text_TMP");
+        if (labelTransform == null)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "[Configurações Unity] O botão nativo não possui FontPlacer/Text_TMP; não foi possível inicializar o modelo EHR.");
+            UnityEngine.Object.Destroy(container);
+            botaoBase = null;
+            return;
+        }
+
+        TextMeshPro label = labelTransform.GetComponent<TextMeshPro>();
+        if (label == null)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "[Configurações Unity] Text_TMP não contém TextMeshPro; modelo EHR não inicializado.");
+            UnityEngine.Object.Destroy(container);
+            botaoBase = null;
+            return;
+        }
+
+        // O componente de tradução do botão Editar não deve sobrescrever
+        // os rótulos definidos pelo mod nos botões clonados.
+        Component translator = label.GetComponent("TextTranslatorTMP");
+        if (translator != null)
+            UnityEngine.Object.Destroy(translator);
+
+        label.fontSize = label.fontSizeMin = label.fontSizeMax = 1.65f;
+        label.enableWordWrapping = false;
+        label.text = "YouTubeVoteBridge";
+        label.alignment = TextAlignmentOptions.Center;
+
+        BoxCollider2D collider = botaoBase.GetComponent<BoxCollider2D>();
+        if (collider != null)
+            collider.offset = Vector2.zero;
+
+        UnityEngine.Object.DontDestroyOnLoad(botaoBase);
+    }
+
     private static GameObject CriarBotaoUnity(
         string nome, Transform pai, Vector3 posicao, Vector3 escala,
         Vector2 tamanho, string titulo, Color cor, Action acao, int ordem = 70)
     {
-        if (pai == null || acao == null)
+        if (pai == null || acao == null || botaoBase == null)
             return null;
 
-        // Botão 100% independente: nenhum GameObject, componente visual,
-        // listener ou referência do botão Editar é clonado.
-        GameObject objeto = new GameObject(nome);
-        // A camada Default evita entrar na máscara de raycast da interface nativa.
-        objeto.layer = 0;
-        objeto.transform.SetParent(pai, false);
-        objeto.transform.localPosition = posicao;
-        objeto.transform.localRotation = Quaternion.identity;
-        objeto.transform.localScale = escala;
+        // Mesmo fluxo de EHR.SimpleButton: cada botão é uma instância
+        // independente do prefab nativo preparado uma única vez.
+        PassiveButton botao = UnityEngine.Object.Instantiate(botaoBase, pai);
+        if (botao == null)
+            return null;
 
-        SpriteRenderer renderer = objeto.AddComponent<SpriteRenderer>();
-        renderer.sprite = ObterSprite();
-        renderer.drawMode = SpriteDrawMode.Sliced;
-        renderer.size = tamanho;
-        renderer.color = cor;
-        renderer.sortingOrder = ordem;
+        botao.name = nome;
+        botao.gameObject.SetActive(false);
+        botao.transform.localPosition = posicao;
+        botao.transform.localRotation = Quaternion.identity;
+        botao.transform.localScale = escala;
 
-        // Collider 2D local e callback independente. Não registra o objeto
-        // no sistema de PassiveButtons do jogo nem captura o fluxo global de UI.
-        BoxCollider2D collider = objeto.AddComponent<BoxCollider2D>();
-        collider.size = tamanho;
-        collider.isTrigger = false;
-
-        CliqueIndependente clique = objeto.AddComponent<CliqueIndependente>();
-        clique.AoClicar = () =>
+        // Nunca herda o callback do botão Editar nem callbacks de outro clone.
+        botao.OnClick = new();
+        botao.OnClick.AddListener(() =>
         {
-            if (objeto != null && objeto.activeInHierarchy)
+            if (botao != null && botao.gameObject != null &&
+                botao.gameObject.activeInHierarchy)
                 acao();
-        };
+        });
 
-        CriarTexto(objeto.transform, titulo,
-            new Vector3(0f, 0f, -0.04f), tamanho,
-            1.65f, Color.white, FontStyles.Bold, ordem + 1);
+        Transform labelTransform = botao.transform.Find("FontPlacer/Text_TMP");
+        TextMeshPro label = labelTransform != null
+            ? labelTransform.GetComponent<TextMeshPro>()
+            : null;
 
-        return objeto;
+        if (label == null)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                $"[Configurações Unity] O botão clonado '{nome}' não possui FontPlacer/Text_TMP.");
+            UnityEngine.Object.Destroy(botao.gameObject);
+            return null;
+        }
+
+        Component translator = label.GetComponent("TextTranslatorTMP");
+        if (translator != null)
+            UnityEngine.Object.Destroy(translator);
+
+        Transform fontContainer = label.transform.parent;
+        if (fontContainer != null)
+        {
+            Vector3 containerPos = fontContainer.localPosition;
+            fontContainer.localPosition = new Vector3(0f, containerPos.y, containerPos.z);
+        }
+
+        Vector3 labelPos = label.transform.localPosition;
+        label.transform.localPosition = new Vector3(0f, labelPos.y, labelPos.z);
+        label.alignment = TextAlignmentOptions.Center;
+        label.text = titulo;
+        label.fontSize = label.fontSizeMin = label.fontSizeMax = 1.65f;
+        label.enableWordWrapping = false;
+        label.color = Color.white;
+
+        SpriteRenderer normal = botao.inactiveSprites != null
+            ? botao.inactiveSprites.GetComponent<SpriteRenderer>()
+            : null;
+        SpriteRenderer hover = botao.activeSprites != null
+            ? botao.activeSprites.GetComponent<SpriteRenderer>()
+            : null;
+        BoxCollider2D collider = botao.GetComponent<BoxCollider2D>();
+
+        if (normal != null)
+        {
+            normal.color = cor;
+            normal.size = tamanho;
+            normal.sortingOrder = ordem;
+        }
+
+        if (hover != null)
+        {
+            hover.color = Color.Lerp(cor, Color.white, 0.22f);
+            hover.size = tamanho;
+            hover.sortingOrder = ordem;
+        }
+
+        if (collider != null)
+        {
+            collider.offset = Vector2.zero;
+            collider.size = tamanho;
+        }
+
+        // Mantém os sprites e o collider com a mesma dimensão, como EHR.Scale.
+        botao.gameObject.SetActive(true);
+        return botao.gameObject;
     }
 
     private static TextMeshPro CriarTexto(
