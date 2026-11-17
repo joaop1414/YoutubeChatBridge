@@ -1,6 +1,7 @@
 name: Compilar e publicar release
 
-on: []
+on:
+  workflow_dispatch:
 
 permissions:
   contents: write
