@@ -97,7 +97,7 @@ internal static class ConfiguracoesModLobbyUI
 
         if (AmongUsClient.Instance == null ||
             !AmongUsClient.Instance.AmHost ||
-            ShipStatus.Instance != null)
+            AmongUsClient.Instance.IsGameStarted)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 "[Configurações] F9 só abre o painel para o host no lobby.");
