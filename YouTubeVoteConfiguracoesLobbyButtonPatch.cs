@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using HarmonyLib;
 using TMPro;
 using UnityEngine;
-using UnityEngine.UI;
 
 namespace YouTubeVoteBridge;
 
@@ -26,6 +25,21 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
     private static readonly Dictionary<string, TextMeshPro> valores = new();
     private static bool painelAberto;
     private static bool erroRegistrado;
+
+    // Entrada própria, sem PassiveButton. O componente padrão do Among Us
+    // depende de referências internas preenchidas pelo prefab do jogo; ao ser
+    // adicionado diretamente por código, pode lançar NullReferenceException
+    // continuamente e interferir nos outros controles.
+    private sealed class CliqueIndependente : MonoBehaviour
+    {
+        public Action AoClicar;
+
+        private void OnMouseUpAsButton()
+        {
+            if (isActiveAndEnabled && gameObject.activeInHierarchy)
+                AoClicar?.Invoke();
+        }
+    }
 
     private sealed class ConfigItem
     {
@@ -282,20 +296,18 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         renderer.color = cor;
         renderer.sortingOrder = ordem;
 
-        // O PassiveButton recebe seu próprio evento e collider.
-        // A layer é herdada do container do lobby para respeitar o sistema
-        // de raycast/click mask usado pelo Among Us.
+        // Collider 2D local e callback independente. Não registra o objeto
+        // no sistema de PassiveButtons do jogo nem captura o fluxo global de UI.
         BoxCollider2D collider = objeto.AddComponent<BoxCollider2D>();
         collider.size = tamanho;
-        collider.isTrigger = true;
+        collider.isTrigger = false;
 
-        PassiveButton passive = objeto.AddComponent<PassiveButton>();
-        passive.OnClick = new Button.ButtonClickedEvent();
-        passive.OnClick.AddListener((UnityEngine.Events.UnityAction)(() =>
+        CliqueIndependente clique = objeto.AddComponent<CliqueIndependente>();
+        clique.AoClicar = () =>
         {
             if (objeto != null && objeto.activeInHierarchy)
                 acao();
-        }));
+        };
 
         CriarTexto(objeto.transform, titulo,
             new Vector3(0f, 0f, -0.04f), tamanho,
