@@ -92,4 +92,4 @@ jobs:
       - name: Publicar GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "v${{ steps.version.outputs.VERSION }}" "release/YouTubeVoteBridge-v${{ steps.version.outputs.VERSION }}.dll" --title "YouTubeChatBridge v${{ steps.version.outputs.VERSION }}" --generate-notes
+        run: gh release create "v${{ steps.version.outputs.VERSION }}" "release/YouTubeVoteBridge-v${{ steps.version.outputs.VERSION }}.dll" --title "YouTubeChatBridge v${{ steps.version.outputs.VERSION }}"
