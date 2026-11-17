@@ -283,7 +283,8 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         // Botão 100% independente: nenhum GameObject, componente visual,
         // listener ou referência do botão Editar é clonado.
         GameObject objeto = new GameObject(nome);
-        objeto.layer = pai.gameObject.layer;
+        // A camada Default evita entrar na máscara de raycast da interface nativa.
+        objeto.layer = 0;
         objeto.transform.SetParent(pai, false);
         objeto.transform.localPosition = posicao;
         objeto.transform.localRotation = Quaternion.identity;
@@ -323,7 +324,7 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         if (pai == null) return null;
 
         GameObject go = new GameObject("Texto_" + conteudo);
-        go.layer = pai.gameObject.layer;
+        go.layer = 0;
         go.transform.SetParent(pai, false);
         go.transform.localPosition = posicao;
         go.transform.localRotation = Quaternion.identity;
