@@ -123,6 +123,23 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
             visual.enabled = false;
         }
 
+        // O HUD do Among Us fica fora da hierarquia do GameStartManager.
+        // Ocultamos seus renderizadores separadamente enquanto o painel está aberto.
+        if (HudManager.Instance != null)
+        {
+            foreach (Renderer visual in HudManager.Instance.GetComponentsInChildren<Renderer>(true))
+            {
+                if (visual == null || visual.gameObject == null) continue;
+                if (visual.gameObject.name.StartsWith("YouTubeVoteBridge_")) continue;
+
+                if (!renderizadoresOriginaisEstado.ContainsKey(visual))
+                {
+                    renderizadoresOriginaisEstado[visual] = visual.enabled;
+                    visual.enabled = false;
+                }
+            }
+        }
+
         // Bloqueia os PassiveButtons nativos da tela de lobby (principalmente
         // Iniciar e Editar) enquanto o painel está aberto. O menu próprio fica
         // fora desta hierarquia e continua recebendo cliques normalmente.
@@ -208,8 +225,7 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
 
         SpriteRenderer fundo = painelObjeto.AddComponent<SpriteRenderer>();
         fundo.sprite = ObterSprite();
-        // Cinza-escuro neutro: mantém contraste com os textos claros.
-        fundo.color = new Color(0.24f, 0.25f, 0.27f, 0.985f);
+        fundo.color = new Color(0.035f, 0.05f, 0.085f, 0.985f);
         fundo.drawMode = SpriteDrawMode.Sliced;
         fundo.size = new Vector2(LarguraBasePainel, AlturaBasePainel);
         fundo.sortingOrder = -100;
@@ -581,7 +597,7 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         texto.alignment = TextAlignmentOptions.Center;
         texto.fontSize = fonte;
         texto.fontStyle = estilo;
-        texto.color = cor;
+        texto.color = Color.white;
         texto.enableWordWrapping = true;
         texto.overflowMode = TextOverflowModes.Overflow;
         texto.rectTransform.sizeDelta = tamanho;
@@ -595,7 +611,7 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
             {
                 texto.fontMaterial = new Material(texto.fontSharedMaterial);
                 if (texto.fontMaterial.HasProperty("_FaceColor"))
-                    texto.fontMaterial.SetColor("_FaceColor", cor);
+                    texto.fontMaterial.SetColor("_FaceColor", Color.white);
                 if (texto.fontMaterial.HasProperty("_FaceDilate"))
                     texto.fontMaterial.SetFloat("_FaceDilate", 0f);
                 texto.fontMaterial.renderQueue = 3000;
