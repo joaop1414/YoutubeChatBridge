@@ -291,7 +291,7 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         {
             CriarTexto(painelObjeto.transform, item.Titulo,
                 new Vector3(-1.45f, y, -0.08f), new Vector2(6.0f, 0.34f),
-                1.16f, Color.white, FontStyles.Normal, 500);
+                1.16f, Color.white, FontStyles.Bold, 500);
 
             TextMeshPro valor = CriarTexto(painelObjeto.transform, item.Ler(),
                 new Vector3(2.0f, y, -0.08f), new Vector2(1.55f, 0.34f),
