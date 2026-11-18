@@ -27,84 +27,17 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
     private static bool painelAberto;
     private static bool erroRegistrado;
 
-    // Botão inteiramente próprio: não usa PassiveButton, UnityAction ou
-    // callbacks do prefab do jogo. A entrada é verificada diretamente pela
-    // posição do mouse no mundo, usando o collider do próprio botão.
+    // O botão é uma cópia do prefab real do lobby. O componente PassiveButton
+    // permanece habilitado para preservar o sistema de entrada/collider do jogo;
+    // este componente apenas encaminha o clique para a ação do mod.
     private sealed class CliqueIndependente : MonoBehaviour
     {
         public Action AoClicar;
-        public Color CorNormal = Color.white;
-        public Color CorHover = Color.white;
-        public Color CorPressionado = Color.white;
 
-        private SpriteRenderer fundo;
-        private BoxCollider2D area;
-        private bool mouseSobre;
-        private bool pressionado;
-
-        private void Awake()
+        private void OnMouseUpAsButton()
         {
-            fundo = GetComponent<SpriteRenderer>();
-            area = GetComponent<BoxCollider2D>();
-        }
-
-        private void OnEnable()
-        {
-            mouseSobre = false;
-            pressionado = false;
-            AtualizarVisual();
-        }
-
-        private void OnDisable()
-        {
-            mouseSobre = false;
-            pressionado = false;
-        }
-
-        private void Update()
-        {
-            if (fundo == null || area == null || Camera.main == null)
-                return;
-
-            Vector3 mouse = Input.mousePosition;
-            float distancia = Mathf.Abs(Camera.main.transform.position.z - transform.position.z);
-            Vector3 mundo = Camera.main.ScreenToWorldPoint(
-                new Vector3(mouse.x, mouse.y, distancia));
-
-            bool dentro = area.enabled && area.OverlapPoint(new Vector2(mundo.x, mundo.y));
-            mouseSobre = dentro;
-
-            if (dentro && Input.GetMouseButtonDown(0))
-                pressionado = true;
-
-            if (Input.GetMouseButtonUp(0))
-            {
-                bool ativar = pressionado && dentro;
-                pressionado = false;
-                AtualizarVisual();
-
-                if (ativar && isActiveAndEnabled && gameObject.activeInHierarchy)
-                    AoClicar?.Invoke();
-
-                return;
-            }
-
-            if (!Input.GetMouseButton(0))
-                pressionado = false;
-
-            AtualizarVisual();
-        }
-
-        private void AtualizarVisual()
-        {
-            if (fundo == null) return;
-
-            if (pressionado)
-                fundo.color = CorPressionado;
-            else if (mouseSobre)
-                fundo.color = CorHover;
-            else
-                fundo.color = CorNormal;
+            if (isActiveAndEnabled && gameObject.activeInHierarchy)
+                AoClicar?.Invoke();
         }
     }
 
@@ -175,6 +108,10 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
 
         Transform pai = referencia.transform.parent;
         if (pai == null) return;
+
+        InicializarBotaoBase(referencia);
+        if (botaoBase == null)
+            throw new InvalidOperationException("Não foi possível preparar o botão nativo do lobby.");
 
         botaoObjeto = CriarBotaoUnity(
             NomeBotao, pai,
@@ -408,43 +345,113 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         string nome, Transform pai, Vector3 posicao, Vector3 escala,
         Vector2 tamanho, string titulo, Color cor, Action acao, int ordem = 70)
     {
-        if (pai == null || acao == null)
+        if (pai == null || acao == null || botaoBase == null)
             return null;
 
-        // Botão independente: não clona EditButton nem depende do estado
-        // interno de PassiveButton. O fundo e o collider pertencem ao próprio
-        // GameObject, como na implementação visual que já era renderizada.
-        GameObject objeto = new GameObject(nome);
-        objeto.layer = pai.gameObject.layer;
-        objeto.transform.SetParent(pai, false);
-        objeto.transform.localPosition = posicao;
-        objeto.transform.localRotation = Quaternion.identity;
-        objeto.transform.localScale = escala;
+        // Reutiliza a hierarquia real do botão Editar: PassiveButton, collider,
+        // estados nativos e FontPlacer/Text_TMP. Não cria PassiveButton vazio.
+        PassiveButton botao = UnityEngine.Object.Instantiate(botaoBase, pai);
+        if (botao == null)
+            return null;
 
-        SpriteRenderer renderer = objeto.AddComponent<SpriteRenderer>();
-        renderer.sprite = ObterSprite();
-        renderer.drawMode = SpriteDrawMode.Sliced;
-        renderer.size = tamanho;
-        renderer.color = cor;
-        renderer.sortingOrder = ordem;
+        botao.name = nome;
+        botao.gameObject.SetActive(false);
+        botao.transform.localPosition = posicao;
+        botao.transform.localRotation = Quaternion.identity;
+        botao.transform.localScale = escala;
 
-        BoxCollider2D collider = objeto.AddComponent<BoxCollider2D>();
-        collider.offset = Vector2.zero;
-        collider.size = tamanho;
-        collider.isTrigger = false;
+        // Mantém PassiveButton habilitado, mas não herda a ação do Editar.
+        botao.OnClick = new();
 
-        CliqueIndependente clique = objeto.AddComponent<CliqueIndependente>();
-        clique.AoClicar = acao;
-        clique.CorNormal = cor;
-        clique.CorHover = Color.Lerp(cor, Color.white, 0.22f);
-        clique.CorPressionado = Color.Lerp(cor, Color.black, 0.18f);
+        Transform labelTransform = botao.transform.Find("FontPlacer/Text_TMP");
+        TextMeshPro label = labelTransform != null
+            ? labelTransform.GetComponent<TextMeshPro>()
+            : null;
 
-        CriarTexto(objeto.transform, titulo,
-            new Vector3(0f, 0f, -0.04f), tamanho,
-            1.65f, Color.white, FontStyles.Bold, ordem + 1);
+        if (label == null)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                $"[Configurações Unity] O botão '{nome}' não possui FontPlacer/Text_TMP.");
+            UnityEngine.Object.Destroy(botao.gameObject);
+            return null;
+        }
 
-        objeto.SetActive(true);
-        return objeto;
+        Component translator = label.GetComponent("TextTranslatorTMP");
+        if (translator != null)
+            UnityEngine.Object.Destroy(translator);
+
+        Transform fontContainer = label.transform.parent;
+        if (fontContainer != null)
+        {
+            Vector3 p = fontContainer.localPosition;
+            fontContainer.localPosition = new Vector3(0f, p.y, p.z);
+        }
+
+        Vector3 labelPosition = label.transform.localPosition;
+        label.transform.localPosition = new Vector3(0f, labelPosition.y, labelPosition.z);
+        label.alignment = TextAlignmentOptions.Center;
+        label.text = titulo;
+        label.fontSize = label.fontSizeMin = label.fontSizeMax = 1.65f;
+        label.enableWordWrapping = false;
+        label.color = Color.white;
+
+        // O PassiveButton nativo conserva o collider e a máscara de clique.
+        BoxCollider2D collider = botao.GetComponent<BoxCollider2D>();
+        if (collider == null)
+            collider = botao.GetComponentInChildren<BoxCollider2D>(true);
+        if (collider != null)
+        {
+            collider.offset = Vector2.zero;
+            collider.size = tamanho;
+            collider.enabled = true;
+        }
+
+        // Mantém a aparência criada pelo mod, mas usa os estados de entrada
+        // do prefab nativo. Os sprites originais ficam ocultos.
+        SpriteRenderer normalNativo = botao.inactiveSprites != null
+            ? botao.inactiveSprites.GetComponent<SpriteRenderer>()
+            : null;
+        SpriteRenderer hoverNativo = botao.activeSprites != null
+            ? botao.activeSprites.GetComponent<SpriteRenderer>()
+            : null;
+
+        if (normalNativo != null)
+        {
+            normalNativo.enabled = false;
+            normalNativo.color = cor;
+            normalNativo.size = tamanho;
+        }
+        if (hoverNativo != null)
+        {
+            hoverNativo.enabled = false;
+            hoverNativo.color = Color.Lerp(cor, Color.white, 0.22f);
+            hoverNativo.size = tamanho;
+        }
+
+        SpriteRenderer fundo = botao.GetComponent<SpriteRenderer>();
+        if (fundo == null)
+            fundo = botao.gameObject.AddComponent<SpriteRenderer>();
+
+        fundo.sprite = ObterSprite();
+        fundo.drawMode = SpriteDrawMode.Sliced;
+        fundo.size = tamanho;
+        fundo.color = cor;
+        fundo.sortingOrder = ordem;
+
+        MeshRenderer textoRenderer = label.GetComponent<MeshRenderer>();
+        if (textoRenderer != null)
+            textoRenderer.sortingOrder = ordem + 1;
+
+        CliqueIndependente clique = botao.gameObject.AddComponent<CliqueIndependente>();
+        clique.AoClicar = () =>
+        {
+            if (botao != null && botao.gameObject != null &&
+                botao.gameObject.activeInHierarchy)
+                acao();
+        };
+
+        botao.gameObject.SetActive(true);
+        return botao.gameObject;
     }
 
     private static TextMeshPro CriarTexto(
@@ -453,61 +460,50 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
     {
         if (pai == null) return null;
 
-        // Usa um TextMeshPro já inicializado pelo próprio Among Us. Um TMP
-        // criado vazio pode ficar sem FontAsset/material e resultar apenas no
-        // quadrado de fundo visível, sem nenhum texto.
+        // Usa o Text_TMP do botão Editar como modelo. Ele já possui a fonte,
+        // material e configuração de renderização carregados pelo Among Us.
         TextMeshPro modelo = null;
-
-        if (PlayerControl.LocalPlayer != null &&
-            PlayerControl.LocalPlayer.cosmetics != null)
-            modelo = PlayerControl.LocalPlayer.cosmetics.nameText;
-
-        if (modelo == null && PlayerControl.AllPlayerControls != null)
+        if (botaoBase != null)
         {
-            foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
-            {
-                if (jogador?.cosmetics?.nameText != null)
-                {
-                    modelo = jogador.cosmetics.nameText;
-                    break;
-                }
-            }
+            Transform modeloTransform = botaoBase.transform.Find("FontPlacer/Text_TMP");
+            if (modeloTransform != null)
+                modelo = modeloTransform.GetComponent<TextMeshPro>();
         }
 
-        GameObject go;
-        TextMeshPro texto;
-
-        if (modelo != null)
+        if (modelo == null)
         {
-            texto = UnityEngine.Object.Instantiate(modelo, pai, false);
-            go = texto.gameObject;
-            go.name = "Texto_" + conteudo;
-        }
-        else
-        {
-            go = new GameObject("Texto_" + conteudo);
-            go.transform.SetParent(pai, false);
-            texto = go.AddComponent<TextMeshPro>();
+            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                "[Configurações Unity] Não foi possível localizar o Text_TMP nativo para criar os textos do painel.");
+            return null;
         }
 
-        go.layer = 0;
+        TextMeshPro texto = UnityEngine.Object.Instantiate(modelo, pai, false);
+        if (texto == null) return null;
+
+        GameObject go = texto.gameObject;
+        go.name = "Texto_" + conteudo;
+        go.layer = pai.gameObject.layer;
         go.transform.localPosition = posicao;
         go.transform.localRotation = Quaternion.identity;
         go.transform.localScale = Vector3.one;
 
-        if (texto == null) return null;
+        Component translator = texto.GetComponent("TextTranslatorTMP");
+        if (translator != null)
+            UnityEngine.Object.Destroy(translator);
 
         texto.enabled = true;
         texto.text = conteudo;
         texto.alignment = TextAlignmentOptions.Center;
         texto.fontSize = fonte;
+        texto.fontSizeMin = fonte;
+        texto.fontSizeMax = fonte;
         texto.fontStyle = estilo;
         texto.color = cor;
         texto.enableWordWrapping = true;
         texto.overflowMode = TextOverflowModes.Overflow;
         texto.rectTransform.sizeDelta = tamanho;
 
-        MeshRenderer mesh = go.GetComponent<MeshRenderer>();
+        MeshRenderer mesh = texto.GetComponent<MeshRenderer>();
         if (mesh != null)
         {
             mesh.enabled = true;
