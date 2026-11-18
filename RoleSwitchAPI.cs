@@ -427,6 +427,22 @@ internal static class RoleSwitchAPI
             AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost)
             return false;
 
+        // O EHR evita alterar a função enquanto a tela de ejeção está ativa.
+        // Reproduzimos esse cuidado; após ela fechar, aguardamos mais 1 segundo.
+        if (ExileController.Instance != null)
+        {
+            Dictionary<byte, RoleTypes> mapaAdiado = funcoesPorObservador == null
+                ? null
+                : new Dictionary<byte, RoleTypes>(funcoesPorObservador);
+
+            MonoBehaviourExtensions.StartCoroutine(
+                target,
+                AdiarTrocaAteFimDaEjecao(target, novaFuncao, mapaAdiado));
+
+            LogInfo($"RpcChangeRoleBasis adiado: a tela de ejeção ainda está ativa para PlayerId={target.PlayerId}.");
+            return true;
+        }
+
         try
         {
             GarantirRoleMapInicializado();
@@ -509,6 +525,23 @@ internal static class RoleSwitchAPI
             LogErro($"RpcChangeRoleBasis falhou para PlayerId={target.PlayerId}: {ex}");
             return false;
         }
+    }
+
+    private static System.Collections.IEnumerator AdiarTrocaAteFimDaEjecao(
+        PlayerControl target,
+        RoleTypes novaFuncao,
+        IReadOnlyDictionary<byte, RoleTypes> funcoesPorObservador)
+    {
+        while (ExileController.Instance != null)
+            yield return null;
+
+        yield return new WaitForSecondsRealtime(1f);
+
+        if (target == null || target.Data == null || target.Data.Disconnected ||
+            AmongUsClient.Instance == null || !AmongUsClient.Instance.AmHost)
+            yield break;
+
+        RpcChangeRoleBasis(target, novaFuncao, funcoesPorObservador);
     }
 
     private static void AplicarFuncaoComRoleMap(PlayerControl target, RoleTypes novaFuncao)
