@@ -140,26 +140,71 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
             }
         }
 
-        // Bloqueia os PassiveButtons nativos da tela de lobby (principalmente
-        // Iniciar e Editar) enquanto o painel está aberto. O menu próprio fica
-        // fora desta hierarquia e continua recebendo cliques normalmente.
+        // Bloqueia os botões do GameStartManager e também os controles do
+        // painel de configurações da sala, que podem estar fora dessa hierarquia.
+        BloquearPassiveButton(gerente.EditButton);
+
         foreach (PassiveButton original in gerente.GetComponentsInChildren<PassiveButton>(true))
+            BloquearPassiveButton(original);
+
+        // O botão que abre as configurações da sala fica em outra parte da UI
+        // em algumas versões do lobby. Procuramos apenas controles cujo nome ou
+        // hierarquia identifica edição/configurações, sem bloquear o chat inteiro.
+        if (HudManager.Instance != null)
         {
-            if (original == null || original.gameObject == null) continue;
-            if (original.gameObject.name.StartsWith("YouTubeVoteBridge_")) continue;
-
-            botoesOriginaisEstado[original] = original.enabled;
-            original.enabled = false;
-
-            foreach (Collider2D col in original.GetComponents<Collider2D>())
+            foreach (PassiveButton original in HudManager.Instance.GetComponentsInChildren<PassiveButton>(true))
             {
-                if (col == null) continue;
-                collidersOriginaisEstado[col] = col.enabled;
-                col.enabled = false;
+                if (original == null || original.gameObject == null) continue;
+                if (EhBotaoConfiguracoesSala(original.transform))
+                    BloquearPassiveButton(original);
             }
         }
 
         botoesOriginaisBloqueados = true;
+    }
+
+    private static void BloquearPassiveButton(PassiveButton botao)
+    {
+        if (botao == null || botao.gameObject == null) return;
+        if (botao.gameObject.name.StartsWith("YouTubeVoteBridge_")) return;
+
+        if (!botoesOriginaisEstado.ContainsKey(botao))
+        {
+            botoesOriginaisEstado[botao] = botao.enabled;
+            botao.enabled = false;
+        }
+
+        // Alguns botões têm colliders em objetos filhos, não no objeto raiz.
+        foreach (Collider2D col in botao.GetComponentsInChildren<Collider2D>(true))
+        {
+            if (col == null) continue;
+            if (!collidersOriginaisEstado.ContainsKey(col))
+            {
+                collidersOriginaisEstado[col] = col.enabled;
+                col.enabled = false;
+            }
+        }
+    }
+
+    private static bool EhBotaoConfiguracoesSala(Transform transformacao)
+    {
+        Transform atual = transformacao;
+        while (atual != null)
+        {
+            string nome = atual.name.ToLowerInvariant();
+            if (nome.Contains("edit") ||
+                nome.Contains("gameoption") ||
+                nome.Contains("gamesetting") ||
+                nome.Contains("setting") ||
+                nome.Contains("lobbyinfo") ||
+                nome.Contains("openconfig") ||
+                nome.Contains("openoption"))
+                return true;
+
+            atual = atual.parent;
+        }
+
+        return false;
     }
 
     private static void RestaurarBotoesOriginais()
@@ -426,6 +471,11 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         botao.transform.localScale = escala;
         botao.OnClick = new();
 
+        // O PassiveButton reaplica essas cores ao texto nos estados normal/hover.
+        // Defini-las aqui evita que o prefab nativo sobrescreva o branco do TMP.
+        botao.activeTextColor = Color.white;
+        botao.inactiveTextColor = Color.white;
+
         // O prefab original pode carregar um tradutor que restaura "Editar"
         // a cada atualização. Cada cópia precisa manter somente o texto definido aqui.
         foreach (TextTranslatorTMP tradutor in botao.GetComponentsInChildren<TextTranslatorTMP>(true))
@@ -515,6 +565,7 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
                 label.rectTransform.anchoredPosition = Vector2.zero;
                 label.text = titulo;
                 label.color = Color.white;
+                label.faceColor = Color.white;
                 label.enableVertexGradient = false;
                 // O material do texto herdado do prefab pode manter uma cor escura.
                 // Cada botão recebe uma instância própria e força as propriedades
@@ -613,6 +664,8 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         texto.fontSize = fonte;
         texto.fontStyle = estilo;
         texto.color = Color.white;
+        texto.faceColor = Color.white;
+        texto.enableVertexGradient = false;
         texto.enableWordWrapping = true;
         texto.overflowMode = TextOverflowModes.Overflow;
         texto.rectTransform.sizeDelta = tamanho;
