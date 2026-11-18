@@ -258,7 +258,7 @@ internal static class RoleSwitchAPI
             // Mesmo fluxo do EHR: aplica no host sem coroutine e envia o RPC
             // vanilla SetRole para todos os clientes com canOverrideRole=true.
             if (AmongUsClient.Instance.AmClient)
-                jogador.SetRole(funcao);
+                jogador.StartCoroutine(jogador.CoSetRole(funcao, true));
 
             MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
                 jogador.NetId,
@@ -304,7 +304,7 @@ internal static class RoleSwitchAPI
             if (AmongUsClient.Instance.ClientId == clientId)
             {
                 if (AmongUsClient.Instance.AmClient)
-                    jogador.SetRole(funcao);
+                    jogador.StartCoroutine(jogador.CoSetRole(funcao, true));
 
                 AtualizarRegistroLocal(jogador, funcao);
                 LogInfo($"RpcSetRoleDesync local: PlayerId={jogador.PlayerId}, cliente={clientId}, Role={funcao}.");
