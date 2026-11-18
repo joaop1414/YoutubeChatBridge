@@ -328,11 +328,17 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         botao.transform.localRotation = Quaternion.identity;
         botao.transform.localScale = escala;
         botao.OnClick = new();
-        botao.OnClick.AddListener(() =>
+        // No IL2CPP, UnityAction é um wrapper e não aceita lambda diretamente.
+        // Convertemos o System.Action gerenciado para o delegate nativo do Unity.
+        Action aoClicar = () =>
         {
-            if (botao != null && botao.gameObject.activeInHierarchy)
+            if (botao != null && botao.gameObject != null &&
+                botao.gameObject.activeInHierarchy)
                 acao();
-        });
+        };
+
+        botao.OnClick.AddListener(
+            Il2CppInterop.Runtime.DelegateSupport.ConvertDelegate<UnityEngine.Events.UnityAction>(aoClicar));
 
         SpriteRenderer normal = botao.inactiveSprites != null
             ? botao.inactiveSprites.GetComponent<SpriteRenderer>()
