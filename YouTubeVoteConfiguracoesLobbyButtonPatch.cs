@@ -27,6 +27,7 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
     private static bool erroRegistrado;
     private static readonly Dictionary<PassiveButton, bool> botoesOriginaisEstado = new();
     private static readonly Dictionary<Collider2D, bool> collidersOriginaisEstado = new();
+    private static readonly Dictionary<Renderer, bool> renderizadoresOriginaisEstado = new();
     private static bool botoesOriginaisBloqueados;
 
     // Base de botão preparada a partir de um PassiveButton nativo, como no EHR.
@@ -105,6 +106,22 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
 
         botoesOriginaisEstado.Clear();
         collidersOriginaisEstado.Clear();
+        renderizadoresOriginaisEstado.Clear();
+
+        // Esconde temporariamente os elementos visuais nativos que pertencem
+        // à hierarquia do GameStartManager. Não desativa os objetos inteiros:
+        // assim os componentes de lógica continuam funcionando.
+        foreach (Renderer visual in gerente.GetComponentsInChildren<Renderer>(true))
+        {
+            if (visual == null || visual.gameObject == null) continue;
+            if (visual.gameObject.name.StartsWith("YouTubeVoteBridge_")) continue;
+            if (botaoObjeto != null &&
+                (visual.transform == botaoObjeto.transform ||
+                 visual.transform.IsChildOf(botaoObjeto.transform))) continue;
+
+            renderizadoresOriginaisEstado[visual] = visual.enabled;
+            visual.enabled = false;
+        }
 
         // Bloqueia os PassiveButtons nativos da tela de lobby (principalmente
         // Iniciar e Editar) enquanto o painel está aberto. O menu próprio fica
@@ -136,8 +153,12 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         foreach (var item in collidersOriginaisEstado)
             if (item.Key != null) item.Key.enabled = item.Value;
 
+        foreach (var item in renderizadoresOriginaisEstado)
+            if (item.Key != null) item.Key.enabled = item.Value;
+
         botoesOriginaisEstado.Clear();
         collidersOriginaisEstado.Clear();
+        renderizadoresOriginaisEstado.Clear();
         botoesOriginaisBloqueados = false;
     }
 
@@ -187,7 +208,8 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
 
         SpriteRenderer fundo = painelObjeto.AddComponent<SpriteRenderer>();
         fundo.sprite = ObterSprite();
-        fundo.color = new Color(0.035f, 0.05f, 0.085f, 0.985f);
+        // Cinza-escuro neutro: mantém contraste com os textos claros.
+        fundo.color = new Color(0.24f, 0.25f, 0.27f, 0.985f);
         fundo.drawMode = SpriteDrawMode.Sliced;
         fundo.size = new Vector2(LarguraBasePainel, AlturaBasePainel);
         fundo.sortingOrder = -100;
