@@ -71,7 +71,7 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
             Vector3 mundo = Camera.main.ScreenToWorldPoint(
                 new Vector3(mouse.x, mouse.y, distancia));
 
-            bool dentro = area.enabled && area.bounds.Contains(mundo);
+            bool dentro = area.enabled && area.OverlapPoint(new Vector2(mundo.x, mundo.y));
             mouseSobre = dentro;
 
             if (dentro && Input.GetMouseButtonDown(0))
