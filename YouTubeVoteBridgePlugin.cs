@@ -3880,7 +3880,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
         // Reinicia o estado do cliente e aguarda o PlayerControl ser criado.
         AvisosPendentes.Remove(clientId);
         AvisosEnviados.Remove(clientId);
-        AvisosPendentes[clientId] = Time.realtimeSinceStartup + 2f;
+        AvisosPendentes[clientId] = Time.realtimeSinceStartup + 3f;
         Instance?.Log.LogInfo(
             $"Cliente {clientId} entrou; aviso de sala modificada agendado para daqui a 2 segundos.");
     }
@@ -3891,7 +3891,7 @@ public partial class YouTubeVoteBridgePlugin : BasePlugin
             AvisosPendentes.ContainsKey(clientId))
             return;
 
-        AvisosPendentes[clientId] = Time.realtimeSinceStartup + 2f;
+        AvisosPendentes[clientId] = Time.realtimeSinceStartup + 3f;
         Instance?.Log.LogInfo(
             $"Entrada do cliente {clientId} registrada; aviso de sala modificada agendado.");
     }
