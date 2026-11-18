@@ -667,42 +667,61 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
 
         if (texto == null) return null;
 
+        // Remove componentes visuais auxiliares herdados do modelo clonado.
+        // Mantemos somente o TextMeshPro e seu MeshRenderer.
+        foreach (TextTranslatorTMP tradutor in go.GetComponents<TextTranslatorTMP>())
+            UnityEngine.Object.Destroy(tradutor);
+        foreach (TMPro.TMP_SubMesh subMesh in go.GetComponentsInChildren<TMPro.TMP_SubMesh>(true))
+            subMesh.enabled = true;
+
         texto.enabled = true;
-        // O modelo clonado pode vir com richText desativado. Nesse caso,
-        // a tag <color> aparece como texto comum ou não altera a cor.
         texto.richText = true;
-        texto.text = AplicarCorBranca(conteudo);
-        texto.ForceMeshUpdate();
-        texto.alpha = 1f;
-        texto.alignment = TextAlignmentOptions.Center;
-        texto.fontSize = fonte;
-        texto.fontStyle = estilo;
+        texto.parseCtrlCharacters = true;
+        texto.enableVertexGradient = false;
         texto.color = Color.white;
         texto.faceColor = Color.white;
-        texto.enableVertexGradient = false;
+        texto.alpha = 1f;
+        texto.fontStyle = estilo;
+        texto.fontSize = fonte;
+        texto.fontSizeMin = fonte;
+        texto.fontSizeMax = fonte;
+        texto.characterSpacing = 0f;
+        texto.wordSpacing = 0f;
+        texto.lineSpacing = 0f;
+        texto.paragraphSpacing = 0f;
+        texto.margin = Vector4.zero;
+        texto.alignment = TextAlignmentOptions.Center;
+        texto.horizontalAlignment = HorizontalAlignmentOptions.Center;
+        texto.verticalAlignment = VerticalAlignmentOptions.Middle;
         texto.enableWordWrapping = true;
         texto.overflowMode = TextOverflowModes.Overflow;
         texto.rectTransform.sizeDelta = tamanho;
 
+        // Material independente, sem propriedades de cor/gradiente herdadas.
+        if (texto.fontSharedMaterial != null)
+        {
+            Material materialLimpo = new Material(texto.fontSharedMaterial);
+            if (materialLimpo.HasProperty("_FaceColor"))
+                materialLimpo.SetColor("_FaceColor", Color.white);
+            if (materialLimpo.HasProperty("_Color"))
+                materialLimpo.SetColor("_Color", Color.white);
+            if (materialLimpo.HasProperty("_VertexColor"))
+                materialLimpo.SetColor("_VertexColor", Color.white);
+            if (materialLimpo.HasProperty("_FaceDilate"))
+                materialLimpo.SetFloat("_FaceDilate", 0f);
+            if (materialLimpo.HasProperty("_GlowColor"))
+                materialLimpo.SetColor("_GlowColor", Color.clear);
+            materialLimpo.renderQueue = 3000;
+            texto.fontMaterial = materialLimpo;
+        }
+
+        // Atribui o texto por último para gerar os vértices com as propriedades resetadas.
+        texto.text = AplicarCorBranca(conteudo);
+        texto.ForceMeshUpdate(true, true);
+
         MeshRenderer mesh = go.GetComponent<MeshRenderer>();
         if (mesh != null)
         {
-            // O nameText pode herdar FaceColor escuro mesmo após texto.color.
-            // Instância própria evita alterar o material dos nomes dos jogadores.
-            if (texto.fontSharedMaterial != null)
-            {
-                texto.fontMaterial = new Material(texto.fontSharedMaterial);
-                if (texto.fontMaterial.HasProperty("_FaceColor"))
-                    texto.fontMaterial.SetColor("_FaceColor", Color.white);
-                if (texto.fontMaterial.HasProperty("_Color"))
-                    texto.fontMaterial.SetColor("_Color", Color.white);
-                if (texto.fontMaterial.HasProperty("_FaceDilate"))
-                    texto.fontMaterial.SetFloat("_FaceDilate", 0f);
-                texto.enableVertexGradient = false;
-                texto.color = Color.white;
-                texto.fontMaterial.renderQueue = 3000;
-            }
-
             mesh.enabled = true;
             mesh.sortingOrder = ordem;
             mesh.sortingLayerID = 0;
