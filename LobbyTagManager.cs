@@ -112,7 +112,6 @@ public static class LobbyTagManager
                 "Falha ao inicializar tags do lobby: " + ex);
         }
 
-        ForcarDisableServerAuthority();
     }
 
     private static string NormalizarFriendCode(string friendCode)
@@ -718,55 +717,5 @@ public static class LobbyTagManager
         TagsAplicadas.Clear();
     }
 
-    private static void ForcarDisableServerAuthority()
-    {
-        try
-        {
-            // Reactor mantém ReactorConfig internal; usamos reflexão para não depender
-            // de uma API pública que não existe nessa versão.
-            Type tipoConfig = typeof(Reactor.ReactorPlugin).Assembly.GetType("Reactor.ReactorConfig");
-            PropertyInfo propriedade = tipoConfig?.GetProperty(
-                "ForceDisableServerAuthority",
-                BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
 
-            object entrada = propriedade?.GetValue(null);
-            PropertyInfo valor = entrada?.GetType().GetProperty(
-                "Value", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-
-            if (entrada == null || valor == null)
-                throw new InvalidOperationException(
-                    "Não foi possível localizar ReactorConfig.ForceDisableServerAuthority.");
-
-            valor.SetValue(entrada, true);
-
-            // Persiste a opção no arquivo do Reactor para as próximas inicializações.
-            object arquivoConfig = entrada.GetType().GetProperty(
-                "ConfigFile", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-                ?.GetValue(entrada);
-            arquivoConfig?.GetType().GetMethod(
-                "Save", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-                ?.Invoke(arquivoConfig, null);
-
-            string caminho = Path.Combine(Paths.ConfigPath, "gg.reactor.api.cfg");
-            if (File.Exists(caminho))
-            {
-                string texto = File.ReadAllText(caminho);
-                string atualizado = Regex.Replace(
-                    texto,
-                    @"(?m)^\s*ForceDisableServerAuthority\s*=\s*(true|false)\s*$",
-                    "ForceDisableServerAuthority = true");
-
-                if (!string.Equals(texto, atualizado, StringComparison.Ordinal))
-                    File.WriteAllText(caminho, atualizado);
-            }
-
-            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "Reactor: ForceDisableServerAuthority definido como true automaticamente.");
-        }
-        catch (Exception ex)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "Não foi possível forçar ForceDisableServerAuthority automaticamente: " + ex.Message);
-        }
-    }
 }
