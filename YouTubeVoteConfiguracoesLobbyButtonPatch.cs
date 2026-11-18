@@ -25,6 +25,9 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
     private static readonly Dictionary<string, TextMeshPro> valores = new();
     private static bool painelAberto;
     private static bool erroRegistrado;
+    private static readonly Dictionary<PassiveButton, bool> botoesOriginaisEstado = new();
+    private static readonly Dictionary<Collider2D, bool> collidersOriginaisEstado = new();
+    private static bool botoesOriginaisBloqueados;
 
     // Base de botão preparada a partir de um PassiveButton nativo, como no EHR.
     // Nunca adicionamos PassiveButton vazio: clonamos um prefab já inicializado.
@@ -56,6 +59,7 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
                 if (botaoObjeto != null) botaoObjeto.SetActive(false);
                 if (painelObjeto != null) painelObjeto.SetActive(false);
                 painelAberto = false;
+                RestaurarBotoesOriginais();
                 return;
             }
 
@@ -73,6 +77,7 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
                     AtualizarPosicaoETamanhoPainel();
             }
 
+            AtualizarBloqueioBotoesOriginais(__instance, painelAberto);
             erroRegistrado = false;
         }
         catch (Exception ex)
@@ -84,6 +89,56 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
                 erroRegistrado = true;
             }
         }
+    }
+
+    private static void AtualizarBloqueioBotoesOriginais(GameStartManager gerente, bool bloquear)
+    {
+        if (gerente == null) return;
+
+        if (!bloquear)
+        {
+            RestaurarBotoesOriginais();
+            return;
+        }
+
+        if (botoesOriginaisBloqueados) return;
+
+        botoesOriginaisEstado.Clear();
+        collidersOriginaisEstado.Clear();
+
+        // Bloqueia os PassiveButtons nativos da tela de lobby (principalmente
+        // Iniciar e Editar) enquanto o painel está aberto. O menu próprio fica
+        // fora desta hierarquia e continua recebendo cliques normalmente.
+        foreach (PassiveButton original in gerente.GetComponentsInChildren<PassiveButton>(true))
+        {
+            if (original == null || original.gameObject == null) continue;
+            if (original.gameObject.name.StartsWith("YouTubeVoteBridge_")) continue;
+
+            botoesOriginaisEstado[original] = original.enabled;
+            original.enabled = false;
+
+            foreach (Collider2D col in original.GetComponents<Collider2D>())
+            {
+                if (col == null) continue;
+                collidersOriginaisEstado[col] = col.enabled;
+                col.enabled = false;
+            }
+        }
+
+        botoesOriginaisBloqueados = true;
+    }
+
+    private static void RestaurarBotoesOriginais()
+    {
+        foreach (var item in botoesOriginaisEstado)
+            if (item.Key != null) item.Key.enabled = item.Value;
+
+        foreach (var item in collidersOriginaisEstado)
+            if (item.Key != null) item.Key.enabled = item.Value;
+
+        botoesOriginaisEstado.Clear();
+        collidersOriginaisEstado.Clear();
+        botoesOriginaisBloqueados = false;
     }
 
     private static void CriarBotao(GameStartManager gerente)
@@ -258,6 +313,8 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
 
         painelAberto = !painelAberto;
         painelObjeto.SetActive(painelAberto);
+        if (!painelAberto)
+            RestaurarBotoesOriginais();
 
         if (painelAberto)
         {
@@ -351,6 +408,21 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         botao.OnClick.AddListener(
             Il2CppInterop.Runtime.DelegateSupport.ConvertDelegate<UnityEngine.Events.UnityAction>(aoClicar));
 
+        // O prefab Editar mantém offsets próprios nos objetos visuais.
+        // Zeramos esses offsets para que cada botão respeite a posição informada.
+        if (botao.inactiveSprites != null)
+        {
+            botao.inactiveSprites.transform.localPosition = Vector3.zero;
+            botao.inactiveSprites.transform.localRotation = Quaternion.identity;
+            botao.inactiveSprites.transform.localScale = Vector3.one;
+        }
+        if (botao.activeSprites != null)
+        {
+            botao.activeSprites.transform.localPosition = Vector3.zero;
+            botao.activeSprites.transform.localRotation = Quaternion.identity;
+            botao.activeSprites.transform.localScale = Vector3.one;
+        }
+
         SpriteRenderer normal = botao.inactiveSprites != null
             ? botao.inactiveSprites.GetComponent<SpriteRenderer>()
             : null;
@@ -379,9 +451,21 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
             collider.offset = Vector2.zero;
         }
 
+        Transform fontPlacer = botao.transform.Find("FontPlacer");
+        if (fontPlacer != null)
+        {
+            fontPlacer.localPosition = Vector3.zero;
+            fontPlacer.localRotation = Quaternion.identity;
+            fontPlacer.localScale = Vector3.one;
+        }
+
         TextMeshPro label = botao.GetComponentInChildren<TextMeshPro>(true);
         if (label != null)
         {
+                label.transform.localPosition = Vector3.zero;
+                label.transform.localRotation = Quaternion.identity;
+                label.transform.localScale = Vector3.one;
+                label.rectTransform.anchoredPosition = Vector2.zero;
                 label.text = titulo;
                 label.color = Color.white;
                 label.alignment = TextAlignmentOptions.Center;
@@ -470,6 +554,15 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         MeshRenderer mesh = go.GetComponent<MeshRenderer>();
         if (mesh != null)
         {
+            // O nameText pode herdar FaceColor escuro mesmo após texto.color.
+            // Instância própria evita alterar o material dos nomes dos jogadores.
+            if (texto.fontSharedMaterial != null)
+            {
+                texto.fontMaterial = new Material(texto.fontSharedMaterial);
+                if (texto.fontMaterial.HasProperty("_FaceColor"))
+                    texto.fontMaterial.SetColor("_FaceColor", cor);
+            }
+
             mesh.enabled = true;
             mesh.sortingOrder = ordem;
             mesh.sortingLayerID = 0;
