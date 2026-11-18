@@ -22,24 +22,14 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
     private static GameObject painelObjeto;
     private static GameStartManager gerenteAssociado;
     private static Sprite sprite;
-    private static PassiveButton botaoBase;
     private static readonly Dictionary<string, TextMeshPro> valores = new();
     private static bool painelAberto;
     private static bool erroRegistrado;
 
-    // O botão é uma cópia do prefab real do lobby. O componente PassiveButton
-    // permanece habilitado para preservar o sistema de entrada/collider do jogo;
-    // este componente apenas encaminha o clique para a ação do mod.
-    private sealed class CliqueIndependente : MonoBehaviour
-    {
-        public Action AoClicar;
-
-        private void OnMouseUpAsButton()
-        {
-            if (isActiveAndEnabled && gameObject.activeInHierarchy)
-                AoClicar?.Invoke();
-        }
-    }
+    // Base de botão preparada a partir de um PassiveButton nativo, como no EHR.
+    // Nunca adicionamos PassiveButton vazio: clonamos um prefab já inicializado.
+    private static PassiveButton botaoBase;
+    private static GameObject paiBotaoBase;
 
     private sealed class ConfigItem
     {
@@ -110,8 +100,7 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         if (pai == null) return;
 
         InicializarBotaoBase(referencia);
-        if (botaoBase == null)
-            throw new InvalidOperationException("Não foi possível preparar o botão nativo do lobby.");
+        if (botaoBase == null) return;
 
         botaoObjeto = CriarBotaoUnity(
             NomeBotao, pai,
@@ -279,66 +268,48 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
 
     private static void InicializarBotaoBase(PassiveButton referencia)
     {
-        if (botaoBase != null || referencia == null)
-            return;
+        if (botaoBase != null || referencia == null) return;
 
-        GameObject container = new GameObject("YouTubeVoteBridge_ButtonBaseContainer");
-        UnityEngine.Object.DontDestroyOnLoad(container);
+        paiBotaoBase = new GameObject("YouTubeVoteBridge_ButtonBase");
+        UnityEngine.Object.DontDestroyOnLoad(paiBotaoBase);
 
-        botaoBase = UnityEngine.Object.Instantiate(referencia, container.transform);
-        if (botaoBase == null)
-        {
-            UnityEngine.Object.Destroy(container);
-            return;
-        }
-
-        botaoBase.name = "YouTubeVoteBridge_NativeButtonBase";
+        botaoBase = UnityEngine.Object.Instantiate(referencia, paiBotaoBase.transform);
         botaoBase.gameObject.SetActive(false);
+        UnityEngine.Object.DontDestroyOnLoad(botaoBase);
+        botaoBase.name = "YouTubeVoteBridge_ButtonBase_Prefab";
 
-        // Igual ao SimpleButton do EHR: remove o posicionamento automático,
-        // limpa os eventos do botão original e mantém o prefab nativo intacto.
+        // Remove o posicionamento automático herdado e todos os listeners
+        // do botão original (por exemplo, abrir o menu Editar).
         AspectPosition aspect = botaoBase.GetComponent<AspectPosition>();
-        if (aspect != null)
-            UnityEngine.Object.Destroy(aspect);
-
+        if (aspect != null) UnityEngine.Object.Destroy(aspect);
         botaoBase.OnClick = new();
 
         Transform labelTransform = botaoBase.transform.Find("FontPlacer/Text_TMP");
-        if (labelTransform == null)
+        if (labelTransform != null)
         {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[Configurações Unity] O botão nativo não possui FontPlacer/Text_TMP; não foi possível inicializar o modelo EHR.");
-            UnityEngine.Object.Destroy(container);
-            botaoBase = null;
-            return;
+            TextMeshPro label = labelTransform.GetComponent<TextMeshPro>();
+            if (label != null)
+            {
+                Transform container = label.transform.parent;
+                if (container != null)
+                {
+                    Vector3 containerPosition = container.localPosition;
+                    containerPosition.x = 0f;
+                    container.localPosition = containerPosition;
+                }
+
+                Vector3 labelPosition = label.transform.localPosition;
+                labelPosition.x = 0f;
+                label.transform.localPosition = labelPosition;
+                label.horizontalAlignment = HorizontalAlignmentOptions.Center;
+                label.fontSize = label.fontSizeMin = label.fontSizeMax = 3.5f;
+                label.enableWordWrapping = false;
+                label.text = "YTVB BUTTON BASE";
+            }
         }
-
-        TextMeshPro label = labelTransform.GetComponent<TextMeshPro>();
-        if (label == null)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[Configurações Unity] Text_TMP não contém TextMeshPro; modelo EHR não inicializado.");
-            UnityEngine.Object.Destroy(container);
-            botaoBase = null;
-            return;
-        }
-
-        // O componente de tradução do botão Editar não deve sobrescrever
-        // os rótulos definidos pelo mod nos botões clonados.
-        Component translator = label.GetComponent("TextTranslatorTMP");
-        if (translator != null)
-            UnityEngine.Object.Destroy(translator);
-
-        label.fontSize = label.fontSizeMin = label.fontSizeMax = 1.65f;
-        label.enableWordWrapping = false;
-        label.text = "YouTubeVoteBridge";
-        label.alignment = TextAlignmentOptions.Center;
 
         BoxCollider2D collider = botaoBase.GetComponent<BoxCollider2D>();
-        if (collider != null)
-            collider.offset = Vector2.zero;
-
-        UnityEngine.Object.DontDestroyOnLoad(botaoBase);
+        if (collider != null) collider.offset = Vector2.zero;
     }
 
     private static GameObject CriarBotaoUnity(
@@ -348,109 +319,68 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         if (pai == null || acao == null || botaoBase == null)
             return null;
 
-        // Reutiliza a hierarquia real do botão Editar: PassiveButton, collider,
-        // estados nativos e FontPlacer/Text_TMP. Não cria PassiveButton vazio.
+        // Mesmo padrão do EHR: cada botão é uma cópia do PassiveButton-base,
+        // com listener próprio, sprites nativos e collider já configurado.
         PassiveButton botao = UnityEngine.Object.Instantiate(botaoBase, pai);
-        if (botao == null)
-            return null;
-
         botao.name = nome;
-        botao.gameObject.SetActive(false);
+        botao.gameObject.SetActive(true);
         botao.transform.localPosition = posicao;
         botao.transform.localRotation = Quaternion.identity;
         botao.transform.localScale = escala;
-
-        // Mantém PassiveButton habilitado, mas não herda a ação do Editar.
         botao.OnClick = new();
-
-        Transform labelTransform = botao.transform.Find("FontPlacer/Text_TMP");
-        TextMeshPro label = labelTransform != null
-            ? labelTransform.GetComponent<TextMeshPro>()
-            : null;
-
-        if (label == null)
+        botao.OnClick.AddListener(() =>
         {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                $"[Configurações Unity] O botão '{nome}' não possui FontPlacer/Text_TMP.");
-            UnityEngine.Object.Destroy(botao.gameObject);
-            return null;
-        }
+            if (botao != null && botao.gameObject.activeInHierarchy)
+                acao();
+        });
 
-        Component translator = label.GetComponent("TextTranslatorTMP");
-        if (translator != null)
-            UnityEngine.Object.Destroy(translator);
-
-        Transform fontContainer = label.transform.parent;
-        if (fontContainer != null)
-        {
-            Vector3 p = fontContainer.localPosition;
-            fontContainer.localPosition = new Vector3(0f, p.y, p.z);
-        }
-
-        Vector3 labelPosition = label.transform.localPosition;
-        label.transform.localPosition = new Vector3(0f, labelPosition.y, labelPosition.z);
-        label.alignment = TextAlignmentOptions.Center;
-        label.text = titulo;
-        label.fontSize = label.fontSizeMin = label.fontSizeMax = 1.65f;
-        label.enableWordWrapping = false;
-        label.color = Color.white;
-
-        // O PassiveButton nativo conserva o collider e a máscara de clique.
-        BoxCollider2D collider = botao.GetComponent<BoxCollider2D>();
-        if (collider == null)
-            collider = botao.GetComponentInChildren<BoxCollider2D>(true);
-        if (collider != null)
-        {
-            collider.offset = Vector2.zero;
-            collider.size = tamanho;
-            collider.enabled = true;
-        }
-
-        // Mantém a aparência criada pelo mod, mas usa os estados de entrada
-        // do prefab nativo. Os sprites originais ficam ocultos.
-        SpriteRenderer normalNativo = botao.inactiveSprites != null
+        SpriteRenderer normal = botao.inactiveSprites != null
             ? botao.inactiveSprites.GetComponent<SpriteRenderer>()
             : null;
-        SpriteRenderer hoverNativo = botao.activeSprites != null
+        SpriteRenderer hover = botao.activeSprites != null
             ? botao.activeSprites.GetComponent<SpriteRenderer>()
             : null;
+        BoxCollider2D collider = botao.GetComponent<BoxCollider2D>();
 
-        if (normalNativo != null)
+        if (normal != null)
         {
-            normalNativo.enabled = false;
-            normalNativo.color = cor;
-            normalNativo.size = tamanho;
-        }
-        if (hoverNativo != null)
-        {
-            hoverNativo.enabled = false;
-            hoverNativo.color = Color.Lerp(cor, Color.white, 0.22f);
-            hoverNativo.size = tamanho;
+            normal.color = cor;
+            normal.size = tamanho;
+            normal.sortingOrder = ordem;
         }
 
-        SpriteRenderer fundo = botao.GetComponent<SpriteRenderer>();
-        if (fundo == null)
-            fundo = botao.gameObject.AddComponent<SpriteRenderer>();
-
-        fundo.sprite = ObterSprite();
-        fundo.drawMode = SpriteDrawMode.Sliced;
-        fundo.size = tamanho;
-        fundo.color = cor;
-        fundo.sortingOrder = ordem;
-
-        MeshRenderer textoRenderer = label.GetComponent<MeshRenderer>();
-        if (textoRenderer != null)
-            textoRenderer.sortingOrder = ordem + 1;
-
-        CliqueIndependente clique = botao.gameObject.AddComponent<CliqueIndependente>();
-        clique.AoClicar = () =>
+        if (hover != null)
         {
-            if (botao != null && botao.gameObject != null &&
-                botao.gameObject.activeInHierarchy)
-                acao();
-        };
+            hover.color = Color.Lerp(cor, Color.white, 0.22f);
+            hover.size = tamanho;
+            hover.sortingOrder = ordem;
+        }
 
-        botao.gameObject.SetActive(true);
+        if (collider != null)
+        {
+            collider.size = tamanho;
+            collider.offset = Vector2.zero;
+        }
+
+        Transform labelTransform = botao.transform.Find("FontPlacer/Text_TMP");
+        if (labelTransform != null)
+        {
+            TextMeshPro label = labelTransform.GetComponent<TextMeshPro>();
+            if (label != null)
+            {
+                label.text = titulo;
+                label.color = Color.white;
+                label.alignment = TextAlignmentOptions.Center;
+                label.horizontalAlignment = HorizontalAlignmentOptions.Center;
+                label.fontSize = label.fontSizeMin = label.fontSizeMax = 1.65f;
+                label.enableWordWrapping = true;
+                label.overflowMode = TextOverflowModes.Overflow;
+
+                MeshRenderer textRenderer = label.GetComponent<MeshRenderer>();
+                if (textRenderer != null) textRenderer.sortingOrder = ordem + 1;
+            }
+        }
+
         return botao.gameObject;
     }
 
@@ -460,50 +390,61 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
     {
         if (pai == null) return null;
 
-        // Usa o Text_TMP do botão Editar como modelo. Ele já possui a fonte,
-        // material e configuração de renderização carregados pelo Among Us.
+        // Usa um TextMeshPro já inicializado pelo próprio Among Us. Um TMP
+        // criado vazio pode ficar sem FontAsset/material e resultar apenas no
+        // quadrado de fundo visível, sem nenhum texto.
         TextMeshPro modelo = null;
-        if (botaoBase != null)
+
+        if (PlayerControl.LocalPlayer != null &&
+            PlayerControl.LocalPlayer.cosmetics != null)
+            modelo = PlayerControl.LocalPlayer.cosmetics.nameText;
+
+        if (modelo == null && PlayerControl.AllPlayerControls != null)
         {
-            Transform modeloTransform = botaoBase.transform.Find("FontPlacer/Text_TMP");
-            if (modeloTransform != null)
-                modelo = modeloTransform.GetComponent<TextMeshPro>();
+            foreach (PlayerControl jogador in PlayerControl.AllPlayerControls)
+            {
+                if (jogador?.cosmetics?.nameText != null)
+                {
+                    modelo = jogador.cosmetics.nameText;
+                    break;
+                }
+            }
         }
 
-        if (modelo == null)
+        GameObject go;
+        TextMeshPro texto;
+
+        if (modelo != null)
         {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[Configurações Unity] Não foi possível localizar o Text_TMP nativo para criar os textos do painel.");
-            return null;
+            texto = UnityEngine.Object.Instantiate(modelo, pai, false);
+            go = texto.gameObject;
+            go.name = "Texto_" + conteudo;
+        }
+        else
+        {
+            go = new GameObject("Texto_" + conteudo);
+            go.transform.SetParent(pai, false);
+            texto = go.AddComponent<TextMeshPro>();
         }
 
-        TextMeshPro texto = UnityEngine.Object.Instantiate(modelo, pai, false);
-        if (texto == null) return null;
-
-        GameObject go = texto.gameObject;
-        go.name = "Texto_" + conteudo;
-        go.layer = pai.gameObject.layer;
+        go.layer = 0;
         go.transform.localPosition = posicao;
         go.transform.localRotation = Quaternion.identity;
         go.transform.localScale = Vector3.one;
 
-        Component translator = texto.GetComponent("TextTranslatorTMP");
-        if (translator != null)
-            UnityEngine.Object.Destroy(translator);
+        if (texto == null) return null;
 
         texto.enabled = true;
         texto.text = conteudo;
         texto.alignment = TextAlignmentOptions.Center;
         texto.fontSize = fonte;
-        texto.fontSizeMin = fonte;
-        texto.fontSizeMax = fonte;
         texto.fontStyle = estilo;
         texto.color = cor;
         texto.enableWordWrapping = true;
         texto.overflowMode = TextOverflowModes.Overflow;
         texto.rectTransform.sizeDelta = tamanho;
 
-        MeshRenderer mesh = texto.GetComponent<MeshRenderer>();
+        MeshRenderer mesh = go.GetComponent<MeshRenderer>();
         if (mesh != null)
         {
             mesh.enabled = true;
@@ -517,45 +458,20 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
     {
         if (sprite != null) return sprite;
 
-        // Textura branca com cantos transparentes. O SpriteRenderer aplica
-        // a cor de cada botão e o modo Sliced preserva o arredondamento ao
-        // redimensionar tanto os botões quanto o painel.
-        const int w = 128;
-        const int h = 64;
-        const int raio = 13;
-
+        const int w = 64, h = 64;
         Texture2D tex = new Texture2D(w, h, TextureFormat.RGBA32, false);
-        tex.name = "YouTubeVoteBridge_RoundedButtonTexture";
+        tex.name = "YouTubeVoteBridge_UnityUiTexture";
         tex.filterMode = FilterMode.Bilinear;
-        tex.wrapMode = TextureWrapMode.Clamp;
 
         Color[] pixels = new Color[w * h];
-        for (int y = 0; y < h; y++)
-        {
-            for (int x = 0; x < w; x++)
-            {
-                int cx = x < raio ? raio : (x >= w - raio ? w - raio - 1 : x);
-                int cy = y < raio ? raio : (y >= h - raio ? h - raio - 1 : y);
-                bool canto = (x < raio || x >= w - raio) &&
-                    (y < raio || y >= h - raio);
-                bool dentro = !canto ||
-                    ((x - cx) * (x - cx) + (y - cy) * (y - cy) <= raio * raio);
-
-                pixels[y * w + x] = dentro ? Color.white : new Color(1f, 1f, 1f, 0f);
-            }
-        }
+        for (int i = 0; i < pixels.Length; i++)
+            pixels[i] = Color.white;
 
         tex.SetPixels(pixels);
         tex.Apply(false, true);
-
-        sprite = Sprite.Create(
-            tex,
-            new Rect(0, 0, w, h),
-            new Vector2(0.5f, 0.5f),
-            64f,
-            0,
-            SpriteMeshType.FullRect,
-            new Vector4(raio, raio, raio, raio));
+        sprite = Sprite.Create(tex, new Rect(0, 0, w, h),
+            new Vector2(0.5f, 0.5f), 64f, 0,
+            SpriteMeshType.FullRect);
 
         return sprite;
     }
