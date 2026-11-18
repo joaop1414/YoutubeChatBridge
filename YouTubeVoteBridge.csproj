@@ -10,6 +10,9 @@
 
 		<CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
 
+		<!-- Evita consultas demoradas ao feed de auditoria de vulnerabilidades durante o restore. -->
+		<NuGetAudit>false</NuGetAudit>
+
 		<Description>YouTubeVoteBridge - YouTube Live Chat Voting for Among Us</Description>
 		<AssemblyName>YouTubeVoteBridge</AssemblyName>
 		<RootNamespace>YouTubeVoteBridge</RootNamespace>
