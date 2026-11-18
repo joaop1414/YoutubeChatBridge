@@ -257,16 +257,7 @@ internal static class RoleSwitchAPI
 
             // Mesmo fluxo do EHR: aplica no host sem coroutine e envia o RPC
             // vanilla SetRole para todos os clientes com canOverrideRole=true.
-            if (AmongUsClient.Instance.AmClient)
-                jogador.StartCoroutine(jogador.CoSetRole(funcao, true));
-
-            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
-                jogador.NetId,
-                (byte)RpcCalls.SetRole,
-                SendOption.Reliable);
-            writer.Write((ushort)funcao);
-            writer.Write(true);
-            AmongUsClient.Instance.FinishRpcImmediately(writer);
+            RpcSetRoleReplacer.EnviarGlobal(jogador, funcao);
 
             AtualizarRegistroLocal(jogador, funcao);
             LogInfo($"RpcSetRoleGlobal: PlayerId={jogador.PlayerId}, Role={funcao}, canOverrideRole=true.");
@@ -303,22 +294,14 @@ internal static class RoleSwitchAPI
             // exatamente como o EHR faz no caminho local.
             if (AmongUsClient.Instance.ClientId == clientId)
             {
-                if (AmongUsClient.Instance.AmClient)
-                    jogador.StartCoroutine(jogador.CoSetRole(funcao, true));
+                RpcSetRoleReplacer.EnviarParaCliente(jogador, funcao, clientId);
 
                 AtualizarRegistroLocal(jogador, funcao);
                 LogInfo($"RpcSetRoleDesync local: PlayerId={jogador.PlayerId}, cliente={clientId}, Role={funcao}.");
                 return true;
             }
 
-            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
-                jogador.NetId,
-                (byte)RpcCalls.SetRole,
-                SendOption.Reliable,
-                clientId);
-            writer.Write((ushort)funcao);
-            writer.Write(true);
-            AmongUsClient.Instance.FinishRpcImmediately(writer);
+            RpcSetRoleReplacer.EnviarParaCliente(jogador, funcao, clientId);
 
             LogInfo($"RpcSetRoleDesync: PlayerId={jogador.PlayerId}, cliente={clientId}, Role={funcao}, canOverrideRole=true.");
             return true;
