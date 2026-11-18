@@ -110,9 +110,6 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         Transform pai = referencia.transform.parent;
         if (pai == null) return;
 
-        InicializarBotaoBase(referencia);
-        if (botaoBase == null) return;
-
         botaoObjeto = CriarBotaoUnity(
             NomeBotao, pai,
             referencia.transform.localPosition + new Vector3(0f, -0.78f, 0f),
@@ -345,96 +342,40 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         string nome, Transform pai, Vector3 posicao, Vector3 escala,
         Vector2 tamanho, string titulo, Color cor, Action acao, int ordem = 70)
     {
-        if (pai == null || acao == null || botaoBase == null)
+        if (pai == null || acao == null)
             return null;
 
-        // Mesmo fluxo de EHR.SimpleButton: cada botão é uma instância
-        // independente do prefab nativo preparado uma única vez.
-        PassiveButton botao = UnityEngine.Object.Instantiate(botaoBase, pai);
-        if (botao == null)
-            return null;
+        // Botão independente: não clona EditButton nem depende do estado
+        // interno de PassiveButton. O fundo e o collider pertencem ao próprio
+        // GameObject, como na implementação visual que já era renderizada.
+        GameObject objeto = new GameObject(nome);
+        objeto.layer = pai.gameObject.layer;
+        objeto.transform.SetParent(pai, false);
+        objeto.transform.localPosition = posicao;
+        objeto.transform.localRotation = Quaternion.identity;
+        objeto.transform.localScale = escala;
 
-        botao.name = nome;
-        botao.gameObject.SetActive(false);
-        botao.transform.localPosition = posicao;
-        botao.transform.localRotation = Quaternion.identity;
-        botao.transform.localScale = escala;
+        SpriteRenderer renderer = objeto.AddComponent<SpriteRenderer>();
+        renderer.sprite = ObterSprite();
+        renderer.drawMode = SpriteDrawMode.Sliced;
+        renderer.size = tamanho;
+        renderer.color = cor;
+        renderer.sortingOrder = ordem;
 
-        // O prefab clonado fornece a hierarquia e o texto nativos, mas sua
-        // aparência depende do estado interno do PassiveButton. Desativamos
-        // esse controlador e desenhamos o fundo diretamente no objeto raiz.
-        // Assim o botão continua visível mesmo sem a inicialização interna
-        // feita pelo jogo no prefab original.
-        botao.OnClick = new();
-        botao.enabled = false;
+        BoxCollider2D collider = objeto.AddComponent<BoxCollider2D>();
+        collider.offset = Vector2.zero;
+        collider.size = tamanho;
+        collider.isTrigger = false;
 
-        SpriteRenderer fundoProprio = botao.gameObject.GetComponent<SpriteRenderer>();
-        if (fundoProprio == null)
-            fundoProprio = botao.gameObject.AddComponent<SpriteRenderer>();
-
-        fundoProprio.sprite = ObterSprite();
-        fundoProprio.drawMode = SpriteDrawMode.Sliced;
-        fundoProprio.size = tamanho;
-        fundoProprio.color = cor;
-        fundoProprio.sortingOrder = ordem;
-
-        // Esconde os sprites de estado herdados; o fundo próprio não depende
-        // deles nem muda de estado por causa do PassiveButton.
-        SpriteRenderer normalHerdado = botao.inactiveSprites != null
-            ? botao.inactiveSprites.GetComponent<SpriteRenderer>()
-            : null;
-        SpriteRenderer hoverHerdado = botao.activeSprites != null
-            ? botao.activeSprites.GetComponent<SpriteRenderer>()
-            : null;
-        if (normalHerdado != null) normalHerdado.enabled = false;
-        if (hoverHerdado != null) hoverHerdado.enabled = false;
-
-        BoxCollider2D colliderRaiz = botao.GetComponent<BoxCollider2D>();
-        if (colliderRaiz == null)
-            colliderRaiz = botao.gameObject.AddComponent<BoxCollider2D>();
-        colliderRaiz.offset = Vector2.zero;
-        colliderRaiz.size = tamanho;
-        colliderRaiz.isTrigger = false;
-
-        CliqueIndependente clique = botao.gameObject.AddComponent<CliqueIndependente>();
+        CliqueIndependente clique = objeto.AddComponent<CliqueIndependente>();
         clique.AoClicar = acao;
 
-        Transform labelTransform = botao.transform.Find("FontPlacer/Text_TMP");
-        TextMeshPro label = labelTransform != null
-            ? labelTransform.GetComponent<TextMeshPro>()
-            : null;
+        CriarTexto(objeto.transform, titulo,
+            new Vector3(0f, 0f, -0.04f), tamanho,
+            1.65f, Color.white, FontStyles.Bold, ordem + 1);
 
-        if (label == null)
-        {
-            YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                $"[Configurações Unity] O botão clonado '{nome}' não possui FontPlacer/Text_TMP.");
-            UnityEngine.Object.Destroy(botao.gameObject);
-            return null;
-        }
-
-        Component translator = label.GetComponent("TextTranslatorTMP");
-        if (translator != null)
-            UnityEngine.Object.Destroy(translator);
-
-        Transform fontContainer = label.transform.parent;
-        if (fontContainer != null)
-        {
-            Vector3 containerPos = fontContainer.localPosition;
-            fontContainer.localPosition = new Vector3(0f, containerPos.y, containerPos.z);
-        }
-
-        Vector3 labelPos = label.transform.localPosition;
-        label.transform.localPosition = new Vector3(0f, labelPos.y, labelPos.z);
-        label.alignment = TextAlignmentOptions.Center;
-        label.text = titulo;
-        label.fontSize = label.fontSizeMin = label.fontSizeMax = 1.65f;
-        label.enableWordWrapping = false;
-        label.color = Color.white;
-
-        // O SpriteRenderer e o collider próprios já foram configurados
-        // acima; aqui apenas ativamos a instância e sua hierarquia visual.
-        botao.gameObject.SetActive(true);
-        return botao.gameObject;
+        objeto.SetActive(true);
+        return objeto;
     }
 
     private static TextMeshPro CriarTexto(
