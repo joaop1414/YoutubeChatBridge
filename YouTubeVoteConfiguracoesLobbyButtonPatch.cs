@@ -369,6 +369,12 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         };
     }
 
+    // Aplica rich text do TextMeshPro diretamente aos caracteres.
+    private static string AplicarCorBranca(string conteudo)
+    {
+        return "<color=#FFFFFF>" + (conteudo ?? string.Empty) + "</color>";
+    }
+
     private static string Valor<T>(BepInEx.Configuration.ConfigEntry<T> config, string sufixo)
     {
         return config == null ? "--" : Convert.ToString(config.Value) + sufixo;
@@ -382,7 +388,7 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         foreach (ConfigItem item in ObterConfiguracoes())
         {
             if (valores.TryGetValue(item.Id, out TextMeshPro texto) && texto != null)
-                texto.text = item.Ler();
+                texto.text = AplicarCorBranca(item.Ler());
         }
 
         YouTubeVoteBridgePlugin.Instance?.Config.Save();
@@ -563,7 +569,7 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
                 label.transform.localRotation = Quaternion.identity;
                 label.transform.localScale = Vector3.one;
                 label.rectTransform.anchoredPosition = Vector2.zero;
-                label.text = titulo;
+                label.text = AplicarCorBranca(titulo);
                 label.color = Color.white;
                 label.faceColor = Color.white;
                 label.enableVertexGradient = false;
@@ -658,7 +664,7 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         if (texto == null) return null;
 
         texto.enabled = true;
-        texto.text = conteudo;
+        texto.text = AplicarCorBranca(conteudo);
         texto.alpha = 1f;
         texto.alignment = TextAlignmentOptions.Center;
         texto.fontSize = fonte;
