@@ -467,6 +467,15 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         SpriteRenderer hover = botao.activeSprites != null
             ? botao.activeSprites.GetComponent<SpriteRenderer>()
             : null;
+        // O prefab Editar pode conter sprites decorativos extras (as faixas cianas).
+        // Mantemos somente os dois renderizadores que representam o fundo do botão.
+        foreach (SpriteRenderer visualExtra in botao.GetComponentsInChildren<SpriteRenderer>(true))
+        {
+            if (visualExtra == null) continue;
+            if (visualExtra == normal || visualExtra == hover) continue;
+            visualExtra.enabled = false;
+        }
+
         BoxCollider2D collider = botao.GetComponent<BoxCollider2D>();
 
         if (normal != null)
@@ -506,19 +515,25 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
                 label.rectTransform.anchoredPosition = Vector2.zero;
                 label.text = titulo;
                 label.color = Color.white;
-                // O prefab Editar possui FaceColor escuro no material TMP.
-                // A cor do vértice (label.color) sozinha não clareia esse material,
-                // então cada botão recebe uma instância própria com FaceColor branco.
+                label.enableVertexGradient = false;
+                // O material do texto herdado do prefab pode manter uma cor escura.
+                // Cada botão recebe uma instância própria e força as propriedades
+                // usadas pelos shaders TMP do Among Us.
                 if (label.fontSharedMaterial != null)
                 {
-                    label.fontMaterial = new Material(label.fontSharedMaterial);
-                    if (label.fontMaterial.HasProperty("_FaceColor"))
-                        label.fontMaterial.SetColor("_FaceColor", Color.white);
-                    if (label.fontMaterial.HasProperty("_OutlineColor"))
-                        label.fontMaterial.SetColor("_OutlineColor", new Color(0f, 0f, 0f, 0.85f));
-                    if (label.fontMaterial.HasProperty("_FaceDilate"))
-                        label.fontMaterial.SetFloat("_FaceDilate", 0.1f);
+                    Material materialTexto = new Material(label.fontSharedMaterial);
+                    if (materialTexto.HasProperty("_FaceColor"))
+                        materialTexto.SetColor("_FaceColor", Color.white);
+                    if (materialTexto.HasProperty("_Color"))
+                        materialTexto.SetColor("_Color", Color.white);
+                    if (materialTexto.HasProperty("_OutlineColor"))
+                        materialTexto.SetColor("_OutlineColor", new Color(0f, 0f, 0f, 0.9f));
+                    if (materialTexto.HasProperty("_FaceDilate"))
+                        materialTexto.SetFloat("_FaceDilate", 0.1f);
+                    materialTexto.renderQueue = 3000;
+                    label.fontMaterial = materialTexto;
                 }
+                label.color = Color.white;
                 label.alignment = TextAlignmentOptions.Center;
                 label.horizontalAlignment = HorizontalAlignmentOptions.Center;
                 label.fontSize = label.fontSizeMin = label.fontSizeMax = 1.65f;
@@ -612,8 +627,12 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
                 texto.fontMaterial = new Material(texto.fontSharedMaterial);
                 if (texto.fontMaterial.HasProperty("_FaceColor"))
                     texto.fontMaterial.SetColor("_FaceColor", Color.white);
+                if (texto.fontMaterial.HasProperty("_Color"))
+                    texto.fontMaterial.SetColor("_Color", Color.white);
                 if (texto.fontMaterial.HasProperty("_FaceDilate"))
                     texto.fontMaterial.SetFloat("_FaceDilate", 0f);
+                texto.enableVertexGradient = false;
+                texto.color = Color.white;
                 texto.fontMaterial.renderQueue = 3000;
             }
 
