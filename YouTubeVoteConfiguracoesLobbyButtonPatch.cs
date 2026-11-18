@@ -281,10 +281,10 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         // Remove componentes que reposicionam o prefab ou sobrescrevem o texto
         // com a tradução original ("Editar").
         foreach (AspectPosition aspect in botaoBase.GetComponentsInChildren<AspectPosition>(true))
-            UnityEngine.Object.Destroy(aspect);
+            aspect.enabled = false;
 
         foreach (TextTranslatorTMP tradutor in botaoBase.GetComponentsInChildren<TextTranslatorTMP>(true))
-            UnityEngine.Object.Destroy(tradutor);
+            tradutor.enabled = false;
 
         botaoBase.OnClick = new();
 
@@ -325,7 +325,7 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         // com listener próprio, sprites nativos e collider já configurado.
         PassiveButton botao = UnityEngine.Object.Instantiate(botaoBase, pai);
         botao.name = nome;
-        botao.gameObject.SetActive(true);
+        botao.gameObject.SetActive(false);
         botao.transform.localPosition = posicao;
         botao.transform.localRotation = Quaternion.identity;
         botao.transform.localScale = escala;
@@ -334,7 +334,10 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         // O prefab original pode carregar um tradutor que restaura "Editar"
         // a cada atualização. Cada cópia precisa manter somente o texto definido aqui.
         foreach (TextTranslatorTMP tradutor in botao.GetComponentsInChildren<TextTranslatorTMP>(true))
-            UnityEngine.Object.Destroy(tradutor);
+            tradutor.enabled = false;
+
+        // Ativa somente depois de neutralizar o tradutor do prefab.
+        botao.gameObject.SetActive(true);
 
         // No IL2CPP, UnityAction é um wrapper e não aceita lambda diretamente.
         // Convertemos o System.Action gerenciado para o delegate nativo do Unity.
