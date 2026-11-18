@@ -618,13 +618,10 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
     {
         if (pai == null) return null;
 
-        // Usa um TextMeshPro já inicializado pelo próprio Among Us. Um TMP
-        // criado vazio pode ficar sem FontAsset/material e resultar apenas no
-        // quadrado de fundo visível, sem nenhum texto.
+        // Procuramos um TMP já inicializado apenas para reutilizar o FontAsset
+        // carregado pelo jogo. O componente visual abaixo é sempre novo.
         TextMeshPro modelo = null;
 
-        // Usa primeiro a fonte já preparada do botão nativo, evitando herdar
-        // material/cor de nome de jogador (que pode deixar o texto escuro).
         if (botaoBase != null)
             modelo = botaoBase.GetComponentInChildren<TextMeshPro>(true);
 
@@ -644,35 +641,44 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
             }
         }
 
-        GameObject go;
-        TextMeshPro texto;
-
-        if (modelo != null)
+        if (modelo == null || modelo.font == null)
         {
-            texto = UnityEngine.Object.Instantiate(modelo, pai, false);
-            go = texto.gameObject;
-            go.name = "Texto_" + conteudo;
-        }
-        else
-        {
-            go = new GameObject("Texto_" + conteudo);
-            go.transform.SetParent(pai, false);
-            texto = go.AddComponent<TextMeshPro>();
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[Configurações Unity] Não foi possível criar o texto: nenhuma fonte TMP do jogo está disponível.");
+            return null;
         }
 
-        go.layer = 0;
+        // Cria um GameObject e um TextMeshPro independentes.
+        // Não clona o texto do botão nem o nome de nenhum jogador.
+        GameObject go = new GameObject("YouTubeVoteBridge_Text_" + conteudo);
+        go.transform.SetParent(pai, false);
+        go.layer = pai.gameObject.layer;
         go.transform.localPosition = new Vector3(posicao.x, posicao.y, -1f);
         go.transform.localRotation = Quaternion.identity;
         go.transform.localScale = Vector3.one;
 
-        if (texto == null) return null;
+        TextMeshPro texto = go.AddComponent<TextMeshPro>();
+        texto.font = modelo.font;
 
-        // Remove componentes visuais auxiliares herdados do modelo clonado.
-        // Mantemos somente o TextMeshPro e seu MeshRenderer.
-        foreach (TextTranslatorTMP tradutor in go.GetComponents<TextTranslatorTMP>())
-            UnityEngine.Object.Destroy(tradutor);
-        foreach (TMPro.TMP_SubMesh subMesh in go.GetComponentsInChildren<TMPro.TMP_SubMesh>(true))
-            subMesh.enabled = true;
+        // O FontAsset é compartilhado, mas o material é uma instância própria
+        // para que cada texto do painel não herde cores/efeitos do prefab.
+        Material materialBase = modelo.fontSharedMaterial;
+        if (materialBase != null)
+        {
+            Material materialLimpo = new Material(materialBase);
+            if (materialLimpo.HasProperty("_FaceColor"))
+                materialLimpo.SetColor("_FaceColor", Color.white);
+            if (materialLimpo.HasProperty("_Color"))
+                materialLimpo.SetColor("_Color", Color.white);
+            if (materialLimpo.HasProperty("_VertexColor"))
+                materialLimpo.SetColor("_VertexColor", Color.white);
+            if (materialLimpo.HasProperty("_FaceDilate"))
+                materialLimpo.SetFloat("_FaceDilate", 0f);
+            if (materialLimpo.HasProperty("_GlowColor"))
+                materialLimpo.SetColor("_GlowColor", Color.clear);
+            materialLimpo.renderQueue = 3000;
+            texto.fontSharedMaterial = materialLimpo;
+        }
 
         texto.enabled = true;
         texto.richText = true;
@@ -696,26 +702,6 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         texto.enableWordWrapping = true;
         texto.overflowMode = TextOverflowModes.Overflow;
         texto.rectTransform.sizeDelta = tamanho;
-
-        // Material independente, sem propriedades de cor/gradiente herdadas.
-        if (texto.fontSharedMaterial != null)
-        {
-            Material materialLimpo = new Material(texto.fontSharedMaterial);
-            if (materialLimpo.HasProperty("_FaceColor"))
-                materialLimpo.SetColor("_FaceColor", Color.white);
-            if (materialLimpo.HasProperty("_Color"))
-                materialLimpo.SetColor("_Color", Color.white);
-            if (materialLimpo.HasProperty("_VertexColor"))
-                materialLimpo.SetColor("_VertexColor", Color.white);
-            if (materialLimpo.HasProperty("_FaceDilate"))
-                materialLimpo.SetFloat("_FaceDilate", 0f);
-            if (materialLimpo.HasProperty("_GlowColor"))
-                materialLimpo.SetColor("_GlowColor", Color.clear);
-            materialLimpo.renderQueue = 3000;
-            texto.fontMaterial = materialLimpo;
-        }
-
-        // Atribui o texto por último para gerar os vértices com as propriedades resetadas.
         texto.text = AplicarCorBranca(conteudo);
         texto.ForceMeshUpdate(true, true);
 
