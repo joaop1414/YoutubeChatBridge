@@ -190,15 +190,15 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         fundo.color = new Color(0.035f, 0.05f, 0.085f, 0.985f);
         fundo.drawMode = SpriteDrawMode.Sliced;
         fundo.size = new Vector2(LarguraBasePainel, AlturaBasePainel);
-        fundo.sortingOrder = 200;
+        fundo.sortingOrder = -100;
 
         CriarTexto(painelObjeto.transform, "CONFIGURAÇÕES DO MOD",
             new Vector3(0f, 2.48f, -0.08f), new Vector2(8.8f, 0.42f),
-            2.45f, Color.white, FontStyles.Bold, 201);
+            2.45f, Color.white, FontStyles.Bold, 500);
 
         CriarTexto(painelObjeto.transform, "Altere as opções da sala. Somente o anfitrião pode editar.",
             new Vector3(0f, 2.08f, -0.08f), new Vector2(8.8f, 0.3f),
-            1.12f, new Color(0.72f, 0.82f, 0.92f), FontStyles.Normal, 201);
+            1.12f, new Color(0.72f, 0.82f, 0.92f), FontStyles.Normal, 500);
 
         List<ConfigItem> itens = ObterConfiguracoes();
         float y = 1.62f;
@@ -208,11 +208,11 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         {
             CriarTexto(painelObjeto.transform, item.Titulo,
                 new Vector3(-1.45f, y, -0.08f), new Vector2(6.0f, 0.34f),
-                1.16f, Color.white, FontStyles.Normal, 202);
+                1.16f, Color.white, FontStyles.Normal, 500);
 
             TextMeshPro valor = CriarTexto(painelObjeto.transform, item.Ler(),
                 new Vector3(2.0f, y, -0.08f), new Vector2(1.55f, 0.34f),
-                1.16f, new Color(0.45f, 0.9f, 1f), FontStyles.Bold, 202);
+                1.16f, new Color(0.45f, 0.9f, 1f), FontStyles.Bold, 500);
             valores[item.Id] = valor;
 
             if (item.Binario)
@@ -221,7 +221,7 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
                     new Vector3(3.75f, y, -0.1f), Vector3.one,
                     new Vector2(1.35f, 0.34f), "ALTERAR",
                     new Color(0.12f, 0.38f, 0.52f, 1f),
-                    () => { item.Alterar(1); AtualizarValores(); }, 203);
+                    () => { item.Alterar(1); AtualizarValores(); }, 600);
             }
             else
             {
@@ -229,12 +229,12 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
                     new Vector3(3.35f, y, -0.1f), Vector3.one,
                     new Vector2(0.42f, 0.34f), "−",
                     new Color(0.35f, 0.18f, 0.22f, 1f),
-                    () => { item.Alterar(-1); AtualizarValores(); }, 203);
+                    () => { item.Alterar(-1); AtualizarValores(); }, 600);
                 CriarBotaoUnity("Mais_" + item.Id, painelObjeto.transform,
                     new Vector3(3.88f, y, -0.1f), Vector3.one,
                     new Vector2(0.42f, 0.34f), "+",
                     new Color(0.12f, 0.38f, 0.3f, 1f),
-                    () => { item.Alterar(1); AtualizarValores(); }, 203);
+                    () => { item.Alterar(1); AtualizarValores(); }, 600);
             }
 
             y -= espacamento;
@@ -244,7 +244,7 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
             new Vector3(0f, -2.55f, -0.1f), Vector3.one,
             new Vector2(2.2f, 0.42f), "FECHAR",
             new Color(0.42f, 0.16f, 0.2f, 1f),
-            AlternarPainel, 203);
+            AlternarPainel, 600);
 
         AtualizarPosicaoETamanhoPainel();
         painelObjeto.SetActive(false);
@@ -534,7 +534,7 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         }
 
         go.layer = 0;
-        go.transform.localPosition = posicao;
+        go.transform.localPosition = new Vector3(posicao.x, posicao.y, -1f);
         go.transform.localRotation = Quaternion.identity;
         go.transform.localScale = Vector3.one;
 
@@ -561,11 +561,15 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
                 texto.fontMaterial = new Material(texto.fontSharedMaterial);
                 if (texto.fontMaterial.HasProperty("_FaceColor"))
                     texto.fontMaterial.SetColor("_FaceColor", cor);
+                if (texto.fontMaterial.HasProperty("_FaceDilate"))
+                    texto.fontMaterial.SetFloat("_FaceDilate", 0f);
+                texto.fontMaterial.renderQueue = 3000;
             }
 
             mesh.enabled = true;
             mesh.sortingOrder = ordem;
             mesh.sortingLayerID = 0;
+            mesh.sortingLayerName = "Default";
         }
 
         return texto;
