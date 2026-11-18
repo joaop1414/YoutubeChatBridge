@@ -18,7 +18,6 @@ using BepInEx.Unity.IL2CPP;
 
 using HarmonyLib;
 using Rewired;
-using Reactor;
 using UnityEngine;
 using Hazel;
 using InnerNet;
@@ -29,7 +28,6 @@ namespace YouTubeVoteBridge;
 
 [BepInAutoPlugin]
 [BepInProcess("Among Us.exe")]
-[BepInDependency(ReactorPlugin.Id)]
 public partial class YouTubeVoteBridgePlugin : BasePlugin
 {
     public static YouTubeVoteBridgePlugin Instance { get; private set; }
