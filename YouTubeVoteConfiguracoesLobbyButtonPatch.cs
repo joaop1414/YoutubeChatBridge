@@ -27,18 +27,84 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
     private static bool painelAberto;
     private static bool erroRegistrado;
 
-    // Entrada própria, sem PassiveButton. O componente padrão do Among Us
-    // depende de referências internas preenchidas pelo prefab do jogo; ao ser
-    // adicionado diretamente por código, pode lançar NullReferenceException
-    // continuamente e interferir nos outros controles.
+    // Botão inteiramente próprio: não usa PassiveButton, UnityAction ou
+    // callbacks do prefab do jogo. A entrada é verificada diretamente pela
+    // posição do mouse no mundo, usando o collider do próprio botão.
     private sealed class CliqueIndependente : MonoBehaviour
     {
         public Action AoClicar;
+        public Color CorNormal = Color.white;
+        public Color CorHover = Color.white;
+        public Color CorPressionado = Color.white;
 
-        private void OnMouseUpAsButton()
+        private SpriteRenderer fundo;
+        private BoxCollider2D area;
+        private bool mouseSobre;
+        private bool pressionado;
+
+        private void Awake()
         {
-            if (isActiveAndEnabled && gameObject.activeInHierarchy)
-                AoClicar?.Invoke();
+            fundo = GetComponent<SpriteRenderer>();
+            area = GetComponent<BoxCollider2D>();
+        }
+
+        private void OnEnable()
+        {
+            mouseSobre = false;
+            pressionado = false;
+            AtualizarVisual();
+        }
+
+        private void OnDisable()
+        {
+            mouseSobre = false;
+            pressionado = false;
+        }
+
+        private void Update()
+        {
+            if (fundo == null || area == null || Camera.main == null)
+                return;
+
+            Vector3 mouse = Input.mousePosition;
+            float distancia = Mathf.Abs(Camera.main.transform.position.z - transform.position.z);
+            Vector3 mundo = Camera.main.ScreenToWorldPoint(
+                new Vector3(mouse.x, mouse.y, distancia));
+
+            bool dentro = area.enabled && area.bounds.Contains(mundo);
+            mouseSobre = dentro;
+
+            if (dentro && Input.GetMouseButtonDown(0))
+                pressionado = true;
+
+            if (Input.GetMouseButtonUp(0))
+            {
+                bool ativar = pressionado && dentro;
+                pressionado = false;
+                AtualizarVisual();
+
+                if (ativar && isActiveAndEnabled && gameObject.activeInHierarchy)
+                    AoClicar?.Invoke();
+
+                return;
+            }
+
+            if (!Input.GetMouseButton(0))
+                pressionado = false;
+
+            AtualizarVisual();
+        }
+
+        private void AtualizarVisual()
+        {
+            if (fundo == null) return;
+
+            if (pressionado)
+                fundo.color = CorPressionado;
+            else if (mouseSobre)
+                fundo.color = CorHover;
+            else
+                fundo.color = CorNormal;
         }
     }
 
@@ -369,6 +435,9 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
 
         CliqueIndependente clique = objeto.AddComponent<CliqueIndependente>();
         clique.AoClicar = acao;
+        clique.CorNormal = cor;
+        clique.CorHover = Color.Lerp(cor, Color.white, 0.22f);
+        clique.CorPressionado = Color.Lerp(cor, Color.black, 0.18f);
 
         CriarTexto(objeto.transform, titulo,
             new Vector3(0f, 0f, -0.04f), tamanho,
@@ -452,20 +521,45 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
     {
         if (sprite != null) return sprite;
 
-        const int w = 64, h = 64;
+        // Textura branca com cantos transparentes. O SpriteRenderer aplica
+        // a cor de cada botão e o modo Sliced preserva o arredondamento ao
+        // redimensionar tanto os botões quanto o painel.
+        const int w = 128;
+        const int h = 64;
+        const int raio = 13;
+
         Texture2D tex = new Texture2D(w, h, TextureFormat.RGBA32, false);
-        tex.name = "YouTubeVoteBridge_UnityUiTexture";
+        tex.name = "YouTubeVoteBridge_RoundedButtonTexture";
         tex.filterMode = FilterMode.Bilinear;
+        tex.wrapMode = TextureWrapMode.Clamp;
 
         Color[] pixels = new Color[w * h];
-        for (int i = 0; i < pixels.Length; i++)
-            pixels[i] = Color.white;
+        for (int y = 0; y < h; y++)
+        {
+            for (int x = 0; x < w; x++)
+            {
+                int cx = x < raio ? raio : (x >= w - raio ? w - raio - 1 : x);
+                int cy = y < raio ? raio : (y >= h - raio ? h - raio - 1 : y);
+                bool canto = (x < raio || x >= w - raio) &&
+                    (y < raio || y >= h - raio);
+                bool dentro = !canto ||
+                    ((x - cx) * (x - cx) + (y - cy) * (y - cy) <= raio * raio);
+
+                pixels[y * w + x] = dentro ? Color.white : new Color(1f, 1f, 1f, 0f);
+            }
+        }
 
         tex.SetPixels(pixels);
         tex.Apply(false, true);
-        sprite = Sprite.Create(tex, new Rect(0, 0, w, h),
-            new Vector2(0.5f, 0.5f), 64f, 0,
-            SpriteMeshType.FullRect);
+
+        sprite = Sprite.Create(
+            tex,
+            new Rect(0, 0, w, h),
+            new Vector2(0.5f, 0.5f),
+            64f,
+            0,
+            SpriteMeshType.FullRect,
+            new Vector4(raio, raio, raio, raio));
 
         return sprite;
     }
