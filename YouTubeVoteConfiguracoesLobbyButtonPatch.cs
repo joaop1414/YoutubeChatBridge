@@ -278,10 +278,14 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         UnityEngine.Object.DontDestroyOnLoad(botaoBase);
         botaoBase.name = "YouTubeVoteBridge_ButtonBase_Prefab";
 
-        // Remove o posicionamento automático herdado e todos os listeners
-        // do botão original (por exemplo, abrir o menu Editar).
-        AspectPosition aspect = botaoBase.GetComponent<AspectPosition>();
-        if (aspect != null) UnityEngine.Object.Destroy(aspect);
+        // Remove componentes que reposicionam o prefab ou sobrescrevem o texto
+        // com a tradução original ("Editar").
+        foreach (AspectPosition aspect in botaoBase.GetComponentsInChildren<AspectPosition>(true))
+            UnityEngine.Object.Destroy(aspect);
+
+        foreach (TextTranslatorTMP tradutor in botaoBase.GetComponentsInChildren<TextTranslatorTMP>(true))
+            UnityEngine.Object.Destroy(tradutor);
+
         botaoBase.OnClick = new();
 
         Transform labelTransform = botaoBase.transform.Find("FontPlacer/Text_TMP");
@@ -293,14 +297,12 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
                 Transform container = label.transform.parent;
                 if (container != null)
                 {
-                    Vector3 containerPosition = container.localPosition;
-                    containerPosition.x = 0f;
-                    container.localPosition = containerPosition;
+                    container.localPosition = Vector3.zero;
                 }
 
-                Vector3 labelPosition = label.transform.localPosition;
-                labelPosition.x = 0f;
-                label.transform.localPosition = labelPosition;
+                label.transform.localPosition = Vector3.zero;
+                label.transform.localScale = Vector3.one;
+                label.rectTransform.anchoredPosition = Vector2.zero;
                 label.horizontalAlignment = HorizontalAlignmentOptions.Center;
                 label.fontSize = label.fontSizeMin = label.fontSizeMax = 3.5f;
                 label.enableWordWrapping = false;
@@ -328,6 +330,12 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         botao.transform.localRotation = Quaternion.identity;
         botao.transform.localScale = escala;
         botao.OnClick = new();
+
+        // O prefab original pode carregar um tradutor que restaura "Editar"
+        // a cada atualização. Cada cópia precisa manter somente o texto definido aqui.
+        foreach (TextTranslatorTMP tradutor in botao.GetComponentsInChildren<TextTranslatorTMP>(true))
+            UnityEngine.Object.Destroy(tradutor);
+
         // No IL2CPP, UnityAction é um wrapper e não aceita lambda diretamente.
         // Convertemos o System.Action gerenciado para o delegate nativo do Unity.
         Action aoClicar = () =>
@@ -368,12 +376,9 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
             collider.offset = Vector2.zero;
         }
 
-        Transform labelTransform = botao.transform.Find("FontPlacer/Text_TMP");
-        if (labelTransform != null)
+        TextMeshPro label = botao.GetComponentInChildren<TextMeshPro>(true);
+        if (label != null)
         {
-            TextMeshPro label = labelTransform.GetComponent<TextMeshPro>();
-            if (label != null)
-            {
                 label.text = titulo;
                 label.color = Color.white;
                 label.alignment = TextAlignmentOptions.Center;
@@ -383,8 +388,11 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
                 label.overflowMode = TextOverflowModes.Overflow;
 
                 MeshRenderer textRenderer = label.GetComponent<MeshRenderer>();
-                if (textRenderer != null) textRenderer.sortingOrder = ordem + 1;
-            }
+                if (textRenderer != null)
+                {
+                    textRenderer.enabled = true;
+                    textRenderer.sortingOrder = ordem + 1;
+                }
         }
 
         return botao.gameObject;
@@ -401,7 +409,12 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         // quadrado de fundo visível, sem nenhum texto.
         TextMeshPro modelo = null;
 
-        if (PlayerControl.LocalPlayer != null &&
+        // Usa primeiro a fonte já preparada do botão nativo, evitando herdar
+        // material/cor de nome de jogador (que pode deixar o texto escuro).
+        if (botaoBase != null)
+            modelo = botaoBase.GetComponentInChildren<TextMeshPro>(true);
+
+        if (modelo == null && PlayerControl.LocalPlayer != null &&
             PlayerControl.LocalPlayer.cosmetics != null)
             modelo = PlayerControl.LocalPlayer.cosmetics.nameText;
 
@@ -442,6 +455,7 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
 
         texto.enabled = true;
         texto.text = conteudo;
+        texto.alpha = 1f;
         texto.alignment = TextAlignmentOptions.Center;
         texto.fontSize = fonte;
         texto.fontStyle = estilo;
@@ -455,6 +469,7 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         {
             mesh.enabled = true;
             mesh.sortingOrder = ordem;
+            mesh.sortingLayerID = 0;
         }
 
         return texto;
