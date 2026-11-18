@@ -388,7 +388,11 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         foreach (ConfigItem item in ObterConfiguracoes())
         {
             if (valores.TryGetValue(item.Id, out TextMeshPro texto) && texto != null)
+            {
+                texto.richText = true;
                 texto.text = AplicarCorBranca(item.Ler());
+                texto.ForceMeshUpdate();
+            }
         }
 
         YouTubeVoteBridgePlugin.Instance?.Config.Save();
@@ -664,7 +668,11 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
         if (texto == null) return null;
 
         texto.enabled = true;
+        // O modelo clonado pode vir com richText desativado. Nesse caso,
+        // a tag <color> aparece como texto comum ou não altera a cor.
+        texto.richText = true;
         texto.text = AplicarCorBranca(conteudo);
+        texto.ForceMeshUpdate();
         texto.alpha = 1f;
         texto.alignment = TextAlignmentOptions.Center;
         texto.fontSize = fonte;
