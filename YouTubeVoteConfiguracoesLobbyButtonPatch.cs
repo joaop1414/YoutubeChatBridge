@@ -468,6 +468,19 @@ internal static class YouTubeVoteConfiguracoesLobbyButtonPatch
                 label.rectTransform.anchoredPosition = Vector2.zero;
                 label.text = titulo;
                 label.color = Color.white;
+                // O prefab Editar possui FaceColor escuro no material TMP.
+                // A cor do vértice (label.color) sozinha não clareia esse material,
+                // então cada botão recebe uma instância própria com FaceColor branco.
+                if (label.fontSharedMaterial != null)
+                {
+                    label.fontMaterial = new Material(label.fontSharedMaterial);
+                    if (label.fontMaterial.HasProperty("_FaceColor"))
+                        label.fontMaterial.SetColor("_FaceColor", Color.white);
+                    if (label.fontMaterial.HasProperty("_OutlineColor"))
+                        label.fontMaterial.SetColor("_OutlineColor", new Color(0f, 0f, 0f, 0.85f));
+                    if (label.fontMaterial.HasProperty("_FaceDilate"))
+                        label.fontMaterial.SetFloat("_FaceDilate", 0.1f);
+                }
                 label.alignment = TextAlignmentOptions.Center;
                 label.horizontalAlignment = HorizontalAlignmentOptions.Center;
                 label.fontSize = label.fontSizeMin = label.fontSizeMax = 1.65f;
