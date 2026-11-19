@@ -35,11 +35,9 @@ internal static class RoleSwitchCoSetRolePatch
 
         try
         {
-            var atual = RegistroFuncoesJogadores.Obter(__instance.PlayerId);
-            RegistroFuncoesJogadores.Registrar(
-                __instance,
-                role,
-                atual?.FuncaoPersonalizada);
+            // Este postfix é executado quando CoSetRole devolve o enumerador,
+            // não quando a coroutine termina. Portanto, aqui apenas registramos
+            // o pedido; a RoleSwitchAPI verifica Data.Role.Role posteriormente.
 
             string roleBehaviour = "(nulo)";
             string roleReal = "(nulo)";
