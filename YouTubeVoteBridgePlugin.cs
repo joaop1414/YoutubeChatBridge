@@ -4675,6 +4675,10 @@ public static class YouTubeVoteRaioAfterRoleRevealPatch
         EventoRaio.AoSairDaRoleReveal();
         EventoSeguidorMortal.AoSairDaRoleReveal();
         EventoOportunista.ReaplicarAposDistribuicao();
+
+        // A apresentação é sincronizada uma única vez, no fim da introdução.
+        // Nunca é disparada por CoSetRole durante uma troca no meio da partida.
+        RoleRevealSync.AoSairDaRoleReveal();
     }
 }
 
@@ -4683,6 +4687,8 @@ public static class YouTubeVoteRestoreLobbyTagsBeforeMatchPatch
 {
     public static void Postfix()
     {
+        RoleRevealSync.Resetar();
+
         // O jogo pode atualizar os nomes durante ShipStatus.Start. Restaurar no
         // Postfix faz a restauração depois dessa inicialização, evitando que os
         // nomes voltem a aparecer como "Jogador" quando a partida começa.
