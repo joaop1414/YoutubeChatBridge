@@ -1319,6 +1319,7 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
         habilidadeEncerrada = false;
         reporteSolicitado = false;
         aguardandoAnimacaoReporte = false;
+        vitoriaTripulantesAposReuniaoPendente = false;
         playerIdSelecionado = byte.MaxValue;
         clientIdSelecionado = -1;
         nomesOriginais.Clear();
