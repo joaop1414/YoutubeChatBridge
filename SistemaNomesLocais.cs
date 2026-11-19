@@ -449,7 +449,7 @@ internal static class SistemaNomesLocais
 
         if (EventoOportunista.EhOportunista(jogador))
         {
-            resultado += " <color=#B56BFF><size=50%>[Oportunista]</size></color>";
+            resultado += " <color=#B56BFF><size=70%>[Oportunista]</size></color>";
             resultado += EventoOportunista.MARCADOR;
         }
 
