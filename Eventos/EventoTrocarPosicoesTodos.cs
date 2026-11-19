@@ -60,20 +60,7 @@ internal sealed class EventoTrocarPosicoesTodos : EventoVotacao
                 (posicoes[0], posicoes[1]) = (posicoes[1], posicoes[0]);
         }
 
-        int movidos = 0;
-        for (int i = 0; i < jogadores.Count; i++)
-        {
-            try
-            {
-                jogadores[i].NetTransform.RpcSnapTo(posicoes[i]);
-                movidos++;
-            }
-            catch (Exception ex)
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "Falha ao trocar a posição de PlayerId=" + jogadores[i].PlayerId + ": " + ex.Message);
-            }
-        }
+        int movidos = SnapToBatchSender.Enviar(jogadores, posicoes);
 
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
             "Troca geral de posições concluída: " + movidos + " jogador(es) movimentado(s).");
