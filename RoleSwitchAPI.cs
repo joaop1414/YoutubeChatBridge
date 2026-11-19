@@ -242,6 +242,22 @@ internal static class RoleSwitchAPI
     /// Equivalente ao RpcSetRoleGlobal do EHR para funções globais.
     /// Aplica no host e transmite SetRole bruto para todos os clientes.
     /// </summary>
+    private static void AplicarFuncaoNoHost(PlayerControl jogador, RoleTypes funcao)
+    {
+        if (jogador == null)
+            return;
+
+        // O EHR limpa roleAssigned antes de permitir uma nova atribuição.
+        // No host mantemos canOverrideRole=false, mas o jogo passa a tratar
+        // esta chamada como uma atribuição ainda não realizada.
+        bool roleAssignedAnterior = jogador.roleAssigned;
+        jogador.roleAssigned = false;
+
+        LogInfo($"[RoleSwitchEHR] Preparando troca local: PlayerId={jogador.PlayerId}, roleAssigned antes={roleAssignedAnterior}, depois={jogador.roleAssigned}, canOverrideRole=false.");
+
+        jogador.SetRole(funcao, false);
+    }
+
     private static void RpcSetRoleGlobal(PlayerControl jogador, RoleTypes funcao, bool atualizarMapa = false)
     {
         if (jogador == null || jogador.Data == null ||
@@ -256,12 +272,9 @@ internal static class RoleSwitchAPI
                 AtualizarRoleMapCompleto(jogador, funcao);
             }
 
-            // O host usa o mesmo método do backup: SetRole(..., true).
-            // Os clientes também recebem SetRole com canOverrideRole=true.
+            // Host: libera uma nova atribuição no estado interno e mantém false.
             if (AmongUsClient.Instance.AmClient)
-            {
-                jogador.SetRole(funcao, true);
-            }
+                AplicarFuncaoNoHost(jogador, funcao);
 
             // Mesmo padrão do EHR: um RPC vanilla SetRole em broadcast.
             // Todos os clientes (inclusive vanilla) recebem canOverrideRole=true.
@@ -353,14 +366,12 @@ internal static class RoleSwitchAPI
             if (atualizarMapa && observador != null)
                 RoleMap[(observador.PlayerId, jogador.PlayerId)] = funcao;
 
-            // Se o observador for o próprio host, aplica localmente pelo mesmo
-            // método usado no backup. Os demais recebem RPC direcionado com true.
+            // Se o observador for o host, libera roleAssigned e aplica com false.
+            // Clientes remotos continuam recebendo RPC direcionado com true.
             if (AmongUsClient.Instance.ClientId == clientId)
             {
                 if (AmongUsClient.Instance.AmClient)
-                {
-                    jogador.SetRole(funcao, true);
-                }
+                    AplicarFuncaoNoHost(jogador, funcao);
 
                 jogador.StartCoroutine(VerificarAplicacaoDaFuncao(jogador, funcao, "desync-local"));
                 LogInfo($"RpcSetRoleDesync local: PlayerId={jogador.PlayerId}, cliente={clientId}, Role={funcao}.");
