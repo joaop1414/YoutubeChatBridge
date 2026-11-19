@@ -27,6 +27,9 @@ internal static class SnapToBatchSender
         try
         {
             // GameData em broadcast: um único pacote externo para todos os clientes.
+            int limitePorMensagem = Math.Max(1, AmongUsClient.Instance.GetMaxMessagePackingLimit());
+            int rpcsNaMensagem = 0;
+
             writer.StartMessage(5);
             writer.Write(AmongUsClient.Instance.GameId);
             mensagemAberta = true;
@@ -44,6 +47,15 @@ internal static class SnapToBatchSender
                 // Atualiza a cópia do host usando a mesma sequência enviada pela rede.
                 transformacao.SnapTo(destinos[i], sequencia);
 
+                // Respeita o limite de RPCs por GameData usado pelo próprio EHR.
+                if (rpcsNaMensagem >= limitePorMensagem)
+                {
+                    writer.EndMessage();
+                    writer.StartMessage(5);
+                    writer.Write(AmongUsClient.Instance.GameId);
+                    rpcsNaMensagem = 0;
+                }
+
                 // RPC interno no mesmo GameData externo, como no CustomRpcSender do EHR.
                 writer.StartMessage(2);
                 writer.WritePacked(transformacao.NetId);
@@ -53,6 +65,7 @@ internal static class SnapToBatchSender
                 writer.EndMessage();
 
                 enviados++;
+                rpcsNaMensagem++;
             }
 
             writer.EndMessage();
