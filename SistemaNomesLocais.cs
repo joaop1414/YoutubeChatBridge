@@ -438,7 +438,7 @@ internal static class SistemaNomesLocais
         string nome = ObterNomeBase(jogador);
 
         string resultado =
-            "<color=" + corFuncao + "><size=75%>" + funcao +
+            "\\n<color=" + corFuncao + "><size=75%>" + funcao +
             "\n</size>" + nome + "</color>";
 
         // Mantém os identificadores invisíveis no nome de rede. Isso permite
