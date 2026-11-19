@@ -4688,6 +4688,7 @@ public static class YouTubeVoteRestoreLobbyTagsBeforeMatchPatch
     public static void Postfix()
     {
         RoleRevealSync.Resetar();
+        RoleSwitchSetRoleOverrideSync.Resetar();
 
         // O jogo pode atualizar os nomes durante ShipStatus.Start. Restaurar no
         // Postfix faz a restauração depois dessa inicialização, evitando que os
