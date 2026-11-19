@@ -276,37 +276,20 @@ internal static class RoleSwitchAPI
             if (AmongUsClient.Instance.AmClient)
                 AplicarFuncaoNoHost(jogador, funcao);
 
-            // Distribui individualmente para preservar o comportamento de cada tipo
-            // de cliente: os modificados mantêm a função real e usam o nome local;
-            // os vanilla recebem a função normalmente.
-            HashSet<int> clientesEnviados = new();
-            if (PlayerControl.AllPlayerControls != null)
-            {
-                foreach (PlayerControl observador in PlayerControl.AllPlayerControls)
-                {
-                    if (observador == null || observador.Data == null ||
-                        observador.Data.Disconnected || observador.OwnerId < 0 ||
-                        observador.OwnerId == AmongUsClient.Instance.ClientId ||
-                        !clientesEnviados.Add(observador.OwnerId))
-                        continue;
+            // Mesmo padrão do EHR: um único RPC vanilla em broadcast com true.
+            // Clientes modificados interceptam RpcSetRole localmente e convertem
+            // para false; clientes vanilla recebem e mantêm o true original.
+            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
+                jogador.NetId,
+                (byte)RpcCalls.SetRole,
+                SendOption.Reliable);
+            writer.Write((ushort)funcao);
+            writer.Write(true);
+            AmongUsClient.Instance.FinishRpcImmediately(writer);
 
-                    int clientId = observador.OwnerId;
-                    bool canOverrideRole = !YouTubeVoteBridgePlugin.ClienteTemMod(clientId);
-
-                    MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
-                        jogador.NetId,
-                        (byte)RpcCalls.SetRole,
-                        SendOption.Reliable,
-                        clientId);
-                    writer.Write((ushort)funcao);
-                    writer.Write(canOverrideRole);
-                    AmongUsClient.Instance.FinishRpcImmediately(writer);
-
-                    LogInfo(
-                        $"RpcSetRoleGlobal: PlayerId={jogador.PlayerId}, cliente={clientId}, " +
-                        $"Role={funcao}, mod={(!canOverrideRole)}, canOverrideRole={canOverrideRole}.");
-                }
-            }
+            LogInfo(
+                $"RpcSetRoleGlobal: broadcast PlayerId={jogador.PlayerId}, Role={funcao}, " +
+                "canOverrideRole=true (clientes com mod convertem localmente para false).");
 
             // A confirmação do estado real é feita no host, que aplicou a função localmente.
             jogador.StartCoroutine(VerificarAplicacaoDaFuncao(jogador, funcao, "global"));
@@ -396,19 +379,21 @@ internal static class RoleSwitchAPI
                 return true;
             }
 
-            bool canOverrideRole = !YouTubeVoteBridgePlugin.ClienteTemMod(clientId);
+            // Mesmo em RPC direcionado, o pacote leva true. Se o destinatário
+            // tiver o mod, o Prefix de RpcSetRole converte localmente para false.
+            // Um destinatário vanilla recebe true sem depender do registro do host.
             MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
                 jogador.NetId,
                 (byte)RpcCalls.SetRole,
                 SendOption.Reliable,
                 clientId);
             writer.Write((ushort)funcao);
-            writer.Write(canOverrideRole);
+            writer.Write(true);
             AmongUsClient.Instance.FinishRpcImmediately(writer);
 
             LogInfo(
-                $"RpcSetRoleDesync: PlayerId={jogador.PlayerId}, cliente={clientId}, Role={funcao}, " +
-                $"mod={(!canOverrideRole)}, canOverrideRole={canOverrideRole}.");
+                $"RpcSetRoleDesync: PlayerId={jogador.PlayerId}, cliente={clientId}, " +
+                $"Role={funcao}, canOverrideRole enviado=true.");
             return true;
         }
         catch (Exception ex)
