@@ -27,6 +27,9 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
     // antes de encerrar a partida com vitória dos impostores.
     private static bool reporteSolicitado;
     private static bool aguardandoAnimacaoReporte;
+    // Vitória dos tripulantes pendente: só será executada depois de WrapUp,
+    // quando a reunião e a tela de ejeção já terminaram.
+    private static bool vitoriaTripulantesAposReuniaoPendente;
     private static byte playerIdSelecionado = byte.MaxValue;
     private static int clientIdSelecionado = -1;
     private static float proximoDiagnosticoLogicOptions;
@@ -91,6 +94,7 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
         habilidadeEncerrada = false;
         reporteSolicitado = false;
         aguardandoAnimacaoReporte = false;
+        vitoriaTripulantesAposReuniaoPendente = false;
         playerIdSelecionado = byte.MaxValue;
         clientIdSelecionado = -1;
 
@@ -1065,6 +1069,13 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
             habilidadeEncerrada)
             return;
 
+        // Captura a condição ANTES de remover o GuardianAngel: se o Anjo era o
+        // último impostor, a vitória dos tripulantes será agendada após WrapUp.
+        vitoriaTripulantesAposReuniaoPendente =
+            YouTubeVoteBridgePlugin.SemFimDeJogo != null &&
+            !YouTubeVoteBridgePlugin.SemFimDeJogo.Value &&
+            DeveManterPartidaAbertaComoAnjo();
+
         habilidadeEncerrada = true;
         puxandoAlvo = false;
         primeiroRpcProtectEm = -1f;
@@ -1097,6 +1108,40 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
             "[F7/Anjo Traidor] Reunião iniciada. O Anjo da Guarda perdeu a habilidade " +
             "e agora é ImpostorGhost também no próprio cliente.");
     }
+
+    // WrapUp é o ponto em que a reunião termina e a transição de ejeção já foi
+    // concluída. A espera curta permite que o jogo retorne ao estado de partida.
+    internal static void AoTerminarReuniao()
+    {
+        if (!YouTubeVoteBridgePlugin.EhHost() ||
+            !vitoriaTripulantesAposReuniaoPendente)
+            return;
+
+        MonoBehaviourExtensions.StartCoroutine(
+            PlayerControl.LocalPlayer,
+            EncerrarComVitoriaTripulantesAposReuniao());
+    }
+
+
+    private static IEnumerator EncerrarComVitoriaTripulantesAposReuniao()
+    {
+        yield return new WaitForSecondsRealtime(0.75f);
+
+
+        if (!YouTubeVoteBridgePlugin.EhHost() ||
+            !vitoriaTripulantesAposReuniaoPendente ||
+            (YouTubeVoteBridgePlugin.SemFimDeJogo != null &&
+             YouTubeVoteBridgePlugin.SemFimDeJogo.Value) ||
+            GameManager.Instance == null)
+            yield break;
+
+
+        vitoriaTripulantesAposReuniaoPendente = false;
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            "[F7/Anjo Traidor] Reunião e ejeção concluídas. Encerrando com vitória dos tripulantes.");
+        GameManager.Instance.RpcEndGame((GameOverReason)0, false);
+    }
+
 
     private static IEnumerator EncerrarPartidaAposAnimacaoReporte()
     {
