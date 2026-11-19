@@ -561,6 +561,16 @@ internal static class PainelVotacaoRpcPatch
             return false;
         }
 
+        if (callId == RoleRevealSync.RpcRoleReveal)
+        {
+            // O RPC é enviado no objeto do host e somente para clientes com mod.
+            if (AmongUsClient.Instance != null &&
+                __instance != null &&
+                __instance.OwnerId == AmongUsClient.Instance.HostId)
+                RoleRevealSync.Receber();
+            return false;
+        }
+
         if (callId != RpcPainelVotacao) return true;
         try
         {
