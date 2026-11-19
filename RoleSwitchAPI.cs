@@ -263,13 +263,32 @@ internal static class RoleSwitchAPI
                 jogador.SetRole(funcao, true);
             }
 
-            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
-                jogador.NetId,
-                (byte)RpcCalls.SetRole,
-                SendOption.Reliable);
-            writer.Write((ushort)funcao);
-            writer.Write(true);
-            AmongUsClient.Instance.FinishRpcImmediately(writer);
+            // Teste de sincronização: em vez de broadcast, envia SetRole
+            // individualmente a cada cliente remoto vanilla/modded.
+            int envios = 0;
+            if (PlayerControl.AllPlayerControls != null)
+            {
+                foreach (PlayerControl observador in PlayerControl.AllPlayerControls)
+                {
+                    if (observador == null || observador.Data == null ||
+                        observador.Data.Disconnected || observador.OwnerId < 0 ||
+                        observador.OwnerId == AmongUsClient.Instance.ClientId)
+                        continue;
+
+                    MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
+                        jogador.NetId,
+                        (byte)RpcCalls.SetRole,
+                        SendOption.Reliable,
+                        observador.OwnerId);
+                    writer.Write((ushort)funcao);
+                    writer.Write(true);
+                    AmongUsClient.Instance.FinishRpcImmediately(writer);
+                    envios++;
+
+                    LogInfo($"RpcSetRoleGlobal direcionado: PlayerId={jogador.PlayerId}, Role={funcao}, clientId={observador.OwnerId}, canOverrideRole=true.");
+                }
+            }
+            LogInfo($"RpcSetRoleGlobal: SetRole direcionado enviado a {envios} clientes remotos.");
 
             // Não presumimos que iniciar CoSetRole significa que o jogo
             // já substituiu a função. A confirmação ocorre após a coroutine.
