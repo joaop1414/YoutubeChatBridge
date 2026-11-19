@@ -276,9 +276,13 @@ internal static class RoleSwitchAPI
             if (AmongUsClient.Instance.AmClient)
                 AplicarFuncaoNoHost(jogador, funcao);
 
+            // Prepara os clientes modificados antes do SetRole. Só eles recebem
+            // o marcador 253; clientes vanilla nunca recebem RPC personalizado.
+            RoleSwitchSetRoleOverrideSync.PrepararClientesModificados(jogador, funcao);
+
             // Mesmo padrão do EHR: um único RPC vanilla em broadcast com true.
-            // Clientes modificados interceptam RpcSetRole localmente e convertem
-            // para false; clientes vanilla recebem e mantêm o true original.
+            // O marcador faz somente os clientes modificados converterem esta
+            // troca personalizada para false. Atribuições iniciais ficam intactas.
             MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
                 jogador.NetId,
                 (byte)RpcCalls.SetRole,
@@ -289,7 +293,7 @@ internal static class RoleSwitchAPI
 
             LogInfo(
                 $"RpcSetRoleGlobal: broadcast PlayerId={jogador.PlayerId}, Role={funcao}, " +
-                "canOverrideRole=true (clientes com mod convertem localmente para false).");
+                "canOverrideRole=true; clientes modificados marcados para false.");
 
             // A confirmação do estado real é feita no host, que aplicou a função localmente.
             jogador.StartCoroutine(VerificarAplicacaoDaFuncao(jogador, funcao, "global"));
@@ -379,9 +383,11 @@ internal static class RoleSwitchAPI
                 return true;
             }
 
-            // Mesmo em RPC direcionado, o pacote leva true. Se o destinatário
-            // tiver o mod, o Prefix de RpcSetRole converte localmente para false.
-            // Um destinatário vanilla recebe true sem depender do registro do host.
+            // Marca o SetRole somente se o destinatário confirmou possuir o mod.
+            // O pacote vanilla continua levando true para qualquer destinatário.
+            if (YouTubeVoteBridgePlugin.ClienteTemMod(clientId))
+                RoleSwitchSetRoleOverrideSync.PrepararClienteModificado(clientId, jogador, funcao);
+
             MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
                 jogador.NetId,
                 (byte)RpcCalls.SetRole,
