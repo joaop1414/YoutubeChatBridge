@@ -24,24 +24,14 @@ internal static class RoleSwitchCoSetRolePatch
         [HarmonyArgument(0)] RoleTypes role,
         [HarmonyArgument(1)] bool canOverrideRole)
     {
-        if (__instance == null)
+        if (__instance == null || !canOverrideRole)
             return;
-
-        // O comportamento vanilla de CoSetRole(false) continua intacto.
-        // A exceção só vale durante a chamada local explicitamente aberta
-        // por RoleSwitchAPI para o host substituir uma função já atribuída.
-        bool overrideModHost = !canOverrideRole &&
-                               RoleSwitchAPI.DeveLiberarOverrideLocalHost(__instance);
-        if (!canOverrideRole && !overrideModHost)
-            return;
-
         try
         {
             bool antes = __instance.roleAssigned;
             __instance.roleAssigned = false;
-            string motivo = canOverrideRole ? "canOverrideRole=true" : "override-explicito-mod-host";
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                $"[RoleSwitchEHR] Prefix CoSetRole: PlayerId={__instance.PlayerId}, role={role}, canOverrideRole={canOverrideRole}, motivo={motivo}, roleAssigned antes={antes}, depois={__instance.roleAssigned}.");
+                $"[RoleSwitchEHR] Prefix CoSetRole: PlayerId={__instance.PlayerId}, role={role}, canOverrideRole={canOverrideRole}, roleAssigned antes={antes}, depois={__instance.roleAssigned}.");
         }
         catch (System.Exception ex)
         {
