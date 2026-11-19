@@ -79,6 +79,9 @@ internal static class RoleSwitchSetRoleOverrideSync
             writer.Write(playerId);
             writer.Write((ushort)role);
             AmongUsClient.Instance.FinishRpcImmediately(writer);
+
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                $"[RoleSwitchEHR] Marcador enviado: cliente={clientId}, PlayerId={playerId}, Role={role}.");
         }
         catch (System.Exception ex)
         {
