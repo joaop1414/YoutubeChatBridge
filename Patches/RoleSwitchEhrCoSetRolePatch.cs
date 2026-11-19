@@ -1,33 +1,35 @@
-using System;
 using AmongUs.GameOptions;
-using BepInEx.Unity.IL2CPP.Utils;
 using HarmonyLib;
 
 namespace YouTubeVoteBridge;
 
 /// <summary>
-/// Equivalente ao helper SetRole do EHR: inicia a coroutine vanilla CoSetRole
-/// no PlayerControl de destino, preservando o parâmetro canOverrideRole.
-/// </summary>
-internal static class RoleSwitchEhrExtensions
-{
-    internal static void SetRole(this PlayerControl player, RoleTypes role, bool canOverrideRole = true)
-    {
-        if (player == null)
-            return;
-
-        player.StartCoroutine(player.CoSetRole(role, canOverrideRole));
-    }
-}
-
-/// <summary>
-/// Equivalente adaptado ao PlayerControlLocalSetRolePatch do EHR.
-/// Sincroniza o registro local do mod com a RoleType solicitada no fluxo
-/// CoSetRole, sem inventar uma função personalizada nem substituir a HUD.
+/// Teste: libera a atribuição vanilla no início da coroutine CoSetRole,
+/// antes que a lógica interna verifique a trava de roleAssigned.
+/// Atua apenas quando canOverrideRole está true.
 /// </summary>
 [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.CoSetRole))]
 internal static class RoleSwitchCoSetRolePatch
 {
+    private static void Prefix(PlayerControl __instance, RoleTypes role, bool canOverrideRole)
+    {
+        if (__instance == null || !canOverrideRole)
+            return;
+
+        try
+        {
+            bool antes = __instance.roleAssigned;
+            __instance.roleAssigned = false;
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                $"[RoleSwitchEHR] Prefix CoSetRole: PlayerId={__instance.PlayerId}, role={role}, canOverrideRole={canOverrideRole}, roleAssigned antes={antes}, depois={__instance.roleAssigned}.");
+        }
+        catch (System.Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                "[RoleSwitchEHR] Prefix falhou ao liberar roleAssigned: " + ex);
+        }
+    }
+
     private static void Postfix(PlayerControl __instance, [HarmonyArgument(0)] RoleTypes role)
     {
         if (__instance == null || __instance.Data == null || __instance.Data.Disconnected)
@@ -35,10 +37,6 @@ internal static class RoleSwitchCoSetRolePatch
 
         try
         {
-            // Este postfix é executado quando CoSetRole devolve o enumerador,
-            // não quando a coroutine termina. Portanto, aqui apenas registramos
-            // o pedido; a RoleSwitchAPI verifica Data.Role.Role posteriormente.
-
             string roleBehaviour = "(nulo)";
             string roleReal = "(nulo)";
             try
@@ -46,7 +44,7 @@ internal static class RoleSwitchCoSetRolePatch
                 roleReal = __instance.Data.Role?.Role.ToString() ?? "(nulo)";
                 roleBehaviour = __instance.Data.Role?.GetType().FullName ?? "(nulo)";
             }
-            catch (Exception ex)
+            catch (System.Exception ex)
             {
                 roleBehaviour = "<erro:" + ex.GetType().Name + ">";
             }
@@ -56,7 +54,7 @@ internal static class RoleSwitchCoSetRolePatch
                 $"solicitada={role}, Data.Role.Role={roleReal}, " +
                 $"RoleBehaviour={roleBehaviour}, ownerId={__instance.OwnerId}.");
         }
-        catch (Exception ex)
+        catch (System.Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
                 "[RoleSwitchEHR] Falha ao sincronizar CoSetRole: " + ex);
