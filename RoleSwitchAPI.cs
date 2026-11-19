@@ -66,7 +66,8 @@ internal static class RoleSwitchAPI
             GarantirRoleMapInicializado();
             AtualizarRoleMapCompleto(jogador, funcao);
             RpcSetRoleGlobal(jogador, funcao, atualizarMapa: false);
-            AtualizarRegistroLocal(jogador, funcao);
+            // O registro só será atualizado pelo verificador depois que
+            // Data.Role.Role confirmar a troca realmente aplicada.
             SistemaNomesLocais.Atualizar();
             return true;
         }
@@ -268,13 +269,60 @@ internal static class RoleSwitchAPI
             writer.Write(true);
             AmongUsClient.Instance.FinishRpcImmediately(writer);
 
-            AtualizarRegistroLocal(jogador, funcao);
+            // Não presumimos que iniciar CoSetRole significa que o jogo
+            // já substituiu a função. A confirmação ocorre após a coroutine.
+            jogador.StartCoroutine(VerificarAplicacaoDaFuncao(jogador, funcao, "global"));
             LogInfo($"RpcSetRoleGlobal: PlayerId={jogador.PlayerId}, Role={funcao}, canOverrideRole=true.");
         }
         catch (Exception ex)
         {
             LogErro($"RpcSetRoleGlobal falhou para PlayerId={jogador.PlayerId}: {ex}");
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Aguarda a coroutine vanilla e confere a função real em Data.Role.
+    /// O registro interno só é alterado quando a função solicitada aparece
+    /// efetivamente no estado do jogador local.
+    /// </summary>
+    private static System.Collections.IEnumerator VerificarAplicacaoDaFuncao(
+        PlayerControl jogador, RoleTypes funcaoSolicitada, string origem)
+    {
+        float[] esperas = { 0.5f, 1.0f, 1.5f };
+        foreach (float espera in esperas)
+        {
+            yield return new WaitForSecondsRealtime(espera);
+
+            if (jogador == null || jogador.Data == null || jogador.Data.Disconnected)
+                yield break;
+
+            RoleTypes? funcaoReal = null;
+            try
+            {
+                if (jogador.Data.Role != null)
+                    funcaoReal = jogador.Data.Role.Role;
+            }
+            catch (Exception ex)
+            {
+                LogAviso($"Verificação de função falhou ({origem}) para PlayerId={jogador.PlayerId}: {ex.Message}");
+            }
+
+            if (funcaoReal.HasValue && funcaoReal.Value == funcaoSolicitada)
+            {
+                AtualizarRegistroLocal(jogador, funcaoSolicitada);
+                LogInfo($"Confirmação de troca ({origem}): PlayerId={jogador.PlayerId}, função real={funcaoReal.Value}.");
+                yield break;
+            }
+        }
+
+        if (jogador != null && jogador.Data != null)
+        {
+            string funcaoAtual;
+            try { funcaoAtual = jogador.Data.Role?.Role.ToString() ?? "(Role nulo)"; }
+            catch (Exception ex) { funcaoAtual = "<erro:" + ex.GetType().Name + ">"; }
+
+            LogAviso($"Troca não confirmada ({origem}): PlayerId={jogador.PlayerId}, solicitada={funcaoSolicitada}, função real após aguardar={funcaoAtual}. O registro interno não foi forçado.");
         }
     }
 
@@ -306,7 +354,7 @@ internal static class RoleSwitchAPI
                 if (AmongUsClient.Instance.AmClient)
                     jogador.SetRole(funcao, true);
 
-                AtualizarRegistroLocal(jogador, funcao);
+                jogador.StartCoroutine(VerificarAplicacaoDaFuncao(jogador, funcao, "desync-local"));
                 LogInfo($"RpcSetRoleDesync local: PlayerId={jogador.PlayerId}, cliente={clientId}, Role={funcao}.");
                 return true;
             }
@@ -512,7 +560,6 @@ internal static class RoleSwitchAPI
                     RpcSetRoleDesync(target, chamada.Role, chamada.ClientId);
             }
 
-            AtualizarRegistroLocal(target);
             LogInfo(
                 $"RpcChangeRoleBasis concluído: PlayerId={target.PlayerId}, " +
                 $"observadores={chamadas.Count}, função global={(maiorContagem > 1 ? funcaoGlobal.ToString() : "nenhuma")}, " +
