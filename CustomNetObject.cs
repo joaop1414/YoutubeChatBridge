@@ -5,6 +5,7 @@ using InnerNet;
 using AmongUs.GameOptions;
 using AmongUs.InnerNet.GameDataMessages;
 using UnityEngine;
+using YouTubeVoteBridge;
 
 namespace MoreGamemodes
 {
@@ -440,25 +441,14 @@ namespace MoreGamemodes
 
         public static void EnviarPosicao(PlayerControl jogador, Vector2 posicao)
         {
-            if (jogador?.NetTransform == null || AmongUsClient.Instance == null) return;
+            if (jogador?.NetTransform == null || AmongUsClient.Instance == null ||
+                !AmongUsClient.Instance.AmHost)
+                return;
 
-            ushort sequencia = (ushort)(jogador.NetTransform.lastSequenceId + 1);
-            jogador.NetTransform.SnapTo(posicao, sequencia);
-
-            // O host atualiza a sua cópia e manda SnapTo em mensagens
-            // individuais para cada cliente remoto.
-            foreach (ClientData cliente in AmongUsClient.Instance.allClients.ToArray())
-            {
-                if (cliente == null || cliente.Id == AmongUsClient.Instance.ClientId)
-                    continue;
-
-                MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
-                    jogador.NetTransform.NetId, (byte)RpcCalls.SnapTo,
-                    SendOption.Reliable, cliente.Id);
-                NetHelpers.WriteVector2(posicao, writer);
-                writer.Write(sequencia);
-                AmongUsClient.Instance.FinishRpcImmediately(writer);
-            }
+            // Um único GameData broadcast substitui um pacote SnapTo por cliente.
+            SnapToBatchSender.Enviar(
+                new[] { jogador },
+                new[] { posicao });
         }
     }
 }
