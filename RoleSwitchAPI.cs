@@ -538,8 +538,11 @@ internal static class RoleSwitchAPI
                 }
             }
 
-            if (maiorContagem > 1)
+            if (maiorContagem > 1 || chamadas.Count == 1)
             {
+                // Se todos concordam, inclusive quando há apenas um observador,
+                // usa o fluxo global do EHR. Com um único jogador, não existe
+                // motivo para cair no caminho desync-local sem RPC global.
                 // A maioria recebe uma única transmissão global.
                 RpcSetRoleGlobal(target, funcaoGlobal);
 
