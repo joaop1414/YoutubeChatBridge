@@ -19,7 +19,10 @@ internal static class RoleSwitchEhrExtensions
 [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.CoSetRole))]
 internal static class RoleSwitchCoSetRolePatch
 {
-    private static void Prefix(PlayerControl __instance, RoleTypes role, bool canOverrideRole)
+    private static void Prefix(
+        PlayerControl __instance,
+        [HarmonyArgument(0)] RoleTypes role,
+        [HarmonyArgument(1)] bool canOverrideRole)
     {
         if (__instance == null || !canOverrideRole)
             return;
