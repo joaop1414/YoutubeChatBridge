@@ -41,38 +41,6 @@ internal static class RoleSwitchAPI
     private static readonly HashSet<byte> JogadoresDoMapa = new();
     private static bool mapaInicializado;
 
-    // Escopo curto para permitir que somente as trocas locais iniciadas por
-    // esta API limpem roleAssigned, sem mudar o comportamento vanilla de false.
-    private static PlayerControl alvoOverrideLocalHost;
-
-    internal static bool DeveLiberarOverrideLocalHost(PlayerControl jogador)
-    {
-        return jogador != null &&
-               alvoOverrideLocalHost == jogador &&
-               AmongUsClient.Instance != null &&
-               AmongUsClient.Instance.AmHost &&
-               jogador.OwnerId == AmongUsClient.Instance.ClientId;
-    }
-
-    private static void AplicarSetRoleLocalHost(PlayerControl jogador, RoleTypes funcao)
-    {
-        if (jogador == null)
-            return;
-
-        PlayerControl alvoAnterior = alvoOverrideLocalHost;
-        alvoOverrideLocalHost = jogador;
-        try
-        {
-            // O argumento permanece false. O Harmony libera roleAssigned
-            // somente porque esta chamada foi iniciada explicitamente pela API.
-            jogador.SetRole(funcao, false);
-        }
-        finally
-        {
-            alvoOverrideLocalHost = alvoAnterior;
-        }
-    }
-
     private sealed class RoleCall
     {
         public PlayerControl Target;
@@ -292,7 +260,7 @@ internal static class RoleSwitchAPI
             // recebem o RPC vanilla abaixo com canOverrideRole=true.
             if (AmongUsClient.Instance.AmClient)
             {
-                AplicarSetRoleLocalHost(jogador, funcao);
+                jogador.SetRole(funcao, true);
             }
 
             // Teste de sincronização: em vez de broadcast, envia SetRole
@@ -406,7 +374,7 @@ internal static class RoleSwitchAPI
             {
                 if (AmongUsClient.Instance.AmClient)
                 {
-                    AplicarSetRoleLocalHost(jogador, funcao);
+                    jogador.SetRole(funcao, true);
                 }
 
                 jogador.StartCoroutine(VerificarAplicacaoDaFuncao(jogador, funcao, "desync-local"));
