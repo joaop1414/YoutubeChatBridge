@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Text;
+using AmongUs.GameOptions;
 using Hazel;
 using HarmonyLib;
 using UnityEngine;
@@ -568,6 +569,21 @@ internal static class PainelVotacaoRpcPatch
                 __instance != null &&
                 __instance.OwnerId == AmongUsClient.Instance.HostId)
                 RoleRevealSync.Receber();
+            return false;
+        }
+
+        if (callId == RoleSwitchSetRoleOverrideSync.RpcPrepareSetRole)
+        {
+            // O host anuncia ao cliente modificado qual SetRole customizado
+            // deve ser convertido para false. A ordem reliable preserva a sequência.
+            if (AmongUsClient.Instance != null &&
+                __instance != null &&
+                __instance.OwnerId == AmongUsClient.Instance.HostId)
+            {
+                byte playerId = reader.ReadByte();
+                RoleTypes role = (RoleTypes)reader.ReadUInt16();
+                RoleSwitchSetRoleOverrideSync.Marcar(playerId, role);
+            }
             return false;
         }
 
