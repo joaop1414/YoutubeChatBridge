@@ -1,6 +1,8 @@
+using System.Collections;
 using AmongUs.GameOptions;
 using BepInEx.Unity.IL2CPP.Utils;
 using HarmonyLib;
+using UnityEngine;
 
 namespace YouTubeVoteBridge;
 
@@ -58,10 +60,44 @@ internal static class RoleSwitchCoSetRolePatch
             }
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 $"[RoleSwitchEHR] CoSetRole Postfix: PlayerId={__instance.PlayerId}, solicitada={role}, Data.Role.Role={roleReal}, RoleBehaviour={roleBehaviour}, ownerId={__instance.OwnerId}.");
+
+            // O EHR abre o painel de função do HUD depois da introdução.
+            // Reutilizamos esse mesmo ponto de entrada somente no cliente dono
+            // do jogador alterado. Não chamamos IntroCutscene.ShowRole(),
+            // portanto não reproduzimos a animação central nem a descrição
+            // da introdução durante a partida.
+            if (!__instance.AmOwner || AmongUsClient.Instance == null ||
+                AmongUsClient.Instance.AmHost)
+                return;
+
+            __instance.StartCoroutine(AbrirPainelDeFuncaoAposSetRole(__instance, role));
         }
         catch (System.Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning("[RoleSwitchEHR] Falha ao sincronizar CoSetRole: " + ex);
+        }
+    }
+
+    private static IEnumerator AbrirPainelDeFuncaoAposSetRole(PlayerControl jogador, RoleTypes role)
+    {
+        // CoSetRole é uma coroutine; aguarda a aplicação vanilla terminar.
+        yield return new WaitForSecondsRealtime(0.5f);
+
+        if (jogador == null || jogador.Data == null || jogador.Data.Disconnected ||
+            !jogador.AmOwner || AmongUsClient.Instance == null ||
+            AmongUsClient.Instance.AmHost)
+            yield break;
+
+        if (HudManager.InstanceExists)
+        {
+            HudManager.Instance.SetRolePanelOpen(true);
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                $"[RoleSwitchEHR] Painel de função do HUD aberto no cliente não-host. PlayerId={jogador.PlayerId}, Role={role}.");
+        }
+        else
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                $"[RoleSwitchEHR] HUD ainda não existe; painel de função não foi aberto para PlayerId={jogador.PlayerId}.");
         }
     }
 }
