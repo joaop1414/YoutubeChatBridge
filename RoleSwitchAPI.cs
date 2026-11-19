@@ -256,8 +256,8 @@ internal static class RoleSwitchAPI
                 AtualizarRoleMapCompleto(jogador, funcao);
             }
 
-            // No host, aplica a função com canOverrideRole=false. Os clientes remotos
-            // recebem o RPC vanilla abaixo com canOverrideRole=true.
+            // O host usa o mesmo método do backup: SetRole(..., true).
+            // Os clientes também recebem SetRole com canOverrideRole=true.
             if (AmongUsClient.Instance.AmClient)
             {
                 jogador.SetRole(funcao, true);
@@ -353,8 +353,8 @@ internal static class RoleSwitchAPI
             if (atualizarMapa && observador != null)
                 RoleMap[(observador.PlayerId, jogador.PlayerId)] = funcao;
 
-            // O host não recebe um RPC enviado a si próprio: aplica diretamente
-            // com canOverrideRole=false. Clientes remotos usam true.
+            // Se o observador for o próprio host, aplica localmente pelo mesmo
+            // método usado no backup. Os demais recebem RPC direcionado com true.
             if (AmongUsClient.Instance.ClientId == clientId)
             {
                 if (AmongUsClient.Instance.AmClient)
