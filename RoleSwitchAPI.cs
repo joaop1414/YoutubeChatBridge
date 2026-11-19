@@ -30,6 +30,35 @@ internal static class RoleSwitchAPI
         }
     }
 
+    /// <summary>
+    /// Teste controlado: libera a trava vanilla de atribuição antes de uma
+    /// troca explícita. Não mantém roleAssigned alterado após a chamada.
+    /// </summary>
+    private static bool ResetarRoleAssignedParaTeste(PlayerControl jogador)
+    {
+        if (jogador == null) return false;
+        try
+        {
+            var campo = AccessTools.Field(typeof(PlayerControl), "roleAssigned");
+            if (campo == null)
+            {
+                LogAviso("Campo privado roleAssigned não encontrado; reset de teste ignorado.");
+                return false;
+            }
+
+            bool antes = (bool)campo.GetValue(jogador);
+            campo.SetValue(jogador, false);
+            LogInfo($"Reset de teste roleAssigned: PlayerId={jogador.PlayerId}, antes={antes}, depois={(bool)campo.GetValue(jogador)}.");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            LogAviso($"Falha ao resetar roleAssigned para teste: {ex.Message}");
+            return false;
+        }
+    }
+
+
     private static bool loteEmAndamento;
     private static float inicioLoteRealtime;
     private static int identificadorLote;
@@ -259,7 +288,10 @@ internal static class RoleSwitchAPI
             // Mesmo fluxo do EHR: aplica no host sem coroutine e envia o RPC
             // vanilla SetRole para todos os clientes com canOverrideRole=true.
             if (AmongUsClient.Instance.AmClient)
+            {
+                ResetarRoleAssignedParaTeste(jogador);
                 jogador.SetRole(funcao, true);
+            }
 
             MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
                 jogador.NetId,
@@ -352,7 +384,10 @@ internal static class RoleSwitchAPI
             if (AmongUsClient.Instance.ClientId == clientId)
             {
                 if (AmongUsClient.Instance.AmClient)
+                {
+                    ResetarRoleAssignedParaTeste(jogador);
                     jogador.SetRole(funcao, true);
+                }
 
                 jogador.StartCoroutine(VerificarAplicacaoDaFuncao(jogador, funcao, "desync-local"));
                 LogInfo($"RpcSetRoleDesync local: PlayerId={jogador.PlayerId}, cliente={clientId}, Role={funcao}.");
