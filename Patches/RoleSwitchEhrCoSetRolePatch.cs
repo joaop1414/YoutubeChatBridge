@@ -1,4 +1,6 @@
+using System.Collections.Generic;
 using AmongUs.GameOptions;
+using Hazel;
 using BepInEx.Unity.IL2CPP.Utils;
 using HarmonyLib;
 
@@ -16,30 +18,101 @@ internal static class RoleSwitchEhrExtensions
 }
 
 /// <summary>
-/// Replica a separação do EHR no ponto correto: RpcSetRole é chamado quando
-/// o cliente recebe o RPC vanilla. Clientes modificados convertem o argumento
-/// para false localmente; clientes vanilla não possuem este patch e conservam
-/// o true enviado pelo host.
+/// Prepara somente as trocas personalizadas para que clientes modificados
+/// convertam o próximo SetRole correspondente em canOverrideRole=false.
+/// A distribuição inicial vanilla não é afetada.
+/// </summary>
+internal static class RoleSwitchSetRoleOverrideSync
+{
+    internal const byte RpcPrepareSetRole = 253;
+
+    private static readonly Dictionary<(byte PlayerId, RoleTypes Role), float> Pendentes = new();
+
+    internal static void Resetar() => Pendentes.Clear();
+
+    internal static void Marcar(byte playerId, RoleTypes role)
+    {
+        Pendentes[(playerId, role)] = UnityEngine.Time.realtimeSinceStartup + 8f;
+    }
+
+    internal static bool Consumir(byte playerId, RoleTypes role)
+    {
+        var chave = (playerId, role);
+        if (!Pendentes.TryGetValue(chave, out float expiraEm))
+            return false;
+
+        Pendentes.Remove(chave);
+        return UnityEngine.Time.realtimeSinceStartup <= expiraEm;
+    }
+
+    internal static void PrepararClientesModificados(PlayerControl alvo, RoleTypes role)
+    {
+        if (alvo == null || AmongUsClient.Instance == null ||
+            !AmongUsClient.Instance.AmHost || PlayerControl.LocalPlayer == null)
+            return;
+
+        foreach (int clientId in YouTubeVoteBridgePlugin.ClientesComModSnapshot())
+            EnviarMarcador(clientId, alvo.PlayerId, role);
+    }
+
+    internal static void PrepararClienteModificado(int clientId, PlayerControl alvo, RoleTypes role)
+    {
+        if (alvo == null || AmongUsClient.Instance == null ||
+            !AmongUsClient.Instance.AmHost || PlayerControl.LocalPlayer == null)
+            return;
+
+        EnviarMarcador(clientId, alvo.PlayerId, role);
+    }
+
+    private static void EnviarMarcador(int clientId, byte playerId, RoleTypes role)
+    {
+        if (clientId < 0 || clientId == AmongUsClient.Instance.ClientId)
+            return;
+
+        try
+        {
+            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
+                PlayerControl.LocalPlayer.NetId,
+                RpcPrepareSetRole,
+                SendOption.Reliable,
+                clientId);
+            writer.Write(playerId);
+            writer.Write((ushort)role);
+            AmongUsClient.Instance.FinishRpcImmediately(writer);
+        }
+        catch (System.Exception ex)
+        {
+            YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                $"[RoleSwitchEHR] Falha ao preparar SetRole para cliente {clientId}: {ex.Message}");
+        }
+    }
+}
+
+/// <summary>
+/// Clientes modificados convertem para false somente o SetRole personalizado
+/// previamente anunciado pelo host. Todas as atribuições normais mantêm o valor
+/// original recebido, inclusive a distribuição inicial de funções.
 /// </summary>
 [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.RpcSetRole))]
 internal static class RoleSwitchRpcSetRoleOverridePatch
 {
     private static void Prefix(
         PlayerControl __instance,
+        [HarmonyArgument(0)] RoleTypes roleType,
         [HarmonyArgument(1)] ref bool canOverrideRole)
     {
-        // O host já aplica sua própria função localmente com false.
-        // Esta conversão só é necessária nos clientes modificados remotos.
-        if (AmongUsClient.Instance == null || AmongUsClient.Instance.AmHost)
+        if (AmongUsClient.Instance == null || AmongUsClient.Instance.AmHost ||
+            __instance == null)
+            return;
+
+        if (!RoleSwitchSetRoleOverrideSync.Consumir(__instance.PlayerId, roleType))
             return;
 
         bool recebido = canOverrideRole;
         canOverrideRole = false;
-
         YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-            $"[RoleSwitchEHR] RpcSetRole recebido no cliente modificado: " +
-            $"PlayerId={__instance?.PlayerId}, canOverrideRole recebido={recebido}, " +
-            $"aplicado localmente={canOverrideRole}.");
+            $"[RoleSwitchEHR] SetRole personalizado recebido: PlayerId={__instance.PlayerId}, " +
+            $"Role={roleType}, canOverrideRole recebido={recebido}, aplicado=false.");
     }
 }
 
