@@ -81,15 +81,19 @@ internal static class RoleRevealSync
             return;
 
         aberturaAgendada = true;
-        if (!HudManager.InstanceExists || HudManager.Instance == null)
+        PlayerControl local = PlayerControl.LocalPlayer;
+        if (local == null)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                "[RoleRevealSync] HUD indisponível ao agendar RolePanel.");
+                "[RoleRevealSync] Jogador local indisponível ao agendar RolePanel.");
             aberturaAgendada = false;
             return;
         }
 
-        HudManager.Instance.StartCoroutine(AbrirPainelAposIntroducao());
+        // Usa o jogador local como executor da coroutine; o HUD é consultado
+        // somente depois da espera, evitando perder a notificação se ele ainda
+        // estiver terminando de inicializar.
+        local.StartCoroutine(AbrirPainelAposIntroducao());
     }
 
     private static IEnumerator AbrirPainelAposIntroducao()
