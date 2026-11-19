@@ -437,8 +437,13 @@ internal static class SistemaNomesLocais
         string corFuncao = impostor ? "#FF4040" : "#00Eaff";
         string nome = ObterNomeBase(jogador);
 
+        bool oportunista = EventoOportunista.EhOportunista(jogador);
+        string atributo = oportunista
+            ? " <color=#B56BFF><size=70%>+ Oportunista</size></color>"
+            : string.Empty;
+
         string resultado =
-            "\\n<color=" + corFuncao + "><size=75%>" + funcao +
+            "\n<color=" + corFuncao + "><size=75%>" + funcao + atributo +
             "\n</size>" + nome + "</color>";
 
         // Mantém os identificadores invisíveis no nome de rede. Isso permite
@@ -447,11 +452,8 @@ internal static class SistemaNomesLocais
         if (!string.IsNullOrEmpty(marcadorFuncao))
             resultado += marcadorFuncao;
 
-        if (EventoOportunista.EhOportunista(jogador))
-        {
-            resultado += " <color=#B56BFF><size=70%>[Oportunista]</size></color>";
+        if (oportunista)
             resultado += EventoOportunista.MARCADOR;
-        }
 
         if (Avisos.TryGetValue(jogador.PlayerId, out AvisoLocal aviso) &&
             aviso != null && !string.IsNullOrWhiteSpace(aviso.Texto))
@@ -639,9 +641,8 @@ internal static class SistemaNomesLocais
             };
         }
 
-        if (EventoOportunista.EhOportunista(jogador))
-            nomeFuncao += " + Oportunista";
-
+        // Atributos são formatados separadamente por CriarTexto, ao lado
+        // da função. Não os incorporamos ao nome-base da função.
         return nomeFuncao;
     }
 
