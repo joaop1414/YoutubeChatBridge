@@ -22,7 +22,7 @@ internal static class RoleSwitchEhrExtensions
 /// o true enviado pelo host.
 /// </summary>
 [HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.RpcSetRole))]
-internal static class RoleSwitchRpcSetRolePatch
+internal static class RoleSwitchRpcSetRoleOverridePatch
 {
     private static void Prefix(
         PlayerControl __instance,
