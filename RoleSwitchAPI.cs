@@ -276,22 +276,40 @@ internal static class RoleSwitchAPI
             if (AmongUsClient.Instance.AmClient)
                 AplicarFuncaoNoHost(jogador, funcao);
 
-            // Mesmo padrão do EHR: um RPC vanilla SetRole em broadcast.
-            // Todos os clientes (inclusive vanilla) recebem canOverrideRole=true.
-            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
-                jogador.NetId,
-                (byte)RpcCalls.SetRole,
-                SendOption.Reliable);
-            writer.Write((ushort)funcao);
-            writer.Write(true);
-            AmongUsClient.Instance.FinishRpcImmediately(writer);
+            // Distribui individualmente para preservar o comportamento de cada tipo
+            // de cliente: os modificados mantêm a função real e usam o nome local;
+            // os vanilla recebem a função normalmente.
+            HashSet<int> clientesEnviados = new();
+            if (PlayerControl.AllPlayerControls != null)
+            {
+                foreach (PlayerControl observador in PlayerControl.AllPlayerControls)
+                {
+                    if (observador == null || observador.Data == null ||
+                        observador.Data.Disconnected || observador.OwnerId < 0 ||
+                        observador.OwnerId == AmongUsClient.Instance.ClientId ||
+                        !clientesEnviados.Add(observador.OwnerId))
+                        continue;
 
-            LogInfo($"RpcSetRoleGlobal: SetRole em broadcast enviado para PlayerId={jogador.PlayerId}, Role={funcao}, canOverrideRole=true.");
+                    int clientId = observador.OwnerId;
+                    bool canOverrideRole = !YouTubeVoteBridgePlugin.ClienteTemMod(clientId);
 
-            // Não presumimos que iniciar CoSetRole significa que o jogo
-            // já substituiu a função. A confirmação ocorre após a coroutine.
+                    MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
+                        jogador.NetId,
+                        (byte)RpcCalls.SetRole,
+                        SendOption.Reliable,
+                        clientId);
+                    writer.Write((ushort)funcao);
+                    writer.Write(canOverrideRole);
+                    AmongUsClient.Instance.FinishRpcImmediately(writer);
+
+                    LogInfo(
+                        $"RpcSetRoleGlobal: PlayerId={jogador.PlayerId}, cliente={clientId}, " +
+                        $"Role={funcao}, mod={(!canOverrideRole)}, canOverrideRole={canOverrideRole}.");
+                }
+            }
+
+            // A confirmação do estado real é feita no host, que aplicou a função localmente.
             jogador.StartCoroutine(VerificarAplicacaoDaFuncao(jogador, funcao, "global"));
-            LogInfo($"RpcSetRoleGlobal: PlayerId={jogador.PlayerId}, Role={funcao}, canOverrideRole=true.");
         }
         catch (Exception ex)
         {
@@ -366,8 +384,8 @@ internal static class RoleSwitchAPI
             if (atualizarMapa && observador != null)
                 RoleMap[(observador.PlayerId, jogador.PlayerId)] = funcao;
 
-            // Se o observador for o host, libera roleAssigned e aplica com false.
-            // Clientes remotos continuam recebendo RPC direcionado com true.
+            // O host aplica localmente com false. Para clientes remotos,
+            // somente os vanilla recebem permissão para substituir a função real.
             if (AmongUsClient.Instance.ClientId == clientId)
             {
                 if (AmongUsClient.Instance.AmClient)
@@ -378,16 +396,19 @@ internal static class RoleSwitchAPI
                 return true;
             }
 
+            bool canOverrideRole = !YouTubeVoteBridgePlugin.ClienteTemMod(clientId);
             MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
                 jogador.NetId,
                 (byte)RpcCalls.SetRole,
                 SendOption.Reliable,
                 clientId);
             writer.Write((ushort)funcao);
-            writer.Write(true);
+            writer.Write(canOverrideRole);
             AmongUsClient.Instance.FinishRpcImmediately(writer);
 
-            LogInfo($"RpcSetRoleDesync: PlayerId={jogador.PlayerId}, cliente={clientId}, Role={funcao}, canOverrideRole=true.");
+            LogInfo(
+                $"RpcSetRoleDesync: PlayerId={jogador.PlayerId}, cliente={clientId}, Role={funcao}, " +
+                $"mod={(!canOverrideRole)}, canOverrideRole={canOverrideRole}.");
             return true;
         }
         catch (Exception ex)
