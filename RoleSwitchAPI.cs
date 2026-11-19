@@ -260,7 +260,7 @@ internal static class RoleSwitchAPI
             // vanilla SetRole para todos os clientes com canOverrideRole=true.
             if (AmongUsClient.Instance.AmClient)
             {
-                jogador.SetRole(funcao, true);
+                jogador.SetRole(funcao, false);
             }
 
             // Teste de sincronização: em vez de broadcast, envia SetRole
