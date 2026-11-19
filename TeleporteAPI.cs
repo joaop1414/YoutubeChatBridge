@@ -1,7 +1,5 @@
 using System;
 using System.Collections.Generic;
-using Hazel;
-using AmongUs.InnerNet.GameDataMessages;
 using UnityEngine;
 
 namespace YouTubeVoteBridge;
@@ -46,28 +44,22 @@ public static class TeleporteAPI
                 ultimoTeleporte[playerId] = agora;
             }
 
-            // Atualiza a cópia local do host com uma sequência adiantada,
-            // seguindo o padrão utilizado pelo EHR.
-            ushort sequenciaLocal = (ushort)(nt.lastSequenceId + 328);
-            nt.SnapTo(destino, sequenciaLocal);
-            nt.SetDirtyBit(uint.MaxValue);
+            // Usa o mesmo sender agrupado dos demais SnapTo do mod.
+            // A API é chamada por operação; neste caso há um RPC por pacote,
+            // mas ele segue o formato GameData empacotado do EHR.
+            int enviados = SnapToBatchSender.Enviar(
+                new List<PlayerControl> { jogador },
+                new List<Vector2> { destino });
 
-            // Envia manualmente o RPC nativo SnapTo para os outros clientes.
-            // A sequência de rede é separada da sequência aplicada localmente.
-            ushort sequenciaRede = (ushort)(nt.lastSequenceId + 8);
-            MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
-                nt.NetId,
-                (byte)RpcCalls.SnapTo,
-                SendOption.Reliable);
+            if (enviados != 1)
+                return false;
 
-            NetHelpers.WriteVector2(destino, writer);
-            writer.Write(sequenciaRede);
-            AmongUsClient.Instance.FinishRpcImmediately(writer);
+            ushort sequenciaRede = nt.lastSequenceId;
 
             chamadasNestaPartida++;
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 $"[TeleporteAPI] SnapTo enviado: PlayerId={playerId}, destino={destino}, " +
-                $"sequenciaLocal={sequenciaLocal}, sequenciaRede={sequenciaRede}, " +
+                $"sequenciaRede={sequenciaRede}, " +
                 $"chamadasNaPartida={chamadasNestaPartida}.");
 
             return true;
