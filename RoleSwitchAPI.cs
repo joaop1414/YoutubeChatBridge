@@ -256,8 +256,8 @@ internal static class RoleSwitchAPI
                 AtualizarRoleMapCompleto(jogador, funcao);
             }
 
-            // Mesmo fluxo do EHR: aplica no host sem coroutine e envia o RPC
-            // vanilla SetRole para todos os clientes com canOverrideRole=true.
+            // No host, aplica a função com canOverrideRole=false. Os clientes remotos
+            // recebem o RPC vanilla abaixo com canOverrideRole=true.
             if (AmongUsClient.Instance.AmClient)
             {
                 jogador.SetRole(funcao, false);
@@ -368,8 +368,8 @@ internal static class RoleSwitchAPI
             if (atualizarMapa && observador != null)
                 RoleMap[(observador.PlayerId, jogador.PlayerId)] = funcao;
 
-            // O host não recebe um RPC enviado a si próprio: aplica diretamente,
-            // exatamente como o EHR faz no caminho local.
+            // O host não recebe um RPC enviado a si próprio: aplica diretamente
+            // com canOverrideRole=false. Clientes remotos usam true.
             if (AmongUsClient.Instance.ClientId == clientId)
             {
                 if (AmongUsClient.Instance.AmClient)
