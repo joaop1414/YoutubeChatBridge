@@ -5096,6 +5096,7 @@ public static class YouTubeVoteRestoreExileNamePatch
     public static void Postfix()
     {
         YouTubeVoteBridgePlugin.RestaurarNomeGlobalDeEjecao();
+        EventoAnjoTraidor.AoTerminarReuniao();
     }
 }
 
