@@ -16,6 +16,34 @@ internal static class RoleSwitchEhrExtensions
 }
 
 /// <summary>
+/// Replica a separação do EHR no ponto correto: RpcSetRole é chamado quando
+/// o cliente recebe o RPC vanilla. Clientes modificados convertem o argumento
+/// para false localmente; clientes vanilla não possuem este patch e conservam
+/// o true enviado pelo host.
+/// </summary>
+[HarmonyPatch(typeof(PlayerControl), nameof(PlayerControl.RpcSetRole))]
+internal static class RoleSwitchRpcSetRolePatch
+{
+    private static void Prefix(
+        PlayerControl __instance,
+        [HarmonyArgument(1)] ref bool canOverrideRole)
+    {
+        // O host já aplica sua própria função localmente com false.
+        // Esta conversão só é necessária nos clientes modificados remotos.
+        if (AmongUsClient.Instance == null || AmongUsClient.Instance.AmHost)
+            return;
+
+        bool recebido = canOverrideRole;
+        canOverrideRole = false;
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            $"[RoleSwitchEHR] RpcSetRole recebido no cliente modificado: " +
+            $"PlayerId={__instance?.PlayerId}, canOverrideRole recebido={recebido}, " +
+            $"aplicado localmente={canOverrideRole}.");
+    }
+}
+
+/// <summary>
 /// Libera roleAssigned somente quando o RPC permite sobrescrever a função.
 /// Clientes com o mod recebem canOverrideRole=false e preservam sua função real.
 /// </summary>
