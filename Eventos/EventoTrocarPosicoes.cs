@@ -46,9 +46,14 @@ internal sealed class EventoTrocarPosicoes : EventoVotacao
             Vector2 posicaoA = jogadorA.GetTruePosition();
             Vector2 posicaoB = jogadorB.GetTruePosition();
 
-            // O RpcSnapTo é o mesmo mecanismo de posicionamento que já funcionou no evento de dutos.
-            jogadorA.NetTransform.RpcSnapTo(posicaoB);
-            jogadorB.NetTransform.RpcSnapTo(posicaoA);
+            // Os dois SnapTo seguem no mesmo GameData externo, no padrão de empacotamento do EHR.
+            int enviados = SnapToBatchSender.Enviar(
+                new List<PlayerControl> { jogadorA, jogadorB },
+                new List<Vector2> { posicaoB, posicaoA });
+
+            if (enviados != 2)
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    $"Troca de posições: apenas {enviados}/2 SnapTo foram enviados.");
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 $"Troca de posições executada: {jogadorA.Data.PlayerName} (PlayerId={jogadorA.PlayerId}) " +
