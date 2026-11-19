@@ -90,9 +90,33 @@ internal static class RoleSwitchCoSetRolePatch
 
         if (HudManager.InstanceExists)
         {
-            HudManager.Instance.SetRolePanelOpen(true);
-            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                $"[RoleSwitchEHR] Painel de função do HUD aberto no cliente não-host. PlayerId={jogador.PlayerId}, Role={role}.");
+            // Implementação equivalente à extensão Utils.SetRolePanelOpen do EHR.
+            // O método não pertence ao HudManager vanilla: ele localiza o RolePanel
+            // dentro de TaskStuff e altera TaskPanelBehaviour.open.
+            Transform painel = HudManager.Instance.TaskStuff != null
+                ? HudManager.Instance.TaskStuff.transform.Find("RolePanel")
+                : null;
+
+            if (painel != null)
+            {
+                TaskPanelBehaviour comportamento = painel.GetComponent<TaskPanelBehaviour>();
+                if (comportamento != null)
+                {
+                    comportamento.open = true;
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                        $"[RoleSwitchEHR] RolePanel aberto no cliente não-host. PlayerId={jogador.PlayerId}, Role={role}.");
+                }
+                else
+                {
+                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                        "[RoleSwitchEHR] RolePanel encontrado, mas TaskPanelBehaviour está nulo.");
+                }
+            }
+            else
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
+                    "[RoleSwitchEHR] Não foi possível localizar TaskStuff/RolePanel no HUD.");
+            }
         }
         else
         {
