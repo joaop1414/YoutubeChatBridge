@@ -23,6 +23,7 @@ public static class FakePlayerAPI
         public Vector2 Posicao;
         public string Nome;
         public byte CorId;
+        public byte PlayerId;
         public float ExecutarEm;
         public int Etapa;
     }
@@ -32,7 +33,7 @@ public static class FakePlayerAPI
     /// <summary>
     /// Cria personagem artificial. Nome e cor são enviados por RPC após a associação.
     /// </summary>
-    public static PlayerControl Criar(Vector2 posicaoInicial, string nome = "NPC", byte corId = 0)
+    public static PlayerControl Criar(Vector2 posicaoInicial, string nome = "NPC", byte corId = 0, byte playerId = PlayerIdFalso)
     {
         if (!PodeCriar(out string motivo))
         {
@@ -46,7 +47,7 @@ public static class FakePlayerAPI
             falso = UnityEngine.Object.Instantiate(
                 AmongUsClient.Instance.PlayerPrefab, Vector2.zero, Quaternion.identity);
 
-            falso.PlayerId = PlayerIdFalso;
+            falso.PlayerId = playerId;
             falso.isNew = false;
             falso.notRealPlayer = true;
             falso.NetTransform.SnapTo(new Vector2(50f, 50f));
@@ -64,6 +65,7 @@ public static class FakePlayerAPI
                 Posicao = posicaoInicial,
                 Nome = nome,
                 CorId = corId,
+                PlayerId = playerId,
                 ExecutarEm = Time.realtimeSinceStartup + 0.1f,
                 Etapa = 0
             });
@@ -110,7 +112,7 @@ public static class FakePlayerAPI
             {
                 try
                 {
-                    int associados = CustomNetObject.AssociarClientes(falso, PlayerIdFalso);
+                    int associados = CustomNetObject.AssociarClientes(falso, pendente.PlayerId);
                     LogInfo($"Associação concluída. NetId={falso.NetId}; clientes associados={associados}.");
                     LogDiagnostico("DEPOIS DA ASSOCIACAO", falso, pendente.Nome, pendente.CorId);
 
