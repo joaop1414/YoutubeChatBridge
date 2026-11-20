@@ -716,29 +716,21 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
                     "Killer=" + anjo.PlayerId + ", alvo=" + alvo.PlayerId + ".");
             }
 
-            // 3) Para Anjo remoto, completa com broadcast global.
-            // Quando o host é o Anjo, RpcMurderPlayer já publicou o RPC global.
-            {
-                MessageWriter murderGlobalWriter = cliente.StartRpcImmediately(
-                    anjo.NetId,
-                    (byte)RpcCalls.MurderPlayer,
-                    SendOption.Reliable,
-                    -1);
+            // 3) O host também precisa publicar o RPC global. O método MurderPlayer
+            // acima cria o cadáver localmente; o RPC replica a morte aos clientes.
+            MessageWriter murderGlobalWriter = cliente.StartRpcImmediately(
+                anjo.NetId,
+                (byte)RpcCalls.MurderPlayer,
+                SendOption.Reliable,
+                -1);
 
-                murderGlobalWriter.WriteNetObject(alvo);
-                murderGlobalWriter.Write((int)resultado);
-                cliente.FinishRpcImmediately(murderGlobalWriter);
+            murderGlobalWriter.WriteNetObject(alvo);
+            murderGlobalWriter.Write((int)resultado);
+            cliente.FinishRpcImmediately(murderGlobalWriter);
 
-                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "[F7/Anjo Traidor] Segundo MurderPlayer enviado globalmente. " +
-                    "Impostor=" + anjo.PlayerId + ", vítima=" + alvo.PlayerId + ".");
-            }
-            else
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "[F7/Anjo Traidor] Morte local do host aplicada e RPC global enviado. " +
-                    "Impostor=" + anjo.PlayerId + ", vítima=" + alvo.PlayerId + ".");
-            }
+            YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+                "[F7/Anjo Traidor] MurderPlayer global enviado após a execução local/host. " +
+                "Impostor=" + anjo.PlayerId + ", vítima=" + alvo.PlayerId + ".");
         }
         catch (Exception ex)
         {
