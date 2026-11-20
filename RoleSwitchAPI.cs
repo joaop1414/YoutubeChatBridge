@@ -247,13 +247,12 @@ internal static class RoleSwitchAPI
         if (jogador == null)
             return;
 
-        // O EHR limpa roleAssigned antes de permitir uma nova atribuição.
-        // No host mantemos canOverrideRole=false, mas o jogo passa a tratar
-        // esta chamada como uma atribuição ainda não realizada.
-        bool roleAssignedAnterior = jogador.roleAssigned;
-        jogador.roleAssigned = false;
+        // Trocas durante a partida não são uma nova distribuição inicial.
+        // Preservamos roleAssigned para evitar reabrir o fluxo de atribuição/
+        // Role Reveal; a função é aplicada com canOverrideRole=false.
+        bool roleAssignedAtual = jogador.roleAssigned;
 
-        LogInfo($"[RoleSwitchEHR] Preparando troca local: PlayerId={jogador.PlayerId}, roleAssigned antes={roleAssignedAnterior}, depois={jogador.roleAssigned}, canOverrideRole=false.");
+        LogInfo($"[RoleSwitchEHR] Preparando troca local: PlayerId={jogador.PlayerId}, roleAssigned preservado={roleAssignedAtual}, canOverrideRole=false.");
 
         jogador.SetRole(funcao, false);
     }
