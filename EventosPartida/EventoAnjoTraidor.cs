@@ -671,7 +671,10 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
 
             if (anjoEhHost)
             {
-                anjo.RpcMurderPlayer(alvo, true);
+                // Para o host, MurderPlayer precisa ser executado localmente
+                // para que a visão dele crie o cadáver. O RPC global abaixo
+                // sincroniza a mesma morte para os demais clientes.
+                anjo.MurderPlayer(alvo, resultado);
             }
             else
             {
@@ -715,7 +718,6 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
 
             // 3) Para Anjo remoto, completa com broadcast global.
             // Quando o host é o Anjo, RpcMurderPlayer já publicou o RPC global.
-            if (!anjoEhHost)
             {
                 MessageWriter murderGlobalWriter = cliente.StartRpcImmediately(
                     anjo.NetId,
@@ -734,9 +736,8 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
             else
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "[F7/Anjo Traidor] RpcMurderPlayer executado pelo host; morte local " +
-                    "e sincronização global feitas pelo método vanilla. Impostor=" +
-                    anjo.PlayerId + ", vítima=" + alvo.PlayerId + ".");
+                    "[F7/Anjo Traidor] Morte local do host aplicada e RPC global enviado. " +
+                    "Impostor=" + anjo.PlayerId + ", vítima=" + alvo.PlayerId + ".");
             }
         }
         catch (Exception ex)
