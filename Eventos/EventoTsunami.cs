@@ -54,6 +54,9 @@ internal sealed class EventoTsunami : EventoVotacao
     private static readonly Dictionary<byte, float> alturaAoAtingir = new();
     private static readonly Dictionary<byte, bool> movimentoOriginal = new();
     private static readonly Dictionary<byte, Vector2> velocidadeOriginal = new();
+    private static readonly Dictionary<byte, Vector2> posicaoAoAtingir = new();
+    private static readonly Dictionary<byte, float> ondaXAoAtingir = new();
+    private static float proximoSnapJogadores;
     private static bool reuniaoAguardandoFim;
     private static bool reuniaoFoiAberta;
     private static readonly Dictionary<byte, float> protegidos = new();
@@ -519,15 +522,17 @@ internal sealed class EventoTsunami : EventoVotacao
                 atingidos.Add(id);
                 mortesPendentes[id] = agora + AtrasoMorteTsunami;
                 alturaAoAtingir[id] = p.y;
+                posicaoAoAtingir[id] = p;
+                ondaXAoAtingir[id] = posicao.x;
                 movimentoOriginal[id] = jogador.moveable;
                 if (jogador.NetTransform != null && jogador.NetTransform.body != null)
                     velocidadeOriginal[id] = jogador.NetTransform.body.velocity;
                 // Mantém o jogador movível para a física reproduzir o transporte.
                 // A velocidade é reafirmada pelo host durante o período de captura.
-                jogador.moveable = true;
+                jogador.moveable = false;
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                     "Tsunami atingiu " + jogador.Data.PlayerName +
-                    " (PlayerId=" + id + "); transporte pela física ativo por " +
+                    " (PlayerId=" + id + "); SnapTo agrupado transportará o jogador por " +
                     AtrasoMorteTsunami + "s antes da morte.");
             }
             catch (Exception ex)
@@ -568,18 +573,13 @@ internal sealed class EventoTsunami : EventoVotacao
         if (!YouTubeVoteBridgePlugin.EhHost() || mortesPendentes.Count == 0)
             return;
 
-        // Trabalha sobre uma cópia porque os registros são removidos durante o processamento.
+        List<PlayerControl> jogadoresSnap = new();
+        List<Vector2> destinosSnap = new();
+
         foreach (byte id in new List<byte>(mortesPendentes.Keys))
         {
-            PlayerControl jogador = null;
-            foreach (PlayerControl candidato in PlayerControl.AllPlayerControls)
-            {
-                if (candidato != null && candidato.PlayerId == id)
-                {
-                    jogador = candidato;
-                    break;
-                }
-            }
+            PlayerControl jogador = PlayerControl.AllPlayerControls.ToArray()
+                .FirstOrDefault(candidato => candidato != null && candidato.PlayerId == id);
 
             if (jogador == null || jogador.Data == null || jogador.Data.Disconnected)
             {
@@ -587,76 +587,40 @@ internal sealed class EventoTsunami : EventoVotacao
                 continue;
             }
 
-            // Nunca tenta matar novamente alguém que já morreu por outra causa.
-            if (jogador.Data.IsDead)
+            if (jogador.Data.IsDead || MeetingHud.Instance != null)
             {
                 RestaurarMovimento(jogador, id);
                 RemoverMortePendente(id);
                 continue;
             }
 
-            // Uma reunião interrompe o transporte e cancela a morte que ainda
-            // não venceu, evitando executar Die durante a transição para a reunião.
-            if (MeetingHud.Instance != null)
+            // A vítima acompanha o deslocamento da onda por SnapTo agrupado.
+            // A posição relativa e a altura são preservadas desde a captura.
+            if (posicaoAoAtingir.TryGetValue(id, out Vector2 posicaoInicial) &&
+                ondaXAoAtingir.TryGetValue(id, out float ondaInicial))
             {
-                RestaurarMovimento(jogador, id);
-                RemoverMortePendente(id);
-                YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "Tsunami: morte pendente cancelada pela reunião; PlayerId=" + id + ".");
-                continue;
+                float deslocamento = posicao.x - ondaInicial;
+                Vector2 destino = new Vector2(posicaoInicial.x + deslocamento, posicaoInicial.y);
+                jogadoresSnap.Add(jogador);
+                destinosSnap.Add(destino);
             }
 
-            // Teste de movimento contínuo pela física do CustomNetworkTransform.
-            // Em vez de enviar SnapTo repetidamente, aplicamos velocidade ao Rigidbody2D
-            // sincronizado pelo componente de rede. O host reafirma a velocidade a cada
-            // atualização enquanto a vítima estiver sendo carregada.
-            if (ativo && indicador != null && jogador.NetTransform != null &&
-                jogador.NetTransform.body != null)
-            {
-                try
-                {
-                    jogador.NetTransform.body.velocity = new Vector2(Velocidade, 0f);
-                }
-                catch (Exception ex)
-                {
-                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                        "Tsunami: falha ao aplicar velocidade pelo CustomNetworkTransform em PlayerId=" +
-                        id + ": " + ex.Message);
-                }
-            }
-
-            // A vítima só morre quando o prazo realmente termina.
             if (agora < mortesPendentes[id])
                 continue;
 
             try
             {
-                // Reproduz o fluxo usado pelo EHR: aplica a ejeção no host
-                // e transmite o RPC Exiled nativo para os demais clientes.
-                // Diferente de MurderPlayer/Die, esse fluxo não cria DeadBody.
                 jogador.Exiled();
-
                 MessageWriter writer = AmongUsClient.Instance.StartRpcImmediately(
-                    jogador.NetId,
-                    (byte)RpcCalls.Exiled,
-                    SendOption.Reliable,
-                    -1);
+                    jogador.NetId, (byte)RpcCalls.Exiled, SendOption.Reliable, -1);
                 AmongUsClient.Instance.FinishRpcImmediately(writer);
 
                 if (jogador.Data != null && jogador.Data.IsDead)
                 {
-                    // A ejeção não cria um corpo reportável. Guardamos o ID
-                    // para criar o corpo fake quando a reunião for chamada.
                     mortosPeloTsunami.Add(id);
                     YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                         "Tsunami: PlayerId=" + id +
-                        " foi ejetado pelo RPC Exiled; corpo fake agendado para a reunião.");
-                }
-                else
-                {
-                    YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                        "Tsunami: Exiled foi chamado, mas o jogo ainda não marcou PlayerId=" +
-                        id + " como morto.");
+                        " ejetado; corpo fake será criado na reunião.");
                 }
             }
             catch (Exception ex)
@@ -669,6 +633,13 @@ internal sealed class EventoTsunami : EventoVotacao
                 RestaurarMovimento(jogador, id);
                 RemoverMortePendente(id);
             }
+        }
+
+        // Um GameData agrupado a cada 0,16s substitui SnapTo individuais.
+        if (jogadoresSnap.Count > 0 && agora >= proximoSnapJogadores)
+        {
+            proximoSnapJogadores = agora + IntervaloSnapJogador;
+            SnapToBatchSender.Enviar(jogadoresSnap, destinosSnap);
         }
     }
 
@@ -696,6 +667,8 @@ internal sealed class EventoTsunami : EventoVotacao
     {
         mortesPendentes.Remove(id);
         alturaAoAtingir.Remove(id);
+        posicaoAoAtingir.Remove(id);
+        ondaXAoAtingir.Remove(id);
         movimentoOriginal.Remove(id);
         velocidadeOriginal.Remove(id);
     }
@@ -1072,6 +1045,8 @@ internal sealed class EventoTsunami : EventoVotacao
             }
             mortesPendentes.Clear();
             alturaAoAtingir.Clear();
+            posicaoAoAtingir.Clear();
+            ondaXAoAtingir.Clear();
             movimentoOriginal.Clear();
             velocidadeOriginal.Clear();
         }
@@ -1140,6 +1115,8 @@ internal sealed class EventoTsunami : EventoVotacao
         mortosPeloTsunami.Clear();
         mortesPendentes.Clear();
         alturaAoAtingir.Clear();
+        posicaoAoAtingir.Clear();
+        ondaXAoAtingir.Clear();
         movimentoOriginal.Clear();
         velocidadeOriginal.Clear();
         protegidos.Clear();
