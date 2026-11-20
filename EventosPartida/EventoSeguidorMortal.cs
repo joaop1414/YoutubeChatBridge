@@ -4198,9 +4198,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             byte playerId = alvo.PlayerId;
             string nomeAlvo = alvo.Data.PlayerName ?? ("PlayerId=" + playerId);
 
-            // O NPC mata pelo mesmo caminho do Tsunami: Exiled não cria
-            // cadáver. Em seguida, geramos um corpo falso com Noisemaker,
-            // usando o fluxo já existente de EventoCriarCorpoFalso.
+            // O Tsunami usa Exiled e transmite o RPC. Fazemos o mesmo,
+            // mas confirmamos o estado no host antes de criar o corpo falso.
             alvo.Exiled();
 
             MessageWriter exiledWriter = AmongUsClient.Instance.StartRpcImmediately(
@@ -4210,28 +4209,13 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 -1);
             AmongUsClient.Instance.FinishRpcImmediately(exiledWriter);
 
-            EventoCriarCorpoFalso.ExecutarComoNoisemakerParaJogadorNaPosicao(
-                playerId,
-                posicaoMorte);
-
             NetworkedPlayerInfo dadosAutoritativos =
                 GameData.Instance?.GetPlayerById(playerId);
 
-            bool morreuNoHost =
-                (alvo.Data != null && alvo.Data.IsDead) ||
-                (dadosAutoritativos != null && dadosAutoritativos.IsDead);
-
-            if (!morreuNoHost)
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "[F7/Seguidor] O NPC enviou MurderPlayer, mas a morte ainda não foi confirmada no host. " +
-                    "Alvo=" + playerId + ", NPC NetId=" + seguidor.NetId + ".");
-                return false;
-            }
-
+            // Evita o NPC selecionar a vítima novamente caso Exiled não marque
+            // IsDead imediatamente no host.
             if (alvo.Data != null)
                 alvo.Data.IsDead = true;
-
             if (dadosAutoritativos != null)
             {
                 dadosAutoritativos.IsDead = true;
@@ -4245,23 +4229,29 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             catch (Exception exSync)
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "[F7/Seguidor] Falha ao transmitir o estado de morte do alvo: " + exSync.Message);
+                    "[F7/Seguidor] Falha ao transmitir o estado de morte: " + exSync.Message);
             }
 
+            // O cooldown é aplicado antes da criação do corpo, para que uma
+            // falha no corpo não cause novas tentativas de matar a mesma vítima.
             float cooldown = ObterCooldownKillNpc();
             proximoKillNpc = Time.realtimeSinceStartup + cooldown;
 
+            EventoCriarCorpoFalso.ExecutarComoNoisemakerParaJogadorNaPosicao(
+                playerId,
+                posicaoMorte);
+
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[F7/Seguidor] NPC executou MurderPlayer em " + nomeAlvo +
-                " (PlayerId=" + playerId + "). A vítima recebeu Noisemaker antes da morte; " +
-                "corpo e alerta devem ser gerados pelo fluxo vanilla. Posição=" +
-                posicaoMorte + ". Próximo kill em " + cooldown.ToString("0.##") + "s.");
+                "[F7/Seguidor] Host aplicou Exiled em " + nomeAlvo +
+                " (PlayerId=" + playerId + "), sincronizou a morte e solicitou " +
+                "corpo falso Noisemaker. Posição=" + posicaoMorte +
+                ". Próximo kill em " + cooldown.ToString("0.##") + "s.");
             return true;
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[F7/Seguidor] Falha ao matar o alvo com MurderPlayer do NPC/Noisemaker: " + ex);
+                "[F7/Seguidor] Falha ao matar/criar corpo Noisemaker: " + ex);
             return false;
         }
     }
