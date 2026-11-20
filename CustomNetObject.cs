@@ -16,6 +16,49 @@ namespace MoreGamemodes
     /// </summary>
     internal static class CustomNetObject
     {
+        /// <summary>
+        /// Instancia e prepara um PlayerControl artificial, e envia seu Spawn
+        /// pelo fluxo GameData broadcast usado por NPCs do MoreGamemodes/EHR.
+        /// </summary>
+        public static PlayerControl CriarPlayerArtificial(byte playerId)
+        {
+            if (AmongUsClient.Instance == null ||
+                AmongUsClient.Instance.PlayerPrefab == null)
+                return null;
+
+            PlayerControl jogador = null;
+            try
+            {
+                jogador = UnityEngine.Object.Instantiate(
+                    AmongUsClient.Instance.PlayerPrefab,
+                    Vector2.zero,
+                    Quaternion.identity);
+
+                jogador.PlayerId = playerId;
+                jogador.isNew = false;
+                jogador.notRealPlayer = true;
+
+                if (jogador.NetTransform != null)
+                    jogador.NetTransform.SnapTo(new Vector2(50f, 50f));
+
+                EnviarSpawn(jogador);
+                return jogador;
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogError(
+                    "CustomNetObject: Falha ao criar PlayerControl artificial: " + ex);
+
+                if (jogador != null)
+                {
+                    try { AmongUsClient.Instance?.RemoveNetObject(jogador); } catch { }
+                    try { UnityEngine.Object.Destroy(jogador.gameObject); } catch { }
+                }
+
+                return null;
+            }
+        }
+
         public static void EnviarSpawn(PlayerControl jogador, bool ocultarVisual = true, bool removerDaLista = true)
         {
             if (jogador == null || AmongUsClient.Instance == null) return;
