@@ -4214,7 +4214,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
                 "[F7/Seguidor] Host executou RpcMurderPlayer (morte do Anjo Traidor) em " + nomeAlvo +
-                " (PlayerId=" + playerId + ") e solicitou corpo falso Noisemaker. Posição=" + posicaoMorte
+                " (PlayerId=" + playerId + ") e solicitou corpo falso Noisemaker. Posição=" + posicaoMorte +
                 ". Próximo kill em " + cooldown.ToString("0.##") + "s.");
             return true;
         }
