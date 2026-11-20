@@ -229,32 +229,37 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
         try
         {
-            seguidor = UnityEngine.Object.Instantiate(
-                AmongUsClient.Instance.PlayerPrefab,
+            seguidor = FakePlayerAPI.Criar(
                 posicaoInicial,
-                Quaternion.identity);
+                NomeSeguidor,
+                0,
+                PlayerIdSeguidor);
 
-            seguidor.PlayerId = PlayerIdSeguidor;
+            if (seguidor == null)
+            {
+                YouTubeVoteBridgePlugin.Instance?.Log.LogError(
+                    "[F7/Seguidor] FakePlayerAPI não conseguiu criar o NPC Assassino.");
+                Resetar();
+                return;
+            }
+
             colliderFisicoNpc = null;
-            seguidor.isNew = false;
-            seguidor.notRealPlayer = true;
-            seguidor.NetTransform.SnapTo(posicaoInicial);
-
-            // A aparência será aplicada somente depois que o NPC existir na rede
-            // e estiver associado aos clientes, evitando configurar cosméticos
-            // antes da inicialização do NetworkedPlayerInfo.
+            if (PlayerControl.AllPlayerControls.Contains(seguidor))
+                PlayerControl.AllPlayerControls.Remove(seguidor);
 
             try
             {
                 if (seguidor.NetTransform?.body != null)
-                    PararCorpo(seguidor.NetTransform.body, "AoSairDaRoleReveal (linha 230)");
+                    PararCorpo(seguidor.NetTransform.body, "AoSairDaRoleReveal (FakePlayerAPI)");
             }
             catch { }
 
-            // Mesmo fluxo em etapas do Raio/Tsunami:
-            // criar localmente -> Spawn -> associar NetId/PlayerId -> aparência.
-            etapaInicializacao = 1;
-            proximaEtapa = Time.realtimeSinceStartup + 0.12f;
+            // FakePlayerAPI executa Spawn, associação, aparência inicial e posição
+            // em etapas. O evento aguarda esse fluxo antes de aplicar os cosméticos
+            // específicos do Assassino, evitando enviar Spawn/associação duplicados.
+            etapaInicializacao = 3;
+            instanteSpawnNpc = Time.realtimeSinceStartup;
+            proximaEtapa = Time.realtimeSinceStartup + 0.85f;
             proximaBuscaAlvo = 0f;
             proximoKillNpc = 0f;
             proximoTransporte = 0f;
@@ -267,7 +272,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             LimparCaminho();
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[F7/Seguidor] Role Reveal encerrada. NPC ASSASSINO criado; iniciando sincronização. PlayerId=" +
+                "[F7/Seguidor] NPC Assassino criado pela FakePlayerAPI. PlayerId=" +
                 PlayerIdSeguidor + ", posição inicial=" + posicaoInicial + ".");
         }
         catch (Exception ex)
@@ -4325,7 +4330,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
             try
             {
-                CustomNetObject.Despawn(seguidor);
+                FakePlayerAPI.Destruir(seguidor);
             }
             catch (Exception ex)
             {
