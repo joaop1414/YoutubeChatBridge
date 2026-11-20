@@ -4487,10 +4487,7 @@ public static class YouTubeVoteSemFimDeJogoCriteriaPatch
             return false;
         }
 
-        return YouTubeVoteBridgePlugin.PermitirFimDeJogoForcado ||
-               (!YouTubeVoteBridgePlugin.BloquearFimDeJogoDuranteTrocaDeFuncoes &&
-                (YouTubeVoteBridgePlugin.SemFimDeJogo == null ||
-                 !YouTubeVoteBridgePlugin.SemFimDeJogo.Value));
+        return !SistemaVitoria.BloquearVitoriaVanilla();
     }
 }
 
@@ -4504,9 +4501,7 @@ public static class YouTubeVoteSemFimDeJogoTasksPatch
             YouTubeVoteBridgePlugin.PermitirFimDeJogoForcado)
             return true;
 
-        if (YouTubeVoteBridgePlugin.BloquearFimDeJogoDuranteTrocaDeFuncoes ||
-            (YouTubeVoteBridgePlugin.SemFimDeJogo != null &&
-             YouTubeVoteBridgePlugin.SemFimDeJogo.Value))
+        if (SistemaVitoria.BloquearVitoriaVanilla())
         {
             __result = false;
             return false;
@@ -4525,10 +4520,7 @@ public static class YouTubeVoteSemFimDeJogoHnSPatch
         if (!YouTubeVoteBridgePlugin.EhHost())
             return true;
 
-        return YouTubeVoteBridgePlugin.PermitirFimDeJogoForcado ||
-               (!YouTubeVoteBridgePlugin.BloquearFimDeJogoDuranteTrocaDeFuncoes &&
-                (YouTubeVoteBridgePlugin.SemFimDeJogo == null ||
-                 !YouTubeVoteBridgePlugin.SemFimDeJogo.Value));
+        return !SistemaVitoria.BloquearVitoriaVanilla();
     }
 }
 
@@ -4540,10 +4532,7 @@ public static class YouTubeVoteSemFimDeJogoRpcPatch
 {
     public static bool Prefix()
     {
-        return YouTubeVoteBridgePlugin.PermitirFimDeJogoForcado ||
-               (!YouTubeVoteBridgePlugin.BloquearFimDeJogoDuranteTrocaDeFuncoes &&
-                (YouTubeVoteBridgePlugin.SemFimDeJogo == null ||
-                 !YouTubeVoteBridgePlugin.SemFimDeJogo.Value));
+        return !SistemaVitoria.BloquearVitoriaVanilla();
     }
 }
 
