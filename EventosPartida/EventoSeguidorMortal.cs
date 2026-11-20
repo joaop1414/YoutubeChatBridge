@@ -4196,32 +4196,55 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         {
             Vector2 posicaoMorte = alvo.GetTruePosition();
             byte playerId = alvo.PlayerId;
+            uint netIdAlvo = alvo.NetId;
             string nomeAlvo = alvo.Data.PlayerName ?? ("PlayerId=" + playerId);
 
-            // Reutiliza o método do Anjo Traidor quando o host mata:
-            // a vítima executa RpcMurderPlayer nela mesma, sem Exiled nem
-            // sincronização manual de IsDead, que estava causando ressurreição.
-            alvo.RpcMurderPlayer(alvo, true);
+            // Marca a vítima como morta diretamente no estado do host e sincroniza
+            // os dados de GameData, sem chamar MurderPlayer/RpcMurderPlayer.
+            alvo.Data.IsDead = true;
+            alvo.Data.SetDirtyBit(1u << playerId);
+            AmongUsClient.Instance.SendAllStreamedObjects();
 
-            // O cooldown é aplicado antes da criação do corpo, para que uma
-            // falha no corpo não cause novas tentativas de matar a mesma vítima.
-            float cooldown = ObterCooldownKillNpc();
-            proximoKillNpc = Time.realtimeSinceStartup + cooldown;
+            // Exiled é enviado pelo host para todos os clientes (RPC 0x04),
+            // sem depender de um MurderPlayer que possa falhar no host.
+            MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
+            try
+            {
+                writer.StartMessage(5);
+                writer.Write(AmongUsClient.Instance.GameId);
 
+                writer.StartMessage(2);
+                writer.WritePacked(netIdAlvo);
+                writer.Write((byte)RpcCalls.Exiled);
+                writer.EndMessage();
+
+                writer.EndMessage();
+                AmongUsClient.Instance.SendOrDisconnect(writer);
+                writer = null;
+            }
+            finally
+            {
+                writer?.Recycle();
+            }
+
+            // O host cria o corpo fake na posição em que a vítima foi marcada morta.
             EventoCriarCorpoFalso.ExecutarComoNoisemakerParaJogadorNaPosicao(
                 playerId,
                 posicaoMorte);
 
+            float cooldown = ObterCooldownKillNpc();
+            proximoKillNpc = Time.realtimeSinceStartup + cooldown;
+
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[F7/Seguidor] Host executou RpcMurderPlayer (morte do Anjo Traidor) em " + nomeAlvo +
-                " (PlayerId=" + playerId + ") e solicitou corpo falso Noisemaker. Posição=" + posicaoMorte +
-                ". Próximo kill em " + cooldown.ToString("0.##") + "s.");
+                "[F7/Seguidor] Host marcou IsDead=true, sincronizou GameData, enviou RPC Exiled e criou corpo fake Noisemaker para " +
+                nomeAlvo + " (PlayerId=" + playerId + ", NetId=" + netIdAlvo + "). Posição=" +
+            posicaoMorte + ". Próximo kill em " + cooldown.ToString("0.##") + "s.");
             return true;
         }
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[F7/Seguidor] Falha ao matar/criar corpo Noisemaker: " + ex);
+                "[F7/Seguidor] Falha ao marcar morte/sincronizar Exiled/criar corpo fake: " + ex);
             return false;
         }
     }
