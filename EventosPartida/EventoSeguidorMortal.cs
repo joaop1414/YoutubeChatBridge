@@ -229,16 +229,12 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
         try
         {
-            seguidor = FakePlayerAPI.Criar(
-                posicaoInicial,
-                NomeSeguidor,
-                0,
-                PlayerIdSeguidor);
+            seguidor = CustomNetObject.CriarPlayerArtificial(PlayerIdSeguidor, posicaoInicial);
 
             if (seguidor == null)
             {
                 YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                    "[F7/Seguidor] FakePlayerAPI não conseguiu criar o NPC Assassino.");
+                    "[F7/Seguidor] CustomNetObject não conseguiu criar o NPC Assassino.");
                 Resetar();
                 return;
             }
@@ -250,16 +246,15 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             try
             {
                 if (seguidor.NetTransform?.body != null)
-                    PararCorpo(seguidor.NetTransform.body, "AoSairDaRoleReveal (FakePlayerAPI)");
+                    PararCorpo(seguidor.NetTransform.body, "AoSairDaRoleReveal (spawn direto CustomNetObject)");
             }
             catch { }
 
-            // FakePlayerAPI executa Spawn, associação, aparência inicial e posição
-            // em etapas. O evento aguarda esse fluxo antes de aplicar os cosméticos
-            // específicos do Assassino, evitando enviar Spawn/associação duplicados.
-            etapaInicializacao = 3;
+            // CustomNetObject já enviou o Spawn no momento da criação.
+            // Começamos diretamente pela associação para evitar Spawn duplicado.
+            etapaInicializacao = 2;
             instanteSpawnNpc = Time.realtimeSinceStartup;
-            proximaEtapa = Time.realtimeSinceStartup + 0.85f;
+            proximaEtapa = Time.realtimeSinceStartup + 0.12f;
             proximaBuscaAlvo = 0f;
             proximoKillNpc = 0f;
             proximoTransporte = 0f;
@@ -272,7 +267,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             LimparCaminho();
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[F7/Seguidor] NPC Assassino criado pela FakePlayerAPI. PlayerId=" +
+                "[F7/Seguidor] NPC Assassino criado diretamente pelo CustomNetObject. PlayerId=" +
                 PlayerIdSeguidor + ", posição inicial=" + posicaoInicial + ".");
         }
         catch (Exception ex)
@@ -4330,7 +4325,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
 
             try
             {
-                FakePlayerAPI.Destruir(seguidor);
+                CustomNetObject.Despawn(seguidor);
             }
             catch (Exception ex)
             {
