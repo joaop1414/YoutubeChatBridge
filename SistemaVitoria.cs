@@ -9,12 +9,12 @@ namespace YouTubeVoteBridge;
 /// </summary>
 internal static class SistemaVitoria
 {
-    public static bool BloquearVitoriaVanilla()
+    public static bool BloquearVitoriaVanilla(bool bloquearDuranteTroca = true)
     {
         if (YouTubeVoteBridgePlugin.PermitirFimDeJogoForcado)
             return false;
 
-        if (YouTubeVoteBridgePlugin.BloquearFimDeJogoDuranteTrocaDeFuncoes)
+        if (bloquearDuranteTroca && YouTubeVoteBridgePlugin.BloquearFimDeJogoDuranteTrocaDeFuncoes)
             return true;
 
         return YouTubeVoteBridgePlugin.SemFimDeJogo != null &&
