@@ -44,16 +44,15 @@ public static class FakePlayerAPI
         PlayerControl falso = null;
         try
         {
-            falso = UnityEngine.Object.Instantiate(
-                AmongUsClient.Instance.PlayerPrefab, Vector2.zero, Quaternion.identity);
+            falso = CustomNetObject.CriarPlayerArtificial(playerId);
 
-            falso.PlayerId = playerId;
-            falso.isNew = false;
-            falso.notRealPlayer = true;
-            falso.NetTransform.SnapTo(new Vector2(50f, 50f));
+            if (falso == null)
+            {
+                LogErro("CustomNetObject não conseguiu instanciar o PlayerControl artificial.");
+                return null;
+            }
 
             LogDiagnostico("ANTES DO SPAWN", falso, nome, corId);
-            CustomNetObject.EnviarSpawn(falso);
             ObjetosCriados.Add(falso);
             LogDiagnostico("DEPOIS DO SPAWN", falso, nome, corId);
 
