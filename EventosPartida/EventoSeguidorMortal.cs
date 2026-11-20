@@ -4198,39 +4198,10 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             byte playerId = alvo.PlayerId;
             string nomeAlvo = alvo.Data.PlayerName ?? ("PlayerId=" + playerId);
 
-            // O Tsunami usa Exiled e transmite o RPC. Fazemos o mesmo,
-            // mas confirmamos o estado no host antes de criar o corpo falso.
-            alvo.Exiled();
-
-            MessageWriter exiledWriter = AmongUsClient.Instance.StartRpcImmediately(
-                alvo.NetId,
-                (byte)RpcCalls.Exiled,
-                SendOption.Reliable,
-                -1);
-            AmongUsClient.Instance.FinishRpcImmediately(exiledWriter);
-
-            NetworkedPlayerInfo dadosAutoritativos =
-                GameData.Instance?.GetPlayerById(playerId);
-
-            // Evita o NPC selecionar a vítima novamente caso Exiled não marque
-            // IsDead imediatamente no host.
-            if (alvo.Data != null)
-                alvo.Data.IsDead = true;
-            if (dadosAutoritativos != null)
-            {
-                dadosAutoritativos.IsDead = true;
-                dadosAutoritativos.SetDirtyBit(uint.MaxValue);
-            }
-
-            try
-            {
-                AmongUsClient.Instance.SendAllStreamedObjects();
-            }
-            catch (Exception exSync)
-            {
-                YouTubeVoteBridgePlugin.Instance?.Log.LogWarning(
-                    "[F7/Seguidor] Falha ao transmitir o estado de morte: " + exSync.Message);
-            }
+            // Reutiliza o método do Anjo Traidor quando o host mata:
+            // a vítima executa RpcMurderPlayer nela mesma, sem Exiled nem
+            // sincronização manual de IsDead, que estava causando ressurreição.
+            alvo.RpcMurderPlayer(alvo, true);
 
             // O cooldown é aplicado antes da criação do corpo, para que uma
             // falha no corpo não cause novas tentativas de matar a mesma vítima.
@@ -4242,9 +4213,8 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
                 posicaoMorte);
 
             YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                "[F7/Seguidor] Host aplicou Exiled em " + nomeAlvo +
-                " (PlayerId=" + playerId + "), sincronizou a morte e solicitou " +
-                "corpo falso Noisemaker. Posição=" + posicaoMorte +
+                "[F7/Seguidor] Host executou RpcMurderPlayer (morte do Anjo Traidor) em " + nomeAlvo +
+                " (PlayerId=" + playerId + ") e solicitou corpo falso Noisemaker. Posição=" + posicaoMorte
                 ". Próximo kill em " + cooldown.ToString("0.##") + "s.");
             return true;
         }
