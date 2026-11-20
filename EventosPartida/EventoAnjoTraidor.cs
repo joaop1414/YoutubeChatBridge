@@ -382,30 +382,55 @@ internal sealed class EventoAnjoTraidor : EventoVotacao
         {
             CapturarNomesDosImpostores();
 
-            // O EHR separa o fluxo do host do fluxo de jogadores remotos:
-            // quando o Phantom é o próprio host, executamos MurderPlayer
-            // diretamente para que a rotina local crie também o cadáver.
-            // Para um Phantom remoto, mantemos o RPC de morte enviado pelo host.
+            // Quando o Phantom é o host, fazemos a morte no estado local do host,
+            // sincronizamos GameData, enviamos Exiled aos clientes e criamos o corpo
+            // falso explicitamente. Para Phantom remoto, mantemos o RPC MurderPlayer.
             if (jogador.AmOwner)
             {
-                jogador.MurderPlayer(
-                    jogador,
-                    MurderResultFlags.Succeeded | MurderResultFlags.DecisionByHost);
+                Vector2 posicaoMorte = jogador.GetTruePosition();
+                byte idMorto = jogador.PlayerId;
+                uint netIdMorto = jogador.NetId;
+
+                jogador.Data.IsDead = true;
+                jogador.Data.SetDirtyBit(1u << idMorto);
+                AmongUsClient.Instance.SendAllStreamedObjects();
+
+                MessageWriter writer = MessageWriter.Get(SendOption.Reliable);
+                try
+                {
+                    writer.StartMessage(5);
+                    writer.Write(AmongUsClient.Instance.GameId);
+
+                    writer.StartMessage(2);
+                    writer.WritePacked(netIdMorto);
+                    writer.Write((byte)RpcCalls.Exiled);
+                    writer.EndMessage();
+
+                    writer.EndMessage();
+                    AmongUsClient.Instance.SendOrDisconnect(writer);
+                    writer = null;
+                }
+                finally
+                {
+                    writer?.Recycle();
+                }
+
+                EventoCriarCorpoFalso.ExecutarParaJogadorNaPosicao(
+                    idMorto, posicaoMorte);
 
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "[F7/Anjo Traidor] Morte local executada para o Phantom host; " +
-                    "cadáver criado pela rotina MurderPlayer.");
+                    "[F7/Anjo Traidor] Host morto localmente (IsDead=true), dados sincronizados, Exiled enviado e corpo falso criado. PlayerId=" +
+                    idMorto + ", NetId=" + netIdMorto + ", posição=" + posicaoMorte + ".");
             }
             else
             {
                 jogador.RpcMurderPlayer(jogador, true);
 
                 YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
-                    "[F7/Anjo Traidor] RPC de morte enviado para o Phantom remoto.");
+                    "[F7/Anjo Traidor] RPC de morte enviado para Phantom remoto.");
             }
 
-            // Não forçamos Data.IsDead manualmente aqui: MurderPlayer/RpcMurderPlayer
-            // precisam concluir o processamento normal da morte e criar o cadáver.
+            // O papel global é aplicado depois da morte para preservar a transformação.
             jogador.RpcSetRole(RoleTypes.ImpostorGhost, true);
 
             // O papel privado é enviado depois de a morte e o papel global
