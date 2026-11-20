@@ -209,7 +209,7 @@ internal static class LobbyModLabelManager
                 etiqueta.text = "Jogador com o mod";
 
                 Vector3 posicao = modelo.transform.localPosition;
-                etiqueta.transform.localPosition = posicao + new Vector3(0f, 0.58f, -0.01f);
+                etiqueta.transform.localPosition = posicao + new Vector3(0f, 0.2f, -0.01f);
                 etiqueta.transform.localRotation = modelo.transform.localRotation;
                 etiqueta.transform.localScale = modelo.transform.localScale;
 
