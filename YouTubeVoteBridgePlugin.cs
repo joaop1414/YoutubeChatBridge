@@ -4532,7 +4532,7 @@ public static class YouTubeVoteSemFimDeJogoRpcPatch
 {
     public static bool Prefix()
     {
-        return !SistemaVitoria.BloquearVitoriaVanilla();
+        return !SistemaVitoria.BloquearVitoriaVanilla(bloquearDuranteTroca: false);
     }
 }
 
