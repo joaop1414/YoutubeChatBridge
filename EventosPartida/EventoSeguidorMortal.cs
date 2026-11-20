@@ -4198,16 +4198,21 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             byte playerId = alvo.PlayerId;
             string nomeAlvo = alvo.Data.PlayerName ?? ("PlayerId=" + playerId);
 
-            // A vítima recebe Noisemaker ANTES da morte. O RPC é enviado
-            // primeiro para que o OnDeath vanilla dispare o alerta de Noisemaker.
-            alvo.RpcSetRole(RoleTypes.Noisemaker, true);
+            // O NPC mata pelo mesmo caminho do Tsunami: Exiled não cria
+            // cadáver. Em seguida, geramos um corpo falso com Noisemaker,
+            // usando o fluxo já existente de EventoCriarCorpoFalso.
+            alvo.Exiled();
 
-            // A morte é executada pelo próprio NPC, usando o mesmo caminho
-            // vanilla de MurderPlayer que cria o corpo e sincroniza a animação.
-            // Não usamos Exiled nem corpo falso: o NPC é o assassino real do RPC.
-            seguidor.RpcMurderPlayer(
-                alvo,
-                true);
+            MessageWriter exiledWriter = AmongUsClient.Instance.StartRpcImmediately(
+                alvo.NetId,
+                (byte)RpcCalls.Exiled,
+                SendOption.Reliable,
+                -1);
+            AmongUsClient.Instance.FinishRpcImmediately(exiledWriter);
+
+            EventoCriarCorpoFalso.ExecutarComoNoisemakerParaJogadorNaPosicao(
+                playerId,
+                posicaoMorte);
 
             NetworkedPlayerInfo dadosAutoritativos =
                 GameData.Instance?.GetPlayerById(playerId);
