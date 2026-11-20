@@ -20,7 +20,7 @@ namespace MoreGamemodes
         /// Instancia e prepara um PlayerControl artificial, e envia seu Spawn
         /// pelo fluxo GameData broadcast usado por NPCs do MoreGamemodes/EHR.
         /// </summary>
-        public static PlayerControl CriarPlayerArtificial(byte playerId)
+        public static PlayerControl CriarPlayerArtificial(byte playerId, Vector2 posicaoInicial = default)
         {
             if (AmongUsClient.Instance == null ||
                 AmongUsClient.Instance.PlayerPrefab == null)
@@ -31,7 +31,7 @@ namespace MoreGamemodes
             {
                 jogador = UnityEngine.Object.Instantiate(
                     AmongUsClient.Instance.PlayerPrefab,
-                    Vector2.zero,
+                    posicaoInicial,
                     Quaternion.identity);
 
                 jogador.PlayerId = playerId;
@@ -39,7 +39,7 @@ namespace MoreGamemodes
                 jogador.notRealPlayer = true;
 
                 if (jogador.NetTransform != null)
-                    jogador.NetTransform.SnapTo(new Vector2(50f, 50f));
+                    jogador.NetTransform.SnapTo(posicaoInicial);
 
                 EnviarSpawn(jogador);
                 return jogador;
