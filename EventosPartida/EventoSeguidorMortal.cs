@@ -37,6 +37,9 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private static int etapaInicializacao;
     private static float proximaEtapa;
     private static float instanteSpawnNpc;
+    private static bool spawnNpcPendente;
+    private static float spawnNpcAgendadoPara;
+    private static Vector2 posicaoSpawnNpcPendente;
     private static float proximaBuscaAlvo;
     private static float proximoKillNpc;
     private const float IntervaloReplicacaoDestino = 0.15f;
@@ -99,7 +102,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
     private static bool transporteEmAndamento;
     private static float limiteTransporte;
     private static float proximoTransporte;
-    private const float IntervaloSnapToRede = 1f;
+    private const float IntervaloSnapToRede = 0.35f;
     private static float proximoSnapToRede;
     private static ushort sequenciaSnapToRede;
     private static bool sequenciaSnapToRedeInicializada;
@@ -227,6 +230,20 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             return;
         }
 
+        spawnNpcPendente = true;
+        posicaoSpawnNpcPendente = posicaoInicial;
+        spawnNpcAgendadoPara = Time.realtimeSinceStartup + 1f;
+
+        YouTubeVoteBridgePlugin.Instance?.Log.LogInfo(
+            "[F7/Seguidor] Spawn do NPC Assassino agendado para 1 segundo após a Role Reveal.");
+    }
+
+    private static void CriarNpcAssassino(Vector2 posicaoInicial)
+    {
+        if (!ativo || !armado || !YouTubeVoteBridgePlugin.EhHost() ||
+            ShipStatus.Instance == null || AmongUsClient.Instance == null)
+            return;
+
         try
         {
             seguidor = CustomNetObject.CriarPlayerArtificial(PlayerIdSeguidor, posicaoInicial);
@@ -246,12 +263,11 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             try
             {
                 if (seguidor.NetTransform?.body != null)
-                    PararCorpo(seguidor.NetTransform.body, "AoSairDaRoleReveal (spawn direto CustomNetObject)");
+                    PararCorpo(seguidor.NetTransform.body, "CriarNpcAssassino (spawn direto CustomNetObject)");
             }
             catch { }
 
-            // CustomNetObject já enviou o Spawn no momento da criação.
-            // Começamos diretamente pela associação para evitar Spawn duplicado.
+            // CustomNetObject já enviou o Spawn; iniciamos pela associação.
             etapaInicializacao = 2;
             instanteSpawnNpc = Time.realtimeSinceStartup;
             proximaEtapa = Time.realtimeSinceStartup + 0.12f;
@@ -273,7 +289,7 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         catch (Exception ex)
         {
             YouTubeVoteBridgePlugin.Instance?.Log.LogError(
-                "[F7/Seguidor] Falha ao criar NPC após a Role Reveal: " + ex);
+                "[F7/Seguidor] Falha ao criar NPC após o delay: " + ex);
             Resetar();
         }
     }
@@ -943,7 +959,21 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
             return;
         }
 
-        if (aguardandoFimRoleReveal || seguidor == null)
+        if (aguardandoFimRoleReveal)
+            return;
+
+        if (spawnNpcPendente)
+        {
+            if (Time.realtimeSinceStartup < spawnNpcAgendadoPara)
+                return;
+
+            spawnNpcPendente = false;
+            CriarNpcAssassino(posicaoSpawnNpcPendente);
+            if (!ativo || seguidor == null)
+                return;
+        }
+
+        if (seguidor == null)
             return;
 
         AtualizarRenderizacaoCaminho();
@@ -4241,6 +4271,9 @@ internal sealed class EventoSeguidorMortal : EventoVotacao
         ativo = false;
         armado = false;
         aguardandoFimRoleReveal = false;
+        spawnNpcPendente = false;
+        spawnNpcAgendadoPara = 0f;
+        posicaoSpawnNpcPendente = Vector2.zero;
         etapaInicializacao = 0;
         proximaVerificacaoVidaNpc = 0f;
         restauracaoNpcAgendadaPara = 0f;
